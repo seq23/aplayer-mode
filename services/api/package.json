@@ -12,12 +12,9 @@
     "@apm/domain": "0.1.0",
     "@apm/planning": "0.1.0",
     "hono": "^4.9.0",
-    "jose": "^6.0.0",
-    "pg": "^8.16.3",
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.15.5",
     "typescript": "~6.0.3",
     "wrangler": "^4.0.0"
   }
