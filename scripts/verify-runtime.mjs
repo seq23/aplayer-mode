@@ -14,11 +14,13 @@ const required = [
   'APM_RUNTIME_PROOF_ACK_DEDICATED_TEST_ACCOUNT',
 ];
 
+const expectedCommitSha = process.env.APM_COMMIT_SHA ?? process.env.GITHUB_SHA ?? '';
 const outputPath = resolve(process.env.APM_RUNTIME_PROOF_OUTPUT ?? 'evidence/runtime-proof.json');
 const proof = [];
 let apiBaseUrl = process.env.APM_API_BASE_URL?.replace(/\/$/, '') ?? '';
 let supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, '') ?? '';
 let currentStage = 'configuration';
+let remoteBuildSha = null;
 
 async function writeReceipt(status, error) {
   await mkdir(dirname(outputPath), { recursive: true });
@@ -27,7 +29,9 @@ async function writeReceipt(status, error) {
     gate: 'live_runtime',
     status,
     generatedAt: new Date().toISOString(),
-    commitSha: process.env.GITHUB_SHA ?? process.env.APM_COMMIT_SHA ?? null,
+    commitSha: expectedCommitSha || null,
+    remoteBuildSha,
+    buildShaMatchesExpected: remoteBuildSha ? remoteBuildSha === expectedCommitSha : null,
     environment: process.env.APM_RUNTIME_ENVIRONMENT ?? 'unspecified',
     apiBaseUrl: apiBaseUrl || null,
     supabaseHost: supabaseUrl ? new URL(supabaseUrl).host : null,
@@ -142,6 +146,9 @@ async function main() {
   if (missing.length > 0) {
     fail('Runtime-proof configuration', `Missing required variables: ${missing.join(', ')}`);
   }
+  if (!expectedCommitSha) {
+    fail('Runtime-proof configuration', 'APM_COMMIT_SHA or GITHUB_SHA is required to bind proof to exact source');
+  }
   if (process.env.APM_RUNTIME_PROOF_ACK_DEDICATED_TEST_ACCOUNT !== 'yes') {
     fail(
       'Runtime-proof configuration',
@@ -161,6 +168,18 @@ async function main() {
     fail('Public health route', `Unexpected health response (${health.response.status})`, { requestId: health.requestId });
   }
   if (!health.requestId) fail('Public health route', 'APM API did not return x-request-id');
+  remoteBuildSha = typeof health.json?.buildSha === 'string' ? health.json.buildSha : null;
+  if (remoteBuildSha !== expectedCommitSha) {
+    fail(
+      'Deployed build SHA',
+      `Expected ${expectedCommitSha}, received ${remoteBuildSha ?? 'missing'}`,
+      { requestId: health.requestId, expectedCommitSha, remoteBuildSha },
+    );
+  }
+  pass('Deployed build SHA', 'remote Worker build matches exact source commit', {
+    requestId: health.requestId,
+    buildSha: remoteBuildSha,
+  });
   pass('Public health route', 'Cloudflare APM API is reachable and request tracing is active', { requestId: health.requestId });
 
   currentStage = 'anonymous_boundary';
@@ -188,7 +207,7 @@ async function main() {
   // Always create a fresh proof goal/action. Reusing an arbitrary pre-existing open action made
   // the Radar assertion dependent on old test-account state and could produce a false failure.
   currentStage = 'durable_onboarding';
-  const proofLabel = `${process.env.APM_COMMIT_SHA ?? process.env.GITHUB_SHA ?? 'local'}-${Date.now()}`;
+  const proofLabel = `${expectedCommitSha}-${Date.now()}`;
   const onboarding = await apiRequest('/v1/onboarding', {
     accessToken: userA.accessToken,
     method: 'PUT',
