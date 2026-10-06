@@ -44,6 +44,8 @@ function graph(goals, nextActions) {
     nextActions,
     routines: [],
     people: [],
+    lifeRelationships: [],
+    lifeAdminItems: [],
     preferences: [],
     rules: [],
     radarItems: [],
@@ -76,4 +78,51 @@ test('does not invent a warning for a healthy executable goal with no near deadl
     { now },
   );
   assert.deepEqual(result, []);
+});
+
+
+test('surfaces a Life OS bill before it becomes a miss', () => {
+  const state = graph([goal({ health: 'on_track' })], [action()]);
+  state.lifeAdminItems = [{
+    id: 'life-1',
+    userId: 'user-1',
+    kind: 'bill',
+    title: 'Pay insurance premium',
+    status: 'open',
+    importance: 4,
+    dueAt: '2026-10-08T12:00:00.000Z',
+    recurrence: { frequency: 'monthly', interval: 1 },
+    details: {},
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: now.toISOString(), confidence: 1 },
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  }];
+  const result = buildRadarItems(state, { now });
+  const item = result.find((candidate) => candidate.id === 'radar:life_os:life-1');
+  assert.ok(item);
+  assert.equal(item.type, 'recurring');
+  assert.ok(item.reasonCodes.includes('life_os.kind.bill'));
+});
+
+test('surfaces an upcoming birthday from the relationship graph', () => {
+  const state = graph([goal({ health: 'on_track' })], [action()]);
+  state.people = [{
+    id: 'person-1',
+    userId: 'user-1',
+    name: 'Avery',
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: now.toISOString(), confidence: 1 },
+  }];
+  state.lifeRelationships = [{
+    id: 'relationship-1',
+    userId: 'user-1',
+    personId: 'person-1',
+    birthday: '1990-10-12',
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: now.toISOString(), confidence: 1 },
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  }];
+  const result = buildRadarItems(state, { now });
+  const item = result.find((candidate) => candidate.reasonCodes.includes('relationship.birthday_upcoming'));
+  assert.ok(item);
+  assert.match(item.headline, /Avery/);
 });
