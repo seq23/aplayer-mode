@@ -35,7 +35,7 @@ export default function PrivacyPrimerScreen() {
         ))}
       </View>
 
-      <Button label="Continue" onPress={() => router.replace('/(tabs)/today')} />
+      <Button label="Continue" onPress={() => router.push('/onboarding')} />
       <Button
         label="How APM uses AI"
         variant="secondary"
