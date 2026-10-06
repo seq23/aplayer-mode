@@ -77,7 +77,7 @@ Provider-side action execution is fail-closed.
 ```text
 GLOBAL_ACTION_EXECUTION=true
         AND
-ACTION_EXECUTION_<DOMAIN>=true
+ACTION_<DOMAIN>_EXECUTION=true
         AND
 active entitlement permits requested level
         AND
