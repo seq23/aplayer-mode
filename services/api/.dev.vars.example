@@ -36,7 +36,7 @@ MICROSOFT_TENANT=common
 EXPO_ACCESS_TOKEN=
 
 # Action execution is fail-closed. Preparing recommendations/drafts may still be allowed,
-# but provider-side execution requires BOTH the global switch and the domain switch.
+# but provider-side execution requires BOTH the global switch and the documented domain switch.
 GLOBAL_ACTION_EXECUTION=false
-ACTION_EXECUTION_CALENDAR=false
-ACTION_EXECUTION_EMAIL=false
+ACTION_CALENDAR_EXECUTION=false
+ACTION_EMAIL_EXECUTION=false
