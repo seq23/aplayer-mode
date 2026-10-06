@@ -1,5 +1,9 @@
-import type { DailyPlan, Goal, LifeGraphSnapshot, NextAction } from '@apm/domain';
-import { selectMinimumViableAction } from './methodology';
+import type { DailyPlan, DailyPlanBlock, Goal, LifeGraphSnapshot, NextAction } from '@apm/domain';
+import {
+  executableActionProblem,
+  selectMinimumViableAction,
+  shouldForceRecovery,
+} from './methodology';
 
 export * from './methodology';
 
@@ -28,27 +32,51 @@ function selectStandardNumberOneMove(graph: LifeGraphSnapshot): NextAction | und
     if (foreground) return foreground;
   }
 
-  const activeGoals = graph.goals
-    .filter((goal) => goal.status === 'active')
-    .sort(compareGoals);
-
+  const activeGoals = graph.goals.filter((goal) => goal.status === 'active').sort(compareGoals);
   for (const goal of activeGoals) {
     const action = graph.nextActions.find(
       (candidate) => candidate.goalId === goal.id && candidate.status === 'open',
     );
     if (action) return action;
   }
-
   return graph.nextActions.find((candidate) => candidate.status === 'open');
+}
+
+function calendarBlocks(graph: LifeGraphSnapshot, date: string): DailyPlanBlock[] {
+  return graph.calendarEvents
+    .filter((event) => !event.deleted && event.startsAt.slice(0, 10) === date)
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+    .map((event) => ({
+      id: `calendar:${event.id}`,
+      title: event.title || 'Busy',
+      startAt: event.startsAt,
+      endAt: event.endsAt,
+      source: 'calendar' as const,
+    }));
+}
+
+function actionBlock(action: NextAction | undefined): DailyPlanBlock[] {
+  if (!action) return [];
+  const problem = executableActionProblem(action.title);
+  return [
+    {
+      id: `action:${action.id}`,
+      title: problem ? `Clarify next action: ${action.title}` : action.title,
+      actionId: action.id,
+      goalId: action.goalId,
+      source: 'methodology',
+    },
+  ];
 }
 
 export function buildDailyPlan(
   graph: LifeGraphSnapshot,
   options: TodayProjectionOptions = {},
 ): DailyPlan {
-  const mode = options.mode ?? graph.personalOS?.activeMode ?? 'standard';
-  const numberOneMove =
-    mode === 'recovery' ? selectMinimumViableAction(graph) : selectStandardNumberOneMove(graph);
+  const date = options.date ?? new Date().toISOString().slice(0, 10);
+  const continuityRecovery = shouldForceRecovery(graph.dayRecords);
+  const mode = options.mode ?? (continuityRecovery ? 'recovery' : graph.personalOS?.activeMode ?? 'standard');
+  const numberOneMove = mode === 'recovery' ? selectMinimumViableAction(graph) : selectStandardNumberOneMove(graph);
   const openActions = graph.nextActions.filter((action) => action.status === 'open');
   const doneActions = graph.nextActions.filter((action) => action.status === 'done');
 
@@ -59,17 +87,24 @@ export function buildDailyPlan(
         ? 'in_progress'
         : 'not_started';
 
+  const calendar = calendarBlocks(graph, date);
+  const firstMove = actionBlock(numberOneMove);
+  const blocks = mode === 'recovery' ? [...calendar, ...firstMove] : [...firstMove, ...calendar];
+
   return {
     userId: graph.identity.userId,
-    date: options.date ?? new Date().toISOString().slice(0, 10),
+    date,
     mode,
     numberOneMove,
-    blocks: [],
+    morningSequence: graph.personalOS?.morningSequence ?? [],
+    blocks,
     routineIds: graph.routines.filter((routine) => routine.active).map((routine) => routine.id),
     commitmentIds: graph.commitments
       .filter((commitment) => !['verified', 'closed', 'dismissed'].includes(commitment.status))
       .map((commitment) => commitment.id),
-    approvalActionIds: [],
+    approvalActionIds: graph.actions
+      .filter((action) => action.status === 'prepared' && action.requiresApproval)
+      .map((action) => action.id),
     radarItemIds: graph.radarItems.filter((item) => item.status === 'open').map((item) => item.id),
     completionState,
     verdict: mode === 'recovery' && completionState === 'complete' ? 'mvd' : undefined,
