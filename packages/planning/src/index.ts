@@ -55,6 +55,24 @@ function calendarBlocks(graph: LifeGraphSnapshot, date: string): DailyPlanBlock[
     }));
 }
 
+function lifeOsBlocks(graph: LifeGraphSnapshot, date: string, minImportance = 1): DailyPlanBlock[] {
+  return (graph.lifeAdminItems ?? [])
+    .filter((item) => {
+      if (['completed','cancelled','paused'].includes(item.status) || item.importance < minImportance) return false;
+      const relevantAt = item.startsAt ?? item.dueAt;
+      return Boolean(relevantAt && relevantAt.slice(0, 10) === date);
+    })
+    .sort((a, b) => (a.startsAt ?? a.dueAt ?? '').localeCompare(b.startsAt ?? b.dueAt ?? ''))
+    .map((item) => ({
+      id: `life-os:${item.id}`,
+      title: item.title,
+      startAt: item.startsAt,
+      endAt: item.endsAt,
+      lifeAdminItemId: item.id,
+      source: 'life_os' as const,
+    }));
+}
+
 function actionBlock(action: NextAction | undefined): DailyPlanBlock[] {
   if (!action) return [];
   const problem = executableActionProblem(action.title);
@@ -88,8 +106,11 @@ export function buildDailyPlan(
         : 'not_started';
 
   const calendar = calendarBlocks(graph, date);
+  const lifeOs = lifeOsBlocks(graph, date, mode === 'recovery' ? 4 : 1);
   const firstMove = actionBlock(numberOneMove);
-  const blocks = mode === 'recovery' ? [...calendar, ...firstMove] : [...firstMove, ...calendar];
+  const blocks = mode === 'recovery'
+    ? [...calendar, ...lifeOs, ...firstMove]
+    : [...firstMove, ...calendar, ...lifeOs];
 
   return {
     userId: graph.identity.userId,
