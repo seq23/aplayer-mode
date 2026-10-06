@@ -84,7 +84,19 @@ async function runCase(route, testCase) {
   return { caseId: testCase.id, pass: Boolean(testCase.validate(text)), latencyMs, output: text.slice(0, 500) };
 }
 
-const report = { generatedAt: new Date().toISOString(), benchmarkVersion: 1, dataClass: 'public_synthetic', routes: [] };
+const report = {
+  schemaVersion: 1,
+  gate: 'openrouter_public_synthetic_screen',
+  generatedAt: new Date().toISOString(),
+  commitSha: process.env.APM_COMMIT_SHA ?? process.env.GITHUB_SHA ?? null,
+  benchmarkVersion: 1,
+  dataClass: 'public_synthetic',
+  providerControls: { allowFallbacks: false, dataCollection: 'deny', zdr: true },
+  autoPromotion: false,
+  sensitiveValuesRecorded: false,
+  routes: [],
+};
+
 for (const route of routes) {
   const results = [];
   for (const testCase of cases) {

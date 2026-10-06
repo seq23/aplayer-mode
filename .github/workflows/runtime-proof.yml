@@ -2,9 +2,22 @@ name: Runtime Proof
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: Runtime environment under test
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
 
 permissions:
   contents: read
+
+concurrency:
+  group: runtime-proof-${{ inputs.environment }}
+  cancel-in-progress: false
 
 jobs:
   verify-runtime:
@@ -13,15 +26,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
-
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
-
+      - name: Validate exact source
+        run: npm run typecheck && npm run test
       - name: Verify live APM runtime
         run: npm run runtime:verify
         env:
@@ -33,3 +45,14 @@ jobs:
           APM_TEST_B_EMAIL: ${{ secrets.APM_TEST_B_EMAIL }}
           APM_TEST_B_PASSWORD: ${{ secrets.APM_TEST_B_PASSWORD }}
           APM_RUNTIME_PROOF_ACK_DEDICATED_TEST_ACCOUNT: "yes"
+          APM_RUNTIME_ENVIRONMENT: ${{ inputs.environment }}
+          APM_RUNTIME_PROOF_OUTPUT: evidence/runtime-proof.json
+          APM_COMMIT_SHA: ${{ github.sha }}
+      - name: Upload runtime evidence receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-proof-${{ inputs.environment }}-${{ github.sha }}
+          path: evidence/runtime-proof.json
+          if-no-files-found: warn
+          retention-days: 30

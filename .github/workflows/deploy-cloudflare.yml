@@ -6,7 +6,7 @@ on:
       environment:
         description: Deployment environment label
         required: true
-        default: production
+        default: staging
         type: choice
         options:
           - staging
@@ -23,24 +23,95 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: ${{ inputs.environment }}
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      APM_API_BASE_URL: ${{ vars.APM_API_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
-      - name: Require Cloudflare deployment credentials
+
+      - name: Initialize deployment receipt
+        run: |
+          mkdir -p evidence
+          node -e "require('fs').writeFileSync('evidence/cloudflare-deploy.json', JSON.stringify({schemaVersion:1,gate:'cloudflare_deploy',status:'STARTED',environment:process.env.DEPLOY_ENV,commitSha:process.env.GITHUB_SHA,generatedAt:new Date().toISOString(),sensitiveValuesRecorded:false},null,2)+'\n')"
+        env:
+          DEPLOY_ENV: ${{ inputs.environment }}
+
+      - name: Require deployment configuration
         shell: bash
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || (echo "CLOUDFLARE_API_TOKEN is not configured" && exit 2)
           test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "CLOUDFLARE_ACCOUNT_ID is not configured" && exit 2)
+          test -n "$APM_API_BASE_URL" || (echo "APM_API_BASE_URL GitHub environment variable is not configured" && exit 2)
+
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
-      - name: Validate source
-        run: npm run typecheck
+
+      - name: Validate exact source
+        run: npm run typecheck && npm run test
+
       - name: Deploy API
-        run: npm run api:deploy
-      - name: Record immutable source
-        run: echo "Deployed commit ${GITHUB_SHA} to ${{ inputs.environment }}"
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run api:deploy | tee evidence/wrangler-deploy.log
+
+      - name: Verify deployed health route
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          code=000
+          for attempt in $(seq 1 12); do
+            code=$(curl -sS -D evidence/health.headers -o evidence/health.json -w '%{http_code}' --max-time 20 "${APM_API_BASE_URL%/}/v1/health" || echo 000)
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
+          export HEALTH_CODE="$code"
+          node <<'NODE'
+          const fs = require('fs');
+          const receiptPath = 'evidence/cloudflare-deploy.json';
+          const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+          const bodyText = fs.existsSync('evidence/health.json') ? fs.readFileSync('evidence/health.json','utf8') : '';
+          const headers = fs.existsSync('evidence/health.headers') ? fs.readFileSync('evidence/health.headers','utf8') : '';
+          let body = null;
+          try { body = JSON.parse(bodyText); } catch {}
+          const requestId = (headers.match(/^x-request-id:\s*(.+)$/im) || [])[1]?.trim() || null;
+          receipt.status = process.env.HEALTH_CODE === '200' && body?.ok === true && body?.service === 'aplayer-mode-api' ? 'PASS' : 'FAIL';
+          receipt.completedAt = new Date().toISOString();
+          receipt.apiBaseUrl = process.env.APM_API_BASE_URL;
+          receipt.healthStatus = Number(process.env.HEALTH_CODE || 0);
+          receipt.requestId = requestId;
+          receipt.service = body?.service ?? null;
+          fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
+          if (receipt.status !== 'PASS') process.exit(1);
+          NODE
+
+      - name: Mark deployment receipt failed
+        if: failure()
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const p = 'evidence/cloudflare-deploy.json';
+          if (!fs.existsSync(p)) process.exit(0);
+          const r = JSON.parse(fs.readFileSync(p,'utf8'));
+          if (r.status !== 'PASS') {
+            r.status = 'FAIL';
+            r.completedAt = new Date().toISOString();
+            fs.writeFileSync(p, JSON.stringify(r,null,2)+'\n');
+          }
+          NODE
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-deploy-${{ inputs.environment }}-${{ github.sha }}
+          path: |
+            evidence/cloudflare-deploy.json
+            evidence/wrangler-deploy.log
+          if-no-files-found: warn
+          retention-days: 30

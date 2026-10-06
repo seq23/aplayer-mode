@@ -44,12 +44,28 @@ jobs:
         run: test -n "$EXPO_TOKEN" || (echo "EXPO_TOKEN is not configured" && exit 2)
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
-      - name: Validate source
-        run: npm run typecheck
+      - name: Validate exact source
+        run: npm run typecheck && npm run test
       - name: Install EAS CLI
         run: npm install --global eas-cli
-      - name: Queue EAS build
+      - name: Queue EAS build and capture receipt
         working-directory: apps/mobile
-        run: eas build --platform "${{ inputs.platform }}" --profile "${{ inputs.profile }}" --non-interactive --no-wait
-      - name: Record immutable source
-        run: echo "Queued ${{ inputs.platform }} / ${{ inputs.profile }} from ${GITHUB_SHA}"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ../../evidence
+          eas build --platform "${{ inputs.platform }}" --profile "${{ inputs.profile }}" --non-interactive --no-wait --json > ../../evidence/eas-build.json
+          node -e "const fs=require('fs'); const p='../../evidence/eas-build-metadata.json'; fs.writeFileSync(p, JSON.stringify({schemaVersion:1,gate:'eas_build_queued',status:'PASS',platform:process.env.BUILD_PLATFORM,profile:process.env.BUILD_PROFILE,commitSha:process.env.GITHUB_SHA,generatedAt:new Date().toISOString(),sensitiveValuesRecorded:false},null,2)+'\n')"
+        env:
+          BUILD_PLATFORM: ${{ inputs.platform }}
+          BUILD_PROFILE: ${{ inputs.profile }}
+      - name: Upload build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eas-build-${{ inputs.platform }}-${{ inputs.profile }}-${{ github.sha }}
+          path: |
+            evidence/eas-build.json
+            evidence/eas-build-metadata.json
+          if-no-files-found: warn
+          retention-days: 30

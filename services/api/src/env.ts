@@ -1,5 +1,3 @@
-import type { ActionDomain } from '@apm/policy';
-
 export interface ApiEnv {
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
@@ -18,12 +16,8 @@ export interface ApiEnv {
   MICROSOFT_TENANT?: string;
   EXPO_ACCESS_TOKEN?: string;
   GLOBAL_ACTION_EXECUTION?: string;
-  ACTION_CALENDAR_EXECUTION?: string;
-  ACTION_EMAIL_EXECUTION?: string;
-  ACTION_ROUTINE_EXECUTION?: string;
-  ACTION_LIFE_GRAPH_EXECUTION?: string;
-  ACTION_NOTIFICATION_EXECUTION?: string;
-  ACTION_CONNECTOR_EXECUTION?: string;
+  ACTION_EXECUTION_CALENDAR?: string;
+  ACTION_EXECUTION_EMAIL?: string;
 }
 
 export function requireSupabaseConfig(env: ApiEnv): { url: string; publishableKey: string } {
@@ -42,15 +36,8 @@ export function actionsGloballyEnabled(env: ApiEnv): boolean {
   return env.GLOBAL_ACTION_EXECUTION === 'true';
 }
 
-export function actionDomainEnabled(env: ApiEnv, domain: ActionDomain): boolean {
-  const values: Record<ActionDomain, string | undefined> = {
-    calendar: env.ACTION_CALENDAR_EXECUTION,
-    email: env.ACTION_EMAIL_EXECUTION,
-    routine: env.ACTION_ROUTINE_EXECUTION,
-    life_graph: env.ACTION_LIFE_GRAPH_EXECUTION,
-    purchase: undefined,
-    notification: env.ACTION_NOTIFICATION_EXECUTION,
-    connector: env.ACTION_CONNECTOR_EXECUTION,
-  };
-  return values[domain] === 'true';
+export function actionDomainEnabled(env: ApiEnv, domain: string): boolean {
+  if (domain === 'calendar') return env.ACTION_EXECUTION_CALENDAR === 'true';
+  if (domain === 'email') return env.ACTION_EXECUTION_EMAIL === 'true';
+  return false;
 }
