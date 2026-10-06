@@ -65,7 +65,7 @@ export default function PlanScreen() {
 
       <SectionTitle>Individual plans</SectionTitle>
       <View style={uiStyles.stack}>
-        {product?.plans.filter((plan) => plan.plan !== 'household').map((plan) => (
+        {product?.plans.filter((plan) => plan.publicAvailability === 'available').map((plan) => (
           <Card key={plan.plan} tone={plan.plan === currentPlan ? 'accent' : 'default'}>
             <View style={uiStyles.row}>
               <CardTitle>{plan.displayName}</CardTitle>
