@@ -18,6 +18,7 @@ import {
   closeDay,
   getAuditEvents,
   getHouseholdInterest,
+  getLifeOsExportState,
   listModelRoutes,
   recordAnalyticsEvent,
   registerPushSubscription,
@@ -570,9 +571,15 @@ app.post('/v1/privacy/export', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const job = await requestDataRightsJob(c.env, user.accessToken, user.id, 'export');
   const state = await buildUserState(c.env, user.accessToken, user.id);
+  const retainedLifeOs = await getLifeOsExportState(c.env, user.accessToken, user.id);
+  const lifeGraph = {
+    ...state.graph,
+    lifeRelationships: retainedLifeOs.lifeRelationships,
+    lifeAdminItems: retainedLifeOs.lifeAdminItems,
+  };
   const activity = await getAuditEvents(c.env, user.accessToken, user.id, 250);
   await supabaseRest(c.env, user.accessToken, `/rest/v1/data_rights_jobs?id=eq.${encodeURIComponent(job.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'complete', completed_at: new Date().toISOString() }) });
-  return c.json({ job: { ...job, status: 'complete' }, export: { generatedAt: new Date().toISOString(), lifeGraph: state.graph, activity } });
+  return c.json({ job: { ...job, status: 'complete' }, export: { generatedAt: new Date().toISOString(), lifeGraph, activity } });
 });
 app.post('/v1/privacy/delete', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
