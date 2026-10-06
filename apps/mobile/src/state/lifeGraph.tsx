@@ -30,6 +30,13 @@ function emptyGraph(userId = 'unassigned'): LifeGraphSnapshot {
     rules: [],
     radarItems: [],
     evidence: [],
+    connections: [],
+    calendarEvents: [],
+    messageSignals: [],
+    permissions: [],
+    actions: [],
+    dayRecords: [],
+    entitlement: undefined,
   };
 }
 
@@ -66,17 +73,11 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncError, setSyncError] = useState<string>();
 
-  const isDurable = Boolean(
-    sessionStatus === 'signed_in' && user && accessToken && isApmApiConfigured(),
-  );
+  const isDurable = Boolean(sessionStatus === 'signed_in' && user && accessToken && isApmApiConfigured());
 
   const requireDurableSession = (): { userId: string; token: string } => {
-    if (sessionStatus !== 'signed_in' || !user || !accessToken) {
-      throw new Error('Sign in before changing your APM');
-    }
-    if (!isApmApiConfigured()) {
-      throw new Error('The APM API is not configured for this build');
-    }
+    if (sessionStatus !== 'signed_in' || !user || !accessToken) throw new Error('Sign in before changing your APM');
+    if (!isApmApiConfigured()) throw new Error('The APM API is not configured for this build');
     return { userId: user.id, token: accessToken };
   };
 
@@ -88,129 +89,55 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
 
   const refresh = async () => {
     if (sessionStatus !== 'signed_in' || !user || !accessToken) {
-      setGraph(emptyGraph());
-      setTodayPlan(undefined);
-      setSyncStatus('ready');
-      return;
+      setGraph(emptyGraph()); setTodayPlan(undefined); setSyncStatus('ready'); return;
     }
-
     if (!isApmApiConfigured()) {
-      setSyncStatus('error');
-      setSyncError('The APM API is not configured for this build.');
-      return;
+      setSyncStatus('error'); setSyncError('The APM API is not configured for this build.'); return;
     }
-
-    setSyncStatus('loading');
-    setSyncError(undefined);
-    try {
-      applyServerState(await fetchTodayState(accessToken));
-    } catch (error) {
-      setSyncStatus('error');
-      setSyncError(error instanceof Error ? error.message : 'Unable to load your APM');
-      throw error;
-    }
+    setSyncStatus('loading'); setSyncError(undefined);
+    try { applyServerState(await fetchTodayState(accessToken)); }
+    catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to load your APM'); throw error; }
   };
 
   useEffect(() => {
     if (sessionStatus === 'loading') return;
-
     if (sessionStatus !== 'signed_in' || !user || !accessToken) {
-      setGraph(emptyGraph());
-      setTodayPlan(undefined);
-      setSyncStatus('ready');
-      setSyncError(undefined);
-      return;
+      setGraph(emptyGraph()); setTodayPlan(undefined); setSyncStatus('ready'); setSyncError(undefined); return;
     }
-
     if (!isApmApiConfigured()) {
-      setGraph(emptyGraph(user.id));
-      setTodayPlan(undefined);
-      setSyncStatus('error');
-      setSyncError('The APM API is not configured for this build.');
-      return;
+      setGraph(emptyGraph(user.id)); setTodayPlan(undefined); setSyncStatus('error'); setSyncError('The APM API is not configured for this build.'); return;
     }
-
     let active = true;
-    setSyncStatus('loading');
-    setSyncError(undefined);
-
+    setSyncStatus('loading'); setSyncError(undefined);
     void fetchTodayState(accessToken)
-      .then((state) => {
-        if (!active) return;
-        setGraph(state.graph);
-        setTodayPlan(state.plan);
-        setSyncStatus('ready');
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        setSyncStatus('error');
-        setSyncError(error instanceof Error ? error.message : 'Unable to load your APM');
-      });
-
-    return () => {
-      active = false;
-    };
+      .then((state) => { if (!active) return; setGraph(state.graph); setTodayPlan(state.plan); setSyncStatus('ready'); })
+      .catch((error: unknown) => { if (!active) return; setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to load your APM'); });
+    return () => { active = false; };
   }, [accessToken, sessionStatus, user]);
 
-  const value = useMemo<LifeGraphContextValue>(
-    () => ({
-      graph,
-      todayPlan,
-      syncStatus,
-      syncError,
-      isDurable,
-      refresh,
-      completeOnboarding: async (input) => {
-        const { token } = requireDurableSession();
-        setSyncStatus('saving');
-        setSyncError(undefined);
-        try {
-          applyServerState(await persistOnboarding(input, token));
-        } catch (error) {
-          setSyncStatus('error');
-          setSyncError(error instanceof Error ? error.message : 'Unable to save your APM');
-          throw error;
-        }
-      },
-      completeMethodologyIntake: async (input) => {
-        const { token } = requireDurableSession();
-        setSyncStatus('saving');
-        setSyncError(undefined);
-        try {
-          applyServerState(await persistMethodologyIntake(input, token));
-        } catch (error) {
-          setSyncStatus('error');
-          setSyncError(error instanceof Error ? error.message : 'Unable to install your Personal OS');
-          throw error;
-        }
-      },
-      setOperatingMode: async (mode) => {
-        const { token } = requireDurableSession();
-        setSyncStatus('saving');
-        setSyncError(undefined);
-        try {
-          applyServerState(await persistOperatingMode(mode, token));
-        } catch (error) {
-          setSyncStatus('error');
-          setSyncError(error instanceof Error ? error.message : 'Unable to change APM mode');
-          throw error;
-        }
-      },
-      completeNextAction: async (actionId) => {
-        const { token } = requireDurableSession();
-        setSyncStatus('saving');
-        setSyncError(undefined);
-        try {
-          applyServerState(await persistActionCompletion(actionId, token));
-        } catch (error) {
-          setSyncStatus('error');
-          setSyncError(error instanceof Error ? error.message : 'Unable to record completion');
-          throw error;
-        }
-      },
-    }),
-    [accessToken, graph, isDurable, sessionStatus, syncError, syncStatus, todayPlan, user],
-  );
+  const value = useMemo<LifeGraphContextValue>(() => ({
+    graph, todayPlan, syncStatus, syncError, isDurable, refresh,
+    completeOnboarding: async (input) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { applyServerState(await persistOnboarding(input, token)); }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to save your APM'); throw error; }
+    },
+    completeMethodologyIntake: async (input) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { applyServerState(await persistMethodologyIntake(input, token)); }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to install your Personal OS'); throw error; }
+    },
+    setOperatingMode: async (mode) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { applyServerState(await persistOperatingMode(mode, token)); }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to change APM mode'); throw error; }
+    },
+    completeNextAction: async (actionId) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { applyServerState(await persistActionCompletion(actionId, token)); }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to record completion'); throw error; }
+    },
+  }), [accessToken, graph, isDurable, sessionStatus, syncError, syncStatus, todayPlan, user]);
 
   return <LifeGraphContext.Provider value={value}>{children}</LifeGraphContext.Provider>;
 }
