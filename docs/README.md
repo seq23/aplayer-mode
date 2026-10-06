@@ -89,9 +89,11 @@ flowchart LR
   AI --> PROACTIVE[Today / Radar / Push]
   PROACTIVE --> ACTIONS[Permissioned Actions]
   ACTIONS --> PROOF[Runtime evidence + hardening]
-  PROOF --> BETA[Closed beta]
-  BETA --> PAID[Chief of Staff]
-  PAID --> LIFE[Evidence-driven Life OS / Autopilot / Household]
+  PROOF --> TIER[Three-tier contract]
+  TIER --> LIFE[Life OS]
+  LIFE --> AUTO[Autopilot]
+  AUTO --> BETA[Three-tier beta / launch]
+  BETA -. later .-> HOUSE[Household waitlist]
 ```
 
 Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth, `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete program/gates, `27-RUNTIME-EVIDENCE-PACKET.md` for the active external validation work, and `28-RUNTIME-EVIDENCE-HARDENING.md` for receipt and workflow rules.
