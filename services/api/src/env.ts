@@ -16,8 +16,8 @@ export interface ApiEnv {
   MICROSOFT_TENANT?: string;
   EXPO_ACCESS_TOKEN?: string;
   GLOBAL_ACTION_EXECUTION?: string;
-  ACTION_EXECUTION_CALENDAR?: string;
-  ACTION_EXECUTION_EMAIL?: string;
+  ACTION_CALENDAR_EXECUTION?: string;
+  ACTION_EMAIL_EXECUTION?: string;
 }
 
 export function requireSupabaseConfig(env: ApiEnv): { url: string; publishableKey: string } {
@@ -37,7 +37,7 @@ export function actionsGloballyEnabled(env: ApiEnv): boolean {
 }
 
 export function actionDomainEnabled(env: ApiEnv, domain: string): boolean {
-  if (domain === 'calendar') return env.ACTION_EXECUTION_CALENDAR === 'true';
-  if (domain === 'email') return env.ACTION_EXECUTION_EMAIL === 'true';
+  if (domain === 'calendar') return env.ACTION_CALENDAR_EXECUTION === 'true';
+  if (domain === 'email') return env.ACTION_EMAIL_EXECUTION === 'true';
   return false;
 }
