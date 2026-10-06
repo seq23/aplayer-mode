@@ -180,7 +180,7 @@ const lifeAdminKindSchema = z.enum([
   'health_routine','recurring_obligation','family_obligation',
 ]);
 const lifeAdminStatusSchema = z.enum(['open','planned','scheduled','completed','paused','cancelled']);
-const lifeAdminPatchStatusSchema = z.enum(['open','planned','scheduled','paused','cancelled']);
+const lifeAdminMutableStatusSchema = z.enum(['open','planned','scheduled','paused','cancelled']);
 const lifeAdminRecurrenceSchema = z.object({
   frequency: z.enum(['daily','weekly','monthly','yearly']).optional(),
   interval: z.number().int().min(1).max(365).optional(),
@@ -217,7 +217,7 @@ const lifeAdminCreateSchema = z.object({
   personId: z.string().uuid().optional(),
   kind: lifeAdminKindSchema,
   title: z.string().trim().min(1).max(500),
-  status: lifeAdminStatusSchema.optional(),
+  status: lifeAdminMutableStatusSchema.optional(),
   importance: z.union([z.literal(1),z.literal(2),z.literal(3),z.literal(4),z.literal(5)]).optional(),
   dueAt: z.string().datetime().optional(),
   startsAt: z.string().datetime().optional(),
@@ -236,7 +236,7 @@ const lifeAdminPatchSchema = z.object({
   personId: z.union([z.string().uuid(), z.literal('')]).optional(),
   kind: lifeAdminKindSchema.optional(),
   title: z.string().trim().min(1).max(500).optional(),
-  status: lifeAdminPatchStatusSchema.optional(),
+  status: lifeAdminMutableStatusSchema.optional(),
   importance: z.union([z.literal(1),z.literal(2),z.literal(3),z.literal(4),z.literal(5)]).optional(),
   dueAt: optionalDateTimeSchema,
   startsAt: optionalDateTimeSchema,
@@ -360,7 +360,7 @@ app.post('/v1/life-os/items', async (c) => {
   const before = await getLifeGraph(c.env, user.accessToken, user.id);
   if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
   try {
-    const item = await createLifeAdminItem(c.env, user.accessToken, user.id, parsed.data);
+    const item = await createLifeAdminItem(c.env, user.accessToken, user.id, parsed.data, before.identity.timezone);
     await audit(c.env, user.accessToken, user.id, 'life_os.item_created', { kind: item.kind }, 'life_admin_item', item.id);
     await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'life_os_item_created', { kind: item.kind });
     return c.json(await buildUserState(c.env, user.accessToken, user.id), 201);
@@ -377,7 +377,7 @@ app.patch('/v1/life-os/items/:id', async (c) => {
   const before = await getLifeGraph(c.env, user.accessToken, user.id);
   if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
   try {
-    const item = await updateLifeAdminItem(c.env, user.accessToken, user.id, c.req.param('id'), parsed.data);
+    const item = await updateLifeAdminItem(c.env, user.accessToken, user.id, c.req.param('id'), parsed.data, before.identity.timezone);
     await audit(c.env, user.accessToken, user.id, 'life_os.item_updated', { kind: item.kind, status: item.status }, 'life_admin_item', item.id);
     return c.json(await buildUserState(c.env, user.accessToken, user.id));
   } catch (error) {
@@ -394,7 +394,7 @@ app.post('/v1/life-os/items/:id/complete', async (c) => {
   const before = await getLifeGraph(c.env, user.accessToken, user.id);
   if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
   try {
-    const item = await completeLifeAdminItem(c.env, user.accessToken, user.id, c.req.param('id'));
+    const item = await completeLifeAdminItem(c.env, user.accessToken, user.id, c.req.param('id'), before.identity.timezone);
     await audit(c.env, user.accessToken, user.id, 'life_os.item_completed', { kind: item.kind, recurring: Boolean(item.recurrence.frequency), nextDueAt: item.status === 'open' ? item.dueAt ?? null : null }, 'life_admin_item', item.id);
     await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'life_os_item_completed', { kind: item.kind, recurring: Boolean(item.recurrence.frequency) });
     return c.json(await buildUserState(c.env, user.accessToken, user.id));
