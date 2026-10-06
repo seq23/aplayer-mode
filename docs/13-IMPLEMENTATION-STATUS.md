@@ -119,6 +119,6 @@ The customer/evidence gate is intentional product discipline.
 
 ## Current artifact boundary
 
-PR #6 is the **full remaining-platform source baseline**. It aims to finish code/schema/docs foundations while keeping external/provider/store/legal/beta gates explicit.
+PR #6 — **Complete remaining APM platform source phases** — was merged to `main` on 2026-10-06 as merge commit `516cc032cb0f24d2eccb0190da53161433918051` after its exact source head passed workspace typecheck and deterministic tests.
 
-Before merge, the exact PR head must pass CI. After merge, the next artifact is not another speculative feature batch; it is the **runtime/provider evidence packet** described in `26-EXTERNAL-RUNTIME-GATES.md`.
+The source baseline is therefore merged, but it is **not equivalent to production runtime completion**. The active next artifact is `27-RUNTIME-EVIDENCE-PACKET.md`, which tracks the real Cloudflare/provider/device/store/legal/beta receipts needed to move each external gate from OPEN to proven.
