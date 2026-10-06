@@ -243,6 +243,9 @@ export type LifeAdminStatus = 'open' | 'planned' | 'scheduled' | 'completed' | '
 export interface LifeAdminRecurrence {
   frequency?: 'daily' | 'weekly' | 'monthly' | 'yearly';
   interval?: number;
+  /** Internal canonical anchors preserve intended dates across clamped month/year occurrences. */
+  anchorDueAt?: ISODateTime;
+  anchorStartsAt?: ISODateTime;
 }
 
 export interface LifeAdminItem {
