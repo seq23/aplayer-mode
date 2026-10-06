@@ -205,6 +205,10 @@ function parseAnchor(value?: string): Date | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
+function laterOf(a: Date, b?: Date): Date {
+  return b && b.getTime() > a.getTime() ? b : a;
+}
+
 export function nextRecurringSchedule(
   schedule: RecurringScheduleInput,
   completedAt: Date,
@@ -217,12 +221,12 @@ export function nextRecurringSchedule(
   const hasExplicitSchedule = Boolean(dueAnchor || startAnchor);
 
   const nextDue = dueAnchor
-    ? nextRecurringOccurrence(dueAnchor, completedAt, recurrence, timezone)
+    ? nextRecurringOccurrence(dueAnchor, laterOf(completedAt, schedule.dueAt), recurrence, timezone)
     : !hasExplicitSchedule
       ? nextRecurringOccurrence(completedAt, completedAt, recurrence, timezone)
       : undefined;
   const nextStart = startAnchor
-    ? nextRecurringOccurrence(startAnchor, completedAt, recurrence, timezone)
+    ? nextRecurringOccurrence(startAnchor, laterOf(completedAt, schedule.startsAt), recurrence, timezone)
     : undefined;
 
   let nextEnd: Date | undefined;
