@@ -7,6 +7,7 @@ import type {
   LifeAdminKind,
   LifeAdminRecurrence,
   LifeGraphSnapshot,
+  LifeRelationship,
   OperatingModeKey,
   Permission,
   PillarName,
@@ -133,6 +134,9 @@ export async function fetchLifeGraph(accessToken: string): Promise<LifeGraphSnap
   return (await request<{ graph: LifeGraphSnapshot }>('/v1/me/life-graph', accessToken)).graph;
 }
 export async function fetchTodayState(accessToken: string): Promise<TodayState> { return request<TodayState>('/v1/me/today', accessToken); }
+export async function fetchRetainedLifeOsState(accessToken: string): Promise<{ lifeRelationships: LifeRelationship[]; lifeAdminItems: LifeAdminItem[] }> {
+  return request<{ lifeRelationships: LifeRelationship[]; lifeAdminItems: LifeAdminItem[] }>('/v1/privacy/life-os', accessToken);
+}
 export async function fetchProductPlan(accessToken: string): Promise<ProductPlanResponse> {
   return request<ProductPlanResponse>('/v1/product/plan', accessToken);
 }
