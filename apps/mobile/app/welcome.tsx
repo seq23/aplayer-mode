@@ -6,17 +6,24 @@ export default function WelcomeScreen() {
   return (
     <Screen
       eyebrow="A Player Mode"
-      title="The operating system for your life."
-      subtitle="Tell APM where you're going. It helps make sure your actual life moves in that direction."
+      title="Whatever game you're in, get into A Player Mode."
+      subtitle="A Player Mode turns what matters to you into a working system—then helps keep your goals, commitments, routines and next moves from falling through the cracks."
     >
+      <Card tone="accent">
+        <CardTitle>Built for the game you're playing now</CardTitle>
+        <Body muted>
+          Parent. Athlete. Entrepreneur. Student. Professional. Creator. Caregiver. Or simply someone in a season that matters.
+        </Body>
+      </Card>
+
       <View style={uiStyles.stack}>
         <Card>
           <CardTitle>Knows what matters</CardTitle>
-          <Body muted>Your goals, commitments, routines and operating rules become a living system.</Body>
+          <Body muted>Your roles, goals, commitments, routines and operating rules become a living system.</Body>
         </Card>
         <Card>
           <CardTitle>Notices before you ask</CardTitle>
-          <Body muted>APM looks for what is slipping, approaching, waiting or being forgotten.</Body>
+          <Body muted>APM looks for what is slipping, approaching, waiting or being forgotten in your actual life.</Body>
         </Card>
         <Card>
           <CardTitle>Acts only with your permission</CardTitle>
