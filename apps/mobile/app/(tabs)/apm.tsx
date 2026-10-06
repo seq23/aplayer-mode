@@ -35,6 +35,16 @@ const modeCopy: Record<OperatingModeKey, { label: string; description: string; o
     description: 'Organize what exists and make decisions without adding new projects.',
     opening: 'What is creating the most noise or ambiguity in your current system?',
   },
+  sprint: {
+    label: 'Sprint',
+    description: 'A bounded high-output mode for a defined objective and short window.',
+    opening: 'What single outcome defines success for this sprint, and what is the next move?',
+  },
+  deep_work: {
+    label: 'Deep Work',
+    description: 'Protect one uninterrupted focus block and suppress lower-value noise.',
+    opening: 'What deserves your uninterrupted attention right now?',
+  },
 };
 
 export default function ApmScreen() {
@@ -97,7 +107,7 @@ export default function ApmScreen() {
         <Label>APM</Label>
         <CardTitle>{active.opening}</CardTitle>
         <Body muted>
-          Methodology v1 supplies the deterministic mode, guardrails and opening question. Live conversational AI is intentionally not connected until the approved model routes are ready.
+          Deterministic methodology controls the mode and guardrails. Live conversational AI only runs through an approved privacy-gated model route.
         </Body>
       </Card>
 
