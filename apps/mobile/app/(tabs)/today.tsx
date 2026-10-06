@@ -12,25 +12,40 @@ import {
   SectionTitle,
   uiStyles,
 } from '../../src/components/ui';
+import { useLifeGraph } from '../../src/state/lifeGraph';
 
 export default function TodayScreen() {
+  const { graph } = useLifeGraph();
+  const primaryGoal = graph.goals.find((goal) => goal.priority === 1) ?? graph.goals[0];
+  const name = graph.identity.displayName || 'there';
+
   return (
     <Screen
-      eyebrow="Tuesday · Fixture mode"
-      title="Good morning."
-      subtitle="APM has one priority move and one thing it wants you to notice."
+      eyebrow="Today · Early build"
+      title={`Good morning, ${name}.`}
+      subtitle={
+        primaryGoal
+          ? 'APM has your first goal in the Life Graph. The next step is turning it into a daily execution system.'
+          : 'APM is ready to build your first Life Graph.'
+      }
     >
       <Card tone="accent">
         <Label>Your #1 move</Label>
-        <CardTitle>Finish the Chief of Staff trust experience</CardTitle>
+        <CardTitle>{primaryGoal?.title ?? 'Finish your APM onboarding'}</CardTitle>
         <Body muted>
-          The product needs to earn access to private context before it asks for Gmail or Calendar.
+          {primaryGoal
+            ? `Primary pillar: ${primaryGoal.pillar ?? 'not set'}. This goal is now structured state—not just chat history.`
+            : 'Add one concrete 90-day outcome so APM can start planning around it.'}
         </Body>
         <View style={uiStyles.row}>
-          <Pill tone="success">Goal aligned</Pill>
-          <Pill>60 min</Pill>
+          <Pill tone="success">Life Graph</Pill>
+          <Pill>{primaryGoal ? 'Priority 1' : 'Setup'}</Pill>
         </View>
-        <Button label="Start focus block" onPress={() => {}} />
+        {!primaryGoal ? (
+          <Button label="Build my APM" onPress={() => router.push('/onboarding')} />
+        ) : (
+          <Button label="Start focus block" onPress={() => {}} />
+        )}
       </Card>
 
       <SectionTitle>APM noticed</SectionTitle>
@@ -38,17 +53,16 @@ export default function TodayScreen() {
         <Pill tone="warning">Promised · due today</Pill>
         <CardTitle>Send David the deck</CardTitle>
         <Body muted>
-          Mock example: APM detected a commitment, the due date is today, and no completion evidence exists.
+          Fixture example: APM detected a commitment, the due date is today, and no completion evidence exists.
         </Body>
         <Button label="Why am I seeing this?" variant="secondary" onPress={() => router.push('/radar/why')} />
       </Card>
 
       <SectionTitle>Your run of show</SectionTitle>
       <Card>
-        <KeyValue label="9:00–10:30" value="Build trust center screens" />
-        <KeyValue label="10:30–10:45" value="Reset + review" />
-        <KeyValue label="10:45–12:00" value="Life Graph vertical slice" />
-        <KeyValue label="2:00–2:30" value="Architecture review" />
+        <KeyValue label="First" value={primaryGoal ? `Advance: ${primaryGoal.title}` : 'Complete onboarding'} />
+        <KeyValue label="Then" value="Review anything APM noticed" />
+        <KeyValue label="Later" value="Close or reschedule open loops" />
       </Card>
 
       <SectionTitle>Trust & control</SectionTitle>
