@@ -1,0 +1,158 @@
+# A Player Mode — Full Program Execution Ledger
+
+**Status: CANONICAL EXECUTION LEDGER**  
+**Updated: 2026-10-06**
+
+This document maps the full intended A Player Mode system to what is implemented in source, what is provisioned, what is runtime-proven, and what remains gated by external credentials, distribution accounts, beta evidence, or qualified legal review.
+
+> **Whatever game you're in, get into A Player Mode.**
+>
+> You decide what game you're playing. A Player Mode helps you play it like an A-player.
+
+## 1. Full intended system
+
+```mermaid
+flowchart LR
+  DIY[Digital APM OS] --> COS[Chief of Staff]
+  COS --> LIFE[Life OS]
+  LIFE --> AUTO[Autopilot]
+  AUTO --> HH[Household OS]
+  HH --> PI[Personal Intelligence Layer]
+```
+
+One account, one private Life Graph, one APM intelligence/policy layer. A person may be a parent + entrepreneur + athlete + student + caregiver at the same time.
+
+```text
+YOUR GAME
+  = Roles
+  + Goals
+  + Current season
+  + Routines
+  + Commitments
+  + Rules
+  + Preferences
+```
+
+## 2. Status vocabulary
+
+| Status | Meaning |
+|---|---|
+| `SOURCE_COMPLETE` | Code/schema/docs exist and CI can validate the source layer |
+| `DB_PROVISIONED` | Required Supabase migration is applied |
+| `STRUCTURAL` | Architecture/UI contract exists but external runtime may not |
+| `RUNTIME_PROVEN` | Live external path has been exercised with receipts |
+| `EXTERNAL_GATE` | Requires credentials/account/provider/legal/beta evidence not available in repo |
+| `DEFERRED_BY_EVIDENCE` | Product capability exists only after customer evidence earns it |
+
+## 3. Program map
+
+```mermaid
+flowchart TD
+  F[Foundation + Privacy + Life Graph] --> M[BHPC / APM Methodology]
+  M --> C[Calendar Fabric]
+  C --> A[Privacy-gated AI]
+  A --> CO[Live Coaching]
+  CO --> E[Email + Commitments]
+  E --> R[Radar v1 + Today v2]
+  R --> P[Proactive Push]
+  P --> T[Live Trust Center]
+  T --> SEC[Security / Data Rights / Analytics]
+  SEC --> B[Closed Beta]
+  B --> PAID[Chief of Staff]
+  PAID --> ACT[Action Engine]
+  ACT --> L[Life OS]
+  L --> AU[Autopilot]
+  AU --> H[Household]
+  H --> W[Web Command Center + Scale]
+```
+
+## 4. Phase ledger
+
+| # | Phase | Source status | External/runtime status | Notes |
+|---:|---|---|---|---|
+| 1 | Infrastructure loose ends | `STRUCTURAL` | `EXTERNAL_GATE` | Cloudflare secrets/deploy + GitHub secrets require account actions |
+| 2 | Live runtime proof | `SOURCE_COMPLETE` | `EXTERNAL_GATE` | verifier/workflow exist; deployed receipt still required |
+| 3 | BHPC intent parity | `SOURCE_COMPLETE` | CI required | morning sequence, boundaries, scheduling preference, review gates, scoring, Resilience, Sprint, Deep Work |
+| 4 | Calendar Fabric | `SOURCE_COMPLETE` foundation | `EXTERNAL_GATE` | device calendar + Google + Microsoft source; live OAuth/provider credentials required; direct Apple server sync remains separate from iCloud-on-device coverage |
+| 5 | OpenRouter Privacy Gateway | `SOURCE_COMPLETE` | `EXTERNAL_GATE` | candidate registry + fail-closed routing + public-synthetic eval harness; no candidate is auto-approved |
+| 6 | Live APM coaching | `SOURCE_COMPLETE` | `EXTERNAL_GATE` | UI/API/session persistence exist; needs approved private-data model route |
+| 7 | Email + Commitment Engine | `SOURCE_COMPLETE` foundation | `EXTERNAL_GATE` | Gmail + Outlook source and normalized signals; live OAuth verification required |
+| 8 | Radar v1 | `SOURCE_COMPLETE` | CI required | goals + commitments + review gates + calendar conflicts |
+| 9 | Today v2 | `SOURCE_COMPLETE` foundation | CI/runtime required | methodology + calendar blocks + approvals + continuity |
+| 10 | Proactive mobile push | `SOURCE_COMPLETE` foundation | `EXTERNAL_GATE` | device registration + server suppression/dedupe; EAS push receipt required |
+| 11 | Live Trust Center | `SOURCE_COMPLETE` foundation | runtime required | model registry, connections, permissions, activity, export/delete are live-backed in app source |
+| 12 | Data rights | `SOURCE_COMPLETE` request/export foundation | `EXTERNAL_GATE` | privileged deletion worker + retention completion proof remain |
+| 13 | Analytics/evaluation | `SOURCE_COMPLETE` foundation | runtime evidence required | analytics + AI usage + model-eval report path |
+| 14 | Security hardening | `SOURCE_COMPLETE` foundation | ongoing | RLS + encryption + fail-closed policy; security advisor must remain clean |
+| 15 | Mobile release infrastructure | `SOURCE_COMPLETE` foundation | `EXTERNAL_GATE` | EAS profiles exist; Apple/Google signing/submission required |
+| 16 | Legal/privacy launch readiness | docs/policy foundation | `EXTERNAL_GATE` | qualified legal review cannot be simulated |
+| 17 | Closed beta | runbook required | `EXTERNAL_GATE` | requires 25–50 real users and evidence |
+| 18 | Paid Chief of Staff | entitlement foundation | `EXTERNAL_GATE` | store billing transactions/entitlement synchronization not live |
+| 19 | Distribution engine | product contract | other-repo / market gate | audit/acquisition belongs primarily to marketing web stack |
+| 20 | Action Engine | `SOURCE_COMPLETE` foundation | provider/runtime required | permissioned calendar/email actions with approval lifecycle |
+| 21 | Life OS | domain/action foundation | `DEFERRED_BY_EVIDENCE` | modules should be added by observed demand, not guessed |
+| 22 | Autopilot | authority engine foundation | `DEFERRED_BY_EVIDENCE` | standing authority requires repeated customer approval pattern + safety proof |
+| 23 | Household OS | schema/API foundation | later trust gate | shared graph primitives + member/item RLS exist; complete collaborative UX remains later |
+| 24 | Web Command Center | architecture contract | later implementation | mobile remains daily control plane; advanced desktop UX is not falsely claimed complete |
+| 25 | Scale / reliability / economics | instrumentation foundation | usage-driven | Supabase Free remains until actual limits/requirements justify upgrade |
+
+## 5. What "complete all remaining phases" means operationally
+
+The repo may contain a complete **source foundation** for a phase while the phase is still not production complete. Production completion requires evidence appropriate to the layer:
+
+```mermaid
+flowchart LR
+  S[Source exists] --> CI[CI green]
+  CI --> DB[Schema provisioned]
+  DB --> LIVE[Live provider/device proof]
+  LIVE --> BETA[User evidence]
+  BETA --> PROD[Production-ready]
+```
+
+The ledger must never collapse those states into one word.
+
+## 6. External gates that cannot be fabricated
+
+- Cloudflare production deployment and secrets installation;
+- OpenRouter secret installation + real candidate evaluation + explicit route promotion;
+- Google OAuth app credentials/verification and live Gmail/Calendar receipts;
+- Microsoft app registration/consent and live Outlook receipts;
+- Apple/iCloud direct-server access where product evidence requires it;
+- EAS project ID, push credentials and real device receipt;
+- Apple Developer / App Store Connect / Google Play signing and submission;
+- real in-app purchase/subscription transactions and receipt validation;
+- privileged deletion worker and deletion lifecycle proof;
+- qualified legal/privacy review;
+- closed-beta retention, Radar quality and willingness-to-pay evidence.
+
+## 7. Non-drift gates
+
+Every remaining feature must preserve:
+
+| Gate | Requirement |
+|---|---|
+| Multi-game | No founder-only assumptions |
+| BHPC intent | Map methodology behavior to the user's game |
+| Privacy | Minimum necessary context; private routes no-training + ZDR by default |
+| Authority | Subscription never equals permission |
+| Provenance | Important inferred facts and Radar items explain their source |
+| Audit | Consequential state/action changes are recorded |
+| Determinism | Do not use an LLM where deterministic code is sufficient |
+| Continuity | Misses trigger recomputation, not guilt or catch-up |
+| Economics | Measure cost per successful task, not token price alone |
+| Truth | Do not label provider/store/legal/beta work complete without receipts |
+
+## 8. Current critical path
+
+```text
+CI GREEN ON PROGRAM BRANCH
+  -> Cloudflare + device runtime proof
+  -> install OpenRouter secret + run model eval
+  -> explicitly approve eligible route(s)
+  -> live Google/Microsoft OAuth proofs
+  -> push/device proof
+  -> security/data-rights proof
+  -> closed beta
+  -> Chief of Staff paid launch
+  -> customer-evidence-driven Life OS / Autopilot / Household expansion
+```
