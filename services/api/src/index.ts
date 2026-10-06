@@ -180,6 +180,7 @@ const lifeAdminKindSchema = z.enum([
   'health_routine','recurring_obligation','family_obligation',
 ]);
 const lifeAdminStatusSchema = z.enum(['open','planned','scheduled','completed','paused','cancelled']);
+const lifeAdminPatchStatusSchema = z.enum(['open','planned','scheduled','paused','cancelled']);
 const lifeAdminRecurrenceSchema = z.object({
   frequency: z.enum(['daily','weekly','monthly','yearly']).optional(),
   interval: z.number().int().min(1).max(365).optional(),
@@ -235,7 +236,7 @@ const lifeAdminPatchSchema = z.object({
   personId: z.union([z.string().uuid(), z.literal('')]).optional(),
   kind: lifeAdminKindSchema.optional(),
   title: z.string().trim().min(1).max(500).optional(),
-  status: lifeAdminStatusSchema.optional(),
+  status: lifeAdminPatchStatusSchema.optional(),
   importance: z.union([z.literal(1),z.literal(2),z.literal(3),z.literal(4),z.literal(5)]).optional(),
   dueAt: optionalDateTimeSchema,
   startsAt: optionalDateTimeSchema,
@@ -383,6 +384,7 @@ app.patch('/v1/life-os/items/:id', async (c) => {
     if (error instanceof Error && error.message === 'life_os_item_not_found') return c.json({ error: 'not_found' }, 404);
     if (error instanceof Error && error.message === 'life_os_person_not_found') return c.json({ error: 'person_not_found' }, 404);
     if (error instanceof Error && error.message === 'life_os_invalid_schedule') return c.json({ error: 'invalid_request' }, 400);
+    if (error instanceof Error && error.message === 'life_os_use_completion_route') return c.json({ error: 'use_completion_route' }, 400);
     throw error;
   }
 });
