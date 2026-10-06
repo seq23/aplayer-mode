@@ -15,13 +15,14 @@ import {
 import { useLifeGraph } from '../../src/state/lifeGraph';
 
 export default function TodayScreen() {
-  const { graph, completeNextAction } = useLifeGraph();
+  const { graph, completeNextAction, syncStatus, syncError, isDurable, refresh } = useLifeGraph();
   const primaryGoal = graph.goals.find((goal) => goal.priority === 1) ?? graph.goals[0];
   const primaryAction = graph.nextActions.find(
     (action) => action.goalId === primaryGoal?.id && action.status !== 'dismissed',
   );
   const completionEvidence = graph.evidence.find((item) => item.relatedActionId === primaryAction?.id);
   const name = graph.identity.displayName || 'there';
+  const saving = syncStatus === 'saving';
 
   return (
     <Screen
@@ -33,6 +34,14 @@ export default function TodayScreen() {
           : 'APM is ready to build your first Life Graph.'
       }
     >
+      {syncError ? (
+        <Card tone="warning">
+          <CardTitle>APM couldn't sync that change.</CardTitle>
+          <Body muted>{syncError}</Body>
+          <Button label="Retry sync" variant="secondary" onPress={() => void refresh()} />
+        </Card>
+      ) : null}
+
       <Card tone="accent">
         <Label>Your #1 move</Label>
         <CardTitle>{primaryAction?.title ?? primaryGoal?.title ?? 'Finish your APM onboarding'}</CardTitle>
@@ -44,6 +53,7 @@ export default function TodayScreen() {
         <View style={uiStyles.row}>
           <Pill tone="success">Life Graph</Pill>
           <Pill>{primaryAction?.estimatedMinutes ? `${primaryAction.estimatedMinutes} min` : 'Setup'}</Pill>
+          <Pill tone={isDurable ? 'success' : 'warning'}>{isDurable ? 'Durable' : 'Local build'}</Pill>
           {primaryAction?.status === 'done' ? <Pill tone="success">Complete</Pill> : null}
         </View>
         {!primaryGoal ? (
@@ -51,7 +61,10 @@ export default function TodayScreen() {
         ) : primaryAction?.status === 'done' ? (
           <Body>Done. APM recorded completion evidence instead of relying on chat memory.</Body>
         ) : primaryAction ? (
-          <Button label="Mark #1 move complete" onPress={() => completeNextAction(primaryAction.id)} />
+          <Button
+            label={saving ? 'Recording…' : 'Mark #1 move complete'}
+            onPress={() => void completeNextAction(primaryAction.id)}
+          />
         ) : null}
       </Card>
 
