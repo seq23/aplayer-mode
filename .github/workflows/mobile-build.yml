@@ -1,0 +1,55 @@
+name: Build Mobile App
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Mobile platform
+        required: true
+        default: ios
+        type: choice
+        options:
+          - ios
+          - android
+          - all
+      profile:
+        description: EAS build profile
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eas-${{ inputs.platform }}-${{ inputs.profile }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: Require Expo token
+        shell: bash
+        run: test -n "$EXPO_TOKEN" || (echo "EXPO_TOKEN is not configured" && exit 2)
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Validate source
+        run: npm run typecheck
+      - name: Install EAS CLI
+        run: npm install --global eas-cli
+      - name: Queue EAS build
+        working-directory: apps/mobile
+        run: eas build --platform "${{ inputs.platform }}" --profile "${{ inputs.profile }}" --non-interactive --no-wait
+      - name: Record immutable source
+        run: echo "Queued ${{ inputs.platform }} / ${{ inputs.profile }} from ${GITHUB_SHA}"
