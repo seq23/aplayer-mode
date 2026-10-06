@@ -91,7 +91,21 @@ async function apiRequest(path, { accessToken, method = 'GET', body } = {}) {
   return { response, json, requestId: response.headers.get('x-request-id') };
 }
 
-async function verifyRlsIsolation(userAId) {
+async function supabaseRows(path, accessToken, label) {
+  const response = await fetch(`${supabaseUrl}${path}`, {
+    headers: {
+      apikey: process.env.SUPABASE_PUBLISHABLE_KEY,
+      authorization: `Bearer ${accessToken}`,
+      accept: 'application/json',
+    },
+  });
+  const rows = await readJson(response, label);
+  if (!response.ok) fail(label, `Supabase REST failed (${response.status})`);
+  if (!Array.isArray(rows)) fail(label, 'Supabase REST did not return an array');
+  return rows;
+}
+
+async function verifyRlsIsolation(userAId, goalAId) {
   currentStage = 'rls_isolation';
   const userB = await supabasePasswordSignIn(
     process.env.APM_TEST_B_EMAIL,
@@ -102,22 +116,25 @@ async function verifyRlsIsolation(userAId) {
     fail('Cross-user RLS negative proof', 'Test account B resolved to the same user as account A');
   }
 
-  const response = await fetch(
-    `${supabaseUrl}/rest/v1/user_profiles?select=user_id&user_id=eq.${encodeURIComponent(userAId)}`,
-    {
-      headers: {
-        apikey: process.env.SUPABASE_PUBLISHABLE_KEY,
-        authorization: `Bearer ${userB.accessToken}`,
-        accept: 'application/json',
-      },
-    },
+  const profileRows = await supabaseRows(
+    `/rest/v1/user_profiles?select=user_id&user_id=eq.${encodeURIComponent(userAId)}`,
+    userB.accessToken,
+    'Cross-user profile RLS proof',
   );
-  const rows = await readJson(response, 'Cross-user RLS negative proof');
-  if (!response.ok) fail('Cross-user RLS negative proof', `Supabase REST failed (${response.status})`);
-  if (!Array.isArray(rows) || rows.length !== 0) {
-    fail('Cross-user RLS negative proof', 'Second user could observe first user profile');
+  if (profileRows.length !== 0) {
+    fail('Cross-user profile RLS proof', 'User B could observe user A profile');
   }
-  pass('Cross-user RLS negative proof', 'user B cannot read user A profile');
+  pass('Cross-user profile RLS proof', 'user B cannot read user A profile');
+
+  const goalRows = await supabaseRows(
+    `/rest/v1/goals?select=id,user_id&id=eq.${encodeURIComponent(goalAId)}`,
+    userB.accessToken,
+    'Cross-user goal RLS proof',
+  );
+  if (goalRows.length !== 0) {
+    fail('Cross-user goal RLS proof', 'User B could observe user A goal');
+  }
+  pass('Cross-user goal RLS proof', 'user B cannot read user A goal');
 }
 
 async function main() {
@@ -168,37 +185,39 @@ async function main() {
   }
   pass('Authenticated Life Graph read', 'Cloudflare verified Supabase session and returned user-scoped state', { requestId: state.requestId });
 
+  // Always create a fresh proof goal/action. Reusing an arbitrary pre-existing open action made
+  // the Radar assertion dependent on old test-account state and could produce a false failure.
   currentStage = 'durable_onboarding';
-  let openAction = state.json.graph.nextActions?.find((action) => action.status === 'open');
-  if (!openAction) {
-    const onboarding = await apiRequest('/v1/onboarding', {
-      accessToken: userA.accessToken,
-      method: 'PUT',
-      body: {
-        displayName: 'APM Runtime Proof',
-        roles: ['runtime-proof-user'],
-        primaryGoal: 'Prove authenticated durable APM execution end to end',
-        currentSeason: 'runtime verification',
-        becoming: 'a verified end-to-end system',
-        pillar: 'execution',
-      },
-    });
-    if (!onboarding.response.ok || onboarding.json?.graph?.identity?.userId !== userA.userId) {
-      fail('Durable onboarding write', `Onboarding mutation failed (${onboarding.response.status})`, { requestId: onboarding.requestId });
-    }
-    openAction = onboarding.json.graph.nextActions?.find((action) => action.status === 'open');
-    if (!openAction) fail('Durable onboarding write', 'No open next action was created', { requestId: onboarding.requestId });
-    pass('Durable onboarding write', 'profile, role, goal and next action persisted through API/RPC', { requestId: onboarding.requestId });
-  } else {
-    pass('Durable onboarding state', 'existing open action found on persisted test Life Graph');
+  const proofLabel = `${process.env.APM_COMMIT_SHA ?? process.env.GITHUB_SHA ?? 'local'}-${Date.now()}`;
+  const onboarding = await apiRequest('/v1/onboarding', {
+    accessToken: userA.accessToken,
+    method: 'PUT',
+    body: {
+      displayName: 'APM Runtime Proof',
+      roles: ['runtime-proof-user'],
+      primaryGoal: `Runtime proof ${proofLabel}: prove authenticated durable APM execution end to end`,
+      currentSeason: 'runtime verification',
+      becoming: 'a verified end-to-end system',
+      pillar: 'execution',
+    },
+  });
+  if (!onboarding.response.ok || onboarding.json?.graph?.identity?.userId !== userA.userId) {
+    fail('Durable onboarding write', `Onboarding mutation failed (${onboarding.response.status})`, { requestId: onboarding.requestId });
   }
+  const openAction = onboarding.json?.graph?.nextActions?.find(
+    (action) => action.status === 'open' && action.title.includes(proofLabel),
+  );
+  if (!openAction?.goalId) {
+    fail('Durable onboarding write', 'Fresh proof goal did not create the expected open next action', { requestId: onboarding.requestId });
+  }
+  pass('Durable onboarding write', 'fresh profile/role/goal/next-action state persisted through API/RPC', { requestId: onboarding.requestId });
 
   currentStage = 'today_projection';
   const today = await apiRequest('/v1/me/today', { accessToken: userA.accessToken });
   if (!today.response.ok || today.json?.plan?.numberOneMove?.id !== openAction.id) {
-    fail('Server Today projection', `Today did not select the persisted open action (${today.response.status})`, { requestId: today.requestId });
+    fail('Server Today projection', `Today did not select the fresh proof action (${today.response.status})`, { requestId: today.requestId });
   }
-  pass('Server Today projection', 'number-one move reconstructed from durable server state', { requestId: today.requestId });
+  pass('Server Today projection', 'number-one move reconstructed from fresh durable server state', { requestId: today.requestId });
 
   currentStage = 'completion_evidence';
   const completion = await apiRequest(`/v1/next-actions/${encodeURIComponent(openAction.id)}/complete`, {
@@ -228,11 +247,11 @@ async function main() {
     (item) => item.relatedGoalId === openAction.goalId && item.status === 'open',
   );
   if (!proactiveItem) {
-    fail('Deterministic Radar loop', 'Expected a proactive item after completing the only open action for the goal');
+    fail('Deterministic Radar loop', 'Expected a proactive item after completing the fresh proof goal’s only open action');
   }
   pass('Deterministic Radar loop', `Radar surfaced ${proactiveItem.type} without an LLM call`);
 
-  await verifyRlsIsolation(userA.userId);
+  await verifyRlsIsolation(userA.userId, openAction.goalId);
 
   currentStage = 'complete';
   console.log('\nRUNTIME PROOF RESULT: PASS');
