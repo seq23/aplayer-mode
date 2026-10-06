@@ -305,7 +305,22 @@ export async function updateLifeAdminItem(
   itemId: string,
   input: Partial<LifeAdminInput>,
 ): Promise<LifeAdminItem> {
+  const existingRows = await supabaseRest<LifeAdminRow[]>(
+    env,
+    accessToken,
+    `/rest/v1/life_admin_items?id=eq.${qs(itemId)}&user_id=eq.${qs(userId)}&select=*&limit=1`,
+  );
+  const existing = existingRows[0];
+  if (!existing) throw new Error('life_os_item_not_found');
+
   if (input.personId) await ensureOwnedPerson(env, accessToken, userId, input.personId);
+
+  const mergedStartsAt = input.startsAt !== undefined ? input.startsAt || null : existing.starts_at;
+  const mergedEndsAt = input.endsAt !== undefined ? input.endsAt || null : existing.ends_at;
+  if (mergedStartsAt && mergedEndsAt && Date.parse(mergedEndsAt) < Date.parse(mergedStartsAt)) {
+    throw new Error('life_os_invalid_schedule');
+  }
+
   const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.personId !== undefined) body.person_id = input.personId || null;
   if (input.kind !== undefined) body.kind = input.kind;
