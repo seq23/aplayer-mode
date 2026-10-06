@@ -5,13 +5,11 @@ import { colors } from '../src/theme';
 export default function RootLayout() {
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+      <StatusBar barStyle="dark-content" />
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: colors.background },
           headerShadowVisible: false,
           headerTintColor: colors.ink,
-          contentStyle: { backgroundColor: colors.background },
           headerBackButtonDisplayMode: 'minimal',
         }}
       >
