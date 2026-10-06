@@ -103,19 +103,28 @@ export interface RecurringScheduleResult {
   endsAt?: Date;
 }
 
+function parseAnchor(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
 export function nextRecurringSchedule(
   schedule: RecurringScheduleInput,
   completedAt: Date,
   recurrence: LifeAdminRecurrence,
 ): RecurringScheduleResult {
-  const hasExplicitSchedule = Boolean(schedule.dueAt || schedule.startsAt);
-  const nextDue = schedule.dueAt
-    ? nextRecurringOccurrence(schedule.dueAt, completedAt, recurrence)
+  const dueAnchor = parseAnchor(recurrence.anchorDueAt) ?? schedule.dueAt;
+  const startAnchor = parseAnchor(recurrence.anchorStartsAt) ?? schedule.startsAt;
+  const hasExplicitSchedule = Boolean(dueAnchor || startAnchor);
+
+  const nextDue = dueAnchor
+    ? nextRecurringOccurrence(dueAnchor, completedAt, recurrence)
     : !hasExplicitSchedule
       ? nextRecurringOccurrence(completedAt, completedAt, recurrence)
       : undefined;
-  const nextStart = schedule.startsAt
-    ? nextRecurringOccurrence(schedule.startsAt, completedAt, recurrence)
+  const nextStart = startAnchor
+    ? nextRecurringOccurrence(startAnchor, completedAt, recurrence)
     : undefined;
 
   let nextEnd: Date | undefined;
