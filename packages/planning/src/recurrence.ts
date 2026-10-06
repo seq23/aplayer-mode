@@ -108,9 +108,12 @@ export function nextRecurringSchedule(
   completedAt: Date,
   recurrence: LifeAdminRecurrence,
 ): RecurringScheduleResult {
+  const hasExplicitSchedule = Boolean(schedule.dueAt || schedule.startsAt);
   const nextDue = schedule.dueAt
     ? nextRecurringOccurrence(schedule.dueAt, completedAt, recurrence)
-    : undefined;
+    : !hasExplicitSchedule
+      ? nextRecurringOccurrence(completedAt, completedAt, recurrence)
+      : undefined;
   const nextStart = schedule.startsAt
     ? nextRecurringOccurrence(schedule.startsAt, completedAt, recurrence)
     : undefined;
