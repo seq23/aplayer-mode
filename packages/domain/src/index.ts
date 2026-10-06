@@ -246,6 +246,8 @@ export interface LifeAdminRecurrence {
   /** Internal canonical anchors preserve intended dates across clamped month/year occurrences. */
   anchorDueAt?: ISODateTime;
   anchorStartsAt?: ISODateTime;
+  /** Canonical timezone keeps recurrence on the intended local calendar across UTC offsets/DST. */
+  timezone?: string;
 }
 
 export interface LifeAdminItem {
