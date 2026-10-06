@@ -1,26 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type {
-  Evidence,
-  Goal,
-  LifeGraphSnapshot,
-  NextAction,
-  PillarName,
-  Provenance,
-  Role,
-  UserIdentity,
-} from '@apm/domain';
+import type { DailyPlan, LifeGraphSnapshot, PillarName } from '@apm/domain';
 import {
-  fetchLifeGraph,
+  fetchTodayState,
   isApmApiConfigured,
   persistActionCompletion,
   persistOnboarding,
 } from '../api/apmApi';
 import { useSession } from './session';
 
-const now = () => new Date().toISOString();
-const localUserId = 'local-user';
-
-function emptyGraph(userId = localUserId): LifeGraphSnapshot {
+function emptyGraph(userId = 'unassigned'): LifeGraphSnapshot {
   return {
     identity: { userId, displayName: '' },
     roles: [],
@@ -38,13 +26,6 @@ function emptyGraph(userId = localUserId): LifeGraphSnapshot {
   };
 }
 
-const statedProvenance = (): Provenance => ({
-  kind: 'stated',
-  sourceType: 'manual',
-  createdAt: now(),
-  confidence: 1,
-});
-
 export interface OnboardingInput {
   displayName: string;
   roles: string[];
@@ -58,6 +39,7 @@ type SyncStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'error';
 
 interface LifeGraphContextValue {
   graph: LifeGraphSnapshot;
+  todayPlan?: DailyPlan;
   syncStatus: SyncStatus;
   syncError?: string;
   isDurable: boolean;
@@ -71,23 +53,48 @@ const LifeGraphContext = createContext<LifeGraphContextValue | null>(null);
 export function LifeGraphProvider({ children }: { children: ReactNode }) {
   const { status: sessionStatus, user, accessToken } = useSession();
   const [graph, setGraph] = useState<LifeGraphSnapshot>(() => emptyGraph());
+  const [todayPlan, setTodayPlan] = useState<DailyPlan>();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncError, setSyncError] = useState<string>();
 
-  const isDurable = Boolean(accessToken && isApmApiConfigured());
+  const isDurable = Boolean(
+    sessionStatus === 'signed_in' && user && accessToken && isApmApiConfigured(),
+  );
+
+  const requireDurableSession = (): { userId: string; token: string } => {
+    if (sessionStatus !== 'signed_in' || !user || !accessToken) {
+      throw new Error('Sign in before changing your APM');
+    }
+    if (!isApmApiConfigured()) {
+      throw new Error('The APM API is not configured for this build');
+    }
+    return { userId: user.id, token: accessToken };
+  };
+
+  const applyServerState = (state: { graph: LifeGraphSnapshot; plan: DailyPlan }) => {
+    setGraph(state.graph);
+    setTodayPlan(state.plan);
+    setSyncStatus('ready');
+  };
 
   const refresh = async () => {
-    if (!accessToken || !isApmApiConfigured()) {
+    if (sessionStatus !== 'signed_in' || !user || !accessToken) {
+      setGraph(emptyGraph());
+      setTodayPlan(undefined);
       setSyncStatus('ready');
+      return;
+    }
+
+    if (!isApmApiConfigured()) {
+      setSyncStatus('error');
+      setSyncError('The APM API is not configured for this build.');
       return;
     }
 
     setSyncStatus('loading');
     setSyncError(undefined);
     try {
-      const serverGraph = await fetchLifeGraph(accessToken);
-      setGraph(serverGraph);
-      setSyncStatus('ready');
+      applyServerState(await fetchTodayState(accessToken));
     } catch (error) {
       setSyncStatus('error');
       setSyncError(error instanceof Error ? error.message : 'Unable to load your APM');
@@ -98,19 +105,19 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (sessionStatus === 'loading') return;
 
-    if (sessionStatus !== 'signed_in' || !user) {
+    if (sessionStatus !== 'signed_in' || !user || !accessToken) {
       setGraph(emptyGraph());
+      setTodayPlan(undefined);
       setSyncStatus('ready');
       setSyncError(undefined);
       return;
     }
 
-    if (!isApmApiConfigured() || !accessToken) {
-      setGraph((current) => ({
-        ...current,
-        identity: { ...current.identity, userId: user.id },
-      }));
-      setSyncStatus('ready');
+    if (!isApmApiConfigured()) {
+      setGraph(emptyGraph(user.id));
+      setTodayPlan(undefined);
+      setSyncStatus('error');
+      setSyncError('The APM API is not configured for this build.');
       return;
     }
 
@@ -118,10 +125,11 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
     setSyncStatus('loading');
     setSyncError(undefined);
 
-    void fetchLifeGraph(accessToken)
-      .then((serverGraph) => {
+    void fetchTodayState(accessToken)
+      .then((state) => {
         if (!active) return;
-        setGraph(serverGraph);
+        setGraph(state.graph);
+        setTodayPlan(state.plan);
         setSyncStatus('ready');
       })
       .catch((error: unknown) => {
@@ -138,68 +146,17 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
   const value = useMemo<LifeGraphContextValue>(
     () => ({
       graph,
+      todayPlan,
       syncStatus,
       syncError,
       isDurable,
       refresh,
       completeOnboarding: async (input) => {
-        const timestamp = Date.now();
-        const userId = user?.id ?? localUserId;
-        const identity: UserIdentity = {
-          userId,
-          displayName: input.displayName.trim(),
-          currentSeason: input.currentSeason?.trim() || undefined,
-          becoming: input.becoming?.trim() || undefined,
-        };
-
-        const roles: Role[] = input.roles.map((name, index) => ({
-          id: `role-${timestamp}-${index}`,
-          userId,
-          name,
-          active: true,
-          provenance: statedProvenance(),
-        }));
-
-        const goal: Goal = {
-          id: `goal-${timestamp}`,
-          userId,
-          title: input.primaryGoal.trim(),
-          status: 'active',
-          health: 'unknown',
-          pillar: input.pillar,
-          priority: 1,
-          provenance: statedProvenance(),
-        };
-
-        const nextAction: NextAction = {
-          id: `action-${timestamp}`,
-          userId,
-          goalId: goal.id,
-          title: `Spend 45 focused minutes advancing: ${goal.title}`,
-          status: 'open',
-          estimatedMinutes: 45,
-        };
-
-        const optimisticGraph: LifeGraphSnapshot = {
-          ...graph,
-          identity,
-          roles,
-          goals: [goal, ...graph.goals.filter((item) => item.priority !== 1)],
-          nextActions: [nextAction, ...graph.nextActions.filter((item) => item.goalId !== goal.id)],
-        };
-        setGraph(optimisticGraph);
-
-        if (!accessToken || !isApmApiConfigured()) {
-          setSyncStatus('ready');
-          return;
-        }
-
+        const { token } = requireDurableSession();
         setSyncStatus('saving');
         setSyncError(undefined);
         try {
-          const serverGraph = await persistOnboarding(input, accessToken);
-          setGraph(serverGraph);
-          setSyncStatus('ready');
+          applyServerState(await persistOnboarding(input, token));
         } catch (error) {
           setSyncStatus('error');
           setSyncError(error instanceof Error ? error.message : 'Unable to save your APM');
@@ -207,48 +164,19 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
         }
       },
       completeNextAction: async (actionId) => {
-        const previousGraph = graph;
-        const action = graph.nextActions.find((item) => item.id === actionId);
-        if (!action || action.status === 'done') return;
-
-        const userId = user?.id ?? localUserId;
-        const evidence: Evidence = {
-          id: `evidence-${Date.now()}`,
-          userId,
-          kind: 'user_completion',
-          summary: `User marked complete: ${action.title}`,
-          sourceType: 'manual',
-          relatedGoalId: action.goalId,
-          relatedActionId: action.id,
-          createdAt: now(),
-        };
-
-        setGraph({
-          ...graph,
-          nextActions: graph.nextActions.map((item) =>
-            item.id === actionId ? { ...item, status: 'done' as const } : item,
-          ),
-          evidence: [evidence, ...graph.evidence],
-        });
-
-        if (!accessToken || !isApmApiConfigured()) return;
-
+        const { token } = requireDurableSession();
         setSyncStatus('saving');
         setSyncError(undefined);
         try {
-          await persistActionCompletion(actionId, accessToken);
-          const serverGraph = await fetchLifeGraph(accessToken);
-          setGraph(serverGraph);
-          setSyncStatus('ready');
+          applyServerState(await persistActionCompletion(actionId, token));
         } catch (error) {
-          setGraph(previousGraph);
           setSyncStatus('error');
           setSyncError(error instanceof Error ? error.message : 'Unable to record completion');
           throw error;
         }
       },
     }),
-    [accessToken, graph, isDurable, syncError, syncStatus, user],
+    [accessToken, graph, isDurable, sessionStatus, syncError, syncStatus, todayPlan, user],
   );
 
   return <LifeGraphContext.Provider value={value}>{children}</LifeGraphContext.Provider>;

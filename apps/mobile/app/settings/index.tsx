@@ -3,7 +3,7 @@ import { Body, Button, Card, CardTitle, KeyValue, Screen, SectionTitle } from '.
 import { useSession } from '../../src/state/session';
 
 export default function SettingsScreen() {
-  const { user, signOut } = useSession();
+  const { user, status, signOut } = useSession();
 
   const handleSignOut = async () => {
     await signOut();
@@ -18,9 +18,9 @@ export default function SettingsScreen() {
     >
       <SectionTitle>Account</SectionTitle>
       <Card>
-        <CardTitle>Your private APM account</CardTitle>
-        <KeyValue label="Signed in as" value={user?.email ?? 'Authenticated user'} />
-        <Button label="Sign out" variant="secondary" onPress={() => void handleSignOut()} />
+        <CardTitle>{status === 'signed_in' ? 'Private APM account' : 'Not signed in'}</CardTitle>
+        {user?.email ? <KeyValue label="Email" value={user.email} /> : null}
+        {status === 'signed_in' ? <Button label="Sign out" variant="secondary" onPress={() => void handleSignOut()} /> : null}
       </Card>
 
       <SectionTitle>Trust & control</SectionTitle>

@@ -22,7 +22,7 @@ flowchart LR
 
 | Layer | Responsibility |
 |---|---|
-| Expo mobile | UX, session handling, capture, approvals |
+| Expo mobile | UX, secure session handling, capture, approvals |
 | Supabase Auth | identity, login, refresh tokens, sessions |
 | Cloudflare Worker | APM API, business rules, privacy/policy boundary, Today/Radar, model routing |
 | Supabase Postgres | durable Life Graph system of record |
@@ -64,9 +64,11 @@ sequenceDiagram
 
 The publishable key is not a server secret. RLS and the user's access token provide authorization. A Supabase service-role/secret key is **not** part of normal user Life Graph operations.
 
+Native mobile sessions are persisted through Expo SecureStore. Authenticated builds must fail visibly when the APM API is unavailable or unconfigured; they may not silently downgrade to local-only Life Graph persistence.
+
 ## Database baseline
 
-Initial tables now exist in the APM Supabase project:
+Initial tables exist in the APM Supabase project:
 
 ```mermaid
 erDiagram
@@ -85,6 +87,7 @@ Initial migrations:
 ```text
 services/api/migrations/0001_life_graph.sql
 services/api/migrations/0002_life_graph_rpc.sql
+services/api/migrations/0003_revoke_trigger_function_execute.sql
 ```
 
 ## Atomic mutations
@@ -103,11 +106,24 @@ These functions run as **security invoker**, derive the user from `auth.uid()`, 
 | Method | Route | Auth | Purpose |
 |---|---|---:|---|
 | GET | `/v1/health` | No | Deployment health |
-| GET | `/v1/me/life-graph` | Yes | Load first Life Graph projection |
-| PUT | `/v1/onboarding` | Yes | Persist profile, roles, primary goal and first action |
-| POST | `/v1/next-actions/:id/complete` | Yes | Complete an owned action and create evidence |
+| GET | `/v1/me/life-graph` | Yes | Load Life Graph plus deterministic Radar projection |
+| GET | `/v1/me/today` | Yes | Load current Life Graph + server-built DailyPlan |
+| PUT | `/v1/onboarding` | Yes | Persist profile, roles, primary goal and first action, then return current state |
+| POST | `/v1/next-actions/:id/complete` | Yes | Complete an owned action, create evidence and return current state |
 
-The Cloudflare Worker now reaches Supabase through its HTTPS Auth/Data APIs rather than holding a privileged database connection.
+The Cloudflare Worker reaches Supabase through HTTPS Auth/Data APIs rather than holding a privileged database connection.
+
+## Today / Radar projection order
+
+```mermaid
+flowchart LR
+  DB[(Durable Life Graph)] --> R[Deterministic Radar v0]
+  R --> G[Graph + justified Radar items]
+  G --> P[DailyPlan / Today projection]
+  P --> M[Mobile]
+```
+
+Radar v0 is deterministic and LLM-free. It currently surfaces near/overdue goal deadlines, missing executable next actions, and explicitly stalled/at-risk goal health. Healthy executable goals without near deadlines remain quiet.
 
 ## Environment contract
 
@@ -156,17 +172,22 @@ Before live inference:
 ```text
 services/api/
 ├── src/
-│   ├── index.ts                 Hono/Cloudflare routes
+│   ├── index.ts                 Hono/Cloudflare routes + Today/Radar projection
 │   ├── auth.ts                  Supabase session validation
 │   ├── db.ts                    Supabase REST boundary
 │   ├── env.ts                   Worker environment contract
 │   └── lifeGraphRepository.ts   RLS-preserving Life Graph persistence
 ├── migrations/
 │   ├── 0001_life_graph.sql
-│   └── 0002_life_graph_rpc.sql
+│   ├── 0002_life_graph_rpc.sql
+│   └── 0003_revoke_trigger_function_execute.sql
 ├── wrangler.jsonc
 ├── .dev.vars.example
 └── package.json
+
+packages/radar/                deterministic proactive-signal engine
+apps/mobile/src/auth/          Supabase client + SecureStore adapter
+apps/mobile/src/state/         session + server-hydrated Life Graph state
 ```
 
 ## Security invariants
@@ -178,6 +199,7 @@ services/api/
 - raw secrets are never returned or logged;
 - consequential multi-row mutations are atomic;
 - evidence creation and completion are coupled;
+- authenticated mobile mutation does not silently fall back to local-only state;
 - OpenRouter remains behind Cloudflare and the Privacy Gateway.
 
 ## Current milestones
@@ -186,22 +208,25 @@ services/api/
 flowchart LR
   A[Supabase project] -->|done| B[Life Graph schema + RLS]
   B -->|done| C[Transactional RPCs]
-  C -->|done| D[Cloudflare Supabase repository refactor]
-  D --> E[Mobile Supabase Auth]
-  E --> F[Mobile -> Cloudflare API]
-  F --> G[Server Today projection]
-  G --> H[Deterministic Radar v0]
+  C -->|done| D[Cloudflare Supabase repository]
+  D -->|source implemented| E[Mobile Supabase Auth]
+  E -->|source implemented| F[Mobile -> Cloudflare API]
+  F -->|source implemented| G[Server Today projection]
+  G -->|source implemented| H[Deterministic Radar v0]
+  H --> I[Runtime proof]
+  I --> J[Calendar]
 ```
 
-Calendar remains the first external source after authenticated durable persistence works end-to-end.
+Calendar remains the first external source after authenticated durable persistence is proven end-to-end.
 
 ## References
 
 - ADR-0001: `docs/adr/ADR-0001-SUPABASE-CLOUDFLARE-HYBRID.md`
+- Phase implementation: `docs/18-AUTH-PERSISTENCE-AND-RADAR-V0.md`
 - Supabase Auth / Expo guide: https://supabase.com/docs/guides/auth/quickstarts/with-expo-react-native-social-auth
 - Supabase RLS: https://supabase.com/docs/guides/database/postgres/row-level-security
 - Cloudflare Worker secrets: https://developers.cloudflare.com/workers/configuration/secrets/
 
 ## Anti-drift
 
-Changing the database/auth platform, removing RLS, bypassing the Cloudflare intelligence/privacy boundary, or introducing privileged Supabase credentials into normal mobile/user operations requires a new ADR and explicit approval.
+Changing the database/auth platform, removing RLS, bypassing the Cloudflare intelligence/privacy boundary, introducing privileged Supabase credentials into normal mobile/user operations, or restoring silent local-only persistence requires a new ADR and explicit approval.

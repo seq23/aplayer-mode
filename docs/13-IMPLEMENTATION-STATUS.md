@@ -3,156 +3,185 @@
 **Status: LIVING EXECUTION RECORD**  
 **Updated: 2026-10-06**
 
-This file records what is actually implemented versus documented, mocked, provisioned, or still planned. Locked behavior lives in the canonical documents; this file prevents roadmap drift and false assumptions about what already exists.
+This file records what is actually implemented versus documented, provisioned, fixture-only, integrated-but-unproven, or still planned. Locked behavior lives in the canonical documents; this file exists to prevent roadmap drift and false completion claims.
 
 ## Current product loop
 
 ```mermaid
 flowchart LR
   W[Welcome] --> P[Privacy Primer]
-  P --> O[Structured onboarding]
-  O --> LG[Local Life Graph]
-  LG --> G[Primary Goal]
-  G --> A[Concrete Next Action]
-  A --> T[Today]
-  T --> C[User completes action]
-  C --> E[Evidence recorded]
-  LG --> Y[Your Data / provenance]
-
-  O -. typed client exists .-> API[Cloudflare API]
-  API --> AUTH[Supabase Auth]
-  API --> DATA[Supabase Data API / RPC]
-  DATA --> DB[(Supabase Postgres + RLS)]
+  P --> A[Supabase Auth]
+  A --> O[Structured multi-role onboarding]
+  O --> API[Cloudflare APM API]
+  API --> DB[(Supabase Postgres + RLS)]
+  DB --> API
+  API --> T[Server Today projection]
+  T --> M[Mobile Today]
+  M --> C[Complete next action]
+  C --> API
+  API --> E[Durable Evidence]
+  E --> R[Deterministic Radar v0]
 ```
 
-The first mobile vertical slice works locally. The Supabase Free project now exists, the first Life Graph schema/RLS/RPC migrations are applied, and the Cloudflare API source has been refactored to use Supabase Auth + Data API semantics. Mobile authenticated persistence is the next integration step.
+The first durable source-level vertical slice now exists on the `work/mobile-auth-persistence` branch. Runtime proof still requires configured mobile/Cloudflare environments and a live end-to-end exercise.
 
-## Phase status
+## Capability ledger
 
-| Area | Status | What exists now |
+| Area | State | What exists now |
 |---|---|---|
-| Product Constitution | ✅ Implemented as governance | Locked product thesis and anti-drift rules |
-| Privacy & AI Constitution | ✅ Implemented as governance | Data classes, no-training rule, ZDR preference, minimum-context rule |
-| Technical architecture | ✅ Documented | Modular-monolith boundaries and Trust/AI/action architecture |
-| Security threat model | ✅ Documented | Trust boundaries, crown jewels, prompt-injection/action risks, kill switches |
-| Analytics/evaluation | ✅ Documented | Proactive-value metrics, model evaluation, privacy-safe analytics rules |
-| Mobile shell | ✅ Implemented | Expo/React Native, Today/Radar/Goals/APM tabs, Settings routes |
-| Trust Center | ✅ Fixture implementation | Privacy Primer, AI explanation, providers, data, connections, permissions, activity, export/delete |
-| Multi-life positioning | ✅ Implemented baseline | Parent, athlete, entrepreneur, student, professional, creator, caregiver, transition examples + multi-role intake |
-| Canonical domain package | ✅ Implemented | Core Life Graph TypeScript types |
-| Privacy policy package | ✅ Implemented | Data-class routing eligibility and secret-key guard |
-| Policy package | ✅ Implemented | Explicit autonomy/entitlement checks; subscription never grants authority |
-| AI registry/router package | ✅ Implemented baseline | Privacy-first route filtering and $0-first cost ordering after eligibility |
-| Structured onboarding | ✅ First slice | Name, selected games/roles, 90-day goal, pillar, season, identity direction |
-| Local Life Graph state | ✅ First slice | Identity, roles, goal, next action, evidence |
-| Today from Life Graph | ✅ First slice | Primary action is generated from structured goal state |
-| Evidence loop | ✅ First slice | User completion creates structured evidence |
-| Goals from Life Graph | ✅ First slice | Goal screen reflects structured goal state |
-| Your Data from Life Graph | ✅ First slice | User can inspect live identity/goal state and provenance |
-| Cloudflare API workspace | ✅ Implemented scaffold | Hono Worker, health + authenticated Life Graph routes |
-| Supabase project | ✅ Provisioned | `aplayer-mode` project active on Free plan |
-| Supabase Auth | ✅ Platform available | Auth service active; mobile sign-in/session UX not wired yet |
-| PostgreSQL schema | ✅ Applied | user_profiles, roles, goals, next_actions, evidence |
-| Row Level Security | ✅ Applied | authenticated users restricted to their own rows |
-| Transactional RPCs | ✅ Applied | onboarding + completion/evidence functions |
-| Cloudflare↔Supabase repository | ✅ Refactored | API uses Supabase Auth validation and user-token Data API/RPC path |
-| Mobile API client boundary | ✅ Implemented baseline | API contract exists; authenticated session integration is next |
-| Supabase Free plan | ✅ Locked for MVP | Upgrade only when concrete need appears |
-| Mobile ↔ API live persistence | ⏳ Next | Mobile still uses local React state |
-| Mobile Supabase session | ⏳ Next | Supabase client/login/session persistence not wired into app shell |
-| Server Today projection | ⏳ Next | Current Today is generated in mobile prototype |
-| Radar deterministic engine | ⏳ Next | Example Radar still fixture content |
-| Real model calls | ⏳ Later | No production inference endpoint is connected yet |
-| Approved model registry data | ⏳ Later | Policy/schema exist; candidate evaluation still required |
-| Google Calendar | ⏳ Later | Not connected |
-| Gmail | ⏳ Later | Not connected |
-| Push notifications | ⏳ Later | Not connected |
-| External action execution | ⏳ Later | No connector actions; policy layer exists first |
+| Product Constitution | `STRUCTURAL` governance | Locked product thesis and anti-drift rules |
+| Privacy & AI Constitution | `STRUCTURAL` governance | Data classes, no-training rule, ZDR preference, minimum-context rule |
+| Mobile shell | `STRUCTURAL` | Expo/React Native, Today/Radar/Goals/APM tabs, Settings routes |
+| Trust Center | `FIXTURE_ONLY` + real navigation | Privacy/AI explanation, providers, data, connections, permissions, activity, export/delete; several provider/connection values remain explanatory fixtures |
+| Multi-life positioning | `STRUCTURAL` | Parent, athlete, entrepreneur, student, professional, creator, caregiver, transition examples + multi-role intake |
+| Canonical domain package | `STRUCTURAL` | Core Life Graph + DailyPlan/Radar types |
+| Privacy policy package | `STRUCTURAL` | Data-class routing eligibility and secret-key guard |
+| Policy package | `STRUCTURAL` | Explicit autonomy/entitlement checks; subscription never grants authority |
+| AI registry/router package | `STRUCTURAL` | Privacy-first route filtering and $0-first cost ordering after eligibility |
+| Supabase project | `INTEGRATED_UNPROVEN` | APM project active on Free plan |
+| Supabase Auth | `INTEGRATED_UNPROVEN` | Mobile client/session code exists; live-device auth journey not yet recorded |
+| PostgreSQL schema | `INTEGRATED_UNPROVEN` | user_profiles, roles, goals, next_actions, evidence applied in Supabase |
+| Row Level Security | `INTEGRATED_UNPROVEN` | authenticated users restricted to their own rows; provider/runtime negative-access journey not yet recorded |
+| Transactional RPCs | `INTEGRATED_UNPROVEN` | onboarding + completion/evidence functions applied |
+| Cloudflare API workspace | `STRUCTURAL` | Hono Worker, auth boundary, Life Graph repository, Today route |
+| Cloudflare ↔ Supabase repository | `STRUCTURAL` | API validates Supabase sessions and uses user token + publishable key against Data API/RPC |
+| Mobile secure session storage | `STRUCTURAL` | Expo SecureStore adapter with chunked session persistence on native platforms |
+| Mobile ↔ API authenticated path | `STRUCTURAL` | bearer-token client implemented; runtime endpoint not yet proven |
+| Durable onboarding path | `STRUCTURAL` | onboarding waits for server success; no fake local save fallback |
+| Durable completion/evidence path | `STRUCTURAL` | completion returns fresh server state after transactional RPC |
+| Server Today projection | `STRUCTURAL` | `/v1/me/today` builds DailyPlan from current server Life Graph |
+| Deterministic Radar v0 | `STRUCTURAL` | no-LLM rules for near/overdue target dates, missing next actions and goal health |
+| Radar unit tests | `STRUCTURAL` pending CI | tests cover missing next action, near deadline and quiet healthy goal |
+| Real model calls | `ABSENT` | no production inference endpoint sends user data to OpenRouter |
+| Approved live model routes | `ABSENT` | policy/schema exist; candidate evaluation and registry population still required |
+| Google Calendar | `ABSENT` | not connected |
+| Gmail | `ABSENT` | not connected |
+| Push notifications | `ABSENT` | not connected |
+| External action execution | `ABSENT` | no connector actions; policy layer exists first |
 
-## What is real vs fixture vs pending
+## Real vs fixture vs unproven
 
 ```mermaid
 flowchart TB
-  subgraph REAL[Implemented / provisioned]
-    R1[Navigation + Trust Center]
-    R2[Multi-role onboarding]
-    R3[Local Life Graph state]
-    R4[Goal -> Next Action]
-    R5[Completion -> Evidence]
-    R6[Privacy / Policy / AI routing primitives]
-    R7[Cloudflare API service]
-    R8[Supabase Free project]
-    R9[Postgres + RLS]
-    R10[Transactional RPCs]
-    R11[Cloudflare Supabase REST repository]
+  subgraph CODE[Implemented in source]
+    C1[Navigation + Trust Center]
+    C2[Multi-role onboarding]
+    C3[Secure Supabase session provider]
+    C4[Cloudflare API + Supabase repository]
+    C5[Server DailyPlan projection]
+    C6[Deterministic Radar v0]
+    C7[Completion -> Evidence]
   end
 
-  subgraph FIXTURE[Fixture / explanatory content]
-    F1[Example Radar commitment]
-    F2[Example AI providers]
-    F3[Connections status]
-    F4[Activity timeline]
+  subgraph LIVE[Provisioned / live provider resources]
+    L1[Supabase Free project]
+    L2[Postgres schema]
+    L3[RLS]
+    L4[RPC functions]
   end
 
-  subgraph NEXT[Next integration work]
-    N1[Mobile Supabase Auth]
-    N2[Cloudflare deployment config]
-    N3[Mobile authenticated persistence]
-    N4[Today server projection]
-    N5[Deterministic Radar]
+  subgraph FIXTURE[Still explanatory / fixture]
+    F1[Example AI provider presentation]
+    F2[Connections status]
+    F3[Some Activity examples]
   end
 
-  subgraph LATER[Later]
-    L1[OpenRouter live inference]
-    L2[Gmail / Calendar]
-    L3[Push]
+  subgraph UNPROVEN[Needs runtime receipt]
+    U1[Expo sign-up/sign-in on device]
+    U2[Secure session survives restart]
+    U3[Mobile -> deployed Cloudflare API]
+    U4[Cloudflare -> Supabase user-token path]
+    U5[RLS negative-access journey]
+  end
+
+  subgraph LATER[Later phases]
+    N1[Calendar]
+    N2[Gmail]
+    N3[OpenRouter live inference]
+    N4[Push]
   end
 ```
-
-## Current technical caveats
-
-The mobile Life Graph is still held in React state and resets when the app process resets. Supabase durability now exists server-side, but the mobile app has not yet switched its state source to the authenticated API.
-
-The API validates normal sessions through Supabase Auth and forwards the user's own access token to Supabase Data API/RPC so PostgreSQL RLS remains effective. Normal user operations do not require a service-role key.
-
-The API still supports a local-only `AUTH_DEV_BYPASS_USER_ID`; this remains development-only and must not be present in staging/production.
-
-The OpenRouter environment variable is reserved server-side, but **no route currently sends any user content to OpenRouter**.
-
-No Gmail, Calendar, purchase, banking, or external action capability has been granted or implemented.
 
 ## Current backend routes
 
 | Method | Route | State |
 |---|---|---|
 | GET | `/v1/health` | Implemented |
-| GET | `/v1/me/life-graph` | Implemented; requires Supabase session |
-| PUT | `/v1/onboarding` | Implemented; authenticated + RLS/RPC |
-| POST | `/v1/next-actions/:id/complete` | Implemented; authenticated + transactional RPC |
+| GET | `/v1/me/life-graph` | Implemented; authenticated; adds deterministic Radar projection |
+| GET | `/v1/me/today` | Implemented; authenticated graph + server DailyPlan |
+| PUT | `/v1/onboarding` | Implemented; authenticated + RLS/RPC; returns current state |
+| POST | `/v1/next-actions/:id/complete` | Implemented; authenticated + transactional RPC; returns current state |
 
-## Next execution block
+## Current auth/persistence behavior
 
 ```mermaid
-flowchart LR
-  A[Supabase schema + RLS + RPC live] --> B[Add Supabase client to Expo]
-  B --> C[Persist mobile auth session]
-  C --> D[Send session token to Cloudflare API]
-  D --> E[Hydrate Life Graph from server]
-  E --> F[Persist onboarding / completion]
-  F --> G[Today from server state]
-  G --> H[Deterministic Radar v0]
+sequenceDiagram
+  participant U as User
+  participant M as Expo mobile
+  participant S as Supabase Auth
+  participant C as Cloudflare APM API
+  participant D as Supabase Data API / Postgres
+
+  U->>M: Sign in
+  M->>S: email/password auth
+  S-->>M: session + access token
+  M->>M: persist session in SecureStore
+  M->>C: Bearer access token
+  C->>S: validate session
+  S-->>C: verified user
+  C->>D: user token + publishable key
+  D->>D: RLS via auth.uid()
+  D-->>C: user-scoped Life Graph
+  C->>C: build Radar + DailyPlan
+  C-->>M: graph + plan
 ```
 
-### Exit criteria for the next block
+If an authenticated build lacks the APM API configuration, mobile enters an error state rather than silently pretending local state is durable.
 
-- mobile signs in through Supabase Auth;
-- session persists securely on device;
-- mobile calls Cloudflare APM API with Supabase access token;
-- Life Graph survives app restarts;
-- onboarding writes to the live Supabase project;
-- action completion creates durable evidence;
-- every private query/mutation is protected by both verified identity and RLS;
-- Today can be reconstructed from server state;
-- CI covers all workspaces.
+## Deterministic Radar v0
 
-Only after that foundation is stable should Calendar become the first real external source.
+Radar v0 is intentionally code-first and LLM-free.
+
+Current rules:
+
+| Rule | Signal |
+|---|---|
+| Active goal target date is overdue | urgent / critical |
+| Active goal target date is within 1 day | urgent / high |
+| Active goal target date is within 2–7 days | upcoming / high or medium |
+| Active goal has no open/scheduled next action | slipping |
+| Goal health is `stalled` or `at_risk` | slipping |
+| Healthy executable goal with no near deadline | remain quiet |
+
+Generated Radar items include reason codes, source references, confidence, severity and related goal ID. The mobile explanation screen renders those actual reasons instead of a fixture story.
+
+## Validation state
+
+Source changes are on PR #2 and must not be described as merged or production-ready until the branch CI and later runtime journeys prove the relevant layers.
+
+Current required proof for this phase:
+
+- workspace typecheck;
+- Radar unit tests;
+- CI green on exact PR branch SHA;
+- later configured live-device sign-up/sign-in;
+- session restoration after app restart;
+- durable onboarding and completion round-trip;
+- negative cross-user RLS check;
+- deployed Cloudflare API receipt.
+
+## Not included in this phase
+
+- Calendar read/write;
+- Gmail read/write;
+- live OpenRouter inference;
+- model-provider production selection;
+- push notifications;
+- Radar dismissal/history persistence;
+- autonomous/external actions;
+- Household OS;
+- advanced web command center.
+
+## Phase boundary
+
+The current phase ends when source-level validation is green and the PR is merge-eligible. Runtime provider proof is a separate validation layer and must remain labeled unproven until actually exercised.

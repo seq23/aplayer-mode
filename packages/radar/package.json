@@ -1,0 +1,19 @@
+{
+  "name": "@apm/radar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test test/index.test.mjs && rm -rf .test-dist"
+  },
+  "dependencies": {
+    "@apm/domain": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}

@@ -32,8 +32,15 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | 13 | [IMPLEMENTATION STATUS](./13-IMPLEMENTATION-STATUS.md) | **LIVING EXECUTION RECORD** | Real vs fixture behavior, current vertical slice, next engineering block |
 | 14 | [DEPLOYMENT & SECRETS](./14-DEPLOYMENT-AND-SECRETS.md) | **LOCKED BASELINE** | Cloudflare server deployment, Expo/app-store release path, secret storage and rotation |
 | 15 | [POSITIONING & LIFE MODES](./15-POSITIONING-AND-LIFE-MODES.md) | **LOCKED POSITIONING BASELINE** | “Whatever game you're in” positioning, multi-role onboarding and audience anti-drift rules |
-| 16 | [BACKEND FOUNDATION](./16-BACKEND-FOUNDATION.md) | **LOCKED IMPLEMENTATION BASELINE** | Cloudflare API, OIDC user boundary, PostgreSQL/Hyperdrive schema and v1 endpoints |
-| 17 | [MVP INFRASTRUCTURE PROVISIONING](./17-MVP-INFRASTRUCTURE-PROVISIONING.md) | **SELECTED FOR MVP / REPLACEABLE BY ADR** | Supabase Postgres/Auth + Cloudflare Hyperdrive provisioning, cost posture and credential boundaries |
+| 16 | [BACKEND FOUNDATION](./16-BACKEND-FOUNDATION.md) | **LOCKED IMPLEMENTATION BASELINE** | Cloudflare API + Supabase Auth/Data API/RLS/RPC architecture and v1 endpoints |
+| 17 | [MVP INFRASTRUCTURE PROVISIONING](./17-MVP-INFRASTRUCTURE-PROVISIONING.md) | **SELECTED FOR MVP / REPLACEABLE BY ADR** | Supabase Free + Cloudflare Worker provisioning, public/mobile config and runtime boundaries |
+| 18 | [AUTH, PERSISTENCE & RADAR V0](./18-AUTH-PERSISTENCE-AND-RADAR-V0.md) | **IMPLEMENTATION BASELINE** | Secure mobile session, durable Life Graph bridge, server Today projection and deterministic Radar v0 |
+
+## Architecture decision records
+
+| ADR | Status | Decision |
+|---|---|---|
+| [ADR-0001](./adr/ADR-0001-SUPABASE-CLOUDFLARE-HYBRID.md) | **ACCEPTED / LOCKED** | Supabase owns Auth/Postgres/RLS; Cloudflare owns the APM API/intelligence/privacy boundary |
 
 ## Anti-drift hierarchy
 
@@ -53,49 +60,49 @@ If implementation conflicts with a locked constitution, **the implementation is 
 flowchart LR
   A[Constitutions] -->|done| B[Architecture + data + security]
   B -->|done| C[Mobile shell + Trust Center]
-  C -->|done| D[Local Life Graph vertical slice]
-  D -->|scaffolded| E[Cloudflare API + Postgres schema]
-  E -->|selected| S[Supabase Postgres + Auth]
-  S -->|next: provision/connect| F[Durable persistence + auth]
-  F --> G[Today Engine]
-  G --> H[Radar v0]
-  H --> I[Calendar]
-  I --> J[Gmail]
+  C -->|done| D[Life Graph vertical slice]
+  D -->|done| S[Supabase Free + schema + RLS + RPC]
+  S -->|implemented in current branch| E[Mobile Auth + durable persistence]
+  E -->|implemented in current branch| F[Server Today projection]
+  F -->|implemented in current branch| G[Deterministic Radar v0]
+  G --> H[Calendar]
+  H --> I[Gmail]
 ```
 
-### Already implemented as code
+### Implemented as code before the current branch
 
 - Expo / React Native workspace scaffold;
 - core navigation: **Today · Radar · Goals · APM**;
 - broad welcome positioning across parents/caregivers, athletes, entrepreneurs, students, professionals/leaders, creators, and life transitions;
 - multi-role “what game are you in?” onboarding;
 - Welcome + Privacy Primer;
-- structured onboarding into a local Life Graph;
-- primary Goal → Next Action → Today flow;
-- user completion → Evidence flow;
-- Goals and Your Data surfaces backed by live local Life Graph state;
-- Privacy & AI center;
-- How APM Uses AI;
-- AI Providers transparency screen;
-- Connections;
-- Permissions & Autonomy;
-- APM Activity;
-- Export & Delete;
-- explainable Radar fixture example;
-- canonical `@apm/domain` package;
-- `@apm/privacy` inference-eligibility primitives;
-- `@apm/policy` autonomy/permission primitives;
-- `@apm/ai` privacy-first model-registry routing primitives;
-- Cloudflare Worker API workspace with health, onboarding, Life Graph and action-completion routes;
-- provider-agnostic OIDC/JWKS authentication boundary compatible with Supabase Auth;
-- PostgreSQL first-slice migration and user-scoped repository layer;
-- typed mobile API client boundary;
-- safe server/mobile environment examples with no secrets;
-- CI typecheck across workspaces.
+- Trust Center screens;
+- canonical `@apm/domain`, `@apm/privacy`, `@apm/policy`, `@apm/ai`, and `@apm/planning` packages;
+- Cloudflare Worker API workspace;
+- Supabase project on Free plan;
+- first Life Graph schema, RLS policies and transactional RPCs;
+- Cloudflare-to-Supabase Auth/Data API repository layer.
 
-### Still not production-connected
+### Implemented in the current auth/persistence branch
 
-The mobile Life Graph still runs from local React state until the backend is provisioned and wired. Supabase is selected for the MVP but the project/database/auth environment is not yet provisioned in this repository context. A Cloudflare Hyperdrive binding and runtime secret values are also not configured yet. AI-provider, Connections, Activity, and example Radar content still contain fixture/explanatory data. No Gmail, Calendar, production OpenRouter inference, or external action execution is connected yet.
+- Expo Supabase session provider with SecureStore-backed native persistence;
+- authenticated onboarding gate;
+- mobile bearer-token calls to Cloudflare;
+- fail-visible behavior instead of silent local-only persistence;
+- `GET /v1/me/today` server projection;
+- server-returned `DailyPlan` used by mobile Today;
+- deterministic `@apm/radar` package;
+- Radar rules for near/overdue deadlines, missing next actions and at-risk/stalled goals;
+- live Radar list + live “Why APM saw this?” explanations;
+- fixture Radar cards removed from the core Today/Radar path;
+- workspace CI expanded to run typecheck + tests;
+- public mobile environment example with server secrets explicitly excluded.
+
+### Still not production-proven
+
+The current branch requires CI and then a configured live-device/runtime exercise before the authenticated Expo → Cloudflare → Supabase path can be called end-to-end proven. Cloudflare deployment configuration, mobile environment values, Supabase email delivery behavior and app-store binaries are runtime/provider layers, not proven merely by source code.
+
+No Gmail, Calendar, production OpenRouter inference, push notification delivery, or external action execution is connected yet.
 
 Use `13-IMPLEMENTATION-STATUS.md` as the detailed current-state record.
 

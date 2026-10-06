@@ -1,5 +1,4 @@
-import { router } from 'expo-router';
-import { View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   Body,
   Button,
@@ -10,51 +9,71 @@ import {
   Pill,
   Screen,
   SectionTitle,
-  uiStyles,
 } from '../../src/components/ui';
+import { useLifeGraph } from '../../src/state/lifeGraph';
+
+const reasonText: Record<string, string> = {
+  'goal.no_open_next_action': 'The active goal has no open or scheduled next action.',
+  'goal.deadline_near': 'The goal target date is within the Radar attention window.',
+  'goal.deadline_overdue': 'The goal target date has passed without the goal being closed.',
+  'goal.health_at_risk': 'The goal is explicitly marked at risk.',
+  'goal.health_stalled': 'The goal is explicitly marked stalled.',
+};
 
 export default function RadarWhyScreen() {
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { graph } = useLifeGraph();
+  const item = graph.radarItems.find((candidate) => candidate.id === id);
+
+  if (!item) {
+    return (
+      <Screen eyebrow="Why APM saw this" title="That Radar signal is no longer active.">
+        <Card tone="muted">
+          <Body muted>The underlying Life Graph may have changed, so APM no longer has the same reason to surface it.</Body>
+        </Card>
+        <Button label="Back to Radar" onPress={() => router.replace('/(tabs)/radar')} />
+      </Screen>
+    );
+  }
+
+  const explanations = item.reasonCodes.map((code) => reasonText[code] ?? code);
+
   return (
     <Screen
       eyebrow="Why APM saw this"
-      title="Send David the deck"
-      subtitle="Fixture example of explainable proactive AI."
+      title={item.headline}
+      subtitle="This explanation comes from deterministic Life Graph rules. No LLM was needed to create this signal."
     >
-      <Card tone="warning">
-        <View style={uiStyles.row}>
-          <Pill tone="warning">Due today</Pill>
-          <Pill>High confidence</Pill>
-        </View>
-        <CardTitle>APM thinks this loop is still open.</CardTitle>
+      <Card tone={item.severity === 'critical' || item.severity === 'high' ? 'warning' : 'default'}>
+        <Pill tone={item.severity === 'critical' || item.severity === 'high' ? 'warning' : 'neutral'}>
+          {item.type} · {item.severity}
+        </Pill>
+        <CardTitle>{item.summary}</CardTitle>
       </Card>
 
       <SectionTitle>How APM got here</SectionTitle>
       <Card>
-        <Flow
-          steps={[
-            'Detected a commitment in a message you sent',
-            'Interpreted the due date as today',
-            'Found no completion evidence',
-            'Matched it to an active priority',
-            'Surfaced it because timing now matters',
-          ]}
-        />
+        <Flow steps={explanations} />
       </Card>
 
       <SectionTitle>Sources</SectionTitle>
       <Card>
-        <KeyValue label="Gmail" value="Fixture evidence: “I’ll send the deck Friday.”" />
-        <KeyValue label="Life Graph" value="Fundraise · active priority" />
-        <KeyValue label="State" value="No completion evidence found" />
+        {item.sourceRefs.map((source, index) => (
+          <KeyValue
+            key={`${source.sourceType}-${source.sourceRef ?? index}`}
+            label={source.sourceType}
+            value={source.label ?? source.sourceRef ?? 'Life Graph state'}
+          />
+        ))}
       </Card>
 
-      <SectionTitle>You remain in control</SectionTitle>
+      <SectionTitle>Signal confidence</SectionTitle>
       <Card>
-        <Body muted>If APM is wrong, correcting it should update canonical state and improve future behavior.</Body>
-        <Button label="Mark complete" onPress={() => router.back()} />
-        <Button label="Correct this" variant="secondary" onPress={() => {}} />
-        <Button label="Change due date" variant="secondary" onPress={() => {}} />
+        <KeyValue label="Confidence" value={`${Math.round(item.confidence * 100)}%`} />
+        <KeyValue label="Reason rules" value={item.reasonCodes.join(', ')} />
       </Card>
+
+      <Button label="Back to Radar" variant="secondary" onPress={() => router.back()} />
     </Screen>
   );
 }

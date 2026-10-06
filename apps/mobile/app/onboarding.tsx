@@ -1,5 +1,5 @@
-import { Redirect, router } from 'expo-router';
-import { useState } from 'react';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { PillarName } from '@apm/domain';
 import { Body, Button, Card, CardTitle, Label, Screen, uiStyles } from '../src/components/ui';
@@ -27,21 +27,28 @@ const pillars: { id: PillarName; label: string }[] = [
 ];
 
 export default function OnboardingScreen() {
-  const { status: sessionStatus } = useSession();
-  const { completeOnboarding, syncStatus, syncError, isDurable } = useLifeGraph();
+  const { status } = useSession();
+  const { completeOnboarding, isDurable, syncError } = useLifeGraph();
   const [displayName, setDisplayName] = useState('');
   const [goal, setGoal] = useState('');
   const [season, setSeason] = useState('');
   const [becoming, setBecoming] = useState('');
   const [pillar, setPillar] = useState<PillarName>('execution');
   const [selectedGames, setSelectedGames] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string>();
 
-  if (sessionStatus === 'loading') return null;
-  if (sessionStatus !== 'signed_in') return <Redirect href="/sign-in" />;
+  useEffect(() => {
+    if (status === 'signed_out') router.replace('/sign-in');
+  }, [status]);
 
-  const busy = syncStatus === 'saving';
-  const ready = displayName.trim().length > 0 && goal.trim().length > 4 && selectedGames.length > 0 && !busy;
+  const ready =
+    status === 'signed_in' &&
+    isDurable &&
+    !busy &&
+    displayName.trim().length > 0 &&
+    goal.trim().length > 4 &&
+    selectedGames.length > 0;
 
   const toggleGame = (game: string) => {
     setSelectedGames((current) =>
@@ -51,6 +58,7 @@ export default function OnboardingScreen() {
 
   const submit = async () => {
     if (!ready) return;
+    setBusy(true);
     setSubmitError(undefined);
     try {
       await completeOnboarding({
@@ -63,7 +71,9 @@ export default function OnboardingScreen() {
       });
       router.replace('/(tabs)/today');
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : 'Unable to save your APM');
+      setSubmitError(error instanceof Error ? error.message : 'Unable to build your APM yet.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -80,14 +90,12 @@ export default function OnboardingScreen() {
         </Body>
       </Card>
 
-      <Card>
-        <Label>Storage</Label>
-        <Body muted>
-          {isDurable
-            ? 'This intake will be saved to your authenticated Life Graph.'
-            : 'This development build is not connected to the APM API yet, so this intake is local-only.'}
-        </Body>
-      </Card>
+      {!isDurable ? (
+        <Card tone="warning">
+          <CardTitle>Your private account is not connected to the APM API yet.</CardTitle>
+          <Body muted>{syncError ?? 'This build cannot persist your Life Graph yet, so onboarding is paused instead of pretending it saved.'}</Body>
+        </Card>
+      ) : null}
 
       <View style={uiStyles.stack}>
         <View style={styles.field}>
@@ -173,14 +181,14 @@ export default function OnboardingScreen() {
         </View>
       </View>
 
-      {submitError || syncError ? (
+      {submitError ? (
         <Card tone="danger">
-          <Body>{submitError ?? syncError}</Body>
+          <Body>{submitError}</Body>
         </Card>
       ) : null}
 
-      <Button label={busy ? 'Saving your APM…' : 'Build my first APM'} onPress={() => void submit()} />
-      {!ready && !busy ? <Body muted>Enter your name, choose at least one game, and add one concrete 90-day outcome.</Body> : null}
+      <Button label={busy ? 'Building your APM…' : 'Build my first APM'} onPress={() => void submit()} />
+      {!ready && !busy ? <Body muted>Sign in, connect the APM API, enter your name, choose at least one game, and add one concrete 90-day outcome.</Body> : null}
     </Screen>
   );
 }

@@ -8,22 +8,20 @@
 For the first production-capable APM backend, use:
 
 - **Cloudflare Workers** — APM API, Privacy Gateway, model routing, future webhooks/jobs
-- **Cloudflare Hyperdrive** — production connection layer between Workers and Postgres
-- **Supabase Postgres** — PostgreSQL origin
-- **Supabase Auth** — consumer authentication and JWT issuance
+- **Supabase Free** — PostgreSQL, Auth, Row Level Security, authenticated Data API / RPC
 - **Expo EAS** — mobile builds
 - **Apple App Store / Google Play** — mobile distribution
 - **OpenRouter** — model gateway, server-side only
 
-This provider selection is operational rather than constitutional. APM's core interfaces remain provider-agnostic enough to migrate later through an ADR if economics, security, reliability, or scale demand it.
+**Cloudflare Hyperdrive is not part of the current MVP path.** The Worker currently uses Supabase HTTPS Auth/Data API/RPC calls with the user's access token and Supabase publishable key so PostgreSQL RLS remains active. Adding a privileged direct Postgres/Hyperdrive runtime would be a separate architecture decision, not an assumed optimization.
+
+This provider selection is operational rather than constitutional. APM's domain, policy, privacy and client contracts remain isolated enough to migrate implementation details later through an ADR if economics, security, reliability, or scale demand it.
 
 ## Why Supabase for the MVP
 
-Current Supabase Free includes a dedicated Postgres database, 50,000 monthly active users for Auth, 500 MB database size, and 5 GB egress. Pro currently begins at $25/month and includes 100,000 MAU before overage. This is attractive for validating APM while protecting margins.
+Supabase gives APM PostgreSQL, Auth, RLS, generated APIs/RPC, migrations, dashboard tooling, and future Storage / Realtime / pgvector in one data platform. This reduces engineering burden while keeping the Life Graph relational and user-isolated.
 
-Cloudflare officially documents Hyperdrive connectivity to Supabase and instructs applications to use the **direct Postgres connection**, not Supabase's pooled connection, because Hyperdrive performs the pooling itself.
-
-Supabase Auth issues JWT access tokens and exposes a JWKS endpoint that is compatible with the generic OIDC/JWT verification boundary already implemented in `services/api/src/auth.ts`.
+The Free plan is the approved starting plan. Upgrade only when real product usage or operational requirements justify it.
 
 ## System map
 
@@ -31,43 +29,40 @@ Supabase Auth issues JWT access tokens and exposes a JWKS endpoint that is compa
 flowchart LR
   USER[User] --> MOBILE[Expo mobile app]
   MOBILE --> AUTH[Supabase Auth]
-  AUTH -->|JWT| MOBILE
-  MOBILE -->|JWT| CF[Cloudflare Worker API]
-  CF -->|verify JWKS| AUTH
-  CF --> HD[Cloudflare Hyperdrive]
-  HD --> PG[(Supabase Postgres)]
+  AUTH -->|session/access token| MOBILE
+  MOBILE -->|Bearer token| CF[Cloudflare Worker API]
+  CF -->|validate session| AUTH
+  CF -->|user token + publishable key| DATA[Supabase Data API / RPC]
+  DATA --> PG[(Postgres + RLS)]
   CF --> PRIV[APM Privacy Gateway]
-  PRIV --> OR[OpenRouter]
-
-  OR -. secret only .-> CFS[Cloudflare secret binding]
+  PRIV --> OR[OpenRouter - later]
 ```
 
 ## Responsibility boundaries
 
 | System | Allowed responsibility | Not allowed |
 |---|---|---|
-| Mobile app | UI, user interaction, session token, public config | OpenRouter secret, DB password, OAuth client secret |
-| Supabase Auth | User authentication, sessions, JWT issuance | Owning APM business logic |
-| Cloudflare Worker | APM API/business logic, authorization, privacy/model routing | Trusting client-supplied user IDs |
-| Hyperdrive | Secure/efficient DB connection pooling/routing | Product authorization |
-| Supabase Postgres | Durable Life Graph state | Direct mobile writes for core APM state |
-| OpenRouter | Approved inference only | Storing APM secrets or bypassing Privacy Gateway |
+| Mobile app | UI, secure user session, public config, user interaction | OpenRouter secret, service-role key, DB password, OAuth client secret |
+| Supabase Auth | User authentication, sessions, access-token issuance | Owning APM business logic |
+| Cloudflare Worker | APM API/business logic, authorization, privacy/model routing, Today/Radar | Trusting client-supplied user IDs |
+| Supabase Data API / RPC | Authenticated data access and atomic database functions | Replacing APM product policy |
+| Supabase Postgres + RLS | Durable Life Graph and database-level ownership isolation | Public unauthenticated Life Graph access |
+| OpenRouter | Approved inference only | Bypassing Privacy Gateway or receiving APM secrets |
 
-## Authentication values
+## Authentication model
 
-Once the Supabase project exists, production/staging API configuration will use values equivalent to:
+1. User authenticates with Supabase Auth.
+2. Mobile stores the session securely on native devices.
+3. Mobile sends the access token to Cloudflare as `Authorization: Bearer <token>`.
+4. Cloudflare validates the token with Supabase Auth.
+5. Cloudflare calls Supabase Data API/RPC with the same user token plus the publishable key.
+6. PostgreSQL RLS evaluates `auth.uid()` and restricts rows to the authenticated user.
 
-```text
-AUTH_JWKS_URL=https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
-AUTH_ISSUER=https://<project-ref>.supabase.co/auth/v1
-AUTH_AUDIENCE=authenticated
-```
-
-APM should use Supabase's asymmetric JWT signing keys so the Worker can verify tokens using public JWKS rather than sharing a private signing secret.
+Normal Life Graph operations do not require a Supabase service-role key.
 
 ## Mobile public configuration
 
-The mobile application may contain **public** client configuration:
+The mobile application requires public client configuration:
 
 ```text
 EXPO_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
@@ -75,7 +70,7 @@ EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 EXPO_PUBLIC_APM_API_URL=https://api.aplayermode.com
 ```
 
-The Supabase publishable key is designed for client applications. It is not equivalent to a service-role/database credential.
+These values are bundled into the client and therefore are **not secrets**. Their safety depends on the server/RLS authorization model, not obscurity.
 
 The following must never use `EXPO_PUBLIC_`:
 
@@ -87,50 +82,58 @@ Cloudflare API token
 Google OAuth client secret
 ```
 
+## Cloudflare environment
+
+The APM Worker requires:
+
+```text
+SUPABASE_URL
+SUPABASE_PUBLISHABLE_KEY
+ALLOWED_ORIGIN
+```
+
+Later live inference additionally requires:
+
+```text
+OPENROUTER_API_KEY
+```
+
+`AUTH_DEV_BYPASS_USER_ID` is local-development-only and must never be configured in staging/production.
+
 ## Provisioning sequence
 
 ```mermaid
 flowchart TD
-  A[Create Supabase project] --> B[Enable / confirm asymmetric JWT signing keys]
-  B --> C[Run APM migration]
-  C --> D[Create least-privilege Hyperdrive DB user]
-  D --> E[Create Cloudflare Hyperdrive using direct DB connection]
-  E --> F[Add HYPERDRIVE binding to wrangler config]
-  F --> G[Configure Worker auth values]
-  G --> H[Add OPENROUTER_API_KEY as Cloudflare secret]
-  H --> I[Deploy Worker]
-  I --> J[Configure mobile Supabase Auth]
-  J --> K[Wire Life Graph client to API]
+  A[Create Supabase project] --> B[Apply Life Graph schema + RLS]
+  B --> C[Apply atomic RPC functions]
+  C --> D[Verify security advisor / function grants]
+  D --> E[Configure Cloudflare Worker public Supabase values]
+  E --> F[Deploy Worker]
+  F --> G[Configure Expo public Supabase + API values]
+  G --> H[Run live auth + persistence journey]
+  H --> I[Record RLS negative-access proof]
+  I --> J[Enable later OpenRouter secret only after model route approval]
 ```
+
+The Supabase project, first schema, RLS policies and initial RPC functions are already provisioned. Cloudflare/mobile runtime configuration and live end-to-end proof remain separate provider/runtime tasks.
 
 ## Database access principle
 
-Even though Supabase can expose the database directly through its client SDK, APM's canonical Life Graph writes stay behind the APM API.
+Even though Supabase exposes client SDK and Data API access, APM's canonical product mutations stay behind the Cloudflare APM API.
 
 Why:
 
-- APM business rules stay server-controlled.
+- APM business rules stay server-controlled;
 - authorization is consistent across clients;
-- audit/event behavior cannot be bypassed;
-- the future Privacy Gateway/action policy can be applied centrally;
-- we avoid splitting business logic between Postgres RLS and mobile code.
+- evidence/audit behavior cannot be bypassed by normal product UI;
+- future Privacy Gateway/action policy stays centralized;
+- mobile remains a client of APM rather than a second business-logic implementation.
 
-Supabase RLS may still be used as defense-in-depth where appropriate, but it is not the primary APM business-authorization mechanism.
-
-## Hyperdrive user
-
-Create a dedicated database login for Hyperdrive rather than using a broad owner credential indefinitely. Grant only the privileges the APM API requires.
-
-Initial development may temporarily use a project owner connection to bootstrap migrations, but production runtime should move to the dedicated role before public launch.
+RLS is defense-in-depth and remains mandatory.
 
 ## OpenRouter secret installation
 
-After the Worker exists, install the OpenRouter key directly into Cloudflare via an interactive secret prompt:
-
-```text
-cd services/api
-npx wrangler secret put OPENROUTER_API_KEY
-```
+After the Worker exists and live inference is approved, install the OpenRouter key directly into Cloudflare through the managed secret mechanism.
 
 Do not pass the value as a command-line argument, commit it, paste it into an issue, or expose it as an Expo environment variable.
 
@@ -143,51 +146,54 @@ flowchart LR
   FREE[Free / low fixed infrastructure] --> VALIDATE[Validate retention + proactive value]
   VALIDATE --> SCALE[Scale only when usage proves need]
 
-  FREE --- S1[Supabase Free during early development]
-  FREE --- S2[Cloudflare Workers/Hyperdrive within applicable plan limits]
-  FREE --- S3[Approved $0 OpenRouter routes where eligible]
+  FREE --- S1[Supabase Free]
+  FREE --- S2[Cloudflare Workers within applicable free/paid limits]
+  FREE --- S3[Approved $0 OpenRouter routes later where eligible]
 ```
 
 Infrastructure is optimized for low early fixed cost without weakening privacy boundaries.
 
 ## Upgrade triggers
 
-Move off a free/development tier because of **real usage**, not imagined scale.
+Move off a free/development tier because of **real usage or operational need**, not imagined scale.
 
 Triggers include:
 
-- storage/egress limits;
-- MAU threshold;
-- production uptime/backups requirements;
+- storage/egress/MAU limits;
+- production uptime or backup/recovery requirements;
 - security/compliance needs;
 - database compute pressure;
-- Worker/Hyperdrive request volume;
+- Worker request volume;
 - support/SLA requirements.
 
-## Current external setup still required
+## Current runtime proof still required
 
-The repository now contains the implementation boundaries, migration, API, and mobile API client. The following are external resources and cannot be represented by code alone:
+The following are not proven merely because source exists:
 
-1. Supabase project
-2. Supabase DB/Auth configuration
-3. Cloudflare Hyperdrive configuration ID
-4. Cloudflare Worker secret values
-5. deployed API hostname/domain
+1. deployed Cloudflare API hostname and environment values;
+2. Expo/EAS public environment configuration;
+3. live sign-up/sign-in on a device;
+4. secure session restoration after restart;
+5. live onboarding round-trip into Supabase;
+6. live completion/evidence round-trip;
+7. cross-user negative RLS check.
 
-Once these exist, they are wired into the existing source rather than requiring an architectural redesign.
+These must be recorded before the authenticated persistence layer is called production-ready.
 
 ## References
 
-- Supabase pricing: https://supabase.com/pricing
-- Supabase Auth JWT/JWKS: https://supabase.com/docs/guides/auth/jwts
-- Supabase + Expo: https://supabase.com/docs/guides/getting-started/quickstarts/expo-react-native
-- Cloudflare Hyperdrive + Supabase: https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/
+- ADR-0001: `docs/adr/ADR-0001-SUPABASE-CLOUDFLARE-HYBRID.md`
+- Backend implementation: `docs/16-BACKEND-FOUNDATION.md`
+- Auth/persistence phase: `docs/18-AUTH-PERSISTENCE-AND-RADAR-V0.md`
+- Supabase Auth: https://supabase.com/docs/guides/auth
+- Supabase RLS: https://supabase.com/docs/guides/database/postgres/row-level-security
+- Cloudflare Workers: https://developers.cloudflare.com/workers/
 
 ## Anti-drift
 
 - Mobile does not become a direct privileged database client.
 - Supabase service-role credentials never ship to mobile.
 - Supabase selection does not bypass the APM server authorization boundary.
-- Hyperdrive remains the production Worker-to-Postgres path unless changed by ADR.
+- Hyperdrive is not part of the current approved MVP path.
 - Authentication does not imply APM autonomy permission.
 - OpenRouter remains behind server-side privacy/model policy even after its key is configured.
