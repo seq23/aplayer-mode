@@ -1,6 +1,6 @@
 # A Player Mode — Documentation Index
 
-This directory is the canonical source of product, privacy, AI, architecture, pricing, security, data, UX, deployment, positioning, and backend decisions for A Player Mode.
+This directory is the canonical source of product, privacy, AI, architecture, pricing, security, data, UX, deployment, positioning, backend, and infrastructure decisions for A Player Mode.
 
 ## Decision status
 
@@ -8,6 +8,7 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 |---|---|
 | **LOCKED** | Engineering must conform. Material changes require an ADR + explicit approval. |
 | **RECOMMENDED / TESTABLE** | Current decision, but expected to evolve with evidence. Changes must be documented. |
+| **SELECTED FOR MVP / REPLACEABLE BY ADR** | Current infrastructure provider choice; implementation should use it unless an ADR changes the provider. |
 | **DRAFT** | Under discussion; not authoritative. |
 | **LIVING EXECUTION RECORD** | Describes what is actually implemented now; updated as code changes. |
 
@@ -32,6 +33,7 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | 14 | [DEPLOYMENT & SECRETS](./14-DEPLOYMENT-AND-SECRETS.md) | **LOCKED BASELINE** | Cloudflare server deployment, Expo/app-store release path, secret storage and rotation |
 | 15 | [POSITIONING & LIFE MODES](./15-POSITIONING-AND-LIFE-MODES.md) | **LOCKED POSITIONING BASELINE** | “Whatever game you're in” positioning, multi-role onboarding and audience anti-drift rules |
 | 16 | [BACKEND FOUNDATION](./16-BACKEND-FOUNDATION.md) | **LOCKED IMPLEMENTATION BASELINE** | Cloudflare API, OIDC user boundary, PostgreSQL/Hyperdrive schema and v1 endpoints |
+| 17 | [MVP INFRASTRUCTURE PROVISIONING](./17-MVP-INFRASTRUCTURE-PROVISIONING.md) | **SELECTED FOR MVP / REPLACEABLE BY ADR** | Supabase Postgres/Auth + Cloudflare Hyperdrive provisioning, cost posture and credential boundaries |
 
 ## Anti-drift hierarchy
 
@@ -53,7 +55,8 @@ flowchart LR
   B -->|done| C[Mobile shell + Trust Center]
   C -->|done| D[Local Life Graph vertical slice]
   D -->|scaffolded| E[Cloudflare API + Postgres schema]
-  E -->|next: provision/connect| F[Durable persistence + auth]
+  E -->|selected| S[Supabase Postgres + Auth]
+  S -->|next: provision/connect| F[Durable persistence + auth]
   F --> G[Today Engine]
   G --> H[Radar v0]
   H --> I[Calendar]
@@ -84,14 +87,15 @@ flowchart LR
 - `@apm/policy` autonomy/permission primitives;
 - `@apm/ai` privacy-first model-registry routing primitives;
 - Cloudflare Worker API workspace with health, onboarding, Life Graph and action-completion routes;
-- provider-agnostic OIDC/JWKS authentication boundary;
+- provider-agnostic OIDC/JWKS authentication boundary compatible with Supabase Auth;
 - PostgreSQL first-slice migration and user-scoped repository layer;
-- safe `.dev.vars.example` with no secrets;
+- typed mobile API client boundary;
+- safe server/mobile environment examples with no secrets;
 - CI typecheck across workspaces.
 
 ### Still not production-connected
 
-The mobile Life Graph still runs from local React state until the backend is provisioned and wired. The Worker code exists, but a production PostgreSQL origin, Hyperdrive binding, and authentication provider are not configured yet. AI-provider, Connections, Activity, and example Radar content still contain fixture/explanatory data. No Gmail, Calendar, production OpenRouter inference, or external action execution is connected yet.
+The mobile Life Graph still runs from local React state until the backend is provisioned and wired. Supabase is selected for the MVP but the project/database/auth environment is not yet provisioned in this repository context. A Cloudflare Hyperdrive binding and runtime secret values are also not configured yet. AI-provider, Connections, Activity, and example Radar content still contain fixture/explanatory data. No Gmail, Calendar, production OpenRouter inference, or external action execution is connected yet.
 
 Use `13-IMPLEMENTATION-STATUS.md` as the detailed current-state record.
 
