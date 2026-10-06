@@ -1,4 +1,5 @@
 import type { LifeAdminItem, LifeAdminRecurrence, LifeRelationship, Person } from '@apm/domain';
+import { nextRecurringOccurrence } from '@apm/planning';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
 
@@ -333,48 +334,6 @@ export async function updateLifeAdminItem(
   return mapLifeAdminItem(rows[0], userId);
 }
 
-function lastDayOfUtcMonth(year: number, monthIndex: number): number {
-  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
-}
-
-function addMonthsClamped(base: Date, months: number): Date {
-  const next = new Date(base.getTime());
-  const day = next.getUTCDate();
-  next.setUTCDate(1);
-  next.setUTCMonth(next.getUTCMonth() + months);
-  next.setUTCDate(Math.min(day, lastDayOfUtcMonth(next.getUTCFullYear(), next.getUTCMonth())));
-  return next;
-}
-
-function addYearsClamped(base: Date, years: number): Date {
-  const next = new Date(base.getTime());
-  const month = next.getUTCMonth();
-  const day = next.getUTCDate();
-  next.setUTCDate(1);
-  next.setUTCFullYear(next.getUTCFullYear() + years);
-  next.setUTCMonth(month);
-  next.setUTCDate(Math.min(day, lastDayOfUtcMonth(next.getUTCFullYear(), month)));
-  return next;
-}
-
-function addRecurrence(base: Date, recurrence: LifeAdminRecurrence): Date | undefined {
-  const frequency = recurrence.frequency;
-  if (!frequency) return undefined;
-  const interval = Math.max(1, Math.min(365, Math.trunc(recurrence.interval ?? 1)));
-  const next = new Date(base.getTime());
-  if (frequency === 'daily') {
-    next.setUTCDate(next.getUTCDate() + interval);
-    return next;
-  }
-  if (frequency === 'weekly') {
-    next.setUTCDate(next.getUTCDate() + 7 * interval);
-    return next;
-  }
-  if (frequency === 'monthly') return addMonthsClamped(base, interval);
-  if (frequency === 'yearly') return addYearsClamped(base, interval);
-  return undefined;
-}
-
 export async function completeLifeAdminItem(
   env: ApiEnv,
   accessToken: string,
@@ -394,18 +353,9 @@ export async function completeLifeAdminItem(
   let nextDue: Date | undefined;
   if (existing.recurrence?.frequency) {
     const baseRaw = existing.due_at ?? existing.starts_at ?? completedAt.toISOString();
-    let cursor = new Date(baseRaw);
-    if (Number.isNaN(cursor.getTime())) cursor = completedAt;
-    const firstNext = addRecurrence(cursor, existing.recurrence);
-    if (firstNext) {
-      cursor = firstNext;
-      for (let i = 0; i < 500 && cursor.getTime() <= completedAt.getTime(); i += 1) {
-        const later = addRecurrence(cursor, existing.recurrence);
-        if (!later) break;
-        cursor = later;
-      }
-      if (cursor.getTime() > completedAt.getTime()) nextDue = cursor;
-    }
+    let scheduledAt = new Date(baseRaw);
+    if (Number.isNaN(scheduledAt.getTime())) scheduledAt = completedAt;
+    nextDue = nextRecurringOccurrence(scheduledAt, completedAt, existing.recurrence);
   }
 
   const details = { ...(existing.details ?? {}), lastCompletedAt: completedAt.toISOString() };
