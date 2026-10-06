@@ -87,6 +87,7 @@ function recurrenceWithCanonicalAnchors(
   recurrence: LifeAdminRecurrence,
   dueAt?: string | null,
   startsAt?: string | null,
+  timezone?: string,
   resetAnchors = false,
 ): LifeAdminRecurrence {
   if (!recurrence.frequency) return {};
@@ -94,6 +95,10 @@ function recurrenceWithCanonicalAnchors(
     frequency: recurrence.frequency,
     interval: recurrence.interval ?? 1,
   };
+  const canonicalTimezone = resetAnchors
+    ? timezone ?? recurrence.timezone
+    : recurrence.timezone ?? timezone;
+  if (canonicalTimezone) normalized.timezone = canonicalTimezone;
   const dueAnchor = resetAnchors ? dueAt ?? undefined : recurrence.anchorDueAt ?? dueAt ?? undefined;
   const startAnchor = resetAnchors ? startsAt ?? undefined : recurrence.anchorStartsAt ?? startsAt ?? undefined;
   if (dueAnchor) normalized.anchorDueAt = dueAnchor;
@@ -287,6 +292,7 @@ export async function createLifeAdminItem(
   accessToken: string,
   userId: string,
   input: LifeAdminInput,
+  timezone?: string,
 ): Promise<LifeAdminItem> {
   if (input.personId) await ensureOwnedPerson(env, accessToken, userId, input.personId);
 
@@ -303,7 +309,7 @@ export async function createLifeAdminItem(
       due_at: input.dueAt ?? null,
       starts_at: input.startsAt ?? null,
       ends_at: input.endsAt ?? null,
-      recurrence: recurrenceWithCanonicalAnchors(input.recurrence ?? {}, input.dueAt ?? null, input.startsAt ?? null, true),
+      recurrence: recurrenceWithCanonicalAnchors(input.recurrence ?? {}, input.dueAt ?? null, input.startsAt ?? null, timezone, true),
       amount_minor: input.amountMinor ?? null,
       currency: input.currency ?? null,
       details: input.details ?? {},
@@ -322,6 +328,7 @@ export async function updateLifeAdminItem(
   userId: string,
   itemId: string,
   input: Partial<LifeAdminInput>,
+  timezone?: string,
 ): Promise<LifeAdminItem> {
   const existingRows = await supabaseRest<LifeAdminRow[]>(
     env,
@@ -355,6 +362,7 @@ export async function updateLifeAdminItem(
       input.recurrence ?? existing.recurrence,
       mergedDueAt,
       mergedStartsAt,
+      timezone,
       true,
     );
   }
@@ -381,6 +389,7 @@ export async function completeLifeAdminItem(
   accessToken: string,
   userId: string,
   itemId: string,
+  timezone?: string,
 ): Promise<LifeAdminItem> {
   const rows = await supabaseRest<LifeAdminRow[]>(
     env,
@@ -403,6 +412,7 @@ export async function completeLifeAdminItem(
         existing.recurrence,
         existing.due_at ?? (!existing.starts_at ? completedAt.toISOString() : null),
         existing.starts_at,
+        timezone,
       )
     : {};
 
@@ -415,6 +425,7 @@ export async function completeLifeAdminItem(
         },
         completedAt,
         effectiveRecurrence,
+        timezone,
       )
     : {};
 
