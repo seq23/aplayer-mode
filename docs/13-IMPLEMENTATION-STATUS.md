@@ -19,11 +19,12 @@ flowchart LR
   C --> E[Evidence recorded]
   LG --> Y[Your Data / provenance]
 
-  O -. backend contract exists .-> API[Cloudflare API]
-  API -. not provisioned yet .-> DB[(PostgreSQL)]
+  O -. typed client exists .-> API[Cloudflare API]
+  API -. provider selected, not provisioned .-> DB[(Supabase Postgres)]
+  API -. JWT verification path .-> AUTH[Supabase Auth]
 ```
 
-The first mobile vertical slice works locally. The server equivalent now exists in code but is not yet connected to a provisioned database/authentication environment.
+The first mobile vertical slice works locally. The server equivalent and typed mobile API client now exist in code, but the external Supabase/Cloudflare environment is not yet provisioned.
 
 ## Phase status
 
@@ -51,9 +52,11 @@ The first mobile vertical slice works locally. The server equivalent now exists 
 | Authentication boundary | ✅ Implemented scaffold | OIDC/JWKS token verification; verified `sub` owns server-side data scope |
 | PostgreSQL schema/migrations | ✅ First migration | Users, profiles, roles, goals, next actions, evidence |
 | Durable repository layer | ✅ Implemented scaffold | User-scoped queries/mutations + transactional completion/evidence |
-| Production database | ⏳ Provision next | No Postgres origin or Hyperdrive binding configured yet |
-| Production authentication provider | ⏳ Provision next | Generic OIDC boundary exists; provider/mobile sign-in not configured yet |
-| Mobile ↔ API integration | ⏳ Next | Mobile still uses local React state |
+| Mobile API client | ✅ Implemented boundary | Typed fetch layer for Life Graph/onboarding/action completion |
+| MVP database/auth provider | ✅ Selected | Supabase Postgres + Supabase Auth; replaceable later by ADR |
+| Production database | ⏳ Provision next | Supabase project not yet connected; no Hyperdrive binding yet |
+| Production authentication | ⏳ Provision next | Supabase selected; mobile session/sign-in not configured yet |
+| Mobile ↔ API live persistence | ⏳ Next | Mobile still uses local React state until auth/backend are provisioned |
 | Server Today projection | ⏳ Next | Current Today is generated in mobile prototype |
 | Radar deterministic engine | ⏳ Next | Example Radar still fixture content |
 | Real model calls | ⏳ Later | No production inference endpoint is connected yet |
@@ -77,6 +80,7 @@ flowchart TB
     R7[Cloudflare API service]
     R8[OIDC auth verification]
     R9[Postgres migration + repository]
+    R10[Mobile API client]
   end
 
   subgraph FIXTURE[Fixture / explanatory content]
@@ -86,15 +90,15 @@ flowchart TB
     F4[Activity timeline]
   end
 
-  subgraph NEEDSENV[Code exists; environment not provisioned]
-    P1[Postgres origin]
-    P2[Hyperdrive binding]
-    P3[OIDC auth provider]
+  subgraph NEEDSENV[Code/provider selected; environment not provisioned]
+    P1[Supabase project]
+    P2[Supabase Auth signing/JWKS]
+    P3[Cloudflare Hyperdrive binding]
     P4[Cloudflare runtime secrets]
   end
 
   subgraph NOTYET[Not connected yet]
-    N1[Mobile API persistence]
+    N1[Mobile authenticated persistence]
     N2[OpenRouter inference]
     N3[Gmail / Calendar]
     N4[Push]
@@ -105,9 +109,9 @@ flowchart TB
 
 The mobile Life Graph is still held in React state and resets when the app process resets. This remains intentional until the Cloudflare API is connected to a real database and the mobile authentication/session flow exists.
 
-The new Worker API is real source code, but it cannot provide durable persistence until a PostgreSQL database is provisioned, migration `0001_life_graph.sql` is applied, and Cloudflare Hyperdrive is bound in the deployed environment.
+The new Worker API is real source code, but it cannot provide durable persistence until a Supabase project exists, migration `0001_life_graph.sql` is applied, and Cloudflare Hyperdrive is bound in the deployed environment.
 
-The API supports a local-only `AUTH_DEV_BYPASS_USER_ID`. This is a development bridge, not production authentication. Staging/production must use the OIDC/JWKS path.
+The API supports a local-only `AUTH_DEV_BYPASS_USER_ID`. This is a development bridge, not production authentication. Staging/production will use Supabase Auth's JWT/JWKS path.
 
 The OpenRouter environment variable is reserved server-side, but **no route currently sends any user content to OpenRouter**.
 
@@ -126,23 +130,25 @@ No Gmail, Calendar, purchase, banking, or external action capability has been gr
 
 ```mermaid
 flowchart LR
-  A[API code] --> B[Provision Postgres]
-  B --> C[Create Cloudflare Hyperdrive]
-  C --> D[Run migration]
-  D --> E[Configure OIDC provider]
-  E --> F[Wire mobile API client]
-  F --> G[Persist onboarding / goals / evidence]
-  G --> H[Today from server state]
-  H --> I[Deterministic Radar v0]
+  A[API code] --> B[Provision Supabase]
+  B --> C[Run migration]
+  C --> D[Create Cloudflare Hyperdrive]
+  D --> E[Configure Supabase JWT/JWKS]
+  E --> F[Configure mobile Supabase Auth]
+  F --> G[Wire authenticated mobile API client]
+  G --> H[Persist onboarding / goals / evidence]
+  H --> I[Today from server state]
+  I --> J[Deterministic Radar v0]
 ```
 
 ### Exit criteria for the next block
 
-- A real development PostgreSQL database exists.
-- Cloudflare Worker reaches it via Hyperdrive in deployed/dev environment.
-- The migration is applied.
-- A real authentication provider issues JWTs accepted by the API.
-- Mobile talks to the typed development API.
+- A real Supabase development project exists.
+- The APM migration is applied.
+- Cloudflare Worker reaches Supabase Postgres via Hyperdrive.
+- Supabase Auth issues JWTs accepted by the Worker.
+- Mobile obtains/persists an authenticated session.
+- Mobile talks to the typed development API with the access token.
 - User-scoped Life Graph data survives app restarts.
 - Identity, roles, goals, next actions, and evidence have durable storage.
 - Every private query/mutation is scoped to an authenticated user boundary.
