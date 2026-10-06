@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "A Player Mode",
+    "slug": "aplayer-mode",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "aplayermode",
+    "plugins": ["expo-router"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aplayermode.app"
+    },
+    "android": {
+      "package": "com.aplayermode.app"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
