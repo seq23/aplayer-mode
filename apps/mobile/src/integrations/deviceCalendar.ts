@@ -51,8 +51,8 @@ export async function syncConfiguredDeviceCalendars(accessToken: string) {
         allDay: Boolean(event.allDay),
         availability: availability(event.availability),
         recurrence: event.recurrenceRule ? { rule: event.recurrenceRule } : {},
-        organizer: event.organizer ? { name: event.organizer.name, email: event.organizer.email } : {},
-        attendees: event.attendees ?? [],
+        organizer: event.organizer ? { name: event.organizer.name } : {},
+        attendees: [],
         sourceVersion: event.lastModifiedDate ? new Date(event.lastModifiedDate).toISOString() : undefined,
         deleted: false,
         sourceCalendar: calendar ? {
