@@ -71,7 +71,7 @@ create table public.life_admin_items (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check (ends_at is null or starts_at is null or ends_at >= starts_at),
-  foreign key (user_id, person_id) references public.people(user_id, id) on delete set null
+  foreign key (user_id, person_id) references public.people(user_id, id) on delete set null (person_id)
 );
 
 create index life_admin_items_user_status_due_idx
@@ -109,3 +109,34 @@ create policy life_admin_items_update_life_os
 create policy life_admin_items_delete_life_os
   on public.life_admin_items for delete to authenticated
   using ((select auth.uid()) = user_id and private.apm_has_life_os_access((select auth.uid())));
+
+-- Data-rights access is deliberately separate from product entitlement. A user
+-- retains the right to export their own stored Life OS data after downgrade or expiry.
+create or replace function public.apm_export_life_os_state()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select jsonb_build_object(
+    'life_relationships',
+      coalesce(
+        (select jsonb_agg(to_jsonb(lr) order by lr.created_at)
+         from public.life_relationships lr
+         where lr.user_id = (select auth.uid())),
+        '[]'::jsonb
+      ),
+    'life_admin_items',
+      coalesce(
+        (select jsonb_agg(to_jsonb(li) order by li.created_at)
+         from public.life_admin_items li
+         where li.user_id = (select auth.uid())),
+        '[]'::jsonb
+      )
+  )
+  where (select auth.uid()) is not null;
+$$;
+
+revoke all on function public.apm_export_life_os_state() from public, anon;
+grant execute on function public.apm_export_life_os_state() to authenticated;
