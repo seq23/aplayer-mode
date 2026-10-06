@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { buildDailyPlan } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
-import { autonomyLabels, capabilitiesForPlan, maxAutonomyForPlan, productPlanPolicies, type ActionDomain, type ProductPlan } from '@apm/policy';
+import { autonomyLabels, capabilitiesForPlan, maxAutonomyForPlan, planHasCapability, productPlanPolicies, type ActionDomain, type ProductPlan } from '@apm/policy';
 import { authenticateRequest } from './auth';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
@@ -25,6 +25,13 @@ import {
   setHouseholdInterest,
   upsertPermission,
 } from './platformRepository';
+import {
+  completeLifeAdminItem,
+  createLifeAdminItem,
+  createRelationship,
+  updateLifeAdminItem,
+  updateRelationship,
+} from './lifeOsRepository';
 import { createOAuthState, verifyOAuthState } from './crypto';
 import { buildOAuthAuthorizationUrl, exchangeAndStoreOAuthConnection } from './connectors/oauth';
 import { syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
@@ -62,6 +69,15 @@ const planPriceLabels: Record<ProductPlan, string> = {
 
 function entitlementIsUsable(entitlement: SubscriptionEntitlement | undefined): boolean {
   return Boolean(entitlement && (entitlement.status === 'active' || entitlement.status === 'trialing'));
+}
+
+function hasLifeOsAccess(entitlement: SubscriptionEntitlement | undefined): boolean {
+  return Boolean(
+    entitlement
+    && entitlementIsUsable(entitlement)
+    && entitlement.plan !== 'household'
+    && planHasCapability(entitlement.plan, 'life_os_domains'),
+  );
 }
 
 function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: string) {
@@ -142,6 +158,77 @@ const methodologyIntakeSchema = onboardingSchema.extend({
   reviewGateDays: z.union([z.literal(30), z.literal(60), z.literal(90)]).optional(),
 });
 
+const lifeAdminKindSchema = z.enum([
+  'appointment','trip','bill','subscription','meal_plan','shopping',
+  'health_routine','recurring_obligation','family_obligation',
+]);
+const lifeAdminStatusSchema = z.enum(['open','planned','scheduled','completed','paused','cancelled']);
+const lifeAdminRecurrenceSchema = z.object({
+  frequency: z.enum(['daily','weekly','monthly','yearly']).optional(),
+  interval: z.number().int().min(1).max(365).optional(),
+}).default({});
+const optionalDateSchema = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional();
+const optionalDateTimeSchema = z.union([z.string().datetime(), z.literal('')]).optional();
+
+const relationshipCreateSchema = z.object({
+  personId: z.string().uuid().optional(),
+  personName: z.string().trim().min(1).max(200).optional(),
+  relationship: z.string().trim().max(120).optional(),
+  email: z.union([z.string().email().max(320), z.literal('')]).optional(),
+  phone: z.string().trim().max(80).optional(),
+  birthday: optionalDateSchema,
+  nextContactAt: optionalDateTimeSchema,
+  cadenceDays: z.number().int().min(1).max(3650).optional(),
+  notes: z.string().max(4000).optional(),
+}).superRefine((value, ctx) => {
+  if (!value.personId && !value.personName) ctx.addIssue({ code: 'custom', message: 'personId or personName is required' });
+});
+
+const relationshipPatchSchema = z.object({
+  personName: z.string().trim().min(1).max(200).optional(),
+  relationship: z.string().trim().max(120).optional(),
+  email: z.union([z.string().email().max(320), z.literal('')]).optional(),
+  phone: z.string().trim().max(80).optional(),
+  birthday: optionalDateSchema,
+  nextContactAt: optionalDateTimeSchema,
+  cadenceDays: z.number().int().min(1).max(3650).optional(),
+  notes: z.string().max(4000).optional(),
+}).refine((value) => Object.keys(value).length > 0, { message: 'at least one field is required' });
+
+const lifeAdminCreateSchema = z.object({
+  personId: z.string().uuid().optional(),
+  kind: lifeAdminKindSchema,
+  title: z.string().trim().min(1).max(500),
+  status: lifeAdminStatusSchema.optional(),
+  importance: z.union([z.literal(1),z.literal(2),z.literal(3),z.literal(4),z.literal(5)]).optional(),
+  dueAt: z.string().datetime().optional(),
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional(),
+  recurrence: lifeAdminRecurrenceSchema.optional(),
+  amountMinor: z.number().int().min(0).max(9_000_000_000_000).optional(),
+  currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
+}).superRefine((value, ctx) => {
+  if (value.startsAt && value.endsAt && Date.parse(value.endsAt) < Date.parse(value.startsAt)) {
+    ctx.addIssue({ code: 'custom', message: 'endsAt must be at or after startsAt' });
+  }
+});
+
+const lifeAdminPatchSchema = z.object({
+  personId: z.union([z.string().uuid(), z.literal('')]).optional(),
+  kind: lifeAdminKindSchema.optional(),
+  title: z.string().trim().min(1).max(500).optional(),
+  status: lifeAdminStatusSchema.optional(),
+  importance: z.union([z.literal(1),z.literal(2),z.literal(3),z.literal(4),z.literal(5)]).optional(),
+  dueAt: optionalDateTimeSchema,
+  startsAt: optionalDateTimeSchema,
+  endsAt: optionalDateTimeSchema,
+  recurrence: lifeAdminRecurrenceSchema.optional(),
+  amountMinor: z.number().int().min(0).max(9_000_000_000_000).optional(),
+  currency: z.union([z.string().regex(/^[A-Z]{3}$/), z.literal('')]).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
+}).refine((value) => Object.keys(value).length > 0, { message: 'at least one field is required' });
+
 const deviceCalendarEventSchema = z.object({
   provider: z.string().default('device'), externalEventId: z.string().min(1).max(500), calendarExternalId: z.string().max(500).optional(),
   title: z.string().max(1000).default(''), location: z.string().max(1000).optional(), startsAt: z.string().datetime(), endsAt: z.string().datetime(),
@@ -213,6 +300,89 @@ app.put('/v1/product/household-interest', async (c) => {
   await audit(c.env, user.accessToken, user.id, 'product_interest.changed', { interest: 'household', interested: result.interested }, 'product_interest', 'household');
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'household_interest_changed', { interested: result.interested });
   return c.json(result);
+});
+
+app.post('/v1/life-os/relationships', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = relationshipCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const before = await getLifeGraph(c.env, user.accessToken, user.id);
+  if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
+  try {
+    const created = await createRelationship(c.env, user.accessToken, user.id, parsed.data);
+    await audit(c.env, user.accessToken, user.id, 'life_os.relationship_saved', { personId: created.personId }, 'life_relationship', created.relationship.id);
+    await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'life_os_relationship_saved');
+    return c.json(await buildUserState(c.env, user.accessToken, user.id), 201);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'life_os_person_not_found') return c.json({ error: 'person_not_found' }, 404);
+    throw error;
+  }
+});
+
+app.patch('/v1/life-os/relationships/:id', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = relationshipPatchSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const before = await getLifeGraph(c.env, user.accessToken, user.id);
+  if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
+  try {
+    const relationship = await updateRelationship(c.env, user.accessToken, user.id, c.req.param('id'), parsed.data);
+    await audit(c.env, user.accessToken, user.id, 'life_os.relationship_updated', {}, 'life_relationship', relationship.id);
+    return c.json(await buildUserState(c.env, user.accessToken, user.id));
+  } catch (error) {
+    if (error instanceof Error && error.message === 'life_os_relationship_not_found') return c.json({ error: 'not_found' }, 404);
+    throw error;
+  }
+});
+
+app.post('/v1/life-os/items', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = lifeAdminCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const before = await getLifeGraph(c.env, user.accessToken, user.id);
+  if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
+  try {
+    const item = await createLifeAdminItem(c.env, user.accessToken, user.id, parsed.data);
+    await audit(c.env, user.accessToken, user.id, 'life_os.item_created', { kind: item.kind }, 'life_admin_item', item.id);
+    await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'life_os_item_created', { kind: item.kind });
+    return c.json(await buildUserState(c.env, user.accessToken, user.id), 201);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'life_os_person_not_found') return c.json({ error: 'person_not_found' }, 404);
+    throw error;
+  }
+});
+
+app.patch('/v1/life-os/items/:id', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = lifeAdminPatchSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const before = await getLifeGraph(c.env, user.accessToken, user.id);
+  if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
+  try {
+    const item = await updateLifeAdminItem(c.env, user.accessToken, user.id, c.req.param('id'), parsed.data);
+    await audit(c.env, user.accessToken, user.id, 'life_os.item_updated', { kind: item.kind, status: item.status }, 'life_admin_item', item.id);
+    return c.json(await buildUserState(c.env, user.accessToken, user.id));
+  } catch (error) {
+    if (error instanceof Error && error.message === 'life_os_item_not_found') return c.json({ error: 'not_found' }, 404);
+    if (error instanceof Error && error.message === 'life_os_person_not_found') return c.json({ error: 'person_not_found' }, 404);
+    throw error;
+  }
+});
+
+app.post('/v1/life-os/items/:id/complete', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const before = await getLifeGraph(c.env, user.accessToken, user.id);
+  if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
+  try {
+    const item = await completeLifeAdminItem(c.env, user.accessToken, user.id, c.req.param('id'));
+    await audit(c.env, user.accessToken, user.id, 'life_os.item_completed', { kind: item.kind, recurring: Boolean(item.recurrence.frequency), nextDueAt: item.status === 'open' ? item.dueAt ?? null : null }, 'life_admin_item', item.id);
+    await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'life_os_item_completed', { kind: item.kind, recurring: Boolean(item.recurrence.frequency) });
+    return c.json(await buildUserState(c.env, user.accessToken, user.id));
+  } catch (error) {
+    if (error instanceof Error && error.message === 'life_os_item_not_found') return c.json({ error: 'not_found' }, 404);
+    if (error instanceof Error && error.message === 'life_os_item_cancelled') return c.json({ error: 'invalid_item_state' }, 409);
+    throw error;
+  }
 });
 
 app.put('/v1/onboarding', async (c) => {
@@ -428,7 +598,7 @@ app.post('/v1/households/:id/items', async (c) => {
 
 app.post('/v1/analytics/event', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ eventName: z.enum(['daily_plan_viewed','radar_item_viewed','radar_item_acted','radar_item_corrected','radar_item_dismissed','privacy_center_viewed','provider_transparency_viewed','notification_opened','integration_disconnected','household_interest_changed','product_plan_viewed']), properties: z.record(z.string(), z.union([z.string(),z.number(),z.boolean(),z.null()])).optional() }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ eventName: z.enum(['daily_plan_viewed','radar_item_viewed','radar_item_acted','radar_item_corrected','radar_item_dismissed','privacy_center_viewed','provider_transparency_viewed','notification_opened','integration_disconnected','household_interest_changed','product_plan_viewed','life_os_relationship_saved','life_os_item_created','life_os_item_completed']), properties: z.record(z.string(), z.union([z.string(),z.number(),z.boolean(),z.null()])).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, parsed.data.eventName, parsed.data.properties ?? {});
   return c.json({ ok: true });
