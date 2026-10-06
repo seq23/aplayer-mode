@@ -45,6 +45,7 @@ This directory is the canonical source of product, privacy, methodology, AI, arc
 | 26 | [EXTERNAL RUNTIME GATES](./26-EXTERNAL-RUNTIME-GATES.md) | **OPERATIONS RUNBOOK** | Cloudflare, provider, model, push, store, billing, legal and beta receipts |
 | 27 | [RUNTIME EVIDENCE PACKET](./27-RUNTIME-EVIDENCE-PACKET.md) | **OPEN EXTERNAL VALIDATION PACKET** | Receipt ledger for proving deployed/provider/device/store behavior after the merged source baseline |
 | 28 | [RUNTIME EVIDENCE HARDENING](./28-RUNTIME-EVIDENCE-HARDENING.md) | **IMPLEMENTATION + OPERATIONS GATE** | Machine-readable receipts, exact-SHA proof workflows, kill-switch and branch-governance hardening |
+| 29 | [THREE-TIER PRODUCT CONTRACT](./29-THREE-TIER-PRODUCT-CONTRACT.md) | **LOCKED IMPLEMENTATION CONTRACT** | Chief of Staff / Life OS / Autopilot capability boundaries + Household waitlist |
 
 ## Canonical methodology reference
 
@@ -62,6 +63,7 @@ A parent, athlete, entrepreneur, student, professional, creator, caregiver, or u
 | ADR | Status | Decision |
 |---|---|---|
 | [ADR-0001](./adr/ADR-0001-SUPABASE-CLOUDFLARE-HYBRID.md) | **ACCEPTED / LOCKED** | Supabase owns Auth/Postgres/RLS; Cloudflare owns API/intelligence/privacy/action boundary |
+| [ADR-0002](./adr/ADR-0002-THREE-TIER-LAUNCH.md) | **ACCEPTED / LOCKED** | Build Chief of Staff + Life OS + Autopilot in one individual-product train; Household waitlist-only |
 
 ## Authority / anti-drift hierarchy
 
@@ -87,9 +89,11 @@ flowchart LR
   AI --> PROACTIVE[Today / Radar / Push]
   PROACTIVE --> ACTIONS[Permissioned Actions]
   ACTIONS --> PROOF[Runtime evidence + hardening]
-  PROOF --> BETA[Closed beta]
-  BETA --> PAID[Chief of Staff]
-  PAID --> LIFE[Evidence-driven Life OS / Autopilot / Household]
+  PROOF --> TIER[Three-tier contract]
+  TIER --> LIFE[Life OS]
+  LIFE --> AUTO[Autopilot]
+  AUTO --> BETA[Three-tier beta / launch]
+  BETA -. later .-> HOUSE[Household waitlist]
 ```
 
 Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth, `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete program/gates, `27-RUNTIME-EVIDENCE-PACKET.md` for the active external validation work, and `28-RUNTIME-EVIDENCE-HARDENING.md` for receipt and workflow rules.

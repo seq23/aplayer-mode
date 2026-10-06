@@ -23,6 +23,7 @@ export default function RootLayout() {
           <Stack.Screen name="onboarding" options={{ title: 'Build your APM' }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="settings/index" options={{ title: 'Settings' }} />
+          <Stack.Screen name="settings/plan" options={{ title: 'Your plan' }} />
           <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="settings/privacy/index" options={{ title: 'Privacy & AI' }} />
           <Stack.Screen name="settings/privacy/how-ai-works" options={{ title: 'How APM Uses AI' }} />

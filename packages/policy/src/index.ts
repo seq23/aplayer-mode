@@ -1,5 +1,76 @@
 export type AutonomyLevel = 0 | 1 | 2 | 3 | 4 | 5;
 
+export type ProductPlan = 'beta' | 'chief_of_staff' | 'life_os' | 'autopilot' | 'household';
+
+export type ProductCapability =
+  | 'personal_os'
+  | 'today_radar'
+  | 'calendar_email_awareness'
+  | 'coaching'
+  | 'prepare_actions'
+  | 'life_os_domains'
+  | 'execute_with_approval'
+  | 'standing_autopilot'
+  | 'household_shared_graph';
+
+export interface ProductPlanPolicy {
+  plan: ProductPlan;
+  displayName: string;
+  promise: string;
+  publicAvailability: 'beta' | 'available' | 'waitlist';
+  capabilities: ProductCapability[];
+}
+
+export const productPlanPolicies: Record<ProductPlan, ProductPlanPolicy> = {
+  beta: {
+    plan: 'beta',
+    displayName: 'Chief of Staff Beta',
+    promise: 'APM notices, prioritizes, plans, coaches and prepares supported actions.',
+    publicAvailability: 'beta',
+    capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions'],
+  },
+  chief_of_staff: {
+    plan: 'chief_of_staff',
+    displayName: 'Chief of Staff',
+    promise: 'Keep me on top of my life.',
+    publicAvailability: 'available',
+    capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions'],
+  },
+  life_os: {
+    plan: 'life_os',
+    displayName: 'Life OS',
+    promise: 'Carry more of my mental load.',
+    publicAvailability: 'available',
+    capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval'],
+  },
+  autopilot: {
+    plan: 'autopilot',
+    displayName: 'Autopilot',
+    promise: 'Handle approved recurring work inside rules I set.',
+    publicAvailability: 'available',
+    capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval','standing_autopilot'],
+  },
+  household: {
+    plan: 'household',
+    displayName: 'Household OS',
+    promise: 'Coordinate shared household mental load.',
+    publicAvailability: 'waitlist',
+    capabilities: [],
+  },
+};
+
+export function capabilitiesForPlan(plan: ProductPlan): ProductCapability[] {
+  return [...productPlanPolicies[plan].capabilities];
+}
+
+export function planHasCapability(plan: ProductPlan, capability: ProductCapability): boolean {
+  return productPlanPolicies[plan].capabilities.includes(capability);
+}
+
+export function isPubliclySelectablePlan(plan: ProductPlan): boolean {
+  return productPlanPolicies[plan].publicAvailability === 'available';
+}
+
 export type ActionDomain =
   | 'calendar'
   | 'email'
@@ -8,6 +79,14 @@ export type ActionDomain =
   | 'purchase'
   | 'notification'
   | 'connector';
+
+export function maxAutonomyForPlan(plan: ProductPlan, domain: ActionDomain): AutonomyLevel {
+  if (plan === 'beta' || plan === 'chief_of_staff') return 3;
+  if (plan === 'life_os') return 4;
+  if (plan === 'autopilot') return domain === 'purchase' ? 2 : 5;
+  if (plan === 'household') return 0;
+  return 0;
+}
 
 export interface PermissionGrant {
   userId: string;

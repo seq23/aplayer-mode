@@ -50,6 +50,35 @@ export interface ApiMethodologyIntakeInput extends ApiOnboardingInput {
 
 export interface TodayState { graph: LifeGraphSnapshot; plan: DailyPlan }
 
+export interface ProductPlanCard {
+  plan: 'beta' | 'chief_of_staff' | 'life_os' | 'autopilot' | 'household';
+  displayName: string;
+  promise: string;
+  publicAvailability: 'beta' | 'available' | 'waitlist';
+  capabilities: string[];
+  maxAutonomyLevel: AutonomyLevel;
+  maxAutonomyLabel: string;
+  priceLabel: string;
+  highlights: string[];
+}
+
+export interface ProductPlanResponse {
+  entitlement: {
+    userId: string;
+    plan: ProductPlanCard['plan'];
+    status: 'active' | 'trialing' | 'past_due' | 'cancelled' | 'expired';
+    provider?: string;
+    currentPeriodEnd?: string;
+    displayName: string;
+    promise: string;
+    capabilities: string[];
+    maxAutonomyLevel: AutonomyLevel;
+    maxAutonomyLabel: string;
+  };
+  plans: ProductPlanCard[];
+}
+
+
 const baseUrl = process.env.EXPO_PUBLIC_APM_API_URL?.replace(/\/$/, '');
 
 export function isApmApiConfigured(): boolean { return Boolean(baseUrl); }
@@ -74,6 +103,18 @@ export async function fetchLifeGraph(accessToken: string): Promise<LifeGraphSnap
   return (await request<{ graph: LifeGraphSnapshot }>('/v1/me/life-graph', accessToken)).graph;
 }
 export async function fetchTodayState(accessToken: string): Promise<TodayState> { return request<TodayState>('/v1/me/today', accessToken); }
+export async function fetchProductPlan(accessToken: string): Promise<ProductPlanResponse> {
+  return request<ProductPlanResponse>('/v1/product/plan', accessToken);
+}
+export async function fetchHouseholdInterest(accessToken: string) {
+  return request<{ interested: boolean; updatedAt?: string }>('/v1/product/household-interest', accessToken);
+}
+export async function setHouseholdInterest(interested: boolean, accessToken: string) {
+  return request<{ interested: boolean; updatedAt: string }>('/v1/product/household-interest', accessToken, {
+    method: 'PUT',
+    body: JSON.stringify({ interested }),
+  });
+}
 export async function persistOnboarding(input: ApiOnboardingInput, accessToken: string): Promise<TodayState> {
   return request<TodayState>('/v1/onboarding', accessToken, { method: 'PUT', body: JSON.stringify(input) });
 }

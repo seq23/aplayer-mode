@@ -18,11 +18,11 @@ flowchart LR
   M --> F[Calendar Fabric]
   F --> G[Email / commitments]
   G --> H[Proactive push]
-  H --> I[Beta]
-  I --> J[Chief of Staff]
-  J --> K[Actions]
-  K --> L[Life OS]
+  H --> T[Three-tier contract]
+  T --> L[Life OS]
   L --> N[Autopilot]
+  N --> I[Three-tier beta]
+  I --> J[Commercial launch]
 ```
 
 ## Phase 0 — Constitution and architecture
@@ -270,69 +270,72 @@ Exit: APM can find valuable real-world open loops from permitted email context.
 
 Exit: APM can reach the user when something genuinely matters.
 
-## Phase 9 — Closed beta
+## Phase 9 — Three-tier product contract
 
-25–50 users initially.
+- Chief of Staff / Life OS / Autopilot capability matrix;
+- server-side plan ceilings;
+- plan/upgrade explanation UX;
+- subscription entitlement remains separate from user permission;
+- Household waitlist/interest only.
 
-Measure:
+Exit: the individual product has one canonical tier contract and Household cannot accidentally activate.
 
-- Valuable Proactive Interventions / user / week;
-- Radar acceptance/action rate;
-- false positive rate;
-- correction rate;
-- Today engagement;
-- notification disable rate;
-- retention;
-- inference cost per active user;
-- cost per successful AI task;
-- trust/privacy comprehension.
+## Phase 10 — Life OS
 
-Stop adding broad features during validation.
+Build the previously identified life-management domains now rather than waiting for a Chief-of-Staff-only paid launch:
 
-## Phase 10 — Chief of Staff paid launch
+- relationships / birthdays;
+- appointments;
+- travel;
+- bills / subscriptions;
+- meals / shopping planning;
+- health routines;
+- recurring/family obligations.
 
-Minimum promise:
+These domains use the same Life Graph, Today, Radar, privacy and action primitives.
 
-> Know what I'm committed to and make sure nothing important falls through the cracks.
+Exit: Life OS materially carries mental load beyond awareness/planning.
 
-Founding pricing hypothesis: $24/month, later standard target $29/month subject to evidence.
-
-## Phase 11 — Action Engine
-
-First actions:
-
-- calendar create/change;
-- email draft;
-- approved send when supported/authorized;
-- reminders;
-- schedule adjustments.
-
-Lifecycle:
-
-Proposed → Prepared → Approved → Executed → Verified → Closed.
-
-## Phase 12 — Life OS
-
-Add domains only from observed demand:
-
-relationships, birthdays, appointments, travel, household, subscriptions, meals, shopping, health routines, family obligations.
-
-Do not build all at once.
-
-## Phase 13 — Autopilot
+## Phase 11 — Autopilot
 
 - domain-specific standing rules;
 - thresholds/limits;
 - reversible actions where possible;
 - exception handling;
 - user-visible audit;
-- pause/kill switch.
+- pause/revoke/kill switch;
+- no authority derived from payment alone.
 
-Exit: repeated approvals can safely become explicit standing authority.
+Exit: supported repeated approvals can safely become explicit standing authority.
 
-## Phase 14 — Household
+## Phase 12 — Three-tier closed beta
 
-Shared graph/roles/responsibilities only after single-user trust model is proven.
+25–50 users spanning multiple games and, where appropriate, multiple individual tiers.
+
+Measure:
+
+- Valuable Proactive Interventions / user / week;
+- Radar acceptance/action rate;
+- false positive/correction rate;
+- Today engagement;
+- notification disable rate;
+- prepared/approved/executed action quality;
+- Autopilot reversals/errors;
+- retention;
+- inference/variable cost;
+- privacy and autonomy comprehension.
+
+## Phase 13 — Three-tier paid launch
+
+Expose Chief of Staff, Life OS, and Autopilot only when the capabilities shown for each tier have the required runtime/provider/store/billing receipts.
+
+Current pricing hypotheses remain $29/mo Chief of Staff, ~$59/mo Life OS and ~$129+/mo Autopilot, with founding pricing governed separately.
+
+## Phase 14 — Household waitlist only
+
+Household shared-graph primitives may remain dormant in source. Customer-facing Household creation, shared authority and billing remain disabled. The app records authenticated interest only.
+
+A later Household implementation requires separate explicit approval and a new consent/privacy/authority review.
 
 ## Phase 15 — Web Command Center
 

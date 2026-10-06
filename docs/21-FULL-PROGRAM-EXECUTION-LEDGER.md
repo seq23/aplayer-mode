@@ -57,12 +57,12 @@ flowchart TD
   R --> P[Proactive Push]
   P --> T[Live Trust Center]
   T --> SEC[Security / Data Rights / Analytics]
-  SEC --> B[Closed Beta]
-  B --> PAID[Chief of Staff]
-  PAID --> ACT[Action Engine]
-  ACT --> L[Life OS]
+  SEC --> T[Three-tier contract]
+  T --> L[Life OS]
   L --> AU[Autopilot]
-  AU --> H[Household]
+  AU --> B[Three-tier beta]
+  B --> PAID[Three-tier paid launch]
+  PAID --> H[Household waitlist only]
   H --> W[Web Command Center + Scale]
 ```
 
@@ -87,12 +87,13 @@ flowchart TD
 | 15 | Mobile release infrastructure | `SOURCE_COMPLETE` foundation | `EXTERNAL_GATE` | EAS profiles exist; Apple/Google signing/submission required |
 | 16 | Legal/privacy launch readiness | docs/policy foundation | `EXTERNAL_GATE` | qualified legal review cannot be simulated |
 | 17 | Closed beta | runbook required | `EXTERNAL_GATE` | requires 25–50 real users and evidence |
-| 18 | Paid Chief of Staff | entitlement foundation | `EXTERNAL_GATE` | store billing transactions/entitlement synchronization not live |
+| 18 | Three-tier product contract | `SOURCE_COMPLETE` in Phase A | DB/runtime validation required | Chief of Staff / Life OS / Autopilot boundaries + Household waitlist |
+| 18A | Commercial entitlement activation | foundation | `EXTERNAL_GATE` | store billing transactions/entitlement reconciliation not live |
 | 19 | Distribution engine | product contract | other-repo / market gate | audit/acquisition belongs primarily to marketing web stack |
 | 20 | Action Engine | `SOURCE_COMPLETE` foundation | provider/runtime required | permissioned calendar/email actions with approval lifecycle |
-| 21 | Life OS | domain/action foundation | `DEFERRED_BY_EVIDENCE` | modules should be added by observed demand, not guessed |
-| 22 | Autopilot | authority engine foundation | `DEFERRED_BY_EVIDENCE` | standing authority requires repeated customer approval pattern + safety proof |
-| 23 | Household OS | schema/API foundation | later trust gate | shared graph primitives + member/item RLS exist; complete collaborative UX remains later |
+| 21 | Life OS | **NEXT SOURCE PHASE** | runtime evidence still required | build the agreed mental-load domains now under ADR-0002 |
+| 22 | Autopilot | **AFTER LIFE OS** | runtime/safety evidence required | standing authority UX + rules are built now, but activation stays fail-closed until proven |
+| 23 | Household OS | dormant schema foundation | **WAITLIST ONLY** | shared primitives remain inactive; user interest is recorded without access |
 | 24 | Web Command Center | architecture contract | later implementation | mobile remains daily control plane; advanced desktop UX is not falsely claimed complete |
 | 25 | Scale / reliability / economics | instrumentation foundation | usage-driven | Supabase Free remains until actual limits/requirements justify upgrade |
 
@@ -152,7 +153,10 @@ CI GREEN ON PROGRAM BRANCH
   -> live Google/Microsoft OAuth proofs
   -> push/device proof
   -> security/data-rights proof
-  -> closed beta
-  -> Chief of Staff paid launch
-  -> customer-evidence-driven Life OS / Autopilot / Household expansion
+  -> Phase A three-tier contract
+  -> Phase B Life OS domains
+  -> Phase C Autopilot standing rules
+  -> three-tier closed beta
+  -> three-tier paid launch
+  -> Household remains waitlist-only until separate approval
 ```

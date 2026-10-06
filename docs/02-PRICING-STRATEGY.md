@@ -17,9 +17,9 @@ Pricing is deliberately documented separately from the locked Product and Privac
 | Post-PMF | Chief of Staff | **$29/mo or $276/yr ($23/mo effective)** | Appropriate once proactive value is demonstrated consistently |
 | Life OS | Deeper life management | **$59/mo or $564/yr ($47/mo effective)** | Prices the product as delegated mental-load management rather than a task app |
 | Autopilot | Permissioned execution | **$129/mo starting point** | Captures materially higher delegated value and leaves room for action/inference costs |
-| Household | Shared Life Graph / family operations | **$179–199/mo target to test** | Multiple users + materially larger responsibility surface; validate later |
+| Household | Shared Life Graph / family operations | **No active price — waitlist only** | Household is deferred; collect demand before a later approval/build decision |
 
-**Do not launch three paid tiers on day one.** Launch one paid Chief of Staff plan after beta. Add Life OS and Autopilot only when the product contains the corresponding capability.
+**ADR-0002 supersedes the prior Chief-of-Staff-only launch sequence.** Build and offer Chief of Staff, Life OS, and Autopilot as the three individual service levels once each exposed capability has passed its runtime/release gates. Household remains waitlist-only. Pricing remains testable and may still be staged during beta.
 
 ## Market anchors researched October 2026
 
@@ -44,7 +44,7 @@ flowchart LR
   F --> C[Chief of Staff\n$29/mo]
   C --> L[Life OS\n$59/mo]
   L --> A[Autopilot\n$129+/mo]
-  A --> H[Household\n$179–199/mo test]
+  A -. later .-> H[Household\nWaitlist only]
 ```
 
 ## Value ladder

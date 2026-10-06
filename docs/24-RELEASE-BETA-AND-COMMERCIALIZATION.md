@@ -74,7 +74,7 @@ The key beta question remains:
 | Chief of Staff | Keep me on top of my life | $29/mo or $276/yr |
 | Life OS | Carry more of my mental load | ~$59/mo / $564/yr |
 | Autopilot | Handle approved recurring work | ~$129+/mo |
-| Household | Coordinate shared mental load | ~$179–199/mo target |
+| Household | Future shared mental load | Waitlist only |
 
 These prices are hypotheses. They are not permission to expose capabilities that do not exist.
 
@@ -135,3 +135,8 @@ The public marketing/audit implementation may live in the existing web/distribut
 - live push receipt;
 - live billing receipt validation;
 - beta evidence strong enough to justify paid launch.
+
+
+## ADR-0002 commercial amendment
+
+The approved commercial target is now **three individual service levels in one app: Chief of Staff, Life OS, and Autopilot**. Each tier may be shown and sold only when the capabilities advertised for that tier have the required runtime/provider/billing/store evidence. Household is excluded from the commercial launch and remains an authenticated interest/waitlist path only.

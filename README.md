@@ -6,11 +6,15 @@ This repository contains the mobile-first A Player Mode product and its canonica
 
 ## Current execution phase
 
-We are building the **Chief of Staff** foundation first:
+The shared platform foundation is in place. We are now building the **three individual APM service levels** in one app:
 
 ```text
-Trust UX → Life Graph → Today → Radar → Calendar → Gmail → proactive notifications
+Chief of Staff → Life OS → Autopilot
+                      \
+                       Household = waitlist only for now
 ```
+
+Chief of Staff, Life OS and Autopilot share the same account, Life Graph, privacy boundary and policy engine. A subscription makes capability available; it never grants action authority by itself.
 
 The first mobile implementation intentionally begins with the **Trust Center and product shell using fixture data** so the privacy, AI, connection, and autonomy experience is understandable before real private integrations are connected.
 
@@ -49,7 +53,7 @@ npm install
 npm run start
 ```
 
-The initial app is a **visual/interaction scaffold** backed by fixtures. It does not yet connect Gmail, Calendar, a production database, or an external AI provider.
+The app now has a source-complete platform foundation backed by Supabase Auth/Postgres/RLS plus Calendar/Email/AI/action integration foundations. External provider/device/store behavior remains unproven until the runtime evidence packet contains real receipts.
 
 ## Current core navigation
 

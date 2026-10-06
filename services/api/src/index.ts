@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { buildDailyPlan } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
-import type { ActionRecord, AutonomyLevel, OperatingModeKey } from '@apm/domain';
+import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
+import { autonomyLabels, capabilitiesForPlan, maxAutonomyForPlan, productPlanPolicies, type ActionDomain, type ProductPlan } from '@apm/policy';
 import { authenticateRequest } from './auth';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
@@ -16,11 +17,12 @@ import {
 import {
   closeDay,
   getAuditEvents,
-  listHouseholds,
+  getHouseholdInterest,
   listModelRoutes,
   recordAnalyticsEvent,
   registerPushSubscription,
   requestDataRightsJob,
+  setHouseholdInterest,
   upsertPermission,
 } from './platformRepository';
 import { createOAuthState, verifyOAuthState } from './crypto';
@@ -48,6 +50,60 @@ const onboardingSchema = z.object({
   becoming: z.string().trim().max(500).optional(),
   pillar: pillarSchema.optional(),
 });
+
+
+const planPriceLabels: Record<ProductPlan, string> = {
+  beta: 'Free during beta',
+  chief_of_staff: '$29/mo standard · $24/mo founding hypothesis',
+  life_os: '~$59/mo',
+  autopilot: '~$129+/mo',
+  household: 'Waitlist only',
+};
+
+function entitlementIsUsable(entitlement: SubscriptionEntitlement | undefined): boolean {
+  return Boolean(entitlement && (entitlement.status === 'active' || entitlement.status === 'trialing'));
+}
+
+function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: string) {
+  const raw: SubscriptionEntitlement = entitlement ?? { userId, plan: 'beta', status: 'active' };
+  const resolved: SubscriptionEntitlement = raw.plan === 'household' ? { ...raw, plan: 'autopilot' } : raw;
+  const usable = entitlementIsUsable(resolved);
+  const policy = productPlanPolicies[resolved.plan];
+  const maxAutonomyLevel = usable ? maxAutonomyForPlan(resolved.plan, 'calendar') : 0;
+  return {
+    entitlement: {
+      ...resolved,
+      displayName: policy.displayName,
+      promise: policy.promise,
+      capabilities: usable ? capabilitiesForPlan(resolved.plan) : [],
+      maxAutonomyLevel,
+      maxAutonomyLabel: autonomyLabels[maxAutonomyLevel],
+    },
+    plans: (Object.keys(productPlanPolicies) as ProductPlan[]).map((plan) => {
+      const item = productPlanPolicies[plan];
+      const level = maxAutonomyForPlan(plan, 'calendar');
+      return {
+        plan,
+        displayName: item.displayName,
+        promise: item.promise,
+        publicAvailability: item.publicAvailability,
+        capabilities: capabilitiesForPlan(plan),
+        maxAutonomyLevel: level,
+        maxAutonomyLabel: autonomyLabels[level],
+        priceLabel: planPriceLabels[plan],
+        highlights: plan === 'chief_of_staff'
+          ? ['Today + Radar + coaching', 'Calendar/email awareness', 'Prepare supported actions']
+          : plan === 'life_os'
+            ? ['Everything in Chief of Staff', 'Life-management domains', 'Execute one explicitly approved action']
+            : plan === 'autopilot'
+              ? ['Everything in Life OS', 'Standing authority inside rules you set', 'Revocable domain-by-domain control']
+              : plan === 'household'
+                ? ['Future shared household coordination', 'Interest list only — no access granted']
+                : ['Chief-of-Staff capability ceiling during beta'],
+      };
+    }),
+  };
+}
 
 const methodologyIntakeSchema = onboardingSchema.extend({
   timezone: z.string().trim().max(120).optional(),
@@ -136,6 +192,27 @@ app.get('/v1/me/life-graph', async (c) => {
 app.get('/v1/me/today', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   return c.json(await buildUserState(c.env, user.accessToken, user.id));
+});
+
+app.get('/v1/product/plan', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const { graph } = await buildUserState(c.env, user.accessToken, user.id);
+  return c.json(planResponse(graph.entitlement, user.id));
+});
+
+app.get('/v1/product/household-interest', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  return c.json(await getHouseholdInterest(c.env, user.accessToken, user.id));
+});
+
+app.put('/v1/product/household-interest', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ interested: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const result = await setHouseholdInterest(c.env, user.accessToken, user.id, parsed.data.interested);
+  await audit(c.env, user.accessToken, user.id, 'product_interest.changed', { interest: 'household', interested: result.interested }, 'product_interest', 'household');
+  await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'household_interest_changed', { interested: result.interested });
+  return c.json(result);
 });
 
 app.put('/v1/onboarding', async (c) => {
@@ -247,10 +324,29 @@ app.post('/v1/email/connections/:id/sync', async (c) => {
 
 app.put('/v1/permissions/:domain/:actionType', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const domain = z.enum(['calendar','email','routine','life_graph','purchase','notification','connector']).safeParse(c.req.param('domain'));
   const parsed = z.object({ autonomyLevel: z.union([z.literal(0),z.literal(1),z.literal(2),z.literal(3),z.literal(4),z.literal(5)]), constraints: z.record(z.string(), z.unknown()).optional(), enabled: z.boolean().optional() }).safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  const permission = await upsertPermission(c.env, user.accessToken, user.id, { domain: c.req.param('domain'), actionType: c.req.param('actionType'), autonomyLevel: parsed.data.autonomyLevel as AutonomyLevel, constraints: parsed.data.constraints, enabled: parsed.data.enabled });
-  await audit(c.env, user.accessToken, user.id, 'permission.changed', { domain: permission.domain, actionType: permission.actionType, autonomyLevel: permission.autonomyLevel }, 'permission', permission.id);
+  if (!domain.success || !parsed.success) return c.json({ error: 'invalid_request' }, 400);
+
+  const { graph } = await buildUserState(c.env, user.accessToken, user.id);
+  const entitlement = graph.entitlement;
+  const ceiling = entitlement && entitlementIsUsable(entitlement)
+    ? maxAutonomyForPlan(entitlement.plan, domain.data as ActionDomain)
+    : 0;
+
+  const requestedLevel = parsed.data.enabled === false ? 0 : parsed.data.autonomyLevel;
+  if (requestedLevel > ceiling) {
+    return c.json({
+      error: 'plan_autonomy_ceiling',
+      currentPlan: entitlement?.plan === 'household' ? 'autopilot' : entitlement?.plan ?? 'beta',
+      requestedLevel,
+      maxAutonomyLevel: ceiling,
+      maxAutonomyLabel: autonomyLabels[ceiling],
+    }, 403);
+  }
+
+  const permission = await upsertPermission(c.env, user.accessToken, user.id, { domain: domain.data, actionType: c.req.param('actionType'), autonomyLevel: requestedLevel as AutonomyLevel, constraints: parsed.data.constraints, enabled: requestedLevel > 0 && parsed.data.enabled !== false });
+  await audit(c.env, user.accessToken, user.id, 'permission.changed', { domain: permission.domain, actionType: permission.actionType, autonomyLevel: permission.autonomyLevel, plan: entitlement?.plan ?? 'beta' }, 'permission', permission.id);
   return c.json({ permission });
 });
 
@@ -319,28 +415,20 @@ app.post('/v1/privacy/delete', async (c) => {
 
 app.get('/v1/households', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  return c.json(await listHouseholds(c.env, user.accessToken));
+  return c.json({ error: 'household_waitlist_only', message: 'Household OS is not active yet. Use the Household interest list instead.' }, 409);
 });
 app.post('/v1/households', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ name: z.string().trim().min(1).max(200) }).safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  const rows = await supabaseRest<Array<{ id: string }>>(c.env, user.accessToken, '/rest/v1/households?select=id', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify([{ created_by: user.id, name: parsed.data.name }]) });
-  const id = rows[0]?.id; if (!id) throw new Error('household_create_failed');
-  await supabaseRest(c.env, user.accessToken, '/rest/v1/household_members', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ household_id: id, user_id: user.id, role: 'owner', status: 'active' }]) });
-  return c.json({ householdId: id }, 201);
+  return c.json({ error: 'household_waitlist_only', message: 'Household OS is not active yet. Joining the interest list does not grant Household access.' }, 409);
 });
 app.post('/v1/households/:id/items', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ itemType: z.enum(['commitment','responsibility','event','goal','note']), title: z.string().trim().min(1).max(500), details: z.record(z.string(), z.unknown()).optional(), assignedUserId: z.string().uuid().optional(), dueAt: z.string().datetime().optional() }).safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  await supabaseRest(c.env, user.accessToken, '/rest/v1/household_items', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ household_id: c.req.param('id'), created_by: user.id, item_type: parsed.data.itemType, title: parsed.data.title, details: parsed.data.details ?? {}, assigned_user_id: parsed.data.assignedUserId ?? null, due_at: parsed.data.dueAt ?? null }]) });
-  return c.json({ ok: true }, 201);
+  return c.json({ error: 'household_waitlist_only', message: 'Household OS is not active yet.' }, 409);
 });
 
 app.post('/v1/analytics/event', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ eventName: z.enum(['daily_plan_viewed','radar_item_viewed','radar_item_acted','radar_item_corrected','radar_item_dismissed','privacy_center_viewed','provider_transparency_viewed','notification_opened','integration_disconnected']), properties: z.record(z.string(), z.union([z.string(),z.number(),z.boolean(),z.null()])).optional() }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ eventName: z.enum(['daily_plan_viewed','radar_item_viewed','radar_item_acted','radar_item_corrected','radar_item_dismissed','privacy_center_viewed','provider_transparency_viewed','notification_opened','integration_disconnected','household_interest_changed','product_plan_viewed']), properties: z.record(z.string(), z.union([z.string(),z.number(),z.boolean(),z.null()])).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, parsed.data.eventName, parsed.data.properties ?? {});
   return c.json({ ok: true });
