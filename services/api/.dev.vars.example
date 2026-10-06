@@ -1,19 +1,14 @@
 # Copy to services/api/.dev.vars for local development only.
-# Never commit real values.
+# Never commit real secret values.
 
-# Local Postgres connection. Production uses Cloudflare Hyperdrive instead.
-DATABASE_URL=
+# Supabase project configuration. The publishable key is designed for client/server use
+# with Row Level Security; keep service-role/secret keys out of this app unless a future
+# server-only requirement explicitly justifies one.
+SUPABASE_URL=
+SUPABASE_PUBLISHABLE_KEY=
 
 # Local-only auth bypass. Never configure this in staging/production.
 AUTH_DEV_BYPASS_USER_ID=local-user
-
-# Supabase Auth mapping for staging/production:
-# AUTH_JWKS_URL=https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
-# AUTH_ISSUER=https://<project-ref>.supabase.co/auth/v1
-# AUTH_AUDIENCE=authenticated
-AUTH_JWKS_URL=
-AUTH_ISSUER=
-AUTH_AUDIENCE=
 
 # Server-only. Install in Cloudflare Secrets for deployed environments.
 OPENROUTER_API_KEY=
