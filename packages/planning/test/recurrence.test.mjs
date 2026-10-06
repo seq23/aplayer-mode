@@ -93,3 +93,54 @@ test('undated recurring items use completion as the next-occurrence anchor', () 
   assert.equal(result.dueAt?.toISOString(), '2026-11-06T12:00:00.000Z');
   assert.equal(result.startsAt, undefined);
 });
+
+
+test('persistent monthly anchor restores the intended day after a clamped month', () => {
+  const recurrence = {
+    frequency: 'monthly',
+    interval: 1,
+    anchorDueAt: '2027-01-31T12:00:00.000Z',
+  };
+  const first = nextRecurringSchedule(
+    { dueAt: new Date('2027-01-31T12:00:00.000Z') },
+    new Date('2027-01-31T18:00:00.000Z'),
+    recurrence,
+  );
+  assert.equal(first.dueAt?.toISOString(), '2027-02-28T12:00:00.000Z');
+
+  const second = nextRecurringSchedule(
+    { dueAt: first.dueAt },
+    new Date('2027-02-28T18:00:00.000Z'),
+    recurrence,
+  );
+  assert.equal(second.dueAt?.toISOString(), '2027-03-31T12:00:00.000Z');
+});
+
+test('persistent timed anchor restores the intended day while preserving duration', () => {
+  const recurrence = {
+    frequency: 'monthly',
+    interval: 1,
+    anchorStartsAt: '2027-01-31T15:00:00.000Z',
+  };
+  const feb = nextRecurringSchedule(
+    {
+      startsAt: new Date('2027-01-31T15:00:00.000Z'),
+      endsAt: new Date('2027-01-31T16:30:00.000Z'),
+    },
+    new Date('2027-01-31T18:00:00.000Z'),
+    recurrence,
+  );
+  assert.equal(feb.startsAt?.toISOString(), '2027-02-28T15:00:00.000Z');
+  assert.equal(feb.endsAt?.toISOString(), '2027-02-28T16:30:00.000Z');
+
+  const mar = nextRecurringSchedule(
+    {
+      startsAt: feb.startsAt,
+      endsAt: feb.endsAt,
+    },
+    new Date('2027-02-28T18:00:00.000Z'),
+    recurrence,
+  );
+  assert.equal(mar.startsAt?.toISOString(), '2027-03-31T15:00:00.000Z');
+  assert.equal(mar.endsAt?.toISOString(), '2027-03-31T16:30:00.000Z');
+});
