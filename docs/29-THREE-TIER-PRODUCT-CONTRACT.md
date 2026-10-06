@@ -69,7 +69,7 @@ The API is the authority boundary. Client UI may explain a plan but cannot grant
 - plan status must be active/trialing to unlock plan capabilities;
 - permission writes above the current plan ceiling fail;
 - action preparation/execution remains independently policy-checked;
-- Household mutation routes stay unavailable;
+- Household mutation routes stay unavailable, and authenticated Supabase RLS exposes no Household write policy while the product is waitlist-only;
 - billing will later reconcile verified store/provider receipts into server-side entitlements.
 
 ## Phase ledger after this contract
