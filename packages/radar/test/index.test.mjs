@@ -152,3 +152,33 @@ test('keeps a birthday reminder active through the full local birthday date', ()
   assert.ok(item);
   assert.match(item.headline, /today/i);
 });
+
+
+test('Life OS lead windows use local calendar days instead of elapsed hours', () => {
+  const state = graph([goal({ health: 'on_track' })], [action()]);
+  state.identity.timezone = 'America/Los_Angeles';
+  state.lifeAdminItems = [{
+    id: 'life-local-radar',
+    userId: 'user-1',
+    kind: 'bill',
+    title: 'Pay local bill',
+    status: 'open',
+    importance: 4,
+    dueAt: '2026-10-07T19:00:00.000Z',
+    recurrence: {},
+    details: {},
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: now.toISOString(), confidence: 1 },
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  }];
+
+  const dayBefore = buildRadarItems(state, { now: new Date('2026-10-06T15:00:00.000Z') });
+  const beforeItem = dayBefore.find((candidate) => candidate.id === 'radar:life_os:life-local-radar');
+  assert.ok(beforeItem);
+  assert.match(beforeItem.headline, /tomorrow/i);
+
+  const dayAfter = buildRadarItems(state, { now: new Date('2026-10-08T15:00:00.000Z') });
+  const afterItem = dayAfter.find((candidate) => candidate.id === 'radar:life_os:life-local-radar');
+  assert.ok(afterItem);
+  assert.match(afterItem.headline, /overdue/i);
+});
