@@ -190,11 +190,18 @@ export async function getLifeOsExportState(
   accessToken: string,
   userId: string,
 ): Promise<{ lifeRelationships: LifeRelationship[]; lifeAdminItems: LifeAdminItem[] }> {
-  const filter = `user_id=eq.${qs(userId)}`;
-  const [relationshipRows, itemRows] = await Promise.all([
-    supabaseRest<LifeRelationshipRow[]>(env, accessToken, `/rest/v1/life_relationships?${filter}&select=*&order=created_at.asc`),
-    supabaseRest<LifeAdminItemRow[]>(env, accessToken, `/rest/v1/life_admin_items?${filter}&select=*&order=created_at.asc`),
-  ]);
+  // Data-rights read path. Ordinary Life OS SELECT needs own-row AND an active
+  // Life OS entitlement (RLS); the right to inspect/export retained data survives
+  // downgrade, so it reads through the owner-only function from migration 0017
+  // instead of the table policies.
+  const retained = await supabaseRest<{ life_relationships: LifeRelationshipRow[]; life_admin_items: LifeAdminItemRow[] }>(
+    env,
+    accessToken,
+    '/rest/v1/rpc/apm_life_os_data_rights_export',
+    { method: 'POST', body: '{}' },
+  );
+  const relationshipRows = retained?.life_relationships ?? [];
+  const itemRows = retained?.life_admin_items ?? [];
 
   const provenance = <T extends { provenance_kind: any; source_type: any; source_ref: string | null; confidence?: number | null; created_at: string }>(row: T) => ({
     kind: row.provenance_kind,

@@ -28,6 +28,7 @@ import {
 } from './platformRepository';
 import {
   completeLifeAdminItem,
+  lifeOsErrorResponse,
   createLifeAdminItem,
   createRelationship,
   updateLifeAdminItem,
@@ -328,11 +329,11 @@ app.post('/v1/life-os/relationships', async (c) => {
   if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
   try {
     const created = await createRelationship(c.env, user.accessToken, user.id, parsed.data);
-    await audit(c.env, user.accessToken, user.id, 'life_os.relationship_saved', { personId: created.personId }, 'life_relationship', created.relationship.id);
     await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'life_os_relationship_saved');
     return c.json(await buildUserState(c.env, user.accessToken, user.id), 201);
   } catch (error) {
-    if (error instanceof Error && error.message === 'life_os_person_not_found') return c.json({ error: 'person_not_found' }, 404);
+    const mapped = lifeOsErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
 });
@@ -345,10 +346,10 @@ app.patch('/v1/life-os/relationships/:id', async (c) => {
   if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
   try {
     const relationship = await updateRelationship(c.env, user.accessToken, user.id, c.req.param('id'), parsed.data);
-    await audit(c.env, user.accessToken, user.id, 'life_os.relationship_updated', {}, 'life_relationship', relationship.id);
     return c.json(await buildUserState(c.env, user.accessToken, user.id));
   } catch (error) {
-    if (error instanceof Error && error.message === 'life_os_relationship_not_found') return c.json({ error: 'not_found' }, 404);
+    const mapped = lifeOsErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
 });
@@ -361,11 +362,11 @@ app.post('/v1/life-os/items', async (c) => {
   if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
   try {
     const item = await createLifeAdminItem(c.env, user.accessToken, user.id, parsed.data, before.identity.timezone);
-    await audit(c.env, user.accessToken, user.id, 'life_os.item_created', { kind: item.kind }, 'life_admin_item', item.id);
     await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'life_os_item_created', { kind: item.kind });
     return c.json(await buildUserState(c.env, user.accessToken, user.id), 201);
   } catch (error) {
-    if (error instanceof Error && error.message === 'life_os_person_not_found') return c.json({ error: 'person_not_found' }, 404);
+    const mapped = lifeOsErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
 });
@@ -378,13 +379,10 @@ app.patch('/v1/life-os/items/:id', async (c) => {
   if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
   try {
     const item = await updateLifeAdminItem(c.env, user.accessToken, user.id, c.req.param('id'), parsed.data, before.identity.timezone);
-    await audit(c.env, user.accessToken, user.id, 'life_os.item_updated', { kind: item.kind, status: item.status }, 'life_admin_item', item.id);
     return c.json(await buildUserState(c.env, user.accessToken, user.id));
   } catch (error) {
-    if (error instanceof Error && error.message === 'life_os_item_not_found') return c.json({ error: 'not_found' }, 404);
-    if (error instanceof Error && error.message === 'life_os_person_not_found') return c.json({ error: 'person_not_found' }, 404);
-    if (error instanceof Error && error.message === 'life_os_invalid_schedule') return c.json({ error: 'invalid_request' }, 400);
-    if (error instanceof Error && error.message === 'life_os_use_completion_route') return c.json({ error: 'use_completion_route' }, 400);
+    const mapped = lifeOsErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
 });
@@ -395,12 +393,11 @@ app.post('/v1/life-os/items/:id/complete', async (c) => {
   if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
   try {
     const item = await completeLifeAdminItem(c.env, user.accessToken, user.id, c.req.param('id'), before.identity.timezone);
-    await audit(c.env, user.accessToken, user.id, 'life_os.item_completed', { kind: item.kind, recurring: Boolean(item.recurrence.frequency), nextDueAt: item.status === 'open' ? item.dueAt ?? null : null }, 'life_admin_item', item.id);
     await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'life_os_item_completed', { kind: item.kind, recurring: Boolean(item.recurrence.frequency) });
     return c.json(await buildUserState(c.env, user.accessToken, user.id));
   } catch (error) {
-    if (error instanceof Error && error.message === 'life_os_item_not_found') return c.json({ error: 'not_found' }, 404);
-    if (error instanceof Error && error.message === 'life_os_item_cancelled') return c.json({ error: 'invalid_item_state' }, 409);
+    const mapped = lifeOsErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
 });

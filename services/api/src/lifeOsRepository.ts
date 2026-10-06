@@ -1,9 +1,32 @@
 import type { LifeAdminItem, LifeAdminRecurrence, LifeRelationship, Person } from '@apm/domain';
 import { nextRecurringSchedule } from '@apm/planning';
 import type { ApiEnv } from './env';
-import { supabaseRest } from './db';
+import { SupabaseRestError, supabaseRest } from './db';
 
 const qs = (value: string) => encodeURIComponent(value);
+
+/**
+ * Life OS rows are written ONLY through the governed RPCs from migration 0017.
+ * Direct INSERT/UPDATE/DELETE on life_relationships / life_admin_items is revoked
+ * for anon/authenticated, so the database enforces ownership, entitlement,
+ * lifecycle rules and the audit event even if a client skips this Worker.
+ */
+async function lifeOsRpc<T>(env: ApiEnv, accessToken: string, fn: string, args: Record<string, unknown>): Promise<T> {
+  try {
+    return await supabaseRest<T>(env, accessToken, `/rest/v1/rpc/${fn}`, {
+      method: 'POST',
+      body: JSON.stringify(args),
+    });
+  } catch (error) {
+    const message = error instanceof SupabaseRestError
+      && error.body && typeof error.body === 'object'
+      && typeof (error.body as { message?: unknown }).message === 'string'
+      ? (error.body as { message: string }).message
+      : undefined;
+    if (message && /^life_os_[a-z_]+$/.test(message)) throw new Error(message);
+    throw error;
+  }
+}
 
 interface PersonRow {
   id: string;
@@ -225,29 +248,15 @@ export async function createRelationship(
 
   if (input.personId) await patchPerson(env, accessToken, userId, person.id, input);
 
-  const rows = await supabaseRest<RelationshipRow[]>(
-    env,
-    accessToken,
-    '/rest/v1/life_relationships?on_conflict=user_id,person_id&select=*',
-    {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-      body: JSON.stringify([{
-        user_id: userId,
-        person_id: person.id,
-        birthday: input.birthday || null,
-        next_contact_at: input.nextContactAt || null,
-        cadence_days: input.cadenceDays ?? null,
-        notes: input.notes ?? null,
-        provenance_kind: 'stated',
-        source_type: 'manual',
-        confidence: 1,
-        updated_at: new Date().toISOString(),
-      }]),
-    },
-  );
-  if (!rows[0]) throw new Error('life_os_relationship_write_failed');
-  return { relationship: mapRelationship(rows[0], userId), personId: person.id };
+  const row = await lifeOsRpc<RelationshipRow>(env, accessToken, 'apm_life_os_save_relationship', {
+    p_person_id: person.id,
+    p_birthday: input.birthday || null,
+    p_next_contact_at: input.nextContactAt || null,
+    p_cadence_days: input.cadenceDays ?? null,
+    p_notes: input.notes ?? null,
+  });
+  if (!row) throw new Error('life_os_relationship_write_failed');
+  return { relationship: mapRelationship(row, userId), personId: person.id };
 }
 
 export async function updateRelationship(
@@ -267,24 +276,18 @@ export async function updateRelationship(
 
   await patchPerson(env, accessToken, userId, row.person_id, input);
 
-  const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (input.birthday !== undefined) body.birthday = input.birthday || null;
-  if (input.nextContactAt !== undefined) body.next_contact_at = input.nextContactAt || null;
-  if (input.cadenceDays !== undefined) body.cadence_days = input.cadenceDays || null;
-  if (input.notes !== undefined) body.notes = input.notes || null;
+  const patch: Record<string, unknown> = {};
+  if (input.birthday !== undefined) patch.birthday = input.birthday || null;
+  if (input.nextContactAt !== undefined) patch.next_contact_at = input.nextContactAt || null;
+  if (input.cadenceDays !== undefined) patch.cadence_days = input.cadenceDays || null;
+  if (input.notes !== undefined) patch.notes = input.notes || null;
 
-  const rows = await supabaseRest<RelationshipRow[]>(
-    env,
-    accessToken,
-    `/rest/v1/life_relationships?id=eq.${qs(relationshipId)}&user_id=eq.${qs(userId)}&select=*`,
-    {
-      method: 'PATCH',
-      headers: { Prefer: 'return=representation' },
-      body: JSON.stringify(body),
-    },
-  );
-  if (!rows[0]) throw new Error('life_os_relationship_not_found');
-  return mapRelationship(rows[0], userId);
+  const updated = await lifeOsRpc<RelationshipRow>(env, accessToken, 'apm_life_os_update_relationship', {
+    p_id: relationshipId,
+    p_patch: patch,
+  });
+  if (!updated) throw new Error('life_os_relationship_not_found');
+  return mapRelationship(updated, userId);
 }
 
 export async function createLifeAdminItem(
@@ -297,11 +300,8 @@ export async function createLifeAdminItem(
   if (input.personId) await ensureOwnedPerson(env, accessToken, userId, input.personId);
   if (input.status === 'completed') throw new Error('life_os_use_completion_route');
 
-  const rows = await supabaseRest<LifeAdminRow[]>(env, accessToken, '/rest/v1/life_admin_items?select=*', {
-    method: 'POST',
-    headers: { Prefer: 'return=representation' },
-    body: JSON.stringify([{
-      user_id: userId,
+  const row = await lifeOsRpc<LifeAdminRow>(env, accessToken, 'apm_life_os_create_item', {
+    p_item: {
       person_id: input.personId ?? null,
       kind: input.kind,
       title: input.title,
@@ -314,13 +314,10 @@ export async function createLifeAdminItem(
       amount_minor: input.amountMinor ?? null,
       currency: input.currency ?? null,
       details: input.details ?? {},
-      provenance_kind: 'stated',
-      source_type: 'manual',
-      confidence: 1,
-    }]),
+    },
   });
-  if (!rows[0]) throw new Error('life_os_item_create_failed');
-  return mapLifeAdminItem(rows[0], userId);
+  if (!row) throw new Error('life_os_item_create_failed');
+  return mapLifeAdminItem(row, userId);
 }
 
 export async function updateLifeAdminItem(
@@ -349,7 +346,7 @@ export async function updateLifeAdminItem(
     throw new Error('life_os_invalid_schedule');
   }
 
-  const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const body: Record<string, unknown> = {};
   if (input.personId !== undefined) body.person_id = input.personId || null;
   if (input.kind !== undefined) body.kind = input.kind;
   if (input.title !== undefined) body.title = input.title;
@@ -371,18 +368,12 @@ export async function updateLifeAdminItem(
   if (input.currency !== undefined) body.currency = input.currency || null;
   if (input.details !== undefined) body.details = input.details;
 
-  const rows = await supabaseRest<LifeAdminRow[]>(
-    env,
-    accessToken,
-    `/rest/v1/life_admin_items?id=eq.${qs(itemId)}&user_id=eq.${qs(userId)}&select=*`,
-    {
-      method: 'PATCH',
-      headers: { Prefer: 'return=representation' },
-      body: JSON.stringify(body),
-    },
-  );
-  if (!rows[0]) throw new Error('life_os_item_not_found');
-  return mapLifeAdminItem(rows[0], userId);
+  const row = await lifeOsRpc<LifeAdminRow>(env, accessToken, 'apm_life_os_update_item', {
+    p_id: itemId,
+    p_patch: body,
+  });
+  if (!row) throw new Error('life_os_item_not_found');
+  return mapLifeAdminItem(row, userId);
 }
 
 export async function completeLifeAdminItem(
@@ -430,28 +421,40 @@ export async function completeLifeAdminItem(
       )
     : {};
 
-  const hasNextOccurrence = Boolean(nextSchedule.dueAt || nextSchedule.startsAt);
-  const details = { ...(existing.details ?? {}), lastCompletedAt: completedAt.toISOString() };
-  const update: Record<string, unknown> = hasNextOccurrence
-    ? {
-        status: 'open',
-        completed_at: completedAt.toISOString(),
-        details,
-        recurrence: effectiveRecurrence,
-        updated_at: completedAt.toISOString(),
-      }
-    : { status: 'completed', completed_at: completedAt.toISOString(), details, updated_at: completedAt.toISOString() };
+  // The deterministic planning engine computes the next occurrence; the governed
+  // RPC verifies it moves forward, sets completed_at from the database clock,
+  // rejects stale reads (expected updated_at) and writes the audit event.
+  const row = await lifeOsRpc<LifeAdminRow>(env, accessToken, 'apm_life_os_complete_item', {
+    p_id: itemId,
+    p_expected_updated_at: existing.updated_at,
+    p_next_due_at: nextSchedule.dueAt?.toISOString() ?? null,
+    p_next_starts_at: nextSchedule.startsAt?.toISOString() ?? null,
+    p_next_ends_at: nextSchedule.endsAt?.toISOString() ?? null,
+    p_recurrence: effectiveRecurrence.frequency ? effectiveRecurrence : null,
+  });
+  if (!row) throw new Error('life_os_item_not_found');
+  return mapLifeAdminItem(row, userId);
+}
 
-  if (nextSchedule.dueAt) update.due_at = nextSchedule.dueAt.toISOString();
-  if (nextSchedule.startsAt) update.starts_at = nextSchedule.startsAt.toISOString();
-  if (nextSchedule.endsAt) update.ends_at = nextSchedule.endsAt.toISOString();
+// Error messages raised by the governed Life OS RPCs (migration 0017) and the
+// repository. Writes are audited inside the same database transaction, so the
+// routes below do not write a second audit event.
+const LIFE_OS_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 409 }> = {
+  life_os_required: { error: 'life_os_required', status: 403 },
+  life_os_unauthenticated: { error: 'life_os_required', status: 403 },
+  life_os_person_not_found: { error: 'person_not_found', status: 404 },
+  life_os_relationship_not_found: { error: 'not_found', status: 404 },
+  life_os_item_not_found: { error: 'not_found', status: 404 },
+  life_os_item_cancelled: { error: 'invalid_item_state', status: 409 },
+  life_os_conflict: { error: 'conflict', status: 409 },
+  life_os_use_completion_route: { error: 'use_completion_route', status: 400 },
+  life_os_invalid_schedule: { error: 'invalid_request', status: 400 },
+  life_os_invalid_recurrence: { error: 'invalid_request', status: 400 },
+  life_os_invalid_completion: { error: 'invalid_request', status: 400 },
+  life_os_invalid_request: { error: 'invalid_request', status: 400 },
+  life_os_field_not_allowed: { error: 'invalid_request', status: 400 },
+};
 
-  const updated = await supabaseRest<LifeAdminRow[]>(
-    env,
-    accessToken,
-    `/rest/v1/life_admin_items?id=eq.${qs(itemId)}&user_id=eq.${qs(userId)}&select=*`,
-    { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(update) },
-  );
-  if (!updated[0]) throw new Error('life_os_item_not_found');
-  return mapLifeAdminItem(updated[0], userId);
+export function lifeOsErrorResponse(error: unknown): { error: string; status: 400 | 403 | 404 | 409 } | undefined {
+  return error instanceof Error ? LIFE_OS_ERRORS[error.message] : undefined;
 }
