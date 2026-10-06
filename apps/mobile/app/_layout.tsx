@@ -1,10 +1,11 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'react-native';
+import { LifeGraphProvider } from '../src/state/lifeGraph';
 import { colors } from '../src/theme';
 
 export default function RootLayout() {
   return (
-    <>
+    <LifeGraphProvider>
       <StatusBar barStyle="dark-content" />
       <Stack
         screenOptions={{
@@ -16,6 +17,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="privacy-primer" options={{ title: 'Privacy' }} />
+        <Stack.Screen name="onboarding" options={{ title: 'Build your APM' }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="settings/index" options={{ title: 'Settings' }} />
         <Stack.Screen name="settings/privacy/index" options={{ title: 'Privacy & AI' }} />
@@ -28,6 +30,6 @@ export default function RootLayout() {
         <Stack.Screen name="settings/privacy/export-delete" options={{ title: 'Export & Delete' }} />
         <Stack.Screen name="radar/why" options={{ title: 'Why APM saw this' }} />
       </Stack>
-    </>
+    </LifeGraphProvider>
   );
 }
