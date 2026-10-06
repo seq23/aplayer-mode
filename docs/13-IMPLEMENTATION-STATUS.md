@@ -20,11 +20,12 @@ flowchart LR
   LG --> Y[Your Data / provenance]
 
   O -. typed client exists .-> API[Cloudflare API]
-  API -. provider selected, not provisioned .-> DB[(Supabase Postgres)]
-  API -. JWT verification path .-> AUTH[Supabase Auth]
+  API --> AUTH[Supabase Auth]
+  API --> DATA[Supabase Data API / RPC]
+  DATA --> DB[(Supabase Postgres + RLS)]
 ```
 
-The first mobile vertical slice works locally. The server equivalent and typed mobile API client now exist in code, but the external Supabase/Cloudflare environment is not yet provisioned.
+The first mobile vertical slice works locally. The Supabase Free project now exists, the first Life Graph schema/RLS/RPC migrations are applied, and the Cloudflare API source has been refactored to use Supabase Auth + Data API semantics. Mobile authenticated persistence is the next integration step.
 
 ## Phase status
 
@@ -49,14 +50,16 @@ The first mobile vertical slice works locally. The server equivalent and typed m
 | Goals from Life Graph | ✅ First slice | Goal screen reflects structured goal state |
 | Your Data from Life Graph | ✅ First slice | User can inspect live identity/goal state and provenance |
 | Cloudflare API workspace | ✅ Implemented scaffold | Hono Worker, health + authenticated Life Graph routes |
-| Authentication boundary | ✅ Implemented scaffold | OIDC/JWKS token verification; verified `sub` owns server-side data scope |
-| PostgreSQL schema/migrations | ✅ First migration | Users, profiles, roles, goals, next actions, evidence |
-| Durable repository layer | ✅ Implemented scaffold | User-scoped queries/mutations + transactional completion/evidence |
-| Mobile API client | ✅ Implemented boundary | Typed fetch layer for Life Graph/onboarding/action completion |
-| MVP database/auth provider | ✅ Selected | Supabase Postgres + Supabase Auth; replaceable later by ADR |
-| Production database | ⏳ Provision next | Supabase project not yet connected; no Hyperdrive binding yet |
-| Production authentication | ⏳ Provision next | Supabase selected; mobile session/sign-in not configured yet |
-| Mobile ↔ API live persistence | ⏳ Next | Mobile still uses local React state until auth/backend are provisioned |
+| Supabase project | ✅ Provisioned | `aplayer-mode` project active on Free plan |
+| Supabase Auth | ✅ Platform available | Auth service active; mobile sign-in/session UX not wired yet |
+| PostgreSQL schema | ✅ Applied | user_profiles, roles, goals, next_actions, evidence |
+| Row Level Security | ✅ Applied | authenticated users restricted to their own rows |
+| Transactional RPCs | ✅ Applied | onboarding + completion/evidence functions |
+| Cloudflare↔Supabase repository | ✅ Refactored | API uses Supabase Auth validation and user-token Data API/RPC path |
+| Mobile API client boundary | ✅ Implemented baseline | API contract exists; authenticated session integration is next |
+| Supabase Free plan | ✅ Locked for MVP | Upgrade only when concrete need appears |
+| Mobile ↔ API live persistence | ⏳ Next | Mobile still uses local React state |
+| Mobile Supabase session | ⏳ Next | Supabase client/login/session persistence not wired into app shell |
 | Server Today projection | ⏳ Next | Current Today is generated in mobile prototype |
 | Radar deterministic engine | ⏳ Next | Example Radar still fixture content |
 | Real model calls | ⏳ Later | No production inference endpoint is connected yet |
@@ -66,11 +69,11 @@ The first mobile vertical slice works locally. The server equivalent and typed m
 | Push notifications | ⏳ Later | Not connected |
 | External action execution | ⏳ Later | No connector actions; policy layer exists first |
 
-## What is real vs fixture vs provisioned
+## What is real vs fixture vs pending
 
 ```mermaid
 flowchart TB
-  subgraph REAL[Implemented code]
+  subgraph REAL[Implemented / provisioned]
     R1[Navigation + Trust Center]
     R2[Multi-role onboarding]
     R3[Local Life Graph state]
@@ -78,9 +81,10 @@ flowchart TB
     R5[Completion -> Evidence]
     R6[Privacy / Policy / AI routing primitives]
     R7[Cloudflare API service]
-    R8[OIDC auth verification]
-    R9[Postgres migration + repository]
-    R10[Mobile API client]
+    R8[Supabase Free project]
+    R9[Postgres + RLS]
+    R10[Transactional RPCs]
+    R11[Cloudflare Supabase REST repository]
   end
 
   subgraph FIXTURE[Fixture / explanatory content]
@@ -90,28 +94,28 @@ flowchart TB
     F4[Activity timeline]
   end
 
-  subgraph NEEDSENV[Code/provider selected; environment not provisioned]
-    P1[Supabase project]
-    P2[Supabase Auth signing/JWKS]
-    P3[Cloudflare Hyperdrive binding]
-    P4[Cloudflare runtime secrets]
+  subgraph NEXT[Next integration work]
+    N1[Mobile Supabase Auth]
+    N2[Cloudflare deployment config]
+    N3[Mobile authenticated persistence]
+    N4[Today server projection]
+    N5[Deterministic Radar]
   end
 
-  subgraph NOTYET[Not connected yet]
-    N1[Mobile authenticated persistence]
-    N2[OpenRouter inference]
-    N3[Gmail / Calendar]
-    N4[Push]
+  subgraph LATER[Later]
+    L1[OpenRouter live inference]
+    L2[Gmail / Calendar]
+    L3[Push]
   end
 ```
 
 ## Current technical caveats
 
-The mobile Life Graph is still held in React state and resets when the app process resets. This remains intentional until the Cloudflare API is connected to a real database and the mobile authentication/session flow exists.
+The mobile Life Graph is still held in React state and resets when the app process resets. Supabase durability now exists server-side, but the mobile app has not yet switched its state source to the authenticated API.
 
-The new Worker API is real source code, but it cannot provide durable persistence until a Supabase project exists, migration `0001_life_graph.sql` is applied, and Cloudflare Hyperdrive is bound in the deployed environment.
+The API validates normal sessions through Supabase Auth and forwards the user's own access token to Supabase Data API/RPC so PostgreSQL RLS remains effective. Normal user operations do not require a service-role key.
 
-The API supports a local-only `AUTH_DEV_BYPASS_USER_ID`. This is a development bridge, not production authentication. Staging/production will use Supabase Auth's JWT/JWKS path.
+The API still supports a local-only `AUTH_DEV_BYPASS_USER_ID`; this remains development-only and must not be present in staging/production.
 
 The OpenRouter environment variable is reserved server-side, but **no route currently sends any user content to OpenRouter**.
 
@@ -122,37 +126,33 @@ No Gmail, Calendar, purchase, banking, or external action capability has been gr
 | Method | Route | State |
 |---|---|---|
 | GET | `/v1/health` | Implemented |
-| GET | `/v1/me/life-graph` | Implemented; requires auth + DB |
-| PUT | `/v1/onboarding` | Implemented; requires auth + DB |
-| POST | `/v1/next-actions/:id/complete` | Implemented; requires auth + DB |
+| GET | `/v1/me/life-graph` | Implemented; requires Supabase session |
+| PUT | `/v1/onboarding` | Implemented; authenticated + RLS/RPC |
+| POST | `/v1/next-actions/:id/complete` | Implemented; authenticated + transactional RPC |
 
 ## Next execution block
 
 ```mermaid
 flowchart LR
-  A[API code] --> B[Provision Supabase]
-  B --> C[Run migration]
-  C --> D[Create Cloudflare Hyperdrive]
-  D --> E[Configure Supabase JWT/JWKS]
-  E --> F[Configure mobile Supabase Auth]
-  F --> G[Wire authenticated mobile API client]
-  G --> H[Persist onboarding / goals / evidence]
-  H --> I[Today from server state]
-  I --> J[Deterministic Radar v0]
+  A[Supabase schema + RLS + RPC live] --> B[Add Supabase client to Expo]
+  B --> C[Persist mobile auth session]
+  C --> D[Send session token to Cloudflare API]
+  D --> E[Hydrate Life Graph from server]
+  E --> F[Persist onboarding / completion]
+  F --> G[Today from server state]
+  G --> H[Deterministic Radar v0]
 ```
 
 ### Exit criteria for the next block
 
-- A real Supabase development project exists.
-- The APM migration is applied.
-- Cloudflare Worker reaches Supabase Postgres via Hyperdrive.
-- Supabase Auth issues JWTs accepted by the Worker.
-- Mobile obtains/persists an authenticated session.
-- Mobile talks to the typed development API with the access token.
-- User-scoped Life Graph data survives app restarts.
-- Identity, roles, goals, next actions, and evidence have durable storage.
-- Every private query/mutation is scoped to an authenticated user boundary.
-- Today can be reconstructed from server state.
+- mobile signs in through Supabase Auth;
+- session persists securely on device;
+- mobile calls Cloudflare APM API with Supabase access token;
+- Life Graph survives app restarts;
+- onboarding writes to the live Supabase project;
+- action completion creates durable evidence;
+- every private query/mutation is protected by both verified identity and RLS;
+- Today can be reconstructed from server state;
 - CI covers all workspaces.
 
 Only after that foundation is stable should Calendar become the first real external source.
