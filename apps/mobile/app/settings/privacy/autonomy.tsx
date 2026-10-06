@@ -80,7 +80,7 @@ export default function AutonomyScreen() {
           const key = `${control.domain}:${control.actionType}`;
           const permission = graph.permissions.find((item) => item.domain === control.domain && item.actionType === control.actionType);
           const current = (permission?.enabled ? permission.autonomyLevel : 0) as AutonomyLevel;
-          const lower = Math.max(0, current - 1) as AutonomyLevel;
+          const lower = Math.min(ceiling, Math.max(0, current - 1)) as AutonomyLevel;
           const higher = Math.min(ceiling, current + 1) as AutonomyLevel;
           return (
             <Card key={key}>
