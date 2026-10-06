@@ -193,3 +193,19 @@ test('daily recurrence preserves local clock time across DST changes', () => {
   }).format(next.dueAt);
   assert.equal(local, '09:00');
 });
+
+
+test('early completion of a clamped current occurrence advances beyond that occurrence', () => {
+  const recurrence = {
+    frequency: 'monthly',
+    interval: 1,
+    anchorDueAt: '2027-01-31T12:00:00.000Z',
+    timezone: 'UTC',
+  };
+  const result = nextRecurringSchedule(
+    { dueAt: new Date('2027-02-28T12:00:00.000Z') },
+    new Date('2027-02-20T12:00:00.000Z'),
+    recurrence,
+  );
+  assert.equal(result.dueAt?.toISOString(), '2027-03-31T12:00:00.000Z');
+});
