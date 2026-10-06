@@ -1,15 +1,21 @@
 # Copy to services/api/.dev.vars for local development only.
 # Never commit real values.
 
+# Local Postgres connection. Production uses Cloudflare Hyperdrive instead.
 DATABASE_URL=
+
+# Local-only auth bypass. Never configure this in staging/production.
 AUTH_DEV_BYPASS_USER_ID=local-user
 
-# Production/staging should use a real OIDC provider instead of AUTH_DEV_BYPASS_USER_ID.
+# Supabase Auth mapping for staging/production:
+# AUTH_JWKS_URL=https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+# AUTH_ISSUER=https://<project-ref>.supabase.co/auth/v1
+# AUTH_AUDIENCE=authenticated
 AUTH_JWKS_URL=
 AUTH_ISSUER=
 AUTH_AUDIENCE=
 
-# Keep server-side only. Do not expose in Expo public env or mobile bundle.
+# Server-only. Install in Cloudflare Secrets for deployed environments.
 OPENROUTER_API_KEY=
 
 ALLOWED_ORIGIN=
