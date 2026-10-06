@@ -1,4 +1,5 @@
 import type {
+  DayRecord,
   LifeGraphSnapshot,
   NextAction,
   OperatingModeKey,
@@ -45,6 +46,11 @@ export const BUILTIN_TRACKS: ReadonlyArray<{
     name: 'Investor + AI Leverage',
     description: 'Opportunity recognition, capital allocation and AI as a force multiplier.',
   },
+  {
+    key: 'resilience',
+    name: 'Resilience',
+    description: 'Protect recovery capacity and continuity during volatility.',
+  },
 ];
 
 export const BUILTIN_MODES: ReadonlyArray<{
@@ -63,6 +69,16 @@ export const BUILTIN_MODES: ReadonlyArray<{
     key: 'executive_review',
     name: 'Executive Review',
     description: 'Organize what exists, clarify decisions, and avoid new-idea sprawl.',
+  },
+  {
+    key: 'sprint',
+    name: 'Sprint',
+    description: 'A declared short burst of maximum-output work with one foreground only.',
+  },
+  {
+    key: 'deep_work',
+    name: 'Deep Work',
+    description: 'A bounded uninterrupted focus block for one difficult task.',
   },
 ];
 
@@ -94,11 +110,16 @@ export function adaptivePrimaryGoalPrompt(roles: string[]): string {
   return 'What are you trying to make happen in the next 90 days?';
 }
 
-export function recommendTrackKeys(roles: string[]): TrackKey[] {
+export function recommendTrackKeys(roles: string[], failurePatterns: string[] = []): TrackKey[] {
   const normalized = roles.map((role) => role.toLowerCase());
+  const failures = failurePatterns.join(' ').toLowerCase();
   const recommendations: TrackKey[] = ['operator_discipline'];
+
   if (normalized.some((role) => BUSINESS_ROLE_MARKERS.some((marker) => role.includes(marker)))) {
     recommendations.push('billionaire_mindset', 'strategic_patience');
+  }
+  if (/(burnout|all.or.nothing|recovery|crash|overwhelm)/.test(failures)) {
+    recommendations.push('resilience');
   }
   return [...new Set(recommendations)];
 }
@@ -137,6 +158,27 @@ export function selectMinimumViableAction(graph: LifeGraphSnapshot): NextAction 
   return criticalAction ?? open[0];
 }
 
+const VAGUE_ACTION_PATTERNS = [
+  /^work on\b/i,
+  /^review\b/i,
+  /^think about\b/i,
+  /^make progress\b/i,
+  /^handle\b/i,
+  /^deal with\b/i,
+  /^focus on\b/i,
+];
+
+export function isExecutableActionTitle(title: string): boolean {
+  const normalized = title.trim();
+  if (normalized.length < 5) return false;
+  return !VAGUE_ACTION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+export function executableActionProblem(title: string): string | null {
+  if (isExecutableActionTitle(title)) return null;
+  return 'Ambiguity stop: define the physical action and observable output before execution.';
+}
+
 export interface ArbitrationCandidate {
   id: string;
   leverage: number;
@@ -168,6 +210,41 @@ export function arbitrateForeground(candidates: ArbitrationCandidate[]): Arbitra
   return { winnerId: ranked[0]?.id, ranked };
 }
 
+export type GateVerdict = 'promote' | 'maintain' | 'park';
+
+export function reviewGateVerdict(input: {
+  progressScore: number;
+  evidenceCount: number;
+  stillAligned: boolean;
+}): GateVerdict {
+  if (!input.stillAligned) return 'park';
+  if (input.progressScore >= 7 && input.evidenceCount > 0) return 'promote';
+  if (input.progressScore >= 3 || input.evidenceCount > 0) return 'maintain';
+  return 'park';
+}
+
+export function stabilizationDay(installedOn: string, today = new Date()): number {
+  const start = new Date(`${installedOn.slice(0, 10)}T00:00:00.000Z`).getTime();
+  const end = new Date(`${today.toISOString().slice(0, 10)}T00:00:00.000Z`).getTime();
+  return Math.max(1, Math.min(7, Math.floor((end - start) / 86_400_000) + 1));
+}
+
+export function shouldForceRecovery(dayRecords: DayRecord[]): boolean {
+  const sorted = [...dayRecords].sort((a, b) => b.day.localeCompare(a.day));
+  return sorted[0]?.verdict === 'miss';
+}
+
+export function scoreDay(input: {
+  completedCritical: number;
+  requiredCritical: number;
+  recoveryMode: boolean;
+  mvdActionCompleted: boolean;
+}): 'full_day' | 'mvd' | 'miss' {
+  if (input.recoveryMode && input.mvdActionCompleted) return 'mvd';
+  if (input.requiredCritical === 0) return input.mvdActionCompleted ? 'full_day' : 'miss';
+  return input.completedCritical >= input.requiredCritical ? 'full_day' : 'miss';
+}
+
 export function coachingOpeningQuestion(mode: OperatingModeKey): string {
   switch (mode) {
     case 'recovery':
@@ -175,8 +252,20 @@ export function coachingOpeningQuestion(mode: OperatingModeKey): string {
     case 'high_pressure':
       return 'What decision or action are you avoiding right now?';
     case 'executive_review':
-      return 'What is creating the most noise or ambiguity in your current system?';
+      return "Here's what you already know that still makes you better:";
+    case 'sprint':
+      return 'What single sprint-critical output must exist before this window closes?';
+    case 'deep_work':
+      return 'What is the one task this uninterrupted block exists to finish?';
     default:
       return 'What feels most important to get clear on before you execute?';
   }
+}
+
+export function canMiddayReplan(reason: 'external_change' | 'safety' | 'permission' | 'mood' | 'discomfort'): boolean {
+  return reason === 'external_change' || reason === 'safety' || reason === 'permission';
+}
+
+export function normalizeMorningSequence(sequence: string[]): string[] {
+  return sequence.map((step) => step.trim()).filter(Boolean).slice(0, 5);
 }
