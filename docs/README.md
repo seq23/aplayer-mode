@@ -1,6 +1,6 @@
 # A Player Mode — Documentation Index
 
-This directory is the canonical source of product, privacy, AI, architecture, pricing, security, data, UX, deployment, and positioning decisions for A Player Mode.
+This directory is the canonical source of product, privacy, AI, architecture, pricing, security, data, UX, deployment, positioning, and backend decisions for A Player Mode.
 
 ## Decision status
 
@@ -31,6 +31,7 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | 13 | [IMPLEMENTATION STATUS](./13-IMPLEMENTATION-STATUS.md) | **LIVING EXECUTION RECORD** | Real vs fixture behavior, current vertical slice, next engineering block |
 | 14 | [DEPLOYMENT & SECRETS](./14-DEPLOYMENT-AND-SECRETS.md) | **LOCKED BASELINE** | Cloudflare server deployment, Expo/app-store release path, secret storage and rotation |
 | 15 | [POSITIONING & LIFE MODES](./15-POSITIONING-AND-LIFE-MODES.md) | **LOCKED POSITIONING BASELINE** | “Whatever game you're in” positioning, multi-role onboarding and audience anti-drift rules |
+| 16 | [BACKEND FOUNDATION](./16-BACKEND-FOUNDATION.md) | **LOCKED IMPLEMENTATION BASELINE** | Cloudflare API, OIDC user boundary, PostgreSQL/Hyperdrive schema and v1 endpoints |
 
 ## Anti-drift hierarchy
 
@@ -51,11 +52,12 @@ flowchart LR
   A[Constitutions] -->|done| B[Architecture + data + security]
   B -->|done| C[Mobile shell + Trust Center]
   C -->|done| D[Local Life Graph vertical slice]
-  D -->|current| E[Durable API + persistence]
-  E --> F[Today Engine]
-  F --> G[Radar v0]
-  G --> H[Calendar]
-  H --> I[Gmail]
+  D -->|scaffolded| E[Cloudflare API + Postgres schema]
+  E -->|next: provision/connect| F[Durable persistence + auth]
+  F --> G[Today Engine]
+  G --> H[Radar v0]
+  H --> I[Calendar]
+  I --> J[Gmail]
 ```
 
 ### Already implemented as code
@@ -81,12 +83,15 @@ flowchart LR
 - `@apm/privacy` inference-eligibility primitives;
 - `@apm/policy` autonomy/permission primitives;
 - `@apm/ai` privacy-first model-registry routing primitives;
-- server/API service boundary reserved for Cloudflare with safe `.dev.vars.example`;
+- Cloudflare Worker API workspace with health, onboarding, Life Graph and action-completion routes;
+- provider-agnostic OIDC/JWKS authentication boundary;
+- PostgreSQL first-slice migration and user-scoped repository layer;
+- safe `.dev.vars.example` with no secrets;
 - CI typecheck across workspaces.
 
-### Still fixture / not production-connected
+### Still not production-connected
 
-The Life Graph currently lives in local React state and resets with the app process. There is no production database or authenticated user tenancy yet. AI-provider, Connections, Activity, and example Radar content still contain fixture/explanatory data. No Gmail, Calendar, production OpenRouter inference, or external action execution is connected yet.
+The mobile Life Graph still runs from local React state until the backend is provisioned and wired. The Worker code exists, but a production PostgreSQL origin, Hyperdrive binding, and authentication provider are not configured yet. AI-provider, Connections, Activity, and example Radar content still contain fixture/explanatory data. No Gmail, Calendar, production OpenRouter inference, or external action execution is connected yet.
 
 Use `13-IMPLEMENTATION-STATUS.md` as the detailed current-state record.
 
