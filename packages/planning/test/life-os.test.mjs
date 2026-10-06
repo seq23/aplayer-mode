@@ -178,3 +178,29 @@ test('projects a timed Life OS item again on its independent due date', () => {
   assert.equal(block.startAt, undefined);
   assert.equal(block.endAt, undefined);
 });
+
+
+test('keeps device all-day events on the source local date east of UTC', () => {
+  const state = graph();
+  state.identity.timezone = 'Pacific/Auckland';
+  state.calendarEvents = [{
+    id: 'device-all-day',
+    userId: 'user-1',
+    provider: 'device',
+    externalEventId: 'device-1',
+    title: 'Local all-day event',
+    startsAt: '2026-10-05T11:00:00.000Z',
+    endsAt: '2026-10-06T11:00:00.000Z',
+    timezone: 'Pacific/Auckland',
+    allDay: true,
+    availability: 'busy',
+    recurrence: {},
+    organizer: {},
+    attendees: [],
+    deleted: false,
+  }];
+  const oct5 = buildDailyPlan(state, { date: '2026-10-05' });
+  const oct6 = buildDailyPlan(state, { date: '2026-10-06' });
+  assert.equal(oct5.blocks.some((block) => block.id === 'calendar:device-all-day'), false);
+  assert.equal(oct6.blocks.some((block) => block.id === 'calendar:device-all-day'), true);
+});
