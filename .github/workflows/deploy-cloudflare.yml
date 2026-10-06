@@ -28,6 +28,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       APM_API_BASE_URL: ${{ vars.APM_API_BASE_URL }}
+      DEPLOY_ENV: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,9 +38,7 @@ jobs:
       - name: Initialize deployment receipt
         run: |
           mkdir -p evidence
-          node -e "require('fs').writeFileSync('evidence/cloudflare-deploy.json', JSON.stringify({schemaVersion:1,gate:'cloudflare_deploy',status:'STARTED',environment:process.env.DEPLOY_ENV,commitSha:process.env.GITHUB_SHA,generatedAt:new Date().toISOString(),sensitiveValuesRecorded:false},null,2)+'\n')"
-        env:
-          DEPLOY_ENV: ${{ inputs.environment }}
+          node -e "require('fs').writeFileSync('evidence/cloudflare-deploy.json', JSON.stringify({schemaVersion:1,gate:'cloudflare_deploy',status:'STARTED',environment:process.env.DEPLOY_ENV,workerName:process.env.DEPLOY_ENV==='production'?'aplayer-mode-api':'aplayer-mode-api-staging',commitSha:process.env.GITHUB_SHA,generatedAt:new Date().toISOString(),sensitiveValuesRecorded:false},null,2)+'\n')"
 
       - name: Require deployment configuration
         shell: bash
@@ -54,11 +53,11 @@ jobs:
       - name: Validate exact source
         run: npm run typecheck && npm run test
 
-      - name: Deploy API
+      - name: Deploy API to selected Worker environment
         shell: bash
         run: |
           set -o pipefail
-          npm run api:deploy | tee evidence/wrangler-deploy.log
+          npm run api:deploy -- --env "$DEPLOY_ENV" | tee evidence/wrangler-deploy.log
 
       - name: Verify deployed health route
         shell: bash
@@ -80,7 +79,7 @@ jobs:
           let body = null;
           try { body = JSON.parse(bodyText); } catch {}
           const requestId = (headers.match(/^x-request-id:\s*(.+)$/im) || [])[1]?.trim() || null;
-          receipt.status = process.env.HEALTH_CODE === '200' && body?.ok === true && body?.service === 'aplayer-mode-api' ? 'PASS' : 'FAIL';
+          receipt.status = process.env.HEALTH_CODE === '200' && body?.ok === true && body?.service === 'aplayer-mode-api' && requestId ? 'PASS' : 'FAIL';
           receipt.completedAt = new Date().toISOString();
           receipt.apiBaseUrl = process.env.APM_API_BASE_URL;
           receipt.healthStatus = Number(process.env.HEALTH_CODE || 0);
