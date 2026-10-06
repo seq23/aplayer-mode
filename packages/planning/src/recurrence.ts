@@ -54,14 +54,39 @@ export function nextRecurringOccurrence(
 ): Date | undefined {
   if (Number.isNaN(scheduledAt.getTime()) || Number.isNaN(completedAt.getTime())) return undefined;
 
-  let cursor = addRecurrence(scheduledAt, recurrence);
-  if (!cursor) return undefined;
+  const frequency = recurrence.frequency;
+  if (!frequency) return undefined;
+  const interval = Math.max(1, Math.min(365, Math.trunc(recurrence.interval ?? 1)));
+  const first = addRecurrence(scheduledAt, { frequency, interval });
+  if (!first || first.getTime() > completedAt.getTime()) return first;
 
-  for (let i = 0; i < 500 && cursor.getTime() <= completedAt.getTime(); i += 1) {
-    const next = addRecurrence(cursor, recurrence);
-    if (!next) return undefined;
-    cursor = next;
+  if (frequency === 'daily' || frequency === 'weekly') {
+    const stepDays = frequency === 'daily' ? interval : interval * 7;
+    const stepMs = stepDays * 86_400_000;
+    const jumps = Math.floor((completedAt.getTime() - first.getTime()) / stepMs) + 1;
+    return new Date(first.getTime() + jumps * stepMs);
   }
 
-  return cursor.getTime() > completedAt.getTime() ? cursor : undefined;
+  if (frequency === 'monthly') {
+    const monthDelta =
+      (completedAt.getUTCFullYear() - scheduledAt.getUTCFullYear()) * 12
+      + completedAt.getUTCMonth()
+      - scheduledAt.getUTCMonth();
+    let occurrence = Math.max(1, Math.floor(monthDelta / interval));
+    let candidate = addMonthsClamped(scheduledAt, occurrence * interval);
+    while (candidate.getTime() <= completedAt.getTime()) {
+      occurrence += 1;
+      candidate = addMonthsClamped(scheduledAt, occurrence * interval);
+    }
+    return candidate;
+  }
+
+  const yearDelta = completedAt.getUTCFullYear() - scheduledAt.getUTCFullYear();
+  let occurrence = Math.max(1, Math.floor(yearDelta / interval));
+  let candidate = addYearsClamped(scheduledAt, occurrence * interval);
+  while (candidate.getTime() <= completedAt.getTime()) {
+    occurrence += 1;
+    candidate = addYearsClamped(scheduledAt, occurrence * interval);
+  }
+  return candidate;
 }
