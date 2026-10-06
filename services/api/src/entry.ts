@@ -13,8 +13,8 @@ const BUILD_SHA = typeof __APM_BUILD_SHA__ === 'string' ? __APM_BUILD_SHA__ : 'd
  * certify an older Worker while merely labeling it with a newer workflow SHA.
  */
 export default {
-  async fetch(request: Request, env: ApiEnv, executionContext: unknown): Promise<Response> {
-    const response = await app.fetch(request, env, executionContext);
+  async fetch(request: Request, env: ApiEnv): Promise<Response> {
+    const response = await app.fetch(request, env);
     if (new URL(request.url).pathname !== '/v1/health' || !response.ok) return response;
 
     const body = (await response.clone().json()) as Record<string, unknown>;
