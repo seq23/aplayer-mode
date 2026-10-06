@@ -1,6 +1,6 @@
 # A Player Mode — Documentation Index
 
-This directory is the canonical source of product, privacy, AI, architecture, pricing, security, data, and UX decisions for A Player Mode.
+This directory is the canonical source of product, privacy, AI, architecture, pricing, security, data, UX, deployment, and positioning decisions for A Player Mode.
 
 ## Decision status
 
@@ -29,6 +29,8 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | 11 | [PRIVACY UX & TRUST CENTER](./11-PRIVACY-UX-AND-TRUST-CENTER.md) | **LOCKED PRODUCT REQUIREMENT** | User-facing trust pages, provider transparency, permissions and audit UX |
 | 12 | [TRUST CENTER SCREEN MAP](./12-TRUST-CENTER-SCREEN-MAP.md) | **IMPLEMENTATION REFERENCE** | Visual page map, privacy flow, autonomy flow and screen acceptance grid |
 | 13 | [IMPLEMENTATION STATUS](./13-IMPLEMENTATION-STATUS.md) | **LIVING EXECUTION RECORD** | Real vs fixture behavior, current vertical slice, next engineering block |
+| 14 | [DEPLOYMENT & SECRETS](./14-DEPLOYMENT-AND-SECRETS.md) | **LOCKED BASELINE** | Cloudflare server deployment, Expo/app-store release path, secret storage and rotation |
+| 15 | [POSITIONING & LIFE MODES](./15-POSITIONING-AND-LIFE-MODES.md) | **LOCKED POSITIONING BASELINE** | “Whatever game you're in” positioning, multi-role onboarding and audience anti-drift rules |
 
 ## Anti-drift hierarchy
 
@@ -60,6 +62,8 @@ flowchart LR
 
 - Expo / React Native workspace scaffold;
 - core navigation: **Today · Radar · Goals · APM**;
+- broad welcome positioning across parents/caregivers, athletes, entrepreneurs, students, professionals/leaders, creators, and life transitions;
+- multi-role “what game are you in?” onboarding;
 - Welcome + Privacy Primer;
 - structured onboarding into a local Life Graph;
 - primary Goal → Next Action → Today flow;
@@ -77,6 +81,7 @@ flowchart LR
 - `@apm/privacy` inference-eligibility primitives;
 - `@apm/policy` autonomy/permission primitives;
 - `@apm/ai` privacy-first model-registry routing primitives;
+- server/API service boundary reserved for Cloudflare with safe `.dev.vars.example`;
 - CI typecheck across workspaces.
 
 ### Still fixture / not production-connected
