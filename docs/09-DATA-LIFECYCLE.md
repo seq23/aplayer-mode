@@ -156,3 +156,14 @@ Every new storage table/object must identify:
 - export behavior;
 - deletion behavior;
 - whether it may enter AI context.
+
+## Phase B Life OS storage classes
+
+| Object | Owner / boundary | Classification | Retention intent | Export / deletion | AI-context eligibility |
+|---|---|---|---|---|---|
+| `life_relationships` | individual user; own-row + Life OS entitlement RLS | Class 2 private life | persistent until corrected/deleted/account deletion | included through Life Graph export; cascades with account/person deletion | only when a future task requires it and Privacy Gateway permits; **Phase B Radar/Today are deterministic** |
+| `life_admin_items` | individual user; own-row + Life OS entitlement RLS | Class 2 by default; fields containing financial or health-sensitive details can be Class 3 | persistent while useful; completed/cancelled state remains structured history until removed/account deletion | included through Life Graph export; cascades with account deletion | only minimum necessary fields through an eligible route; **no new Phase B inference path** |
+
+Phase B analytics contain event type and coarse domain kind/recurrence state only. Titles, notes, amounts, health details, relationship notes and other raw private Life OS content are not copied into product analytics by default.
+
+Life OS state retains provenance. User-managed edits and completion are canonical state changes; future inferred Life OS facts must preserve the correction rules above.
