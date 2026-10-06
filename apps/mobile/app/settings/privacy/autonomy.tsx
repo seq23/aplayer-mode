@@ -27,16 +27,25 @@ const labels: Record<AutonomyLevel, string> = {
 };
 
 const controls = [
-  { domain: 'calendar', actionType: 'event_write', title: 'Calendar changes', maxForNow: 4 as AutonomyLevel },
-  { domain: 'email', actionType: 'send', title: 'Email sending', maxForNow: 4 as AutonomyLevel },
-  { domain: 'routine', actionType: 'schedule', title: 'Routine scheduling', maxForNow: 5 as AutonomyLevel },
+  { domain: 'calendar', actionType: 'event_write', title: 'Calendar changes' },
+  { domain: 'email', actionType: 'send', title: 'Email sending' },
+  { domain: 'routine', actionType: 'schedule', title: 'Routine scheduling' },
 ] as const;
+
+function planCeiling(plan: string | undefined, status: string | undefined): AutonomyLevel {
+  if (status !== 'active' && status !== 'trialing') return 0;
+  if (plan === 'autopilot' || plan === 'household') return 5;
+  if (plan === 'life_os') return 4;
+  if (plan === 'beta' || plan === 'chief_of_staff') return 3;
+  return 0;
+}
 
 export default function AutonomyScreen() {
   const { graph, refresh } = useLifeGraph();
   const { accessToken } = useSession();
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
+  const ceiling = planCeiling(graph.entitlement?.plan, graph.entitlement?.status);
 
   const change = async (domain: string, actionType: string, level: AutonomyLevel) => {
     if (!accessToken || busy) return;
@@ -72,7 +81,7 @@ export default function AutonomyScreen() {
           const permission = graph.permissions.find((item) => item.domain === control.domain && item.actionType === control.actionType);
           const current = (permission?.enabled ? permission.autonomyLevel : 0) as AutonomyLevel;
           const lower = Math.max(0, current - 1) as AutonomyLevel;
-          const higher = Math.min(control.maxForNow, current + 1) as AutonomyLevel;
+          const higher = Math.min(ceiling, current + 1) as AutonomyLevel;
           return (
             <Card key={key}>
               <View style={uiStyles.row}>
@@ -80,10 +89,10 @@ export default function AutonomyScreen() {
                 <Pill>{labels[current]}</Pill>
               </View>
               <KeyValue label="Current level" value={`${current} · ${labels[current]}`} />
-              <KeyValue label="Current product ceiling" value={`${control.maxForNow} · ${labels[control.maxForNow]}`} />
+              <KeyValue label="Current product ceiling" value={`${ceiling} · ${labels[ceiling]}`} />
               <Body muted>Increasing a level is explicit. Level 4 still requires per-action approval; level 5 is standing authority within configured constraints.</Body>
               <Button label={busy === key ? 'Saving…' : `Reduce to ${labels[lower]}`} variant="secondary" onPress={() => void change(control.domain, control.actionType, lower)} />
-              {current < control.maxForNow ? <Button label={busy === key ? 'Saving…' : `Increase to ${labels[higher]}`} onPress={() => void change(control.domain, control.actionType, higher)} /> : null}
+              {current < ceiling ? <Button label={busy === key ? 'Saving…' : `Increase to ${labels[higher]}`} onPress={() => void change(control.domain, control.actionType, higher)} /> : null}
             </Card>
           );
         })}
