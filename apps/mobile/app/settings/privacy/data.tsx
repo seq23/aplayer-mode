@@ -15,7 +15,7 @@ import { useLifeGraph } from '../../../src/state/lifeGraph';
 
 export default function YourDataScreen() {
   const { graph } = useLifeGraph();
-  const hasLiveState = Boolean(graph.identity.displayName || graph.goals.length);
+  const hasLiveState = Boolean(graph.identity.displayName || graph.roles.length || graph.goals.length);
 
   return (
     <Screen
@@ -25,7 +25,7 @@ export default function YourDataScreen() {
     >
       <Card tone="accent">
         <CardTitle>Your Life Graph is APM's private operating memory.</CardTitle>
-        <Body muted>Goals, commitments, routines, people, preferences and rules live here instead of being hidden inside a giant prompt.</Body>
+        <Body muted>Roles, goals, commitments, routines, people, preferences and rules live here instead of being hidden inside a giant prompt.</Body>
       </Card>
 
       <SectionTitle>{hasLiveState ? 'Your current Life Graph' : 'Example Life Graph'}</SectionTitle>
@@ -43,6 +43,19 @@ export default function YourDataScreen() {
             <Button label="Correct this" variant="secondary" onPress={() => {}} />
           </Card>
         ) : null}
+
+        {graph.roles.map((role) => (
+          <Card key={role.id}>
+            <View style={uiStyles.row}>
+              <Pill>Role / game</Pill>
+              <Pill tone="success">User stated</Pill>
+            </View>
+            <CardTitle>{role.name}</CardTitle>
+            <KeyValue label="Status" value={role.active ? 'Active now' : 'Inactive'} />
+            <KeyValue label="Source" value="You selected this during onboarding" />
+            <Button label="Correct this" variant="secondary" onPress={() => {}} />
+          </Card>
+        ))}
 
         {graph.goals.map((goal) => (
           <Card key={goal.id}>
