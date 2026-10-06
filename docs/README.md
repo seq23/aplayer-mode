@@ -44,6 +44,7 @@ This directory is the canonical source of product, privacy, methodology, AI, arc
 | 25 | [ACTIONS, AUTOPILOT, HOUSEHOLD & WEB](./25-AUTONOMY-HOUSEHOLD-AND-WEB.md) | **LONG-HORIZON CONTRACT** | Action lifecycle, standing authority, Household and web command center |
 | 26 | [EXTERNAL RUNTIME GATES](./26-EXTERNAL-RUNTIME-GATES.md) | **OPERATIONS RUNBOOK** | Cloudflare, provider, model, push, store, billing, legal and beta receipts |
 | 27 | [RUNTIME EVIDENCE PACKET](./27-RUNTIME-EVIDENCE-PACKET.md) | **OPEN EXTERNAL VALIDATION PACKET** | Receipt ledger for proving deployed/provider/device/store behavior after the merged source baseline |
+| 28 | [RUNTIME EVIDENCE HARDENING](./28-RUNTIME-EVIDENCE-HARDENING.md) | **IMPLEMENTATION + OPERATIONS GATE** | Machine-readable receipts, exact-SHA proof workflows, kill-switch and branch-governance hardening |
 
 ## Canonical methodology reference
 
@@ -85,13 +86,13 @@ flowchart LR
   CONNECT --> AI[Privacy-gated AI]
   AI --> PROACTIVE[Today / Radar / Push]
   PROACTIVE --> ACTIONS[Permissioned Actions]
-  ACTIONS --> PROOF[Runtime evidence packet]
+  ACTIONS --> PROOF[Runtime evidence + hardening]
   PROOF --> BETA[Closed beta]
   BETA --> PAID[Chief of Staff]
   PAID --> LIFE[Evidence-driven Life OS / Autopilot / Household]
 ```
 
-Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth, `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete program/gates, and `27-RUNTIME-EVIDENCE-PACKET.md` for the active external validation work.
+Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth, `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete program/gates, `27-RUNTIME-EVIDENCE-PACKET.md` for the active external validation work, and `28-RUNTIME-EVIDENCE-HARDENING.md` for receipt and workflow rules.
 
 ## Documentation standard
 

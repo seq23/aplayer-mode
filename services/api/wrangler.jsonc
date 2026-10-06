@@ -1,14 +1,28 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aplayer-mode-api",
-  "main": "src/index.ts",
+  "main": "src/entry.ts",
   "compatibility_date": "2026-10-06",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "aplayer-mode-api-staging"
+    },
+    "production": {
+      "name": "aplayer-mode-api"
+    }
   }
 
-  // Runtime configuration is supplied by Cloudflare environment variables/secrets.
+  // Runtime configuration is supplied by Cloudflare environment-specific variables/secrets.
+  // Staging and production are deliberately distinct Workers; never use an environment label
+  // while deploying the same Worker behind the scenes.
+  //
+  // Deployment injects __APM_BUILD_SHA__ as a build-time Wrangler define. The health response
+  // exposes that immutable value so evidence workflows can prove which source commit is live.
+  //
   // Required for authenticated Life Graph routes:
   // SUPABASE_URL
   // SUPABASE_PUBLISHABLE_KEY
