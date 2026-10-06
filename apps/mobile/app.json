@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "scheme": "aplayermode",
-    "plugins": ["expo-router"],
+    "plugins": ["expo-router", "expo-secure-store"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.aplayermode.app"
