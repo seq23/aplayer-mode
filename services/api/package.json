@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@apm/domain": "0.1.0",
+    "@apm/planning": "0.1.0",
     "hono": "^4.9.0",
     "jose": "^6.0.0",
     "pg": "^8.16.3",
