@@ -50,6 +50,22 @@ const modeSchema = z.enum(['standard','recovery','high_pressure','executive_revi
 const providerSchema = z.enum(['google','microsoft']);
 const integrationKindSchema = z.enum(['calendar','email']);
 
+function isValidDateOnly(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day
+  );
+}
+
+const dateOnlySchema = z.string().refine(isValidDateOnly, { message: 'invalid calendar date' });
+
 const onboardingSchema = z.object({
   displayName: z.string().trim().min(1).max(120),
   roles: z.array(z.string().trim().min(1).max(120)).min(1).max(12),
@@ -125,7 +141,7 @@ function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: 
 const methodologyIntakeSchema = onboardingSchema.extend({
   timezone: z.string().trim().max(120).optional(),
   goalOutcome: z.string().trim().max(800).optional(),
-  goalTargetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  goalTargetDate: dateOnlySchema.optional(),
   firstNextAction: z.string().trim().min(3).max(500).optional(),
   northStar: z.string().trim().max(1000).optional(),
   values: z.array(z.string().trim().min(1).max(160)).max(20),
@@ -168,7 +184,7 @@ const lifeAdminRecurrenceSchema = z.object({
   frequency: z.enum(['daily','weekly','monthly','yearly']).optional(),
   interval: z.number().int().min(1).max(365).optional(),
 }).default({});
-const optionalDateSchema = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional();
+const optionalDateSchema = z.union([dateOnlySchema, z.literal('')]).optional();
 const optionalDateTimeSchema = z.union([z.string().datetime(), z.literal('')]).optional();
 
 const relationshipCreateSchema = z.object({
