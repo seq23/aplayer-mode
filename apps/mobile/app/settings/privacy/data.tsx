@@ -25,7 +25,7 @@ export default function YourDataScreen() {
     >
       <Card tone="accent">
         <CardTitle>Your Life Graph is APM's private operating memory.</CardTitle>
-        <Body muted>Roles, goals, commitments, routines, people, preferences and rules live in structured state instead of being hidden inside a giant prompt.</Body>
+        <Body muted>Roles, goals, commitments, routines, people, relationships, Life OS obligations, preferences and rules live in structured state instead of being hidden inside a giant prompt.</Body>
       </Card>
 
       <SectionTitle>Identity & game</SectionTitle>
@@ -70,10 +70,42 @@ export default function YourDataScreen() {
         </Card>
       )) : <Card><Body muted>No commitments are stored yet.</Body></Card>}
 
+      <SectionTitle>Life OS</SectionTitle>
+      {graph.lifeRelationships.length ? graph.lifeRelationships.slice(0, 20).map((relationship) => {
+        const person = graph.people.find((candidate) => candidate.id === relationship.personId);
+        return (
+          <Card key={relationship.id}>
+            <View style={uiStyles.row}><Pill>Relationship</Pill><Pill tone="success">{relationship.provenance.kind}</Pill></View>
+            <CardTitle>{person?.name ?? 'Person'}</CardTitle>
+            <KeyValue label="Relationship" value={person?.relationship ?? 'Not set'} />
+            <KeyValue label="Birthday" value={relationship.birthday ?? 'Not set'} />
+            <KeyValue label="Next contact" value={relationship.nextContactAt ?? 'Not set'} />
+            <KeyValue label="Source" value={relationship.provenance.sourceType} />
+          </Card>
+        );
+      }) : <Card><Body muted>No Life OS relationship state is stored.</Body></Card>}
+
+      {graph.lifeAdminItems.length ? graph.lifeAdminItems.slice(0, 20).map((item) => (
+        <Card key={item.id}>
+          <View style={uiStyles.row}><Pill>Life OS</Pill><Pill>{item.kind.replaceAll('_', ' ')}</Pill></View>
+          <CardTitle>{item.title}</CardTitle>
+          <KeyValue label="Status" value={item.status} />
+          <KeyValue label="Next date" value={item.dueAt ?? item.startsAt ?? 'Not set'} />
+          <KeyValue label="Source" value={item.provenance.sourceType} />
+        </Card>
+      )) : <Card><Body muted>No Life OS administration items are stored.</Body></Card>}
+
+      <Card>
+        <Body muted>Life OS state is private structured data. Use Life OS to correct or complete it; export and account deletion include this state through the same Life Graph lifecycle.</Body>
+        <Button label="Manage Life OS" variant="secondary" onPress={() => router.push('/settings/life')} />
+      </Card>
+
       <SectionTitle>Operating rules & preferences</SectionTitle>
       <Card>
         <KeyValue label="Routines" value={String(graph.routines.length)} />
         <KeyValue label="People" value={String(graph.people.length)} />
+        <KeyValue label="Life relationships" value={String(graph.lifeRelationships.length)} />
+        <KeyValue label="Life admin items" value={String(graph.lifeAdminItems.length)} />
         <KeyValue label="Preferences" value={String(graph.preferences.length)} />
         <KeyValue label="Rules" value={String(graph.rules.length)} />
         <KeyValue label="Connected accounts" value={String(graph.connections.length)} />
