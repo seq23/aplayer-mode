@@ -15,8 +15,12 @@ import {
 import { useLifeGraph } from '../../src/state/lifeGraph';
 
 export default function TodayScreen() {
-  const { graph } = useLifeGraph();
+  const { graph, completeNextAction } = useLifeGraph();
   const primaryGoal = graph.goals.find((goal) => goal.priority === 1) ?? graph.goals[0];
+  const primaryAction = graph.nextActions.find(
+    (action) => action.goalId === primaryGoal?.id && action.status !== 'dismissed',
+  );
+  const completionEvidence = graph.evidence.find((item) => item.relatedActionId === primaryAction?.id);
   const name = graph.identity.displayName || 'there';
 
   return (
@@ -25,28 +29,40 @@ export default function TodayScreen() {
       title={`Good morning, ${name}.`}
       subtitle={
         primaryGoal
-          ? 'APM has your first goal in the Life Graph. The next step is turning it into a daily execution system.'
+          ? 'APM has your first goal in the Life Graph and has turned it into a concrete next action.'
           : 'APM is ready to build your first Life Graph.'
       }
     >
       <Card tone="accent">
         <Label>Your #1 move</Label>
-        <CardTitle>{primaryGoal?.title ?? 'Finish your APM onboarding'}</CardTitle>
+        <CardTitle>{primaryAction?.title ?? primaryGoal?.title ?? 'Finish your APM onboarding'}</CardTitle>
         <Body muted>
           {primaryGoal
-            ? `Primary pillar: ${primaryGoal.pillar ?? 'not set'}. This goal is now structured state—not just chat history.`
+            ? `Primary pillar: ${primaryGoal.pillar ?? 'not set'}. Completion is recorded as evidence in your Life Graph.`
             : 'Add one concrete 90-day outcome so APM can start planning around it.'}
         </Body>
         <View style={uiStyles.row}>
           <Pill tone="success">Life Graph</Pill>
-          <Pill>{primaryGoal ? 'Priority 1' : 'Setup'}</Pill>
+          <Pill>{primaryAction?.estimatedMinutes ? `${primaryAction.estimatedMinutes} min` : 'Setup'}</Pill>
+          {primaryAction?.status === 'done' ? <Pill tone="success">Complete</Pill> : null}
         </View>
         {!primaryGoal ? (
           <Button label="Build my APM" onPress={() => router.push('/onboarding')} />
-        ) : (
-          <Button label="Start focus block" onPress={() => {}} />
-        )}
+        ) : primaryAction?.status === 'done' ? (
+          <Body>Done. APM recorded completion evidence instead of relying on chat memory.</Body>
+        ) : primaryAction ? (
+          <Button label="Mark #1 move complete" onPress={() => completeNextAction(primaryAction.id)} />
+        ) : null}
       </Card>
+
+      {completionEvidence ? (
+        <Card>
+          <Label>Evidence recorded</Label>
+          <CardTitle>{completionEvidence.summary}</CardTitle>
+          <KeyValue label="Source" value="You marked it complete" />
+          <KeyValue label="Recorded" value={new Date(completionEvidence.createdAt).toLocaleString()} />
+        </Card>
+      ) : null}
 
       <SectionTitle>APM noticed</SectionTitle>
       <Card tone="warning">
@@ -60,7 +76,7 @@ export default function TodayScreen() {
 
       <SectionTitle>Your run of show</SectionTitle>
       <Card>
-        <KeyValue label="First" value={primaryGoal ? `Advance: ${primaryGoal.title}` : 'Complete onboarding'} />
+        <KeyValue label="First" value={primaryAction?.title ?? 'Complete onboarding'} />
         <KeyValue label="Then" value="Review anything APM noticed" />
         <KeyValue label="Later" value="Close or reschedule open loops" />
       </Card>
