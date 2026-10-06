@@ -8,9 +8,14 @@
     "enabled": true
   }
 
-  // Production Hyperdrive binding is intentionally not committed with a fake ID.
-  // After the Postgres origin exists, add:
-  // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<cloudflare-hyperdrive-id>" }]
+  // Runtime configuration is supplied by Cloudflare environment variables/secrets.
+  // Required for authenticated Life Graph routes:
+  // SUPABASE_URL
+  // SUPABASE_PUBLISHABLE_KEY
   //
-  // Runtime secrets are configured in Cloudflare, never here.
+  // Server-only inference secret when OpenRouter goes live:
+  // OPENROUTER_API_KEY
+  //
+  // Supabase remains the durable data/auth platform; Cloudflare remains the APM API,
+  // privacy, policy and model-routing boundary.
 }
