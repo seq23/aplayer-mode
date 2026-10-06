@@ -46,6 +46,7 @@ This directory is the canonical source of product, privacy, methodology, AI, arc
 | 27 | [RUNTIME EVIDENCE PACKET](./27-RUNTIME-EVIDENCE-PACKET.md) | **OPEN EXTERNAL VALIDATION PACKET** | Receipt ledger for proving deployed/provider/device/store behavior after the merged source baseline |
 | 28 | [RUNTIME EVIDENCE HARDENING](./28-RUNTIME-EVIDENCE-HARDENING.md) | **IMPLEMENTATION + OPERATIONS GATE** | Machine-readable receipts, exact-SHA proof workflows, kill-switch and branch-governance hardening |
 | 29 | [THREE-TIER PRODUCT CONTRACT](./29-THREE-TIER-PRODUCT-CONTRACT.md) | **LOCKED IMPLEMENTATION CONTRACT** | Chief of Staff / Life OS / Autopilot capability boundaries + Household waitlist |
+| 30B | [LIFE OS PHASE B](./30-LIFE-OS-PHASE-B.md) | **PHASE B IMPLEMENTATION CONTRACT** | Individual relationships + personal administration lifecycle, privacy and entitlement boundaries |
 
 ## Canonical methodology reference
 
