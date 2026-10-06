@@ -19,6 +19,13 @@ export default function SettingsScreen() {
         {status === 'signed_in' ? <Button label="Sign out" variant="secondary" onPress={() => void handleSignOut()} /> : null}
       </Card>
 
+      <SectionTitle>Plan</SectionTitle>
+      <Card>
+        <CardTitle>Chief of Staff · Life OS · Autopilot</CardTitle>
+        <Body muted>Choose how much responsibility APM carries. Household OS is later and has an interest list instead of access.</Body>
+        <Button label="View plans" onPress={() => router.push('/settings/plan')} />
+      </Card>
+
       <SectionTitle>Trust & control</SectionTitle>
       <Card>
         <CardTitle>Privacy & AI</CardTitle>
