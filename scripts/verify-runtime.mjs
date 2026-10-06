@@ -12,15 +12,18 @@ const required = [
   'APM_TEST_B_EMAIL',
   'APM_TEST_B_PASSWORD',
   'APM_RUNTIME_PROOF_ACK_DEDICATED_TEST_ACCOUNT',
+  'APM_RUNTIME_ENVIRONMENT',
 ];
 
 const expectedCommitSha = process.env.APM_COMMIT_SHA ?? process.env.GITHUB_SHA ?? '';
+const expectedEnvironment = process.env.APM_RUNTIME_ENVIRONMENT ?? '';
 const outputPath = resolve(process.env.APM_RUNTIME_PROOF_OUTPUT ?? 'evidence/runtime-proof.json');
 const proof = [];
 let apiBaseUrl = process.env.APM_API_BASE_URL?.replace(/\/$/, '') ?? '';
 let supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, '') ?? '';
 let currentStage = 'configuration';
 let remoteBuildSha = null;
+let remoteRuntimeEnvironment = null;
 
 async function writeReceipt(status, error) {
   await mkdir(dirname(outputPath), { recursive: true });
@@ -32,7 +35,9 @@ async function writeReceipt(status, error) {
     commitSha: expectedCommitSha || null,
     remoteBuildSha,
     buildShaMatchesExpected: remoteBuildSha ? remoteBuildSha === expectedCommitSha : null,
-    environment: process.env.APM_RUNTIME_ENVIRONMENT ?? 'unspecified',
+    environment: expectedEnvironment || 'unspecified',
+    remoteEnvironment: remoteRuntimeEnvironment,
+    environmentMatchesExpected: remoteRuntimeEnvironment ? remoteRuntimeEnvironment === expectedEnvironment : null,
     apiBaseUrl: apiBaseUrl || null,
     supabaseHost: supabaseUrl ? new URL(supabaseUrl).host : null,
     dedicatedTestAccounts: 2,
@@ -161,6 +166,7 @@ async function main() {
 
   console.log('A Player Mode runtime proof');
   console.log(`API: ${apiBaseUrl}`);
+  console.log(`Environment: ${expectedEnvironment}`);
 
   currentStage = 'health';
   const health = await apiRequest('/v1/health');
@@ -169,6 +175,8 @@ async function main() {
   }
   if (!health.requestId) fail('Public health route', 'APM API did not return x-request-id');
   remoteBuildSha = typeof health.json?.buildSha === 'string' ? health.json.buildSha : null;
+  remoteRuntimeEnvironment =
+    typeof health.json?.runtimeEnvironment === 'string' ? health.json.runtimeEnvironment : null;
   if (remoteBuildSha !== expectedCommitSha) {
     fail(
       'Deployed build SHA',
@@ -179,6 +187,17 @@ async function main() {
   pass('Deployed build SHA', 'remote Worker build matches exact source commit', {
     requestId: health.requestId,
     buildSha: remoteBuildSha,
+  });
+  if (remoteRuntimeEnvironment !== expectedEnvironment) {
+    fail(
+      'Deployed runtime environment',
+      `Expected ${expectedEnvironment}, received ${remoteRuntimeEnvironment ?? 'missing'}`,
+      { requestId: health.requestId, expectedEnvironment, remoteRuntimeEnvironment },
+    );
+  }
+  pass('Deployed runtime environment', 'remote Worker identity matches selected runtime environment', {
+    requestId: health.requestId,
+    runtimeEnvironment: remoteRuntimeEnvironment,
   });
   pass('Public health route', 'Cloudflare APM API is reachable and request tracing is active', { requestId: health.requestId });
 
