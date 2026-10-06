@@ -382,6 +382,7 @@ app.patch('/v1/life-os/items/:id', async (c) => {
   } catch (error) {
     if (error instanceof Error && error.message === 'life_os_item_not_found') return c.json({ error: 'not_found' }, 404);
     if (error instanceof Error && error.message === 'life_os_person_not_found') return c.json({ error: 'person_not_found' }, 404);
+    if (error instanceof Error && error.message === 'life_os_invalid_schedule') return c.json({ error: 'invalid_request' }, 400);
     throw error;
   }
 });
