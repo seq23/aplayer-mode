@@ -6,9 +6,20 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "aplayer-mode-api-staging"
+    },
+    "production": {
+      "name": "aplayer-mode-api"
+    }
   }
 
-  // Runtime configuration is supplied by Cloudflare environment variables/secrets.
+  // Runtime configuration is supplied by Cloudflare environment-specific variables/secrets.
+  // Staging and production are deliberately distinct Workers; never use an environment label
+  // while deploying the same Worker behind the scenes.
+  //
   // Required for authenticated Life Graph routes:
   // SUPABASE_URL
   // SUPABASE_PUBLISHABLE_KEY
