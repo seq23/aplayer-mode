@@ -1,10 +1,11 @@
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { PillarName } from '@apm/domain';
 import { Body, Button, Card, CardTitle, Label, Screen, uiStyles } from '../src/components/ui';
 import { colors, radius, spacing } from '../src/theme';
 import { useLifeGraph } from '../src/state/lifeGraph';
+import { useSession } from '../src/state/session';
 
 const games = [
   'Building a business',
@@ -26,15 +27,21 @@ const pillars: { id: PillarName; label: string }[] = [
 ];
 
 export default function OnboardingScreen() {
-  const { completeOnboarding } = useLifeGraph();
+  const { status: sessionStatus } = useSession();
+  const { completeOnboarding, syncStatus, syncError, isDurable } = useLifeGraph();
   const [displayName, setDisplayName] = useState('');
   const [goal, setGoal] = useState('');
   const [season, setSeason] = useState('');
   const [becoming, setBecoming] = useState('');
   const [pillar, setPillar] = useState<PillarName>('execution');
   const [selectedGames, setSelectedGames] = useState<string[]>([]);
+  const [submitError, setSubmitError] = useState<string>();
 
-  const ready = displayName.trim().length > 0 && goal.trim().length > 4 && selectedGames.length > 0;
+  if (sessionStatus === 'loading') return null;
+  if (sessionStatus !== 'signed_in') return <Redirect href="/sign-in" />;
+
+  const busy = syncStatus === 'saving';
+  const ready = displayName.trim().length > 0 && goal.trim().length > 4 && selectedGames.length > 0 && !busy;
 
   const toggleGame = (game: string) => {
     setSelectedGames((current) =>
@@ -42,17 +49,22 @@ export default function OnboardingScreen() {
     );
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!ready) return;
-    completeOnboarding({
-      displayName,
-      roles: selectedGames,
-      primaryGoal: goal,
-      currentSeason: season,
-      becoming,
-      pillar,
-    });
-    router.replace('/(tabs)/today');
+    setSubmitError(undefined);
+    try {
+      await completeOnboarding({
+        displayName,
+        roles: selectedGames,
+        primaryGoal: goal,
+        currentSeason: season,
+        becoming,
+        pillar,
+      });
+      router.replace('/(tabs)/today');
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Unable to save your APM');
+    }
   };
 
   return (
@@ -65,6 +77,15 @@ export default function OnboardingScreen() {
         <CardTitle>There is no single A Player template.</CardTitle>
         <Body muted>
           A parent, athlete, founder and student may need very different plans. The APM operating loop stays the same; the game changes.
+        </Body>
+      </Card>
+
+      <Card>
+        <Label>Storage</Label>
+        <Body muted>
+          {isDurable
+            ? 'This intake will be saved to your authenticated Life Graph.'
+            : 'This development build is not connected to the APM API yet, so this intake is local-only.'}
         </Body>
       </Card>
 
@@ -152,8 +173,14 @@ export default function OnboardingScreen() {
         </View>
       </View>
 
-      <Button label="Build my first APM" onPress={submit} />
-      {!ready ? <Body muted>Enter your name, choose at least one game, and add one concrete 90-day outcome.</Body> : null}
+      {submitError || syncError ? (
+        <Card tone="danger">
+          <Body>{submitError ?? syncError}</Body>
+        </Card>
+      ) : null}
+
+      <Button label={busy ? 'Saving your APM…' : 'Build my first APM'} onPress={() => void submit()} />
+      {!ready && !busy ? <Body muted>Enter your name, choose at least one game, and add one concrete 90-day outcome.</Body> : null}
     </Screen>
   );
 }
