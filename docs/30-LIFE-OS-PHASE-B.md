@@ -154,3 +154,14 @@ Before merge:
 6. PR architecture/security review has no unresolved actionable findings.
 
 External/provider/mobile-device validation remains tracked separately in the runtime evidence packet.
+
+## Privacy / lifecycle receipt
+
+- **Owner:** the authenticated individual user.
+- **Classification:** relationship/admin state is Class 2 private life by default; financial amounts and health-sensitive details can raise the relevant fields/context to Class 3.
+- **Persistence:** structured state remains until corrected/deleted/account deletion; raw external source duplication is not introduced by this phase.
+- **Export:** the existing Life Graph export includes both Phase B collections.
+- **Deletion:** account deletion cascades through user ownership; relationship rows also cascade with their same-user Person.
+- **AI processing:** Phase B Today, Radar, recurrence and lifecycle behavior are deterministic. No new inference route receives Life OS data in this phase.
+- **Analytics:** only coarse event/domain metadata is recorded; private titles, notes, amounts and relationship content are excluded.
+- **Inspection/correction:** Privacy & AI → Your Data exposes Life OS state; Settings → Life OS is the current correction/completion surface.
