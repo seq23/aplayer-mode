@@ -8,13 +8,12 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test test/index.test.mjs && rm -rf .test-dist"
   },
   "dependencies": {
     "@apm/domain": "0.1.0"
   },
   "devDependencies": {
-    "typescript": "~6.0.3",
-    "vitest": "^4.0.0"
+    "typescript": "~6.0.3"
   }
 }
