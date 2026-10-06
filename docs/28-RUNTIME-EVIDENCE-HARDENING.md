@@ -41,13 +41,26 @@ Every external proof should contain, where applicable:
 
 ### Runtime Proof
 
-The verifier now requires **two dedicated test accounts**. Cross-user RLS proof is no longer optional for a full runtime receipt.
+The verifier requires **two dedicated test accounts**. Cross-user RLS proof is not optional for a full runtime receipt.
 
-The workflow validates the exact source first, then runs the live proof and uploads `evidence/runtime-proof.json`.
+Each run deliberately creates a fresh proof goal + next action instead of reusing arbitrary historical test-account state. That makes Today, completion/evidence and Radar assertions repeatable rather than dependent on leftovers from an earlier run.
+
+The RLS negative proof checks both the user profile boundary and a user-owned goal boundary from account B. The workflow validates the exact source first, then runs the live proof and uploads `evidence/runtime-proof.json`.
 
 ### Cloudflare Deploy
 
-Deployment must pass source validation first. A deployment is not a proof until the deployed `/v1/health` endpoint returns the expected APM service contract and request tracing header. The workflow emits a deployment receipt.
+Staging and production are distinct Worker environments:
+
+| Environment | Worker |
+|---|---|
+| staging | `aplayer-mode-api-staging` |
+| production | `aplayer-mode-api` |
+
+The deploy workflow must pass the selected Wrangler environment explicitly. An environment label may never secretly deploy the same Worker.
+
+Deployment passes source validation first. A deployment is not proof until the selected environment's `/v1/health` endpoint returns the expected APM service contract **and** request tracing header. The workflow emits a deployment receipt tied to the exact source SHA.
+
+Runtime secrets/variables are environment-specific in Cloudflare and must be configured separately for staging and production.
 
 ### OpenRouter Model Eval
 
@@ -84,7 +97,7 @@ Preparing a recommendation/draft can remain available while provider-side execut
 
 ## Branch governance
 
-`main` should require the `validate` CI check and PR-based changes before production launch. Repository-admin branch/ruleset configuration is an external GitHub setting, not source code; it must be proven separately.
+`main` should require the `validate` CI check and PR-based changes before production launch. Repository-admin branch/ruleset configuration is an external GitHub setting, not source code; it must be proven separately. This is tracked in issue #7.
 
 ## Completion rule
 
