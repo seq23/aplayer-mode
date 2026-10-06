@@ -1,6 +1,15 @@
-# Copy this file to .dev.vars for local development only.
-# Never commit real secret values.
+# Copy to services/api/.dev.vars for local development only.
+# Never commit real values.
 
-OPENROUTER_API_KEY=
 DATABASE_URL=
-AUTH_SECRET=
+AUTH_DEV_BYPASS_USER_ID=local-user
+
+# Production/staging should use a real OIDC provider instead of AUTH_DEV_BYPASS_USER_ID.
+AUTH_JWKS_URL=
+AUTH_ISSUER=
+AUTH_AUDIENCE=
+
+# Keep server-side only. Do not expose in Expo public env or mobile bundle.
+OPENROUTER_API_KEY=
+
+ALLOWED_ORIGIN=
