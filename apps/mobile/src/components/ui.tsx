@@ -223,7 +223,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginTop: spacing.sm,
   },
-  cardTitle: { color: colors.ink, fontSize: 19, lineHeight: 24, fontWeight: '750' },
+  cardTitle: { color: colors.ink, fontSize: 19, lineHeight: 24, fontWeight: '700' },
   body: { color: colors.ink, fontSize: 16, lineHeight: 24 },
   bodyMuted: { color: colors.inkMuted },
   label: {
@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
   pillText: { color: colors.ink, fontSize: 12, fontWeight: '800' },
   keyValue: { gap: 3 },
   key: { color: colors.inkMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
-  value: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: '650' },
+  value: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: '600' },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: spacing.xs },
   flowWrap: { gap: spacing.xs },
   flowItem: { alignItems: 'center', gap: spacing.xs },
