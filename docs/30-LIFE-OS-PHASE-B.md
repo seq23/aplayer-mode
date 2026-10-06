@@ -165,3 +165,26 @@ External/provider/mobile-device validation remains tracked separately in the run
 - **AI processing:** Phase B Today, Radar, recurrence and lifecycle behavior are deterministic. No new inference route receives Life OS data in this phase.
 - **Analytics:** only coarse event/domain metadata is recorded; private titles, notes, amounts and relationship content are excluded.
 - **Inspection/correction:** Privacy & AI → Your Data exposes Life OS state; Settings → Life OS is the current correction/completion surface.
+
+## Provisioning receipt — 2026-10-06
+
+**Supabase project:** `aplayer-mode` (`klzbnchgoqmnwsgolwoe`)
+
+Applied database migrations:
+
+- `life_os_domains`
+- `life_os_data_rights_hardening`
+
+Live schema inspection confirmed:
+
+- same-user Person foreign keys are present;
+- deleting a linked Person nulls only `life_admin_items.person_id` and preserves `user_id`;
+- Life OS mutation policies require active/trialing Life OS or Autopilot entitlement;
+- owner SELECT policies remain available for data-rights inspection/export after downgrade;
+- the temporary public `SECURITY DEFINER` export RPC was removed;
+- the composite Life Admin Person foreign key has a covering index.
+
+Post-migration Supabase security advisor: **0 security lints**.
+
+Performance-advisor notices outside the new Life OS path remain repo-wide optimization backlog and are not promoted into this Phase B scope.
+
