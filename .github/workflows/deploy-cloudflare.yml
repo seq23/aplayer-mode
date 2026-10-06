@@ -58,16 +58,18 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          npx wrangler deploy --env "$DEPLOY_ENV" | tee ../../evidence/wrangler-deploy.log
+          npx wrangler deploy --env "$DEPLOY_ENV" --define "__APM_BUILD_SHA__:'${GITHUB_SHA}'" | tee ../../evidence/wrangler-deploy.log
 
-      - name: Verify deployed health route
+      - name: Verify deployed health route and immutable build SHA
         shell: bash
         run: |
           set -Eeuo pipefail
           code=000
           for attempt in $(seq 1 12); do
             code=$(curl -sS -D evidence/health.headers -o evidence/health.json -w '%{http_code}' --max-time 20 "${APM_API_BASE_URL%/}/v1/health" || echo 000)
-            [ "$code" = "200" ] && break
+            if [ "$code" = "200" ] && node -e "const b=require('./evidence/health.json'); process.exit(b?.buildSha===process.env.GITHUB_SHA ? 0 : 1)"; then
+              break
+            fi
             sleep 5
           done
           export HEALTH_CODE="$code"
@@ -80,12 +82,15 @@ jobs:
           let body = null;
           try { body = JSON.parse(bodyText); } catch {}
           const requestId = (headers.match(/^x-request-id:\s*(.+)$/im) || [])[1]?.trim() || null;
-          receipt.status = process.env.HEALTH_CODE === '200' && body?.ok === true && body?.service === 'aplayer-mode-api' && requestId ? 'PASS' : 'FAIL';
+          const buildMatches = body?.buildSha === process.env.GITHUB_SHA;
+          receipt.status = process.env.HEALTH_CODE === '200' && body?.ok === true && body?.service === 'aplayer-mode-api' && requestId && buildMatches ? 'PASS' : 'FAIL';
           receipt.completedAt = new Date().toISOString();
           receipt.apiBaseUrl = process.env.APM_API_BASE_URL;
           receipt.healthStatus = Number(process.env.HEALTH_CODE || 0);
           receipt.requestId = requestId;
           receipt.service = body?.service ?? null;
+          receipt.remoteBuildSha = body?.buildSha ?? null;
+          receipt.buildShaMatchesExpected = buildMatches;
           fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
           if (receipt.status !== 'PASS') process.exit(1);
           NODE
