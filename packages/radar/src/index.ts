@@ -87,11 +87,22 @@ function lifeAdminLeadDays(kind: LifeAdminItem['kind']): number {
   return 1;
 }
 
-function lifeAdminItemRadar(item: LifeAdminItem, now: Date): RadarItem | null {
+function calendarDaysUntilDate(targetDate: string | undefined, now: Date, timezone?: string): number | undefined {
+  if (!targetDate) return undefined;
+  const target = new Date(targetDate);
+  if (Number.isNaN(target.getTime())) return undefined;
+  const targetParts = localDateParts(target, timezone);
+  const nowParts = localDateParts(now, timezone);
+  const targetIndex = Date.UTC(targetParts.year, targetParts.month - 1, targetParts.day);
+  const nowIndex = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day);
+  return Math.round((targetIndex - nowIndex) / DAY_MS);
+}
+
+function lifeAdminItemRadar(item: LifeAdminItem, now: Date, timezone?: string): RadarItem | null {
   if (['completed','cancelled','paused'].includes(item.status)) return null;
   const relevantAt = item.dueAt ?? item.startsAt;
   if (!relevantAt) return null;
-  const days = daysUntilDate(relevantAt, now);
+  const days = calendarDaysUntilDate(relevantAt, now, timezone);
   if (days === undefined || days > lifeAdminLeadDays(item.kind)) return null;
 
   const overdue = days < 0;
@@ -197,7 +208,7 @@ function relationshipRadar(relationship: LifeRelationship, graph: LifeGraphSnaps
   }
 
   if (relationship.nextContactAt) {
-    const days = daysUntilDate(relationship.nextContactAt, now);
+    const days = calendarDaysUntilDate(relationship.nextContactAt, now, graph.identity.timezone);
     if (days !== undefined && days <= 7) {
       const overdue = days < 0;
       items.push({
@@ -323,7 +334,7 @@ export function buildRadarItems(graph: LifeGraphSnapshot, options: RadarBuildOpt
   }
 
   for (const item of graph.lifeAdminItems ?? []) {
-    const radarItem = lifeAdminItemRadar(item, now);
+    const radarItem = lifeAdminItemRadar(item, now, graph.identity.timezone);
     if (radarItem) items.push(radarItem);
   }
 
