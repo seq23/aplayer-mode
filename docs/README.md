@@ -43,6 +43,7 @@ This directory is the canonical source of product, privacy, methodology, AI, arc
 | 24 | [RELEASE, BETA & COMMERCIALIZATION](./24-RELEASE-BETA-AND-COMMERCIALIZATION.md) | **IMPLEMENTATION + EVIDENCE CONTRACT** | EAS/store release, beta metrics, pricing and billing gates |
 | 25 | [ACTIONS, AUTOPILOT, HOUSEHOLD & WEB](./25-AUTONOMY-HOUSEHOLD-AND-WEB.md) | **LONG-HORIZON CONTRACT** | Action lifecycle, standing authority, Household and web command center |
 | 26 | [EXTERNAL RUNTIME GATES](./26-EXTERNAL-RUNTIME-GATES.md) | **OPERATIONS RUNBOOK** | Cloudflare, provider, model, push, store, billing, legal and beta receipts |
+| 27 | [RUNTIME EVIDENCE PACKET](./27-RUNTIME-EVIDENCE-PACKET.md) | **OPEN EXTERNAL VALIDATION PACKET** | Receipt ledger for proving deployed/provider/device/store behavior after the merged source baseline |
 
 ## Canonical methodology reference
 
@@ -84,12 +85,13 @@ flowchart LR
   CONNECT --> AI[Privacy-gated AI]
   AI --> PROACTIVE[Today / Radar / Push]
   PROACTIVE --> ACTIONS[Permissioned Actions]
-  ACTIONS --> BETA[Runtime + Beta evidence]
+  ACTIONS --> PROOF[Runtime evidence packet]
+  PROOF --> BETA[Closed beta]
   BETA --> PAID[Chief of Staff]
-  PAID --> LIFE[Life OS / Autopilot / Household]
+  PAID --> LIFE[Evidence-driven Life OS / Autopilot / Household]
 ```
 
-Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth and `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete program/gates.
+Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth, `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete program/gates, and `27-RUNTIME-EVIDENCE-PACKET.md` for the active external validation work.
 
 ## Documentation standard
 
