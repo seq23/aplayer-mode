@@ -82,7 +82,7 @@ function overlaps(a: CalendarEvent, b: CalendarEvent): boolean {
 
 function calendarConflictItems(graph: LifeGraphSnapshot, now: Date): RadarItem[] {
   const horizon = now.getTime() + 7 * DAY_MS;
-  const events = graph.calendarEvents
+  const events = (graph.calendarEvents ?? [])
     .filter((event) => !event.deleted && Date.parse(event.endsAt) >= now.getTime() && Date.parse(event.startsAt) <= horizon)
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const items: RadarItem[] = [];
@@ -152,12 +152,12 @@ export function buildRadarItems(graph: LifeGraphSnapshot, options: RadarBuildOpt
     }
   }
 
-  for (const commitment of graph.commitments) {
+  for (const commitment of graph.commitments ?? []) {
     const item = commitmentItem(commitment, graph, now);
     if (item) items.push(item);
   }
 
-  for (const project of graph.projects.filter((project) => project.status === 'active' && project.reviewGateAt)) {
+  for (const project of (graph.projects ?? []).filter((project) => project.status === 'active' && project.reviewGateAt)) {
     const days = daysUntilDate(project.reviewGateAt, now);
     if (days !== undefined && days <= 3) {
       items.push({
