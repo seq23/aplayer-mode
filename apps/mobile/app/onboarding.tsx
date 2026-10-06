@@ -92,7 +92,9 @@ export default function OnboardingScreen() {
   useEffect(() => {
     const business = selectedGames.some((game) => /business|career|leadership/i.test(game));
     if (business) {
-      setSelectedTracks((current) => [...new Set([...current, 'billionaire_mindset', 'strategic_patience'])]);
+      setSelectedTracks((current) =>
+        Array.from(new Set<TrackKey>([...current, 'billionaire_mindset', 'strategic_patience'])),
+      );
     }
   }, [selectedGames]);
 
