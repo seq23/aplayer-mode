@@ -158,6 +158,7 @@ export default function LifeOsScreen() {
   const [kind, setKind] = useState<LifeAdminKind>('appointment');
   const [title, setTitle] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [scheduledDate, setScheduledDate] = useState('');
   const [frequency, setFrequency] = useState<'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'>('none');
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('');
@@ -182,6 +183,7 @@ export default function LifeOsScreen() {
     setKind('appointment');
     setTitle('');
     setDueDate('');
+    setScheduledDate('');
     setFrequency('none');
     setAmount('');
     setCurrency('');
@@ -202,7 +204,8 @@ export default function LifeOsScreen() {
     setEditingItemId(item.id);
     setKind(item.kind);
     setTitle(item.title);
-    setDueDate(formatDate(item.startsAt ?? item.dueAt, timezone));
+    setDueDate(formatDate(item.dueAt, timezone));
+    setScheduledDate(formatDate(item.startsAt, timezone));
     setFrequency(item.recurrence.frequency ?? 'none');
     setAmount(item.amountMinor !== undefined ? (item.amountMinor / 100).toFixed(2) : '');
     setCurrency(item.currency ?? '');
@@ -250,7 +253,8 @@ export default function LifeOsScreen() {
     setBusy(true); setError(undefined);
     try {
       if (!title.trim()) throw new Error('Add a title.');
-      if (dueDate.trim() && !parseDateOnly(dueDate.trim())) throw new Error('Next date must be a real calendar date.');
+      if (dueDate.trim() && !parseDateOnly(dueDate.trim())) throw new Error('Due date must be a real calendar date.');
+      if (scheduledDate.trim() && !parseDateOnly(scheduledDate.trim())) throw new Error('Scheduled date must be a real calendar date.');
       const amountMinor = amount.trim() ? Math.round(Number(amount.trim()) * 100) : undefined;
       if (amountMinor !== undefined && (!Number.isFinite(amountMinor) || amountMinor < 0)) throw new Error('Enter a valid amount.');
       const normalizedCurrency = currency.trim().toUpperCase();
@@ -260,17 +264,16 @@ export default function LifeOsScreen() {
       if (editingItemId && editingItem) {
         const schedule: { dueAt?: string; startsAt?: string; endsAt?: string } = {};
         if (editingItem.startsAt) {
-          if (dueDate.trim()) {
-            const shifted = shiftTimedRangeToDate(editingItem.startsAt, editingItem.endsAt, dueDate.trim(), timezone);
+          if (scheduledDate.trim()) {
+            const shifted = shiftTimedRangeToDate(editingItem.startsAt, editingItem.endsAt, scheduledDate.trim(), timezone);
             schedule.startsAt = shifted.startsAt;
             if (editingItem.endsAt) schedule.endsAt = shifted.endsAt ?? '';
-            if (editingItem.dueAt) schedule.dueAt = dateToIso(dueDate, timezone);
           } else {
             schedule.startsAt = '';
             if (editingItem.endsAt) schedule.endsAt = '';
-            if (editingItem.dueAt) schedule.dueAt = '';
           }
-        } else {
+        }
+        if (editingItem.dueAt !== undefined || dueDate.trim()) {
           schedule.dueAt = dueDate.trim() ? dateToIso(dueDate, timezone) : '';
         }
 
@@ -397,7 +400,10 @@ export default function LifeOsScreen() {
           ))}
         </View>
         <TextInput value={title} onChangeText={setTitle} placeholder="What needs to be handled?" placeholderTextColor={colors.inkMuted} style={styles.input} />
-        <TextInput value={dueDate} onChangeText={setDueDate} placeholder="Next date / due date · YYYY-MM-DD" placeholderTextColor={colors.inkMuted} style={styles.input} />
+        {editingItem?.startsAt ? (
+          <TextInput value={scheduledDate} onChangeText={setScheduledDate} placeholder="Scheduled date · YYYY-MM-DD" placeholderTextColor={colors.inkMuted} style={styles.input} />
+        ) : null}
+        <TextInput value={dueDate} onChangeText={setDueDate} placeholder="Due date · YYYY-MM-DD · optional" placeholderTextColor={colors.inkMuted} style={styles.input} />
         {kind === 'bill' || kind === 'subscription' ? (
           <View style={uiStyles.stackSm}>
             <TextInput value={amount} onChangeText={setAmount} placeholder="Amount · optional" keyboardType="decimal-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
@@ -430,7 +436,8 @@ export default function LifeOsScreen() {
                 <Pill>{item.status}</Pill>
               </View>
               <CardTitle>{item.title}</CardTitle>
-              <KeyValue label="Next date" value={formatDate(item.startsAt ?? item.dueAt, timezone) || 'Not set'} />
+              {item.startsAt ? <KeyValue label="Scheduled" value={formatDate(item.startsAt, timezone) || 'Not set'} /> : null}
+              <KeyValue label="Due" value={formatDate(item.dueAt, timezone) || 'Not set'} />
               <KeyValue label="Repeat" value={item.recurrence.frequency ? `Every ${item.recurrence.interval ?? 1} ${item.recurrence.frequency}` : 'No'} />
               {item.amountMinor !== undefined && item.currency ? <KeyValue label="Amount" value={`${item.currency} ${(item.amountMinor / 100).toFixed(2)}`} /> : null}
               <Button label="Edit" variant="secondary" onPress={() => beginItemEdit(item)} />
