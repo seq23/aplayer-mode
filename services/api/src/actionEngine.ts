@@ -1,5 +1,5 @@
 import type { ActionRecord, AutonomyLevel, Permission, SubscriptionEntitlement } from '@apm/domain';
-import { decideAuthority, type ActionDomain, type Entitlement, type PermissionGrant } from '@apm/policy';
+import { decideAuthority, maxAutonomyForPlan, type ActionDomain, type Entitlement, type PermissionGrant } from '@apm/policy';
 import type { ApiEnv } from './env';
 import { actionDomainEnabled, actionsGloballyEnabled } from './env';
 import { supabaseRest } from './db';
@@ -21,13 +21,6 @@ function mapAction(row: ActionRow, userId: string): ActionRecord {
   };
 }
 
-function planMaxLevel(plan: SubscriptionEntitlement['plan'], domain: ActionDomain): AutonomyLevel {
-  if (plan === 'beta' || plan === 'chief_of_staff') return 3;
-  if (plan === 'life_os') return 4;
-  if (plan === 'autopilot' || plan === 'household') return domain === 'purchase' ? 2 : 5;
-  return 0;
-}
-
 function policyPermission(userId: string, permission: Permission | undefined): PermissionGrant | undefined {
   if (!permission) return undefined;
   return {
@@ -41,7 +34,7 @@ function policyPermission(userId: string, permission: Permission | undefined): P
 
 function policyEntitlement(entitlement: SubscriptionEntitlement | undefined, domain: ActionDomain): Entitlement | undefined {
   if (!entitlement || !['active','trialing'].includes(entitlement.status)) return undefined;
-  return { domain, maxAvailableLevel: planMaxLevel(entitlement.plan, domain), enabled: true };
+  return { domain, maxAvailableLevel: maxAutonomyForPlan(entitlement.plan, domain), enabled: true };
 }
 
 export function authorizeAction(input: {
