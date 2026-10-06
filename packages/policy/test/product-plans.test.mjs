@@ -13,6 +13,7 @@ test('individual service levels have increasing autonomy ceilings', () => {
   assert.equal(maxAutonomyForPlan('life_os', 'calendar'), 4);
   assert.equal(maxAutonomyForPlan('autopilot', 'calendar'), 5);
   assert.equal(maxAutonomyForPlan('autopilot', 'purchase'), 2);
+  assert.equal(maxAutonomyForPlan('household', 'calendar'), 0);
 });
 
 test('Household is not publicly selectable', () => {
@@ -28,7 +29,7 @@ test('capability matrix keeps Life OS and Autopilot distinct', () => {
   assert.equal(planHasCapability('life_os', 'life_os_domains'), true);
   assert.equal(planHasCapability('life_os', 'standing_autopilot'), false);
   assert.equal(planHasCapability('autopilot', 'standing_autopilot'), true);
-  assert.equal(capabilitiesForPlan('household').includes('household_shared_graph'), true);
+  assert.deepEqual(capabilitiesForPlan('household'), []);
 });
 
 test('entitlement alone never grants action authority', () => {
