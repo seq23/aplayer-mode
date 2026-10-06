@@ -54,10 +54,11 @@ jobs:
         run: npm run typecheck && npm run test
 
       - name: Deploy API to selected Worker environment
+        working-directory: services/api
         shell: bash
         run: |
           set -o pipefail
-          npm run api:deploy -- --env "$DEPLOY_ENV" | tee evidence/wrangler-deploy.log
+          npx wrangler deploy --env "$DEPLOY_ENV" | tee ../../evidence/wrangler-deploy.log
 
       - name: Verify deployed health route
         shell: bash
