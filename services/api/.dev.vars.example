@@ -1,16 +1,45 @@
 # Copy to services/api/.dev.vars for local development only.
-# Never commit real secret values.
+# Never commit real secret values. Production secrets belong in Cloudflare managed secrets.
 
-# Supabase project configuration. The publishable key is designed for client/server use
-# with Row Level Security; keep service-role/secret keys out of this app unless a future
-# server-only requirement explicitly justifies one.
+# Supabase project configuration. Publishable key is protected by RLS.
 SUPABASE_URL=
 SUPABASE_PUBLISHABLE_KEY=
 
-# Local-only auth bypass. Never configure this in staging/production.
+# Local-only auth bypass. NEVER configure in staging/production.
 AUTH_DEV_BYPASS_USER_ID=local-user
 
-# Server-only. Install in Cloudflare Secrets for deployed environments.
+# Server-only AI secret.
 OPENROUTER_API_KEY=
 
+# Public/API configuration.
+APP_PUBLIC_URL=https://aplayermode.com
 ALLOWED_ORIGIN=
+
+# Server-side connector credential protection.
+# CONNECTOR_CREDENTIAL_KEY must be a base64-encoded random 32-byte AES key.
+CONNECTOR_CREDENTIAL_KEY=
+OAUTH_STATE_SECRET=
+
+# Google OAuth (server-side secret where applicable).
+GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
+GOOGLE_OAUTH_REDIRECT_URI=
+
+# Microsoft OAuth.
+MICROSOFT_OAUTH_CLIENT_ID=
+MICROSOFT_OAUTH_CLIENT_SECRET=
+MICROSOFT_OAUTH_REDIRECT_URI=
+MICROSOFT_TENANT=common
+
+# Optional Expo server credential if the push path/provider requires it.
+EXPO_ACCESS_TOKEN=
+
+# External execution is fail-closed. Both the global switch AND the specific domain
+# switch must be true before the Action Engine may execute provider-side work.
+GLOBAL_ACTION_EXECUTION=false
+ACTION_CALENDAR_EXECUTION=false
+ACTION_EMAIL_EXECUTION=false
+ACTION_ROUTINE_EXECUTION=false
+ACTION_LIFE_GRAPH_EXECUTION=false
+ACTION_NOTIFICATION_EXECUTION=false
+ACTION_CONNECTOR_EXECUTION=false
