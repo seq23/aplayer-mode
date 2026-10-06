@@ -144,3 +144,52 @@ test('persistent timed anchor restores the intended day while preserving duratio
   assert.equal(mar.startsAt?.toISOString(), '2027-03-31T15:00:00.000Z');
   assert.equal(mar.endsAt?.toISOString(), '2027-03-31T16:30:00.000Z');
 });
+
+
+test('monthly recurrence preserves a UTC+13 local month-end date', () => {
+  const timezone = 'Pacific/Auckland';
+  const recurrence = {
+    frequency: 'monthly',
+    interval: 1,
+    timezone,
+    anchorDueAt: '2027-01-30T23:00:00.000Z',
+  };
+  const next = nextRecurringSchedule(
+    { dueAt: new Date('2027-01-30T23:00:00.000Z') },
+    new Date('2027-01-31T02:00:00.000Z'),
+    recurrence,
+  );
+  const local = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(next.dueAt);
+  const read = (type) => local.find((part) => part.type === type)?.value;
+  assert.equal(`${read('year')}-${read('month')}-${read('day')}`, '2027-02-28');
+  assert.equal(read('hour'), '12');
+});
+
+test('daily recurrence preserves local clock time across DST changes', () => {
+  const timezone = 'America/New_York';
+  const recurrence = {
+    frequency: 'daily',
+    interval: 1,
+    timezone,
+    anchorDueAt: '2026-03-07T14:00:00.000Z',
+  };
+  const next = nextRecurringSchedule(
+    { dueAt: new Date('2026-03-07T14:00:00.000Z') },
+    new Date('2026-03-07T15:00:00.000Z'),
+    recurrence,
+  );
+  const local = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(next.dueAt);
+  assert.equal(local, '09:00');
+});
