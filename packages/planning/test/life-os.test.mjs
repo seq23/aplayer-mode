@@ -87,3 +87,27 @@ test('recovery mode only carries high-importance Life OS items into Today', () =
   assert.equal(plan.blocks.some((block) => block.lifeAdminItemId === 'low'), false);
   assert.equal(plan.blocks.some((block) => block.lifeAdminItemId === 'high'), true);
 });
+
+
+test('uses the user timezone when deciding which Life OS items are due today', () => {
+  const state = graph();
+  state.identity.timezone = 'America/Los_Angeles';
+  state.lifeAdminItems = [{
+    id: 'life-local-day',
+    userId: 'user-1',
+    kind: 'appointment',
+    title: 'Evening appointment',
+    status: 'scheduled',
+    importance: 3,
+    startsAt: '2026-10-07T00:30:00.000Z',
+    endsAt: '2026-10-07T01:30:00.000Z',
+    recurrence: {},
+    details: {},
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: '2026-10-01T00:00:00.000Z' },
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: '2026-10-01T00:00:00.000Z',
+  }];
+  const plan = buildDailyPlan(state, { now: new Date('2026-10-07T00:45:00.000Z') });
+  assert.equal(plan.date, '2026-10-06');
+  assert.ok(plan.blocks.some((block) => block.lifeAdminItemId === 'life-local-day'));
+});
