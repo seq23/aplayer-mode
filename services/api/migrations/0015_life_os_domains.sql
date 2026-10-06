@@ -21,10 +21,13 @@ $$;
 revoke all on function private.apm_has_life_os_access(uuid) from public, anon;
 grant execute on function private.apm_has_life_os_access(uuid) to authenticated;
 
+alter table public.people
+  add constraint people_user_id_id_unique unique(user_id, id);
+
 create table public.life_relationships (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  person_id uuid not null references public.people(id) on delete cascade,
+  person_id uuid not null,
   birthday date,
   next_contact_at timestamptz,
   cadence_days integer check (cadence_days is null or cadence_days between 1 and 3650),
@@ -35,7 +38,8 @@ create table public.life_relationships (
   confidence double precision check (confidence is null or (confidence >= 0 and confidence <= 1)),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique(user_id, person_id)
+  unique(user_id, person_id),
+  foreign key (user_id, person_id) references public.people(user_id, id) on delete cascade
 );
 
 create index life_relationships_user_next_contact_idx
@@ -44,7 +48,7 @@ create index life_relationships_user_next_contact_idx
 create table public.life_admin_items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  person_id uuid references public.people(id) on delete set null,
+  person_id uuid,
   kind text not null check (kind in (
     'appointment','trip','bill','subscription','meal_plan','shopping',
     'health_routine','recurring_obligation','family_obligation'
@@ -66,7 +70,8 @@ create table public.life_admin_items (
   confidence double precision check (confidence is null or (confidence >= 0 and confidence <= 1)),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check (ends_at is null or starts_at is null or ends_at >= starts_at)
+  check (ends_at is null or starts_at is null or ends_at >= starts_at),
+  foreign key (user_id, person_id) references public.people(user_id, id) on delete set null
 );
 
 create index life_admin_items_user_status_due_idx
