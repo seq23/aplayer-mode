@@ -12,6 +12,8 @@
     "mobile:ios": "npm run ios -w @apm/mobile",
     "mobile:android": "npm run android -w @apm/mobile",
     "mobile:web": "npm run web -w @apm/mobile",
+    "api:dev": "npm run dev -w @apm/api",
+    "api:deploy": "npm run deploy -w @apm/api",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "engines": {
