@@ -6,6 +6,7 @@ import type {
   NextAction,
   PillarName,
   Provenance,
+  Role,
   UserIdentity,
 } from '@apm/domain';
 
@@ -42,6 +43,7 @@ const statedProvenance = (): Provenance => ({
 
 interface OnboardingInput {
   displayName: string;
+  roles: string[];
   currentSeason?: string;
   becoming?: string;
   primaryGoal: string;
@@ -71,6 +73,14 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
           becoming: input.becoming?.trim() || undefined,
         };
 
+        const roles: Role[] = input.roles.map((name, index) => ({
+          id: `role-${timestamp}-${index}`,
+          userId,
+          name,
+          active: true,
+          provenance: statedProvenance(),
+        }));
+
         const goal: Goal = {
           id: `goal-${timestamp}`,
           userId,
@@ -94,6 +104,7 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
         setGraph((current) => ({
           ...current,
           identity,
+          roles,
           goals: [goal, ...current.goals.filter((item) => item.priority !== 1)],
           nextActions: [nextAction, ...current.nextActions.filter((item) => item.goalId !== goal.id)],
         }));
