@@ -185,6 +185,60 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
   };
 }
 
+export async function getLifeOsExportState(
+  env: ApiEnv,
+  accessToken: string,
+  userId: string,
+): Promise<{ lifeRelationships: LifeRelationship[]; lifeAdminItems: LifeAdminItem[] }> {
+  const payload = await supabaseRest<{
+    life_relationships?: LifeRelationshipRow[];
+    life_admin_items?: LifeAdminItemRow[];
+  }>(env, accessToken, '/rest/v1/rpc/apm_export_life_os_state', { method: 'POST', body: '{}' });
+
+  const provenance = <T extends { provenance_kind: any; source_type: any; source_ref: string | null; confidence?: number | null; created_at: string }>(row: T) => ({
+    kind: row.provenance_kind,
+    sourceType: row.source_type,
+    sourceRef: row.source_ref ?? undefined,
+    confidence: row.confidence ?? undefined,
+    createdAt: new Date(row.created_at).toISOString(),
+  });
+
+  return {
+    lifeRelationships: (payload?.life_relationships ?? []).map((row) => ({
+      id: row.id,
+      userId,
+      personId: row.person_id,
+      birthday: row.birthday ?? undefined,
+      nextContactAt: row.next_contact_at ?? undefined,
+      cadenceDays: row.cadence_days ?? undefined,
+      notes: row.notes ?? undefined,
+      provenance: provenance(row),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    })),
+    lifeAdminItems: (payload?.life_admin_items ?? []).map((row) => ({
+      id: row.id,
+      userId,
+      personId: row.person_id ?? undefined,
+      kind: row.kind,
+      title: row.title,
+      status: row.status,
+      importance: row.importance,
+      dueAt: row.due_at ?? undefined,
+      startsAt: row.starts_at ?? undefined,
+      endsAt: row.ends_at ?? undefined,
+      recurrence: row.recurrence ?? {},
+      amountMinor: row.amount_minor ?? undefined,
+      currency: row.currency ?? undefined,
+      details: row.details ?? {},
+      completedAt: row.completed_at ?? undefined,
+      provenance: provenance(row),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    })),
+  };
+}
+
 export async function upsertPermission(env: ApiEnv, accessToken: string, userId: string, input: { domain: string; actionType: string; autonomyLevel: Permission['autonomyLevel']; constraints?: Record<string, unknown>; enabled?: boolean }): Promise<Permission> {
   const rows = await supabaseRest<PermissionRow[]>(env, accessToken, '/rest/v1/permissions?on_conflict=user_id,domain,action_type&select=*', {
     method: 'POST',
