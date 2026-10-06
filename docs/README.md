@@ -1,118 +1,99 @@
 # A Player Mode — Documentation Index
 
-This directory is the canonical source of product, privacy, AI, architecture, pricing, security, data, UX, deployment, positioning, backend, infrastructure, and methodology decisions for A Player Mode.
+This directory is the canonical source of product, privacy, methodology, AI, architecture, pricing, security, data, UX, deployment, integration, release and execution decisions for A Player Mode.
 
 ## Decision status
 
 | Status | Meaning |
 |---|---|
 | **LOCKED** | Engineering must conform. Material changes require an ADR + explicit approval. |
-| **RECOMMENDED / TESTABLE** | Current decision, but expected to evolve with evidence. Changes must be documented. |
-| **SELECTED FOR MVP / REPLACEABLE BY ADR** | Current infrastructure provider choice; implementation should use it unless an ADR changes the provider. |
-| **DRAFT** | Under discussion; not authoritative. |
-| **LIVING EXECUTION RECORD** | Describes what is actually implemented now; updated as code changes. |
-| **CANONICAL SOURCE-OF-INTENT** | Preserves original methodology intent for translation/review; does not silently override newer locked APM architecture/product decisions. |
+| **RECOMMENDED / TESTABLE** | Current decision expected to evolve with evidence. |
+| **SELECTED FOR MVP / REPLACEABLE BY ADR** | Current infrastructure choice. |
+| **LIVING EXECUTION RECORD** | Must match the code/runtime truth. |
+| **CANONICAL SOURCE-OF-INTENT** | Preserves original methodology intent for translation/review. |
 
 ## Canonical documents
 
 | # | Document | Status | Purpose |
 |---:|---|---|---|
-| 00 | [PRODUCT CONSTITUTION](./00-PRODUCT-CONSTITUTION.md) | **LOCKED** | Product thesis, surfaces, system loop, autonomy, build order, north-star metric |
-| 01 | [PRIVACY & AI CONSTITUTION](./01-PRIVACY-AND-AI-CONSTITUTION.md) | **LOCKED** | Data classes, privacy promise, AI routing rules, model/provider governance |
-| 02 | [PRICING STRATEGY](./02-PRICING-STRATEGY.md) | **RECOMMENDED / TESTABLE** | Launch pricing, tier ladder, market anchors, pricing gates, margin strategy |
-| 03 | [TECHNICAL ARCHITECTURE](./03-TECHNICAL-ARCHITECTURE.md) | **LOCKED** | System boundaries, stack, Privacy Gateway, policy/action architecture |
-| 04 | [DOMAIN MODEL](./04-DOMAIN-MODEL.md) | **LOCKED** | Life Graph objects, state, evidence and core APM software primitives |
-| 05 | [MODEL REGISTRY](./05-MODEL-REGISTRY.md) | **LOCKED POLICY / DYNAMIC CANDIDATES** | $0-model strategy, route fields, data eligibility, approval/eval process |
-| 06 | [MOBILE UX SPEC](./06-MOBILE-UX-SPEC.md) | **LOCKED BASELINE** | Mobile IA, Today/Radar/Goals/APM, onboarding and trust surfaces |
-| 07 | [IMPLEMENTATION ROADMAP](./07-IMPLEMENTATION-ROADMAP.md) | **LOCKED SEQUENCE** | Phased execution from Trust Center through Household OS |
-| 08 | [SECURITY THREAT MODEL](./08-SECURITY-THREAT-MODEL.md) | **LOCKED** | Trust boundaries, crown jewels, prompt injection, action security and kill switches |
-| 09 | [DATA LIFECYCLE](./09-DATA-LIFECYCLE.md) | **LOCKED** | Ingest, retention, provenance, disconnection, export, deletion and logging |
-| 10 | [ANALYTICS & EVALUATION](./10-ANALYTICS-AND-EVALUATION.md) | **LOCKED BASELINE** | VPI metric, trust metrics, AI eval suites, cost/successful-task measurement |
-| 11 | [PRIVACY UX & TRUST CENTER](./11-PRIVACY-UX-AND-TRUST-CENTER.md) | **LOCKED PRODUCT REQUIREMENT** | User-facing trust pages, provider transparency, permissions and audit UX |
-| 12 | [TRUST CENTER SCREEN MAP](./12-TRUST-CENTER-SCREEN-MAP.md) | **IMPLEMENTATION REFERENCE** | Visual page map, privacy flow, autonomy flow and screen acceptance grid |
-| 13 | [IMPLEMENTATION STATUS](./13-IMPLEMENTATION-STATUS.md) | **LIVING EXECUTION RECORD** | Real vs fixture behavior, current vertical slice, next engineering block |
-| 14 | [DEPLOYMENT & SECRETS](./14-DEPLOYMENT-AND-SECRETS.md) | **LOCKED BASELINE** | Cloudflare server deployment, Expo/app-store release path, secret storage and rotation |
-| 15 | [POSITIONING & LIFE MODES](./15-POSITIONING-AND-LIFE-MODES.md) | **LOCKED POSITIONING BASELINE** | “Whatever game you're in” positioning, multi-role onboarding and audience anti-drift rules |
-| 16 | [BACKEND FOUNDATION](./16-BACKEND-FOUNDATION.md) | **LOCKED IMPLEMENTATION BASELINE** | Cloudflare API + Supabase Auth/Data API/RLS/RPC architecture and v1 endpoints |
-| 17 | [MVP INFRASTRUCTURE PROVISIONING](./17-MVP-INFRASTRUCTURE-PROVISIONING.md) | **SELECTED FOR MVP / REPLACEABLE BY ADR** | Supabase Free + Cloudflare Worker provisioning, public/mobile config and runtime boundaries |
-| 18 | [AUTH, PERSISTENCE & RADAR V0](./18-AUTH-PERSISTENCE-AND-RADAR-V0.md) | **IMPLEMENTATION BASELINE** | Secure mobile session, durable Life Graph bridge, server Today projection and deterministic Radar v0 |
-| 19 | [RUNTIME PROOF RUNBOOK](./19-RUNTIME-PROOF-RUNBOOK.md) | **IMPLEMENTATION BASELINE** | Live Expo/Cloudflare/Supabase proof, dedicated test-account verifier, RLS negative-access receipt |
-| 20 | [APM METHODOLOGY ENGINE V1](./20-APM-METHODOLOGY-ENGINE-V1.md) | **LOCKED IMPLEMENTATION BASELINE** | Adaptive intake, Personal OS, Pillars, Tracks, Modes, core laws, MVD, arbitration and coaching runtime foundations |
+| 00 | [PRODUCT CONSTITUTION](./00-PRODUCT-CONSTITUTION.md) | **LOCKED** | Product thesis, system loop, surfaces, autonomy and north star |
+| 01 | [PRIVACY & AI CONSTITUTION](./01-PRIVACY-AND-AI-CONSTITUTION.md) | **LOCKED** | Data classes, privacy promise, AI/model-provider policy |
+| 02 | [PRICING STRATEGY](./02-PRICING-STRATEGY.md) | **RECOMMENDED / TESTABLE** | Tier ladder, launch pricing and margin strategy |
+| 03 | [TECHNICAL ARCHITECTURE](./03-TECHNICAL-ARCHITECTURE.md) | **LOCKED** | System boundaries, Supabase/Cloudflare/AI architecture |
+| 04 | [DOMAIN MODEL](./04-DOMAIN-MODEL.md) | **LOCKED** | Life Graph, evidence, action and state primitives |
+| 05 | [MODEL REGISTRY](./05-MODEL-REGISTRY.md) | **LOCKED POLICY / DYNAMIC CANDIDATES** | $0 strategy, route eligibility and registry governance |
+| 06 | [MOBILE UX SPEC](./06-MOBILE-UX-SPEC.md) | **LOCKED BASELINE** | Today/Radar/Goals/APM, onboarding and trust UX |
+| 07 | [IMPLEMENTATION ROADMAP](./07-IMPLEMENTATION-ROADMAP.md) | **LOCKED SEQUENCE** | Phased product progression |
+| 08 | [SECURITY THREAT MODEL](./08-SECURITY-THREAT-MODEL.md) | **LOCKED** | Trust boundaries, prompt injection, action security and kill switches |
+| 09 | [DATA LIFECYCLE](./09-DATA-LIFECYCLE.md) | **LOCKED** | Ingest, retention, provenance, disconnect, export and deletion |
+| 10 | [ANALYTICS & EVALUATION](./10-ANALYTICS-AND-EVALUATION.md) | **LOCKED BASELINE** | VPI, trust/quality metrics, evals and economics |
+| 11 | [PRIVACY UX & TRUST CENTER](./11-PRIVACY-UX-AND-TRUST-CENTER.md) | **LOCKED PRODUCT REQUIREMENT** | User-facing trust, permissions, providers and audit UX |
+| 12 | [TRUST CENTER SCREEN MAP](./12-TRUST-CENTER-SCREEN-MAP.md) | **IMPLEMENTATION REFERENCE** | Trust Center page/flow map |
+| 13 | [IMPLEMENTATION STATUS](./13-IMPLEMENTATION-STATUS.md) | **LIVING EXECUTION RECORD** | What is actually real now |
+| 14 | [DEPLOYMENT & SECRETS](./14-DEPLOYMENT-AND-SECRETS.md) | **LOCKED BASELINE** | Cloudflare/Expo/store deployment and secret handling |
+| 15 | [POSITIONING & LIFE MODES](./15-POSITIONING-AND-LIFE-MODES.md) | **LOCKED** | “Whatever game you're in” + multi-role anti-drift rules |
+| 16 | [BACKEND FOUNDATION](./16-BACKEND-FOUNDATION.md) | **LOCKED BASELINE** | API/Auth/RLS/RPC architecture |
+| 17 | [MVP INFRASTRUCTURE PROVISIONING](./17-MVP-INFRASTRUCTURE-PROVISIONING.md) | **SELECTED FOR MVP / REPLACEABLE BY ADR** | Supabase Free + Cloudflare provisioning |
+| 18 | [AUTH, PERSISTENCE & RADAR V0](./18-AUTH-PERSISTENCE-AND-RADAR-V0.md) | **IMPLEMENTATION BASELINE** | Mobile session, persistence, Today and Radar v0 |
+| 19 | [RUNTIME PROOF RUNBOOK](./19-RUNTIME-PROOF-RUNBOOK.md) | **IMPLEMENTATION BASELINE** | Live Expo/Cloudflare/Supabase proof |
+| 20 | [APM METHODOLOGY ENGINE V1](./20-APM-METHODOLOGY-ENGINE-V1.md) | **LOCKED IMPLEMENTATION BASELINE** | Personal OS, adaptive intake, Pillars/Tracks/Modes/core laws |
+| 21 | [FULL PROGRAM EXECUTION LEDGER](./21-FULL-PROGRAM-EXECUTION-LEDGER.md) | **CANONICAL EXECUTION LEDGER** | Complete program, phase states and external gates |
+| 22 | [CONNECTOR FABRIC](./22-CONNECTOR-FABRIC.md) | **IMPLEMENTATION CONTRACT** | Device/Google/Microsoft/iCloud calendar and Gmail/Outlook architecture |
+| 23 | [MODEL EVAL & PROMOTION](./23-MODEL-EVAL-AND-PROMOTION.md) | **LOCKED AI RELEASE GATE** | Candidate → privacy/eval → explicit approval process |
+| 24 | [RELEASE, BETA & COMMERCIALIZATION](./24-RELEASE-BETA-AND-COMMERCIALIZATION.md) | **IMPLEMENTATION + EVIDENCE CONTRACT** | EAS/store release, beta metrics, pricing and billing gates |
+| 25 | [ACTIONS, AUTOPILOT, HOUSEHOLD & WEB](./25-AUTONOMY-HOUSEHOLD-AND-WEB.md) | **LONG-HORIZON CONTRACT** | Action lifecycle, standing authority, Household and web command center |
 
 ## Canonical methodology reference
 
 | Reference | Status | Purpose |
 |---|---|---|
-| [BHPC v2.1 Reference](./reference/BHPC-v2.1/README.md) | **CANONICAL SOURCE-OF-INTENT** | Latest canonical BHPC manual available to this project, preserved by section so contributors can map original methodology intent into the multi-persona APM app |
-| [BHPC → APM Intent Mapping](./reference/BHPC-v2.1/APP-INTENT-MAPPING.md) | **REFERENCE TRANSLATION CONTRACT** | Maps BHPC behaviors into APM software primitives and requires persona-neutral intent preservation |
-
-The BHPC reference does not turn APM back into a founder-only or billionaire-only product. Contributors should preserve the behavioral intent while applying the locked positioning:
+| [BHPC v2.1 Reference](./reference/BHPC-v2.1/README.md) | **CANONICAL SOURCE-OF-INTENT** | Full BHPC manual available to contributors |
+| [BHPC → APM Intent Mapping](./reference/BHPC-v2.1/APP-INTENT-MAPPING.md) | **REFERENCE TRANSLATION CONTRACT** | Translate methodology behavior across every game/persona |
 
 > **Whatever game you're in, get into A Player Mode.**
 
-A parent, athlete, entrepreneur, student, professional, creator, caregiver, or user in transition shares the same operating loop; their Life Graph provides the context.
+A parent, athlete, entrepreneur, student, professional, creator, caregiver, or user in transition shares the same operating loop. Their Life Graph supplies the context; the product does not fork into persona-specific apps.
 
 ## Architecture decision records
 
 | ADR | Status | Decision |
 |---|---|---|
-| [ADR-0001](./adr/ADR-0001-SUPABASE-CLOUDFLARE-HYBRID.md) | **ACCEPTED / LOCKED** | Supabase owns Auth/Postgres/RLS; Cloudflare owns the APM API/intelligence/privacy boundary |
+| [ADR-0001](./adr/ADR-0001-SUPABASE-CLOUDFLARE-HYBRID.md) | **ACCEPTED / LOCKED** | Supabase owns Auth/Postgres/RLS; Cloudflare owns API/intelligence/privacy/action boundary |
 
-## Anti-drift hierarchy
+## Authority / anti-drift hierarchy
 
 ```mermaid
 flowchart TD
-  SRC[BHPC source-of-intent reference] --> MAP[Intent mapping / product interpretation]
-  C[LOCKED Constitutions / requirements] --> ADR[Architecture Decision Records]
-  MAP --> C
-  ADR --> SPEC[Product / technical specifications]
+  SRC[BHPC source of intent] --> MAP[APM intent mapping]
+  MAP --> C[Locked constitutions]
+  C --> ADR[ADRs]
+  ADR --> SPEC[Specs / execution ledger]
   SPEC --> CODE[Implementation]
-  CODE --> TEST[Automated tests / policy checks]
+  CODE --> TEST[CI / runtime / beta evidence]
 ```
 
-If implementation conflicts with a locked constitution, **the implementation is wrong until an approved ADR changes the constitution.** If a methodology change touches behavior inherited from BHPC, contributors must also show that the original functional intent was preserved or deliberately superseded.
+If code conflicts with a locked constitution, the code is wrong until an approved decision changes the governing document. If methodology behavior changes, preserve BHPC functional intent or document the deliberate supersession.
 
-## Current execution state
+## Current program picture
 
 ```mermaid
 flowchart LR
-  A[Constitutions] -->|done| B[Architecture + data + security]
-  B -->|done| C[Mobile shell + Trust Center]
-  C -->|done| D[Life Graph vertical slice]
-  D -->|done| S[Supabase Free + schema + RLS + RPC]
-  S -->|merged| E[Mobile Auth + durable persistence]
-  E -->|merged| F[Server Today projection]
-  F -->|merged| G[Deterministic Radar v0]
-  G -->|merged| M[Methodology Engine v1]
-  M --> RP[Live runtime proof]
-  RP --> H[Calendar Fabric]
-  H --> I[Email / Commitments]
+  BASE[Foundation / Life Graph] --> METHOD[Methodology]
+  METHOD --> CONNECT[Connector Fabric]
+  CONNECT --> AI[Privacy-gated AI]
+  AI --> PROACTIVE[Today / Radar / Push]
+  PROACTIVE --> ACTIONS[Permissioned Actions]
+  ACTIONS --> BETA[Runtime + Beta evidence]
+  BETA --> PAID[Chief of Staff]
+  PAID --> LIFE[Life OS / Autopilot / Household]
 ```
 
-### Implemented and merged
+Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth and `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete remaining program/gates.
 
-- Expo / React Native workspace and Today · Radar · Goals · APM navigation;
-- broad multi-life positioning and multi-role game selection;
-- Trust Center and privacy architecture;
-- Supabase Free project, schema, RLS and transactional RPCs;
-- Cloudflare API and Supabase Auth/Data API repository path;
-- SecureStore-backed mobile sessions;
-- durable onboarding/completion evidence;
-- server Today projection;
-- deterministic Radar v0;
-- runtime-proof harness;
-- APM Methodology Engine v1 with Personal OS, adaptive intake, Pillars, Tracks, Modes, core laws, deterministic MVD/recovery, arbitration and coaching-opening foundations.
+## Documentation standard
 
-### Still not runtime-proven / not built
-
-The live Expo → deployed Cloudflare → Supabase journey remains unproven until the runtime harness is configured and executed. Calendar Fabric, email connectors, production OpenRouter inference, push notification delivery, LLM coaching dialogue and external action execution are not connected yet.
-
-Use `13-IMPLEMENTATION-STATUS.md` as the detailed current-state record.
-
-## Documentation rule
-
-Prefer diagrams, grids, state tables, decision matrices, and concrete examples over walls of prose. Mermaid diagrams are the default for architecture and flows because they render directly in GitHub Markdown and remain version-controlled as text.
+Prefer Mermaid diagrams, status grids, state tables, decision matrices and concrete examples over walls of prose. Documentation must distinguish **source-complete**, **DB-provisioned**, **runtime-proven**, **beta-proven**, and **production-ready**.
 
 ## Legal note
 
-Engineering/product privacy principles are not a substitute for legal review. Before production launch, user-facing Privacy Policy, Terms, consent flows, app-store disclosures, data-processing agreements, subprocessors, and applicable regulatory obligations must be reviewed for the jurisdictions in which APM operates.
+Engineering/product privacy principles are not a substitute for qualified legal review. Final Privacy Policy, Terms, consent language, app-store disclosures, subprocessors, DPAs and jurisdiction-specific obligations require external review before production launch.
