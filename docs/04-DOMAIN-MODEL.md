@@ -199,3 +199,18 @@ A paid Autopilot user can still configure every domain to Observe-only.
 - AI-derived state stores confidence and provenance.
 - Destructive correction should preserve audit history where appropriate.
 - Raw external content should not be duplicated indefinitely merely because it was used to derive structured state; lifecycle policy controls retention.
+
+## ADR-0002 / Phase B domain extension
+
+Phase B adds two individual-user Life Graph primitives without creating a Household graph:
+
+| Entity | Purpose | Examples |
+|---|---|---|
+| LifeRelationship | Structured relationship stewardship layered onto `Person` | birthday, next-contact date, contact cadence |
+| LifeAdminItem | One normalized personal-administration open loop | appointment, trip, bill, subscription, meal plan, shopping, health routine, recurring/family obligation |
+
+`LifeRelationship.person_id` and optional `LifeAdminItem.person_id` are constrained to a `Person` owned by the same user.
+
+Recurring LifeAdminItems use deterministic rollover. Completion advances the next occurrence to the first future due point rather than creating catch-up backlog, preserving the No Catch-Up operating rule.
+
+Both entities retain provenance and remain inside the same Life Graph / Today / Radar architecture defined by this document.
