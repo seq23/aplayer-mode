@@ -208,7 +208,7 @@ const relationshipPatchSchema = z.object({
   phone: z.string().trim().max(80).optional(),
   birthday: optionalDateSchema,
   nextContactAt: optionalDateTimeSchema,
-  cadenceDays: z.number().int().min(1).max(3650).optional(),
+  cadenceDays: z.number().int().min(1).max(3650).nullable().optional(),
   notes: z.string().max(4000).optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: 'at least one field is required' });
 
@@ -241,7 +241,7 @@ const lifeAdminPatchSchema = z.object({
   startsAt: optionalDateTimeSchema,
   endsAt: optionalDateTimeSchema,
   recurrence: lifeAdminRecurrenceSchema.optional(),
-  amountMinor: z.number().int().min(0).max(9_000_000_000_000).optional(),
+  amountMinor: z.number().int().min(0).max(9_000_000_000_000).nullable().optional(),
   currency: z.union([z.string().regex(/^[A-Z]{3}$/), z.literal('')]).optional(),
   details: z.record(z.string(), z.unknown()).optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: 'at least one field is required' });
