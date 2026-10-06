@@ -206,4 +206,10 @@ Performance-advisor notices outside the new Life OS path remain repo-wide optimi
 
 ## Migration 0017 — `life_os_governed_writes`
 
-Closes the two P1 findings from the Codex review of `1c91c9d` (direct-write bypass; read weakening in 0016). Application to `klzbnchgoqmnwsgolwoe` is recorded here only with a receipt; until then this phase is **source-complete, not DB-provisioned** for 0017.
+Closes the two P1 findings from the Codex review of `1c91c9d` (direct-write bypass; read weakening in 0016). Applied 2026-10-06 to `klzbnchgoqmnwsgolwoe` via the Management API as migration `life_os_governed_writes` (listed after `life_os_data_rights_hardening`).
+
+Live receipt:
+
+- `anon` INSERT into `life_admin_items` -> `42501 permission denied for table life_admin_items`;
+- `anon` call to `apm_life_os_data_rights_export` -> `42501 permission denied for function`;
+- post-migration Supabase security advisor: **0 security lints**.
