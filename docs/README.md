@@ -42,6 +42,7 @@ This directory is the canonical source of product, privacy, methodology, AI, arc
 | 23 | [MODEL EVAL & PROMOTION](./23-MODEL-EVAL-AND-PROMOTION.md) | **LOCKED AI RELEASE GATE** | Candidate → privacy/eval → explicit approval process |
 | 24 | [RELEASE, BETA & COMMERCIALIZATION](./24-RELEASE-BETA-AND-COMMERCIALIZATION.md) | **IMPLEMENTATION + EVIDENCE CONTRACT** | EAS/store release, beta metrics, pricing and billing gates |
 | 25 | [ACTIONS, AUTOPILOT, HOUSEHOLD & WEB](./25-AUTONOMY-HOUSEHOLD-AND-WEB.md) | **LONG-HORIZON CONTRACT** | Action lifecycle, standing authority, Household and web command center |
+| 26 | [EXTERNAL RUNTIME GATES](./26-EXTERNAL-RUNTIME-GATES.md) | **OPERATIONS RUNBOOK** | Cloudflare, provider, model, push, store, billing, legal and beta receipts |
 
 ## Canonical methodology reference
 
@@ -88,7 +89,7 @@ flowchart LR
   PAID --> LIFE[Life OS / Autopilot / Household]
 ```
 
-Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth and `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete remaining program/gates.
+Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth and `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete program/gates.
 
 ## Documentation standard
 
