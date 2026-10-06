@@ -347,6 +347,8 @@ export async function getLifeGraph(
     nextActions,
     routines: platform.routines,
     people: platform.people,
+    lifeRelationships: platform.lifeRelationships,
+    lifeAdminItems: platform.lifeAdminItems,
     preferences: platform.preferences,
     rules: platform.rules,
     radarItems: [],
