@@ -1,0 +1,66 @@
+name: Supabase keep-alive
+
+# A Player Mode currently uses Supabase Free. This workflow makes one authenticated public-client
+# request each day so the project does not become idle. It deliberately uses only the publishable
+# client key; never put a service-role key in this workflow or in mobile/client configuration.
+#
+# Required GitHub Actions secrets:
+#   SUPABASE_URL
+#   SUPABASE_PUBLISHABLE_KEY
+
+on:
+  schedule:
+    - cron: "41 5 * * *" # daily 05:41 UTC; intentionally not on the hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: supabase-keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: Keep Supabase Free project awake
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - name: Ping Supabase Auth health
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if [ -z "${SUPABASE_URL}" ]; then
+            echo "SUPABASE_URL secret is not set"
+            exit 1
+          fi
+
+          if [ -z "${SUPABASE_PUBLISHABLE_KEY}" ]; then
+            echo "SUPABASE_PUBLISHABLE_KEY secret is not set"
+            exit 1
+          fi
+
+          project_url="${SUPABASE_URL%/}"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+            -H "apikey: ${SUPABASE_PUBLISHABLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_PUBLISHABLE_KEY}" \
+            "${project_url}/auth/v1/health" || echo 000)
+
+          echo "auth/v1/health -> ${code}"
+          test "${code}" = "200"
+
+      - name: Open an issue if Supabase did not answer
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue create -R "${GITHUB_REPOSITORY}" \
+            --title "Supabase project did not answer the keep-alive ($(date -u +%F))" \
+            --body "The daily Supabase keep-alive failed. Check the project at https://supabase.com/dashboard/project/klzbnchgoqmnwsgolwoe and restore it if paused. If credentials changed, update the SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY GitHub Actions secrets. Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            || true
