@@ -1,5 +1,5 @@
 import type { LifeAdminItem, LifeAdminRecurrence, LifeRelationship, Person } from '@apm/domain';
-import { nextRecurringOccurrence } from '@apm/planning';
+import { nextRecurringSchedule } from '@apm/planning';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
 
@@ -350,18 +350,33 @@ export async function completeLifeAdminItem(
   if (existing.status === 'cancelled') throw new Error('life_os_item_cancelled');
 
   const completedAt = new Date();
-  let nextDue: Date | undefined;
-  if (existing.recurrence?.frequency) {
-    const baseRaw = existing.due_at ?? existing.starts_at ?? completedAt.toISOString();
-    let scheduledAt = new Date(baseRaw);
-    if (Number.isNaN(scheduledAt.getTime())) scheduledAt = completedAt;
-    nextDue = nextRecurringOccurrence(scheduledAt, completedAt, existing.recurrence);
-  }
+  const parseDate = (value: string | null): Date | undefined => {
+    if (!value) return undefined;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  };
 
+  const nextSchedule = existing.recurrence?.frequency
+    ? nextRecurringSchedule(
+        {
+          dueAt: parseDate(existing.due_at),
+          startsAt: parseDate(existing.starts_at),
+          endsAt: parseDate(existing.ends_at),
+        },
+        completedAt,
+        existing.recurrence,
+      )
+    : {};
+
+  const hasNextOccurrence = Boolean(nextSchedule.dueAt || nextSchedule.startsAt);
   const details = { ...(existing.details ?? {}), lastCompletedAt: completedAt.toISOString() };
-  const update = nextDue
-    ? { status: 'open', due_at: nextDue.toISOString(), completed_at: completedAt.toISOString(), details, updated_at: completedAt.toISOString() }
+  const update: Record<string, unknown> = hasNextOccurrence
+    ? { status: 'open', completed_at: completedAt.toISOString(), details, updated_at: completedAt.toISOString() }
     : { status: 'completed', completed_at: completedAt.toISOString(), details, updated_at: completedAt.toISOString() };
+
+  if (nextSchedule.dueAt) update.due_at = nextSchedule.dueAt.toISOString();
+  if (nextSchedule.startsAt) update.starts_at = nextSchedule.startsAt.toISOString();
+  if (nextSchedule.endsAt) update.ends_at = nextSchedule.endsAt.toISOString();
 
   const updated = await supabaseRest<LifeAdminRow[]>(
     env,
