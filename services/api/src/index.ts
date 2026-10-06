@@ -567,6 +567,11 @@ app.get('/v1/trust/activity', async (c) => {
   return c.json({ events: await getAuditEvents(c.env, user.accessToken, user.id, Number(c.req.query('limit') ?? 100)) });
 });
 
+app.get('/v1/privacy/life-os', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  return c.json(await getLifeOsExportState(c.env, user.accessToken, user.id));
+});
+
 app.post('/v1/privacy/export', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const job = await requestDataRightsJob(c.env, user.accessToken, user.id, 'export');
