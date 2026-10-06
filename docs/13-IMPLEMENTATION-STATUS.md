@@ -21,7 +21,7 @@ flowchart LR
   T --> E[Completion + Evidence]
 ```
 
-The authenticated persistence + Today + Radar slice is merged. The runtime-proof harness is merged but its live provider run is still outstanding. Methodology Engine v1 is implemented in the current feature branch and the corresponding Supabase migration is already provisioned.
+The authenticated persistence + Today + Radar slice is merged. The runtime-proof harness is merged but its live provider run is still outstanding. Methodology Engine v1 is merged to `main` in commit `6e662c4955a62d15ad06181c6ecc09cc85ba1d78`, and the corresponding Supabase migration is provisioned.
 
 ## Capability ledger
 
@@ -34,15 +34,15 @@ The authenticated persistence + Today + Radar slice is merged. The runtime-proof
 | Base Life Graph | `STRUCTURAL + DB_PROVISIONED` | profiles, roles, goals, next actions, evidence |
 | Personal OS schema | `STRUCTURAL + DB_PROVISIONED` | personal_os, pillar_settings, tracks, operating_modes |
 | Methodology RLS | `DB_PROVISIONED` | own-row RLS on all new methodology tables; security advisor clean |
-| Adaptive intake | `STRUCTURAL pending merge` | one-question flow; role/game-specific goal wording; explicit final approval |
+| Adaptive intake | `STRUCTURAL + CI_PROVEN` | one-question flow; role/game-specific goal wording; explicit final approval |
 | Pillars | `STRUCTURAL + DB_PROVISIONED` | Wealth, Body, Spirit, Execution + critical/floor settings |
 | Tracks | `STRUCTURAL + DB_PROVISIONED` | Operator Discipline, Strategic Patience, Manifestation Mastery, Billionaire Mindset, Investor + AI Leverage |
 | Modes | `STRUCTURAL + DB_PROVISIONED` | Standard, Recovery, High-Pressure, Executive Review |
 | Core laws | `STRUCTURAL` | Never Miss Twice, Continuity > Intensity, No Catch-Up, No Mid-Day Negotiation, Zeros Allowed, MVD |
-| Recovery / MVD | `STRUCTURAL` | deterministic Recovery mode selects a minimum critical move and suppresses normal-day pressure |
-| Arbitration | `STRUCTURAL + TESTED` | deterministic weighted leverage/urgency/energy/compounding/downside ranking |
-| APM Coach surface | `STRUCTURAL` | real mode control + deterministic opening question; no fake live LLM conversation |
-| Server Today | `STRUCTURAL` | reads active Personal OS mode and foreground goal |
+| Recovery / MVD | `STRUCTURAL + CI_PROVEN` | deterministic Recovery mode selects a minimum critical move and suppresses normal-day pressure |
+| Arbitration | `STRUCTURAL + CI_PROVEN` | deterministic weighted leverage/urgency/energy/compounding/downside ranking |
+| APM Coach surface | `STRUCTURAL + CI_PROVEN` | real mode control + deterministic opening question; no fake live LLM conversation |
+| Server Today | `STRUCTURAL + CI_PROVEN` | reads active Personal OS mode and foreground goal |
 | Radar v0 | `STRUCTURAL + CI_PROVEN` | deadline, missing-next-action and health rules |
 | Runtime proof harness | `STRUCTURAL` | dedicated live verifier + manual workflow; live run not yet recorded |
 | Calendar Fabric | `PLANNED` | device + Google + Microsoft + Apple/iCloud paths |
@@ -65,7 +65,7 @@ flowchart TD
   TR --> COACH[Coaching context]
 ```
 
-### Implemented in source
+### Implemented and merged
 
 - new Personal OS domain primitives;
 - adaptive multi-game intake rather than founder-only intake;
@@ -100,8 +100,8 @@ All four new tables have authenticated own-row RLS. Supabase's security advisor 
 | GET | `/v1/me/life-graph` | Implemented; authenticated |
 | GET | `/v1/me/today` | Implemented; Personal OS aware |
 | PUT | `/v1/onboarding` | Legacy thin onboarding retained for compatibility |
-| PUT | `/v1/methodology/intake` | Implemented in current branch; persists Personal OS atomically |
-| POST | `/v1/methodology/mode` | Implemented in current branch; explicit mode change |
+| PUT | `/v1/methodology/intake` | Implemented; persists Personal OS atomically |
+| POST | `/v1/methodology/mode` | Implemented; explicit mode change |
 | POST | `/v1/next-actions/:id/complete` | Implemented; completion + evidence |
 
 ## Runtime proof still required
@@ -134,6 +134,6 @@ Source CI does **not** prove the provider/device journey. These receipts remain 
 
 ## Phase boundary
 
-Current artifact: **APM Methodology Engine v1**.
+Completed product phase: **APM Methodology Engine v1**.
 
-Next required product phase after merge/runtime proof: **Calendar Fabric**, followed by **Email / Commitment Engine**.
+Next required phase: **live runtime proof**, then **Calendar Fabric**, followed by **Email / Commitment Engine**.
