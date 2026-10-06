@@ -3,9 +3,9 @@ import {
   executableActionProblem,
   selectMinimumViableAction,
   shouldForceRecovery,
-} from './methodology';
+} from './methodology.js';
 
-export * from './methodology';
+export * from './methodology.js';
 
 export interface TodayProjectionOptions {
   date?: string;
