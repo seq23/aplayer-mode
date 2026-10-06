@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { buildDailyPlan } from '@apm/planning';
+import { buildRadarItems } from '@apm/radar';
 import { authenticateRequest } from './auth';
 import type { ApiEnv } from './env';
 import { completeNextAction, getLifeGraph, saveOnboarding } from './lifeGraphRepository';
@@ -16,6 +18,16 @@ const onboardingSchema = z.object({
   becoming: z.string().trim().max(500).optional(),
   pillar: z.enum(['wealth', 'body', 'spirit', 'execution']).optional(),
 });
+
+async function buildUserState(env: ApiEnv, accessToken: string, userId: string) {
+  const persistedGraph = await getLifeGraph(env, accessToken, userId);
+  const graph = {
+    ...persistedGraph,
+    radarItems: buildRadarItems(persistedGraph),
+  };
+  const plan = buildDailyPlan(graph);
+  return { graph, plan };
+}
 
 app.use('*', async (c, next) => {
   const requestId = c.req.header('x-request-id') ?? crypto.randomUUID();
@@ -48,8 +60,15 @@ app.get('/v1/me/life-graph', async (c) => {
   const user = await authenticateRequest(c.req.raw, c.env);
   if (!user) return c.json({ error: 'unauthorized' }, 401);
 
-  const graph = await getLifeGraph(c.env, user.accessToken, user.id);
+  const { graph } = await buildUserState(c.env, user.accessToken, user.id);
   return c.json({ graph });
+});
+
+app.get('/v1/me/today', async (c) => {
+  const user = await authenticateRequest(c.req.raw, c.env);
+  if (!user) return c.json({ error: 'unauthorized' }, 401);
+
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
 });
 
 app.put('/v1/onboarding', async (c) => {
@@ -68,8 +87,8 @@ app.put('/v1/onboarding', async (c) => {
     );
   }
 
-  const graph = await saveOnboarding(c.env, user.accessToken, user.id, parsed.data);
-  return c.json({ graph }, 200);
+  await saveOnboarding(c.env, user.accessToken, user.id, parsed.data);
+  return c.json(await buildUserState(c.env, user.accessToken, user.id), 200);
 });
 
 app.post('/v1/next-actions/:id/complete', async (c) => {
@@ -78,7 +97,9 @@ app.post('/v1/next-actions/:id/complete', async (c) => {
 
   const result = await completeNextAction(c.env, user.accessToken, user.id, c.req.param('id'));
   if (!result) return c.json({ error: 'not_found' }, 404);
-  return c.json(result);
+
+  const state = await buildUserState(c.env, user.accessToken, user.id);
+  return c.json({ ...result, ...state });
 });
 
 app.onError((error, c) => {

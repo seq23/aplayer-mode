@@ -11,6 +11,7 @@
   "dependencies": {
     "@apm/domain": "0.1.0",
     "@apm/planning": "0.1.0",
+    "@apm/radar": "0.1.0",
     "hono": "^4.9.0",
     "zod": "^4.0.0"
   },

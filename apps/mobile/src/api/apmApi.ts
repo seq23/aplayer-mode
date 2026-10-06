@@ -1,4 +1,4 @@
-import type { LifeGraphSnapshot, PillarName } from '@apm/domain';
+import type { DailyPlan, LifeGraphSnapshot, PillarName } from '@apm/domain';
 
 export interface ApiOnboardingInput {
   displayName: string;
@@ -9,6 +9,11 @@ export interface ApiOnboardingInput {
   pillar?: PillarName;
 }
 
+export interface TodayState {
+  graph: LifeGraphSnapshot;
+  plan: DailyPlan;
+}
+
 const baseUrl = process.env.EXPO_PUBLIC_APM_API_URL?.replace(/\/$/, '');
 
 export function isApmApiConfigured(): boolean {
@@ -17,15 +22,16 @@ export function isApmApiConfigured(): boolean {
 
 async function request<T>(
   path: string,
+  accessToken: string,
   options: RequestInit = {},
-  accessToken?: string,
 ): Promise<T> {
   if (!baseUrl) throw new Error('EXPO_PUBLIC_APM_API_URL is not configured');
+  if (!accessToken) throw new Error('An authenticated APM session is required');
 
   const headers = new Headers(options.headers);
   headers.set('accept', 'application/json');
+  headers.set('authorization', `Bearer ${accessToken}`);
   if (options.body) headers.set('content-type', 'application/json');
-  if (accessToken) headers.set('authorization', `Bearer ${accessToken}`);
 
   const response = await fetch(`${baseUrl}${path}`, { ...options, headers });
   if (!response.ok) {
@@ -36,23 +42,30 @@ async function request<T>(
   return response.json() as Promise<T>;
 }
 
-export async function fetchLifeGraph(accessToken?: string): Promise<LifeGraphSnapshot> {
-  const response = await request<{ graph: LifeGraphSnapshot }>('/v1/me/life-graph', {}, accessToken);
+export async function fetchLifeGraph(accessToken: string): Promise<LifeGraphSnapshot> {
+  const response = await request<{ graph: LifeGraphSnapshot }>('/v1/me/life-graph', accessToken);
   return response.graph;
+}
+
+export async function fetchTodayState(accessToken: string): Promise<TodayState> {
+  return request<TodayState>('/v1/me/today', accessToken);
 }
 
 export async function persistOnboarding(
   input: ApiOnboardingInput,
-  accessToken?: string,
-): Promise<LifeGraphSnapshot> {
-  const response = await request<{ graph: LifeGraphSnapshot }>(
-    '/v1/onboarding',
-    { method: 'PUT', body: JSON.stringify(input) },
-    accessToken,
-  );
-  return response.graph;
+  accessToken: string,
+): Promise<TodayState> {
+  return request<TodayState>('/v1/onboarding', accessToken, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
 }
 
-export async function persistActionCompletion(actionId: string, accessToken?: string): Promise<void> {
-  await request(`/v1/next-actions/${encodeURIComponent(actionId)}/complete`, { method: 'POST' }, accessToken);
+export async function persistActionCompletion(
+  actionId: string,
+  accessToken: string,
+): Promise<TodayState> {
+  return request<TodayState>(`/v1/next-actions/${encodeURIComponent(actionId)}/complete`, accessToken, {
+    method: 'POST',
+  });
 }

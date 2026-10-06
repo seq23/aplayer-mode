@@ -11,8 +11,19 @@ import {
   uiStyles,
 } from '../src/components/ui';
 import { trustPromises } from '../src/fixtures/trust';
+import { useSession } from '../src/state/session';
 
 export default function PrivacyPrimerScreen() {
+  const { status } = useSession();
+
+  const continueToAccount = () => {
+    if (status === 'signed_in') {
+      router.replace('/');
+      return;
+    }
+    router.push('/sign-in');
+  };
+
   return (
     <Screen
       eyebrow="Before we begin"
@@ -35,7 +46,7 @@ export default function PrivacyPrimerScreen() {
         ))}
       </View>
 
-      <Button label="Continue" onPress={() => router.push('/sign-in')} />
+      <Button label={status === 'signed_in' ? 'Continue to my APM' : 'Continue to my private account'} onPress={continueToAccount} />
       <Button
         label="How APM uses AI"
         variant="secondary"
