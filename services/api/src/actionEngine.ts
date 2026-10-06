@@ -1,7 +1,7 @@
 import type { ActionRecord, AutonomyLevel, Permission, SubscriptionEntitlement } from '@apm/domain';
 import { decideAuthority, type ActionDomain, type Entitlement, type PermissionGrant } from '@apm/policy';
 import type { ApiEnv } from './env';
-import { actionsGloballyEnabled } from './env';
+import { actionDomainEnabled, actionsGloballyEnabled } from './env';
 import { supabaseRest } from './db';
 import { getValidConnectorToken } from './connectors/oauth';
 
@@ -54,6 +54,7 @@ export function authorizeAction(input: {
   forExecution?: boolean;
 }) {
   const globalExecutionEnabled = input.forExecution ? actionsGloballyEnabled(input.env) : true;
+  const domainExecutionEnabled = input.forExecution ? actionDomainEnabled(input.env, input.domain) : true;
   return decideAuthority({
     userId: input.userId,
     domain: input.domain,
@@ -61,7 +62,7 @@ export function authorizeAction(input: {
     permission: policyPermission(input.userId, input.permission),
     entitlement: policyEntitlement(input.entitlement, input.domain),
     globalExecutionEnabled,
-    domainExecutionEnabled: true,
+    domainExecutionEnabled,
   });
 }
 
