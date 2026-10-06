@@ -9,7 +9,9 @@ export default function Index() {
 
   if (status === 'loading' || (status === 'signed_in' && (syncStatus === 'idle' || syncStatus === 'loading'))) {
     return (
-      <Screen eyebrow="A Player Mode" title="Loading your APM…" subtitle="Restoring your private Life Graph." />
+      <Screen eyebrow="A Player Mode" title="Loading your APM…" subtitle="Restoring your private Life Graph.">
+        {null}
+      </Screen>
     );
   }
 
