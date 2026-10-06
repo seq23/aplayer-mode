@@ -1,19 +1,10 @@
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import type { ApiEnv } from './env';
+import { requireSupabaseConfig } from './env';
 
 export interface AuthenticatedUser {
   id: string;
-  claims: JWTPayload;
-}
-
-const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
-
-function getJwks(url: string) {
-  const cached = jwksCache.get(url);
-  if (cached) return cached;
-  const jwks = createRemoteJWKSet(new URL(url));
-  jwksCache.set(url, jwks);
-  return jwks;
+  accessToken: string;
+  email?: string;
 }
 
 export async function authenticateRequest(
@@ -24,29 +15,32 @@ export async function authenticateRequest(
   if (env.AUTH_DEV_BYPASS_USER_ID) {
     return {
       id: env.AUTH_DEV_BYPASS_USER_ID,
-      claims: { sub: env.AUTH_DEV_BYPASS_USER_ID, apm_dev_bypass: true },
+      accessToken: 'apm-dev-bypass',
     };
-  }
-
-  if (!env.AUTH_JWKS_URL || !env.AUTH_ISSUER || !env.AUTH_AUDIENCE) {
-    throw new Error('Authentication provider is not configured');
   }
 
   const header = request.headers.get('authorization');
   if (!header?.startsWith('Bearer ')) return null;
 
-  const token = header.slice('Bearer '.length).trim();
-  if (!token) return null;
+  const accessToken = header.slice('Bearer '.length).trim();
+  if (!accessToken) return null;
 
-  try {
-    const result = await jwtVerify(token, getJwks(env.AUTH_JWKS_URL), {
-      issuer: env.AUTH_ISSUER,
-      audience: env.AUTH_AUDIENCE,
-    });
+  const { url, publishableKey } = requireSupabaseConfig(env);
+  const response = await fetch(`${url}/auth/v1/user`, {
+    headers: {
+      apikey: publishableKey,
+      authorization: `Bearer ${accessToken}`,
+    },
+  });
 
-    if (!result.payload.sub) return null;
-    return { id: result.payload.sub, claims: result.payload };
-  } catch {
-    return null;
-  }
+  if (!response.ok) return null;
+
+  const user = (await response.json()) as { id?: string; email?: string };
+  if (!user.id) return null;
+
+  return {
+    id: user.id,
+    accessToken,
+    email: user.email,
+  };
 }
