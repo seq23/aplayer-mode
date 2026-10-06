@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { authenticateRequest } from './auth';
-import { withDb } from './db';
 import type { ApiEnv } from './env';
 import { completeNextAction, getLifeGraph, saveOnboarding } from './lifeGraphRepository';
 
@@ -22,6 +21,17 @@ app.use('*', async (c, next) => {
   const requestId = c.req.header('x-request-id') ?? crypto.randomUUID();
   c.header('x-request-id', requestId);
   c.header('cache-control', 'no-store');
+
+  if (c.env.ALLOWED_ORIGIN) {
+    c.header('access-control-allow-origin', c.env.ALLOWED_ORIGIN);
+    c.header('access-control-allow-headers', 'authorization, content-type, x-request-id');
+    c.header('access-control-allow-methods', 'GET, PUT, POST, OPTIONS');
+  }
+
+  if (c.req.method === 'OPTIONS') {
+    return c.body(null, 204);
+  }
+
   await next();
 });
 
@@ -29,6 +39,7 @@ app.get('/v1/health', (c) =>
   c.json({
     ok: true,
     service: 'aplayer-mode-api',
+    dataPlatform: 'supabase',
     time: new Date().toISOString(),
   }),
 );
@@ -37,7 +48,7 @@ app.get('/v1/me/life-graph', async (c) => {
   const user = await authenticateRequest(c.req.raw, c.env);
   if (!user) return c.json({ error: 'unauthorized' }, 401);
 
-  const graph = await withDb(c.env, (client) => getLifeGraph(client, user.id));
+  const graph = await getLifeGraph(c.env, user.accessToken, user.id);
   return c.json({ graph });
 });
 
@@ -57,7 +68,7 @@ app.put('/v1/onboarding', async (c) => {
     );
   }
 
-  const graph = await withDb(c.env, (client) => saveOnboarding(client, user.id, parsed.data));
+  const graph = await saveOnboarding(c.env, user.accessToken, user.id, parsed.data);
   return c.json({ graph }, 200);
 });
 
@@ -65,7 +76,7 @@ app.post('/v1/next-actions/:id/complete', async (c) => {
   const user = await authenticateRequest(c.req.raw, c.env);
   if (!user) return c.json({ error: 'unauthorized' }, 401);
 
-  const result = await withDb(c.env, (client) => completeNextAction(client, user.id, c.req.param('id')));
+  const result = await completeNextAction(c.env, user.accessToken, user.id, c.req.param('id'));
   if (!result) return c.json({ error: 'not_found' }, 404);
   return c.json(result);
 });
