@@ -24,6 +24,8 @@ export default function TodayScreen() {
   const completionEvidence = graph.evidence.find((item) => item.relatedActionId === primaryAction?.id);
   const firstRadarItem = graph.radarItems[0];
   const name = graph.identity.displayName || 'there';
+  const mode = todayPlan?.mode ?? graph.personalOS?.activeMode ?? 'standard';
+  const recovery = mode === 'recovery';
 
   const complete = async () => {
     if (!primaryAction || busy) return;
@@ -44,12 +46,15 @@ export default function TodayScreen() {
       title={`Good morning, ${name}.`}
       subtitle={
         primaryGoal
-          ? 'APM rebuilt Today from your authenticated Life Graph and current execution state.'
-          : 'APM is ready to build your first durable Life Graph.'
+          ? recovery
+            ? 'Recovery Mode is active. Today protects continuity instead of demanding intensity.'
+            : 'APM rebuilt Today from your Personal OS, Life Graph and current execution state.'
+          : 'APM is ready to build your first durable Personal OS.'
       }
     >
       <View style={uiStyles.row}>
         <Pill tone={isDurable ? 'success' : 'warning'}>{isDurable ? 'Server-backed' : 'Connection needed'}</Pill>
+        <Pill tone={recovery ? 'warning' : 'neutral'}>{mode.replace('_', ' ')}</Pill>
         {todayPlan ? <Pill>{todayPlan.completionState.replace('_', ' ')}</Pill> : null}
       </View>
 
@@ -60,13 +65,21 @@ export default function TodayScreen() {
         </Card>
       ) : null}
 
+      {recovery ? (
+        <Card tone="warning">
+          <Label>Minimum Viable Day</Label>
+          <CardTitle>One useful thing. No catch-up debt.</CardTitle>
+          <Body muted>Continuity beats intensity today. Completing the smallest critical move is enough.</Body>
+        </Card>
+      ) : null}
+
       <Card tone="accent">
-        <Label>Your #1 move</Label>
+        <Label>{recovery ? 'Your MVD move' : 'Your #1 move'}</Label>
         <CardTitle>{primaryAction?.title ?? primaryGoal?.title ?? 'Finish your APM onboarding'}</CardTitle>
         <Body muted>
           {primaryGoal
-            ? `Primary pillar: ${primaryGoal.pillar ?? 'not set'}. Today is projected by the server from durable Life Graph state.`
-            : 'Add one concrete 90-day outcome so APM can start planning around it.'}
+            ? `Primary pillar: ${primaryGoal.pillar ?? 'not set'}. Today is projected by the server from durable Personal OS + Life Graph state.`
+            : 'Build your Personal OS so APM can start planning around your actual game.'}
         </Body>
         <View style={uiStyles.row}>
           <Pill tone="success">Life Graph</Pill>
@@ -75,7 +88,7 @@ export default function TodayScreen() {
         {!primaryGoal ? (
           <Button label="Build my APM" onPress={() => router.push('/onboarding')} />
         ) : primaryAction ? (
-          <Button label={busy ? 'Recording…' : 'Mark #1 move complete'} onPress={() => void complete()} />
+          <Button label={busy ? 'Recording…' : recovery ? 'Complete my MVD move' : 'Mark #1 move complete'} onPress={() => void complete()} />
         ) : (
           <Body>There is no open next action. Radar will flag the missing execution path.</Body>
         )}
@@ -96,33 +109,55 @@ export default function TodayScreen() {
         </Card>
       ) : null}
 
-      <SectionTitle>APM noticed</SectionTitle>
-      {firstRadarItem ? (
-        <Card tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'default'}>
-          <Pill tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'neutral'}>
-            {firstRadarItem.type} · {firstRadarItem.severity}
-          </Pill>
-          <CardTitle>{firstRadarItem.headline}</CardTitle>
-          <Body muted>{firstRadarItem.summary}</Body>
-          <Button
-            label="Why am I seeing this?"
-            variant="secondary"
-            onPress={() => router.push({ pathname: '/radar/why', params: { id: firstRadarItem.id } })}
-          />
-        </Card>
-      ) : (
-        <Card tone="muted">
-          <CardTitle>Radar is clear for now.</CardTitle>
-          <Body muted>APM found no deterministic high-value signal in the Life Graph it can justify surfacing right now.</Body>
-        </Card>
-      )}
+      {!recovery ? (
+        <>
+          <SectionTitle>APM noticed</SectionTitle>
+          {firstRadarItem ? (
+            <Card tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'default'}>
+              <Pill tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'neutral'}>
+                {firstRadarItem.type} · {firstRadarItem.severity}
+              </Pill>
+              <CardTitle>{firstRadarItem.headline}</CardTitle>
+              <Body muted>{firstRadarItem.summary}</Body>
+              <Button
+                label="Why am I seeing this?"
+                variant="secondary"
+                onPress={() => router.push({ pathname: '/radar/why', params: { id: firstRadarItem.id } })}
+              />
+            </Card>
+          ) : (
+            <Card tone="muted">
+              <CardTitle>Radar is clear for now.</CardTitle>
+              <Body muted>APM found no deterministic high-value signal in the Life Graph it can justify surfacing right now.</Body>
+            </Card>
+          )}
+        </>
+      ) : null}
 
       <SectionTitle>Your run of show</SectionTitle>
       <Card>
-        <KeyValue label="First" value={primaryAction?.title ?? 'Create the next executable move'} />
-        <KeyValue label="Then" value="Review anything APM noticed" />
-        <KeyValue label="Later" value="Close or replan open loops" />
+        {recovery ? (
+          <>
+            <KeyValue label="Only move" value={primaryAction?.title ?? 'Create one minimum executable move'} />
+            <KeyValue label="Rule" value="No catch-up. Close the day after the continuity move." />
+          </>
+        ) : (
+          <>
+            <KeyValue label="First" value={primaryAction?.title ?? 'Create the next executable move'} />
+            <KeyValue label="Then" value="Review anything APM noticed" />
+            <KeyValue label="Later" value="Close or replan open loops" />
+          </>
+        )}
       </Card>
+
+      {graph.personalOS ? (
+        <Card>
+          <Label>Personal OS</Label>
+          <KeyValue label="Day start" value={graph.personalOS.accountability.dayStart === 'hard' ? 'Hard Start' : 'Guided Start'} />
+          <KeyValue label="Tracks" value={graph.tracks.filter((track) => track.active).map((track) => track.name).join(', ') || 'None'} />
+          <Button label="Open APM Coach" variant="secondary" onPress={() => router.push('/(tabs)/apm')} />
+        </Card>
+      ) : null}
 
       <SectionTitle>Trust & control</SectionTitle>
       <Card>
