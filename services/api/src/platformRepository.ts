@@ -84,6 +84,7 @@ interface DayRow {
 interface EntitlementRow {
   user_id: string; plan: SubscriptionEntitlement['plan']; status: SubscriptionEntitlement['status']; provider: string | null; current_period_end: string | null;
 }
+interface ProductInterestRow { interest: 'household'; status: 'interested' | 'withdrawn'; source: string; created_at: string; updated_at: string; }
 interface HouseholdRow { id: string; created_by: string; name: string; created_at: string; }
 interface HouseholdMemberRow { household_id: string; user_id: string; role: HouseholdMember['role']; status: HouseholdMember['status']; joined_at: string; }
 interface HouseholdItemRow {
@@ -196,6 +197,45 @@ export async function closeDay(env: ApiEnv, accessToken: string, verdict: 'full_
 
 export async function recordAnalyticsEvent(env: ApiEnv, accessToken: string, userId: string, eventName: string, properties: Record<string, unknown> = {}): Promise<void> {
   await supabaseRest(env, accessToken, '/rest/v1/analytics_events', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ user_id: userId, event_name: eventName, properties }]) });
+}
+
+
+export async function getHouseholdInterest(env: ApiEnv, accessToken: string, userId: string): Promise<{ interested: boolean; updatedAt?: string }> {
+  const rows = await supabaseRest<ProductInterestRow[]>(
+    env,
+    accessToken,
+    `/rest/v1/product_interests?user_id=eq.${qs(userId)}&interest=eq.household&select=interest,status,source,created_at,updated_at&limit=1`,
+  );
+  const row = rows[0];
+  return { interested: row?.status === 'interested', updatedAt: row?.updated_at };
+}
+
+export async function setHouseholdInterest(
+  env: ApiEnv,
+  accessToken: string,
+  userId: string,
+  interested: boolean,
+): Promise<{ interested: boolean; updatedAt: string }> {
+  const updatedAt = new Date().toISOString();
+  const rows = await supabaseRest<ProductInterestRow[]>(
+    env,
+    accessToken,
+    '/rest/v1/product_interests?on_conflict=user_id,interest&select=interest,status,source,created_at,updated_at',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify([{
+        user_id: userId,
+        interest: 'household',
+        status: interested ? 'interested' : 'withdrawn',
+        source: 'mobile_settings',
+        updated_at: updatedAt,
+      }]),
+    },
+  );
+  const row = rows[0];
+  if (!row) throw new Error('product_interest_write_failed');
+  return { interested: row.status === 'interested', updatedAt: row.updated_at };
 }
 
 export async function listHouseholds(env: ApiEnv, accessToken: string): Promise<{ households: Household[]; members: HouseholdMember[]; items: HouseholdItem[] }> {
