@@ -175,7 +175,7 @@ function relationshipRadar(relationship: LifeRelationship, graph: LifeGraphSnaps
     if (days !== undefined) {
       if (days <= 21) {
         items.push({
-          id: `radar:relationship_birthday:${relationship.id}:${birthday.getUTCFullYear()}`,
+          id: `radar:relationship_birthday:${relationship.id}`,
           userId: relationship.userId,
           type: 'upcoming',
           headline: days === 0 ? `${name}'s birthday is today` : `${name}'s birthday is in ${days} day${days === 1 ? '' : 's'}`,
