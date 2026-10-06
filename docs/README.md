@@ -9,6 +9,7 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | **LOCKED** | Engineering must conform. Material changes require an ADR + explicit approval. |
 | **RECOMMENDED / TESTABLE** | Current decision, but expected to evolve with evidence. Changes must be documented. |
 | **DRAFT** | Under discussion; not authoritative. |
+| **LIVING EXECUTION RECORD** | Describes what is actually implemented now; updated as code changes. |
 
 ## Canonical documents
 
@@ -27,6 +28,7 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | 10 | [ANALYTICS & EVALUATION](./10-ANALYTICS-AND-EVALUATION.md) | **LOCKED BASELINE** | VPI metric, trust metrics, AI eval suites, cost/successful-task measurement |
 | 11 | [PRIVACY UX & TRUST CENTER](./11-PRIVACY-UX-AND-TRUST-CENTER.md) | **LOCKED PRODUCT REQUIREMENT** | User-facing trust pages, provider transparency, permissions and audit UX |
 | 12 | [TRUST CENTER SCREEN MAP](./12-TRUST-CENTER-SCREEN-MAP.md) | **IMPLEMENTATION REFERENCE** | Visual page map, privacy flow, autonomy flow and screen acceptance grid |
+| 13 | [IMPLEMENTATION STATUS](./13-IMPLEMENTATION-STATUS.md) | **LIVING EXECUTION RECORD** | Real vs fixture behavior, current vertical slice, next engineering block |
 
 ## Anti-drift hierarchy
 
@@ -45,9 +47,9 @@ If implementation conflicts with a locked constitution, **the implementation is 
 ```mermaid
 flowchart LR
   A[Constitutions] -->|done| B[Architecture + data + security]
-  B -->|done| C[Mobile shell]
-  C -->|in progress| D[Trust Center fixtures]
-  D --> E[Life Graph vertical slice]
+  B -->|done| C[Mobile shell + Trust Center]
+  C -->|done| D[Local Life Graph vertical slice]
+  D -->|current| E[Durable API + persistence]
   E --> F[Today Engine]
   F --> G[Radar v0]
   G --> H[Calendar]
@@ -59,18 +61,29 @@ flowchart LR
 - Expo / React Native workspace scaffold;
 - core navigation: **Today · Radar · Goals · APM**;
 - Welcome + Privacy Primer;
+- structured onboarding into a local Life Graph;
+- primary Goal → Next Action → Today flow;
+- user completion → Evidence flow;
+- Goals and Your Data surfaces backed by live local Life Graph state;
 - Privacy & AI center;
 - How APM Uses AI;
 - AI Providers transparency screen;
-- Your Data / Life Graph transparency;
 - Connections;
 - Permissions & Autonomy;
 - APM Activity;
 - Export & Delete;
-- explainable Radar example;
-- CI typecheck workflow.
+- explainable Radar fixture example;
+- canonical `@apm/domain` package;
+- `@apm/privacy` inference-eligibility primitives;
+- `@apm/policy` autonomy/permission primitives;
+- `@apm/ai` privacy-first model-registry routing primitives;
+- CI typecheck across workspaces.
 
-All current product data is fixture/mock state. No Gmail, Calendar, production database, or AI provider is connected yet.
+### Still fixture / not production-connected
+
+The Life Graph currently lives in local React state and resets with the app process. There is no production database or authenticated user tenancy yet. AI-provider, Connections, Activity, and example Radar content still contain fixture/explanatory data. No Gmail, Calendar, production OpenRouter inference, or external action execution is connected yet.
+
+Use `13-IMPLEMENTATION-STATUS.md` as the detailed current-state record.
 
 ## Documentation rule
 
