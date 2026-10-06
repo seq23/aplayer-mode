@@ -148,12 +148,14 @@ async function createPerson(
   userId: string,
   input: Pick<RelationshipInput, 'personName' | 'relationship' | 'email' | 'phone'>,
 ): Promise<PersonRow> {
+  const personName = input.personName?.trim();
+  if (!personName) throw new Error('life_os_person_name_required');
   const rows = await supabaseRest<PersonRow[]>(env, accessToken, '/rest/v1/people?select=*', {
     method: 'POST',
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify([{
       user_id: userId,
-      name: input.personName,
+      name: personName,
       relationship: input.relationship ?? null,
       email: input.email ?? null,
       phone: input.phone ?? null,
@@ -209,8 +211,8 @@ export async function createRelationship(
       body: JSON.stringify([{
         user_id: userId,
         person_id: person.id,
-        birthday: input.birthday ?? null,
-        next_contact_at: input.nextContactAt ?? null,
+        birthday: input.birthday || null,
+        next_contact_at: input.nextContactAt || null,
         cadence_days: input.cadenceDays ?? null,
         notes: input.notes ?? null,
         provenance_kind: 'stated',
@@ -331,16 +333,46 @@ export async function updateLifeAdminItem(
   return mapLifeAdminItem(rows[0], userId);
 }
 
+function lastDayOfUtcMonth(year: number, monthIndex: number): number {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+function addMonthsClamped(base: Date, months: number): Date {
+  const next = new Date(base.getTime());
+  const day = next.getUTCDate();
+  next.setUTCDate(1);
+  next.setUTCMonth(next.getUTCMonth() + months);
+  next.setUTCDate(Math.min(day, lastDayOfUtcMonth(next.getUTCFullYear(), next.getUTCMonth())));
+  return next;
+}
+
+function addYearsClamped(base: Date, years: number): Date {
+  const next = new Date(base.getTime());
+  const month = next.getUTCMonth();
+  const day = next.getUTCDate();
+  next.setUTCDate(1);
+  next.setUTCFullYear(next.getUTCFullYear() + years);
+  next.setUTCMonth(month);
+  next.setUTCDate(Math.min(day, lastDayOfUtcMonth(next.getUTCFullYear(), month)));
+  return next;
+}
+
 function addRecurrence(base: Date, recurrence: LifeAdminRecurrence): Date | undefined {
   const frequency = recurrence.frequency;
   if (!frequency) return undefined;
   const interval = Math.max(1, Math.min(365, Math.trunc(recurrence.interval ?? 1)));
   const next = new Date(base.getTime());
-  if (frequency === 'daily') next.setUTCDate(next.getUTCDate() + interval);
-  else if (frequency === 'weekly') next.setUTCDate(next.getUTCDate() + 7 * interval);
-  else if (frequency === 'monthly') next.setUTCMonth(next.getUTCMonth() + interval);
-  else if (frequency === 'yearly') next.setUTCFullYear(next.getUTCFullYear() + interval);
-  return next;
+  if (frequency === 'daily') {
+    next.setUTCDate(next.getUTCDate() + interval);
+    return next;
+  }
+  if (frequency === 'weekly') {
+    next.setUTCDate(next.getUTCDate() + 7 * interval);
+    return next;
+  }
+  if (frequency === 'monthly') return addMonthsClamped(base, interval);
+  if (frequency === 'yearly') return addYearsClamped(base, interval);
+  return undefined;
 }
 
 export async function completeLifeAdminItem(
