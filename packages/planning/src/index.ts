@@ -1,4 +1,7 @@
 import type { DailyPlan, Goal, LifeGraphSnapshot, NextAction } from '@apm/domain';
+import { selectMinimumViableAction } from './methodology';
+
+export * from './methodology';
 
 export interface TodayProjectionOptions {
   date?: string;
@@ -16,7 +19,15 @@ function compareGoals(a: Goal, b: Goal): number {
   return healthRank[a.health] - healthRank[b.health];
 }
 
-function selectNumberOneMove(graph: LifeGraphSnapshot): NextAction | undefined {
+function selectStandardNumberOneMove(graph: LifeGraphSnapshot): NextAction | undefined {
+  const foregroundGoalId = graph.personalOS?.foregroundGoalId;
+  if (foregroundGoalId) {
+    const foreground = graph.nextActions.find(
+      (candidate) => candidate.goalId === foregroundGoalId && candidate.status === 'open',
+    );
+    if (foreground) return foreground;
+  }
+
   const activeGoals = graph.goals
     .filter((goal) => goal.status === 'active')
     .sort(compareGoals);
@@ -35,7 +46,9 @@ export function buildDailyPlan(
   graph: LifeGraphSnapshot,
   options: TodayProjectionOptions = {},
 ): DailyPlan {
-  const numberOneMove = selectNumberOneMove(graph);
+  const mode = options.mode ?? graph.personalOS?.activeMode ?? 'standard';
+  const numberOneMove =
+    mode === 'recovery' ? selectMinimumViableAction(graph) : selectStandardNumberOneMove(graph);
   const openActions = graph.nextActions.filter((action) => action.status === 'open');
   const doneActions = graph.nextActions.filter((action) => action.status === 'done');
 
@@ -49,7 +62,7 @@ export function buildDailyPlan(
   return {
     userId: graph.identity.userId,
     date: options.date ?? new Date().toISOString().slice(0, 10),
-    mode: options.mode ?? 'standard',
+    mode,
     numberOneMove,
     blocks: [],
     routineIds: graph.routines.filter((routine) => routine.active).map((routine) => routine.id),
@@ -59,5 +72,6 @@ export function buildDailyPlan(
     approvalActionIds: [],
     radarItemIds: graph.radarItems.filter((item) => item.status === 'open').map((item) => item.id),
     completionState,
+    verdict: mode === 'recovery' && completionState === 'complete' ? 'mvd' : undefined,
   };
 }

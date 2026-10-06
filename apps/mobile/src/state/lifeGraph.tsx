@@ -1,10 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { DailyPlan, LifeGraphSnapshot, PillarName } from '@apm/domain';
+import type { DailyPlan, LifeGraphSnapshot, OperatingModeKey, PillarName } from '@apm/domain';
 import {
   fetchTodayState,
   isApmApiConfigured,
   persistActionCompletion,
+  persistMethodologyIntake,
   persistOnboarding,
+  persistOperatingMode,
+  type ApiMethodologyIntakeInput,
 } from '../api/apmApi';
 import { useSession } from './session';
 
@@ -12,6 +15,10 @@ function emptyGraph(userId = 'unassigned'): LifeGraphSnapshot {
   return {
     identity: { userId, displayName: '' },
     roles: [],
+    pillarSettings: [],
+    tracks: [],
+    modes: [],
+    personalOS: undefined,
     goals: [],
     milestones: [],
     projects: [],
@@ -45,6 +52,8 @@ interface LifeGraphContextValue {
   isDurable: boolean;
   refresh: () => Promise<void>;
   completeOnboarding: (input: OnboardingInput) => Promise<void>;
+  completeMethodologyIntake: (input: ApiMethodologyIntakeInput) => Promise<void>;
+  setOperatingMode: (mode: OperatingModeKey) => Promise<void>;
   completeNextAction: (actionId: string) => Promise<void>;
 }
 
@@ -160,6 +169,30 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           setSyncStatus('error');
           setSyncError(error instanceof Error ? error.message : 'Unable to save your APM');
+          throw error;
+        }
+      },
+      completeMethodologyIntake: async (input) => {
+        const { token } = requireDurableSession();
+        setSyncStatus('saving');
+        setSyncError(undefined);
+        try {
+          applyServerState(await persistMethodologyIntake(input, token));
+        } catch (error) {
+          setSyncStatus('error');
+          setSyncError(error instanceof Error ? error.message : 'Unable to install your Personal OS');
+          throw error;
+        }
+      },
+      setOperatingMode: async (mode) => {
+        const { token } = requireDurableSession();
+        setSyncStatus('saving');
+        setSyncError(undefined);
+        try {
+          applyServerState(await persistOperatingMode(mode, token));
+        } catch (error) {
+          setSyncStatus('error');
+          setSyncError(error instanceof Error ? error.message : 'Unable to change APM mode');
           throw error;
         }
       },

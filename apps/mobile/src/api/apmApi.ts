@@ -1,4 +1,13 @@
-import type { DailyPlan, LifeGraphSnapshot, PillarName } from '@apm/domain';
+import type {
+  AccountabilityPolicy,
+  CoachingStyle,
+  DailyPlan,
+  LifeGraphSnapshot,
+  OperatingModeKey,
+  PillarName,
+  TrackKey,
+  WeeklyCadence,
+} from '@apm/domain';
 
 export interface ApiOnboardingInput {
   displayName: string;
@@ -7,6 +16,27 @@ export interface ApiOnboardingInput {
   currentSeason?: string;
   becoming?: string;
   pillar?: PillarName;
+}
+
+export interface ApiMethodologyIntakeInput extends ApiOnboardingInput {
+  timezone?: string;
+  goalOutcome?: string;
+  goalTargetDate?: string;
+  firstNextAction?: string;
+  northStar?: string;
+  values: string[];
+  nonNegotiables: string[];
+  failurePatterns: string[];
+  bodyContext?: string;
+  workMoneyContext?: string;
+  mindSpiritLearningContext?: string;
+  weeklyCadence: WeeklyCadence;
+  coachingStyle: CoachingStyle;
+  accountability: AccountabilityPolicy;
+  criticalPillars: PillarName[];
+  minimumFloors: Partial<Record<PillarName, string>>;
+  trackKeys: TrackKey[];
+  activeMode?: OperatingModeKey;
 }
 
 export interface TodayState {
@@ -58,6 +88,26 @@ export async function persistOnboarding(
   return request<TodayState>('/v1/onboarding', accessToken, {
     method: 'PUT',
     body: JSON.stringify(input),
+  });
+}
+
+export async function persistMethodologyIntake(
+  input: ApiMethodologyIntakeInput,
+  accessToken: string,
+): Promise<TodayState> {
+  return request<TodayState>('/v1/methodology/intake', accessToken, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function persistOperatingMode(
+  mode: OperatingModeKey,
+  accessToken: string,
+): Promise<TodayState> {
+  return request<TodayState>('/v1/methodology/mode', accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ mode }),
   });
 }
 

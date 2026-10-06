@@ -1,6 +1,6 @@
 # A Player Mode — Documentation Index
 
-This directory is the canonical source of product, privacy, AI, architecture, pricing, security, data, UX, deployment, positioning, backend, and infrastructure decisions for A Player Mode.
+This directory is the canonical source of product, privacy, AI, architecture, pricing, security, data, UX, deployment, positioning, backend, infrastructure, and methodology decisions for A Player Mode.
 
 ## Decision status
 
@@ -36,6 +36,7 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | 17 | [MVP INFRASTRUCTURE PROVISIONING](./17-MVP-INFRASTRUCTURE-PROVISIONING.md) | **SELECTED FOR MVP / REPLACEABLE BY ADR** | Supabase Free + Cloudflare Worker provisioning, public/mobile config and runtime boundaries |
 | 18 | [AUTH, PERSISTENCE & RADAR V0](./18-AUTH-PERSISTENCE-AND-RADAR-V0.md) | **IMPLEMENTATION BASELINE** | Secure mobile session, durable Life Graph bridge, server Today projection and deterministic Radar v0 |
 | 19 | [RUNTIME PROOF RUNBOOK](./19-RUNTIME-PROOF-RUNBOOK.md) | **IMPLEMENTATION BASELINE** | Live Expo/Cloudflare/Supabase proof, dedicated test-account verifier, RLS negative-access receipt |
+| 20 | [APM METHODOLOGY ENGINE V1](./20-APM-METHODOLOGY-ENGINE-V1.md) | **LOCKED IMPLEMENTATION BASELINE** | Adaptive intake, Personal OS, Pillars, Tracks, Modes, core laws, MVD, arbitration and coaching runtime foundations |
 
 ## Architecture decision records
 
@@ -66,49 +67,44 @@ flowchart LR
   S -->|merged| E[Mobile Auth + durable persistence]
   E -->|merged| F[Server Today projection]
   F -->|merged| G[Deterministic Radar v0]
-  G --> RP[Runtime proof]
+  G --> RP[Runtime proof harness]
   RP --> M[Methodology Engine v1]
   M --> H[Calendar Fabric]
   H --> I[Email / Commitments]
 ```
 
-### Implemented in source and merged
+### Implemented and merged before Methodology Engine v1
 
-- Expo / React Native workspace scaffold;
-- core navigation: **Today · Radar · Goals · APM**;
-- broad welcome positioning across parents/caregivers, athletes, entrepreneurs, students, professionals/leaders, creators, and life transitions;
-- multi-role “what game are you in?” onboarding;
-- Welcome + Privacy Primer;
-- Trust Center screens;
-- canonical `@apm/domain`, `@apm/privacy`, `@apm/policy`, `@apm/ai`, `@apm/planning`, and `@apm/radar` packages;
-- Cloudflare Worker API workspace;
-- Supabase project on Free plan;
-- first Life Graph schema, RLS policies and transactional RPCs;
-- Cloudflare-to-Supabase Auth/Data API repository layer;
-- Expo Supabase session provider with SecureStore-backed native persistence;
-- authenticated onboarding gate;
-- mobile bearer-token calls to Cloudflare;
-- fail-visible behavior instead of silent local-only persistence;
-- `GET /v1/me/today` server projection;
-- server-returned `DailyPlan` used by mobile Today;
-- deterministic Radar rules and live explanation UI;
-- source-level CI typecheck + tests.
+- Expo / React Native workspace and Today · Radar · Goals · APM navigation;
+- broad multi-life positioning and multi-role game selection;
+- Trust Center and privacy architecture;
+- Supabase Free project, schema, RLS and transactional RPCs;
+- Cloudflare API and Supabase Auth/Data API repository path;
+- SecureStore-backed mobile sessions;
+- durable onboarding/completion evidence;
+- server Today projection;
+- deterministic Radar v0;
+- runtime-proof harness and provider-neutral Calendar Fabric sequencing.
 
-### Current runtime-proof branch
+### Current Methodology Engine v1 branch
 
-The current branch adds:
+The current artifact adds:
 
-- dedicated test-account live runtime verifier;
-- manual GitHub **Runtime Proof** workflow;
-- cross-user RLS negative-access proof when a second test account is configured;
-- roadmap clarification that the full APM Methodology Engine is built before external connector breadth;
-- provider-neutral Calendar Fabric sequencing for device calendars, Google, Microsoft and Apple/iCloud paths.
+- durable Personal OS state;
+- first-class Pillar settings, Tracks and Operating Modes;
+- source-derived core laws and deterministic MVD/recovery behavior;
+- adaptive one-question-at-a-time intake based on selected games;
+- explicit approval before Personal OS installation;
+- role-relevant track recommendations rather than founder-only defaults;
+- APM mode control surface and deterministic coaching opening;
+- Today awareness of Standard vs Recovery mode;
+- deterministic arbitration and methodology tests.
 
-### Still not runtime-proven
+The Supabase methodology migration is already applied to the project and its security advisor currently reports no findings. Source-level CI still must pass before this branch is merge-eligible.
 
-The merged source requires a configured live-device/runtime exercise before Expo → Cloudflare → Supabase can be called end-to-end proven. Cloudflare deployment configuration, mobile environment values, Supabase email delivery behavior and app-store binaries are runtime/provider layers, not proven merely by source code.
+### Still not runtime-proven / not built
 
-No Calendar Fabric, email connector, production OpenRouter inference, push notification delivery, or external action execution is connected yet.
+The live Expo → deployed Cloudflare → Supabase journey remains unproven until the runtime harness is configured and executed. Calendar Fabric, email connectors, production OpenRouter inference, push notification delivery, LLM coaching dialogue and external action execution are not connected yet.
 
 Use `13-IMPLEMENTATION-STATUS.md` as the detailed current-state record.
 
