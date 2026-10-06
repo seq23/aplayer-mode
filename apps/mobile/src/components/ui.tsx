@@ -5,8 +5,7 @@ import {
   StyleSheet,
   Text,
   View,
-  type StyleProp,
-  type ViewStyle,
+  type ViewProps,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, spacing } from '../theme';
@@ -44,7 +43,7 @@ export function Card({
   tone = 'default',
 }: {
   children: ReactNode;
-  style?: StyleProp<ViewStyle>;
+  style?: ViewProps['style'];
   tone?: 'default' | 'accent' | 'warning' | 'danger' | 'muted';
 }) {
   const toneStyle = {
