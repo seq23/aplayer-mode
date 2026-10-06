@@ -1,7 +1,13 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
+import { useSession } from '../../src/state/session';
 import { colors } from '../../src/theme';
 
 export default function TabsLayout() {
+  const { status } = useSession();
+
+  if (status === 'loading') return null;
+  if (status !== 'signed_in') return <Redirect href="/sign-in" />;
+
   return (
     <Tabs
       screenOptions={{
