@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
   Evidence,
   Goal,
@@ -9,30 +9,34 @@ import type {
   Role,
   UserIdentity,
 } from '@apm/domain';
+import {
+  fetchLifeGraph,
+  isApmApiConfigured,
+  persistActionCompletion,
+  persistOnboarding,
+} from '../api/apmApi';
+import { useSession } from './session';
 
 const now = () => new Date().toISOString();
-const userId = 'local-user';
+const localUserId = 'local-user';
 
-const emptyIdentity: UserIdentity = {
-  userId,
-  displayName: '',
-};
-
-const initialGraph: LifeGraphSnapshot = {
-  identity: emptyIdentity,
-  roles: [],
-  goals: [],
-  milestones: [],
-  projects: [],
-  commitments: [],
-  nextActions: [],
-  routines: [],
-  people: [],
-  preferences: [],
-  rules: [],
-  radarItems: [],
-  evidence: [],
-};
+function emptyGraph(userId = localUserId): LifeGraphSnapshot {
+  return {
+    identity: { userId, displayName: '' },
+    roles: [],
+    goals: [],
+    milestones: [],
+    projects: [],
+    commitments: [],
+    nextActions: [],
+    routines: [],
+    people: [],
+    preferences: [],
+    rules: [],
+    radarItems: [],
+    evidence: [],
+  };
+}
 
 const statedProvenance = (): Provenance => ({
   kind: 'stated',
@@ -41,7 +45,7 @@ const statedProvenance = (): Provenance => ({
   confidence: 1,
 });
 
-interface OnboardingInput {
+export interface OnboardingInput {
   displayName: string;
   roles: string[];
   currentSeason?: string;
@@ -50,22 +54,97 @@ interface OnboardingInput {
   pillar?: PillarName;
 }
 
+type SyncStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'error';
+
 interface LifeGraphContextValue {
   graph: LifeGraphSnapshot;
-  completeOnboarding: (input: OnboardingInput) => void;
-  completeNextAction: (actionId: string) => void;
+  syncStatus: SyncStatus;
+  syncError?: string;
+  isDurable: boolean;
+  refresh: () => Promise<void>;
+  completeOnboarding: (input: OnboardingInput) => Promise<void>;
+  completeNextAction: (actionId: string) => Promise<void>;
 }
 
 const LifeGraphContext = createContext<LifeGraphContextValue | null>(null);
 
 export function LifeGraphProvider({ children }: { children: ReactNode }) {
-  const [graph, setGraph] = useState<LifeGraphSnapshot>(initialGraph);
+  const { status: sessionStatus, user, accessToken } = useSession();
+  const [graph, setGraph] = useState<LifeGraphSnapshot>(() => emptyGraph());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [syncError, setSyncError] = useState<string>();
+
+  const isDurable = Boolean(accessToken && isApmApiConfigured());
+
+  const refresh = async () => {
+    if (!accessToken || !isApmApiConfigured()) {
+      setSyncStatus('ready');
+      return;
+    }
+
+    setSyncStatus('loading');
+    setSyncError(undefined);
+    try {
+      const serverGraph = await fetchLifeGraph(accessToken);
+      setGraph(serverGraph);
+      setSyncStatus('ready');
+    } catch (error) {
+      setSyncStatus('error');
+      setSyncError(error instanceof Error ? error.message : 'Unable to load your APM');
+      throw error;
+    }
+  };
+
+  useEffect(() => {
+    if (sessionStatus === 'loading') return;
+
+    if (sessionStatus !== 'signed_in' || !user) {
+      setGraph(emptyGraph());
+      setSyncStatus('ready');
+      setSyncError(undefined);
+      return;
+    }
+
+    if (!isApmApiConfigured() || !accessToken) {
+      setGraph((current) => ({
+        ...current,
+        identity: { ...current.identity, userId: user.id },
+      }));
+      setSyncStatus('ready');
+      return;
+    }
+
+    let active = true;
+    setSyncStatus('loading');
+    setSyncError(undefined);
+
+    void fetchLifeGraph(accessToken)
+      .then((serverGraph) => {
+        if (!active) return;
+        setGraph(serverGraph);
+        setSyncStatus('ready');
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setSyncStatus('error');
+        setSyncError(error instanceof Error ? error.message : 'Unable to load your APM');
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [accessToken, sessionStatus, user]);
 
   const value = useMemo<LifeGraphContextValue>(
     () => ({
       graph,
-      completeOnboarding: (input) => {
+      syncStatus,
+      syncError,
+      isDurable,
+      refresh,
+      completeOnboarding: async (input) => {
         const timestamp = Date.now();
+        const userId = user?.id ?? localUserId;
         const identity: UserIdentity = {
           userId,
           displayName: input.displayName.trim(),
@@ -101,41 +180,75 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
           estimatedMinutes: 45,
         };
 
-        setGraph((current) => ({
-          ...current,
+        const optimisticGraph: LifeGraphSnapshot = {
+          ...graph,
           identity,
           roles,
-          goals: [goal, ...current.goals.filter((item) => item.priority !== 1)],
-          nextActions: [nextAction, ...current.nextActions.filter((item) => item.goalId !== goal.id)],
-        }));
+          goals: [goal, ...graph.goals.filter((item) => item.priority !== 1)],
+          nextActions: [nextAction, ...graph.nextActions.filter((item) => item.goalId !== goal.id)],
+        };
+        setGraph(optimisticGraph);
+
+        if (!accessToken || !isApmApiConfigured()) {
+          setSyncStatus('ready');
+          return;
+        }
+
+        setSyncStatus('saving');
+        setSyncError(undefined);
+        try {
+          const serverGraph = await persistOnboarding(input, accessToken);
+          setGraph(serverGraph);
+          setSyncStatus('ready');
+        } catch (error) {
+          setSyncStatus('error');
+          setSyncError(error instanceof Error ? error.message : 'Unable to save your APM');
+          throw error;
+        }
       },
-      completeNextAction: (actionId) => {
-        setGraph((current) => {
-          const action = current.nextActions.find((item) => item.id === actionId);
-          if (!action || action.status === 'done') return current;
+      completeNextAction: async (actionId) => {
+        const previousGraph = graph;
+        const action = graph.nextActions.find((item) => item.id === actionId);
+        if (!action || action.status === 'done') return;
 
-          const evidence: Evidence = {
-            id: `evidence-${Date.now()}`,
-            userId,
-            kind: 'user_completion',
-            summary: `User marked complete: ${action.title}`,
-            sourceType: 'manual',
-            relatedGoalId: action.goalId,
-            relatedActionId: action.id,
-            createdAt: now(),
-          };
+        const userId = user?.id ?? localUserId;
+        const evidence: Evidence = {
+          id: `evidence-${Date.now()}`,
+          userId,
+          kind: 'user_completion',
+          summary: `User marked complete: ${action.title}`,
+          sourceType: 'manual',
+          relatedGoalId: action.goalId,
+          relatedActionId: action.id,
+          createdAt: now(),
+        };
 
-          return {
-            ...current,
-            nextActions: current.nextActions.map((item) =>
-              item.id === actionId ? { ...item, status: 'done' as const } : item,
-            ),
-            evidence: [evidence, ...current.evidence],
-          };
+        setGraph({
+          ...graph,
+          nextActions: graph.nextActions.map((item) =>
+            item.id === actionId ? { ...item, status: 'done' as const } : item,
+          ),
+          evidence: [evidence, ...graph.evidence],
         });
+
+        if (!accessToken || !isApmApiConfigured()) return;
+
+        setSyncStatus('saving');
+        setSyncError(undefined);
+        try {
+          await persistActionCompletion(actionId, accessToken);
+          const serverGraph = await fetchLifeGraph(accessToken);
+          setGraph(serverGraph);
+          setSyncStatus('ready');
+        } catch (error) {
+          setGraph(previousGraph);
+          setSyncStatus('error');
+          setSyncError(error instanceof Error ? error.message : 'Unable to record completion');
+          throw error;
+        }
       },
     }),
-    [graph],
+    [accessToken, graph, isDurable, syncError, syncStatus, user],
   );
 
   return <LifeGraphContext.Provider value={value}>{children}</LifeGraphContext.Provider>;
