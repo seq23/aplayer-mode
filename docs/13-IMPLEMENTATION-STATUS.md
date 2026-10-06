@@ -52,8 +52,10 @@ flowchart TD
 | Data rights | `SOURCE_COMPLETE` foundation | authenticated export + deletion job request; privileged deletion orchestrator pending |
 | Action Engine | `SOURCE_COMPLETE` foundation | prepare/approve/execute/verify for calendar and email; global + per-domain kill switches default off |
 | Analytics / AI usage | `SOURCE_COMPLETE + DB_PROVISIONED` | product/AI cost-event foundations |
-| Entitlements | `SOURCE_COMPLETE + DB_PROVISIONED` | beta / Chief of Staff / Life OS / Autopilot / Household server state |
-| Household | `SOURCE_COMPLETE` foundation | household/member/item schema + RLS/API primitives; complete collaborative UX deferred |
+| Entitlements | `SOURCE_COMPLETE + DB_PROVISIONED` | beta / Chief of Staff / Life OS / Autopilot server state; Household enum retained for future compatibility but customer access is disabled |
+| Product plan UX | `SOURCE_COMPLETE` | current tier + Chief of Staff / Life OS / Autopilot comparison; no fake local upgrade path |
+| Household interest | `SOURCE_COMPLETE + DB_PROVISIONED` | authenticated waitlist/withdraw flow; no Household access granted |
+| Household | `DORMANT FOUNDATION` | shared schema remains for future use; active Household mutation APIs are blocked |
 | EAS release | `SOURCE_COMPLETE` foundation | preview/production EAS profiles; store signing/submission external |
 | Web Command Center | `CONTRACT ONLY` | same-brain desktop scope documented; advanced web UI not built |
 | Billing | `FOUNDATION ONLY` | entitlement model documented; provider/store transactions not selected/proven |
@@ -105,20 +107,20 @@ Source code and DB provisioning do not prove external runtime behavior. Outstand
 - qualified legal/privacy review;
 - closed-beta evidence.
 
-## Evidence-deferred product expansion
+## Approved next product expansion
 
-These are intentionally **not** called production-complete merely because lower-level primitives exist:
+ADR-0002 changes the source-build sequence:
 
-- Life OS modules such as birthdays, travel, bills/subscriptions, meals/shopping, health routines and broader family administration;
-- standing Autopilot rules beyond proven safe/customer-requested patterns;
-- polished multi-member Household UX;
-- advanced Web Command Center;
-- broad infrastructure upgrades beyond Supabase Free.
+- **Life OS modules are the next implementation phase**, including relationships/birthdays, appointments, travel, bills/subscriptions, meals/shopping planning, health routines and recurring life administration.
+- **Autopilot standing-rule UX/engine follows Life OS** and still requires permission, policy, kill-switch and runtime proof.
+- **Household remains waitlist-only**; polished multi-member Household UX is explicitly deferred.
+- advanced Web Command Center remains later;
+- broad infrastructure upgrades beyond Supabase Free remain usage-driven.
 
-The customer/evidence gate is intentional product discipline.
+Building source now does not waive runtime, provider, billing, store, legal or beta evidence gates.
 
 ## Current artifact boundary
 
 PR #6 — **Complete remaining APM platform source phases** — was merged to `main` on 2026-10-06 as merge commit `516cc032cb0f24d2eccb0190da53161433918051` after its exact source head passed workspace typecheck and deterministic tests.
 
-The source baseline is therefore merged, but it is **not equivalent to production runtime completion**. The active next artifact is `27-RUNTIME-EVIDENCE-PACKET.md`, which tracks the real Cloudflare/provider/device/store/legal/beta receipts needed to move each external gate from OPEN to proven.
+The source baseline is merged and runtime-evidence hardening is also merged. **Phase A — the three-tier product contract — is now the active source artifact.** Its database addition (`product_interests`) is provisioned in Supabase with RLS and the latest security advisor is clean. After Phase A merges, the next source artifact is **Phase B — Life OS domain modules**. External runtime receipts remain separately tracked in `27-RUNTIME-EVIDENCE-PACKET.md`.
