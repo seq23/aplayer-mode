@@ -131,3 +131,4 @@ export function buildDailyPlan(
     verdict: mode === 'recovery' && completionState === 'complete' ? 'mvd' : undefined,
   };
 }
+export * from './recurrence.js';
