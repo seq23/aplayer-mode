@@ -214,6 +214,58 @@ export interface Person {
   provenance: Provenance;
 }
 
+export interface LifeRelationship {
+  id: UUID;
+  userId: UUID;
+  personId: UUID;
+  birthday?: string;
+  nextContactAt?: ISODateTime;
+  cadenceDays?: number;
+  notes?: string;
+  provenance: Provenance;
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
+export type LifeAdminKind =
+  | 'appointment'
+  | 'trip'
+  | 'bill'
+  | 'subscription'
+  | 'meal_plan'
+  | 'shopping'
+  | 'health_routine'
+  | 'recurring_obligation'
+  | 'family_obligation';
+
+export type LifeAdminStatus = 'open' | 'planned' | 'scheduled' | 'completed' | 'paused' | 'cancelled';
+
+export interface LifeAdminRecurrence {
+  frequency?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  interval?: number;
+}
+
+export interface LifeAdminItem {
+  id: UUID;
+  userId: UUID;
+  personId?: UUID;
+  kind: LifeAdminKind;
+  title: string;
+  status: LifeAdminStatus;
+  importance: 1 | 2 | 3 | 4 | 5;
+  dueAt?: ISODateTime;
+  startsAt?: ISODateTime;
+  endsAt?: ISODateTime;
+  recurrence: LifeAdminRecurrence;
+  amountMinor?: number;
+  currency?: string;
+  details: Record<string, unknown>;
+  completedAt?: ISODateTime;
+  provenance: Provenance;
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
 export interface Preference {
   id: UUID;
   userId: UUID;
@@ -295,7 +347,8 @@ export interface DailyPlanBlock {
   endAt?: ISODateTime;
   goalId?: UUID;
   actionId?: UUID;
-  source?: 'methodology' | 'calendar' | 'commitment' | 'routine';
+  lifeAdminItemId?: UUID;
+  source?: 'methodology' | 'calendar' | 'commitment' | 'routine' | 'life_os';
 }
 
 export interface DailyPlan {
@@ -494,6 +547,8 @@ export interface LifeGraphSnapshot {
   nextActions: NextAction[];
   routines: Routine[];
   people: Person[];
+  lifeRelationships: LifeRelationship[];
+  lifeAdminItems: LifeAdminItem[];
   preferences: Preference[];
   rules: Rule[];
   radarItems: RadarItem[];
