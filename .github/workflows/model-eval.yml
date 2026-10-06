@@ -1,0 +1,33 @@
+name: Model Eval
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate-free-candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: Require evaluation secret
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          test -n "$OPENROUTER_API_KEY" || (echo "OPENROUTER_API_KEY is not configured" && exit 2)
+      - name: Run public synthetic benchmark
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: node scripts/evaluate-openrouter-routes.mjs > openrouter-eval-report.json
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrouter-eval-report
+          path: openrouter-eval-report.json
+          if-no-files-found: error
+          retention-days: 14
