@@ -127,19 +127,42 @@ function lifeAdminItemRadar(item: LifeAdminItem, now: Date): RadarItem | null {
   };
 }
 
-function nextBirthdayDate(birthday: string, now: Date): Date | undefined {
+function localDateParts(now: Date, timezone?: string): { year: number; month: number; day: number } {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(now);
+    const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+    return { year: value('year'), month: value('month'), day: value('day') };
+  } catch {
+    return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, day: now.getUTCDate() };
+  }
+}
+
+function lastDayOfMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function birthdayDaysUntil(birthday: string, now: Date, timezone?: string): number | undefined {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthday);
   if (!match) return undefined;
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  if (!month || !day) return undefined;
-  let year = now.getUTCFullYear();
-  let candidate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  if (candidate.getTime() < now.getTime()) {
-    year += 1;
-    candidate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const birthMonth = Number(match[2]);
+  const birthDay = Number(match[3]);
+  if (!birthMonth || !birthDay) return undefined;
+
+  const local = localDateParts(now, timezone);
+  const todayIndex = Date.UTC(local.year, local.month - 1, local.day);
+  const dayThisYear = Math.min(birthDay, lastDayOfMonth(local.year, birthMonth));
+  let candidateIndex = Date.UTC(local.year, birthMonth - 1, dayThisYear);
+  if (candidateIndex < todayIndex) {
+    const nextYear = local.year + 1;
+    const dayNextYear = Math.min(birthDay, lastDayOfMonth(nextYear, birthMonth));
+    candidateIndex = Date.UTC(nextYear, birthMonth - 1, dayNextYear);
   }
-  return candidate;
+  return Math.round((candidateIndex - todayIndex) / DAY_MS);
 }
 
 function relationshipRadar(relationship: LifeRelationship, graph: LifeGraphSnapshot, now: Date): RadarItem[] {
@@ -148,9 +171,8 @@ function relationshipRadar(relationship: LifeRelationship, graph: LifeGraphSnaps
   const items: RadarItem[] = [];
 
   if (relationship.birthday) {
-    const birthday = nextBirthdayDate(relationship.birthday, now);
-    if (birthday) {
-      const days = Math.ceil((birthday.getTime() - now.getTime()) / DAY_MS);
+    const days = birthdayDaysUntil(relationship.birthday, now, graph.identity.timezone);
+    if (days !== undefined) {
       if (days <= 21) {
         items.push({
           id: `radar:relationship_birthday:${relationship.id}:${birthday.getUTCFullYear()}`,
