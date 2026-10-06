@@ -90,3 +90,39 @@ export function nextRecurringOccurrence(
   }
   return candidate;
 }
+
+export interface RecurringScheduleInput {
+  dueAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface RecurringScheduleResult {
+  dueAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export function nextRecurringSchedule(
+  schedule: RecurringScheduleInput,
+  completedAt: Date,
+  recurrence: LifeAdminRecurrence,
+): RecurringScheduleResult {
+  const nextDue = schedule.dueAt
+    ? nextRecurringOccurrence(schedule.dueAt, completedAt, recurrence)
+    : undefined;
+  const nextStart = schedule.startsAt
+    ? nextRecurringOccurrence(schedule.startsAt, completedAt, recurrence)
+    : undefined;
+
+  let nextEnd: Date | undefined;
+  if (nextStart && schedule.startsAt && schedule.endsAt) {
+    const duration = schedule.endsAt.getTime() - schedule.startsAt.getTime();
+    if (Number.isFinite(duration) && duration >= 0) {
+      nextEnd = new Date(nextStart.getTime() + duration);
+    }
+  }
+
+  return { dueAt: nextDue, startsAt: nextStart, endsAt: nextEnd };
+}
+
