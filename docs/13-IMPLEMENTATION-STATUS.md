@@ -55,7 +55,7 @@ flowchart TD
 | Entitlements | `SOURCE_COMPLETE + DB_PROVISIONED` | beta / Chief of Staff / Life OS / Autopilot server state; Household enum retained for future compatibility but customer access is disabled |
 | Product plan UX | `SOURCE_COMPLETE` | current tier + Chief of Staff / Life OS / Autopilot comparison; no fake local upgrade path |
 | Household interest | `SOURCE_COMPLETE + DB_PROVISIONED` | authenticated waitlist/withdraw flow; no Household access granted |
-| Household | `DORMANT FOUNDATION` | shared schema remains for future use; Cloudflare mutation APIs are blocked and authenticated Supabase Household write policies are removed |
+| Household | `DORMANT FOUNDATION` | shared schema remains for future use; Cloudflare customer APIs are blocked and authenticated Supabase Household read/write policies are removed; legacy Household entitlements normalize to Autopilot |
 | EAS release | `SOURCE_COMPLETE` foundation | preview/production EAS profiles; store signing/submission external |
 | Web Command Center | `CONTRACT ONLY` | same-brain desktop scope documented; advanced web UI not built |
 | Billing | `FOUNDATION ONLY` | entitlement model documented; provider/store transactions not selected/proven |
