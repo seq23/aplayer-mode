@@ -126,3 +126,29 @@ test('surfaces an upcoming birthday from the relationship graph', () => {
   assert.ok(item);
   assert.match(item.headline, /Avery/);
 });
+
+
+test('keeps a birthday reminder active through the full local birthday date', () => {
+  const late = new Date('2026-10-12T23:30:00.000Z');
+  const state = graph([goal({ health: 'on_track' })], [action()]);
+  state.identity.timezone = 'UTC';
+  state.people = [{
+    id: 'person-2',
+    userId: 'user-1',
+    name: 'Jordan',
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: late.toISOString(), confidence: 1 },
+  }];
+  state.lifeRelationships = [{
+    id: 'relationship-2',
+    userId: 'user-1',
+    personId: 'person-2',
+    birthday: '1990-10-12',
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: late.toISOString(), confidence: 1 },
+    createdAt: late.toISOString(),
+    updatedAt: late.toISOString(),
+  }];
+  const result = buildRadarItems(state, { now: late });
+  const item = result.find((candidate) => candidate.reasonCodes.includes('relationship.birthday_upcoming'));
+  assert.ok(item);
+  assert.match(item.headline, /today/i);
+});
