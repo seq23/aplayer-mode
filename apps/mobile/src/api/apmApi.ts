@@ -74,7 +74,7 @@ export interface LifeRelationshipInput {
   phone?: string;
   birthday?: string;
   nextContactAt?: string;
-  cadenceDays?: number;
+  cadenceDays?: number | null;
   notes?: string;
 }
 
@@ -88,8 +88,8 @@ export interface LifeAdminInput {
   startsAt?: string;
   endsAt?: string;
   recurrence?: LifeAdminRecurrence;
-  amountMinor?: number;
-  currency?: string;
+  amountMinor?: number | null;
+  currency?: string | null;
   details?: Record<string, unknown>;
 }
 
