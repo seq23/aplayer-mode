@@ -119,13 +119,14 @@ We prove the product in this order:
 6. Calendar awareness
 7. Gmail/commitment awareness
 8. Proactive notifications
-9. Closed beta
-10. Paid Chief of Staff launch
-11. Approved actions
-12. Life OS modules based on observed demand
-13. Autopilot based on repeated approved actions
-14. Household/shared Life Graph
-15. Full web command center
+9. Three-tier product contract: Chief of Staff / Life OS / Autopilot
+10. Life OS modules
+11. Autopilot standing-authority rules
+12. Closed beta across the individual service levels
+13. Paid three-tier launch only after each exposed capability passes its runtime/release gates
+14. Household interest/waitlist only
+15. Household/shared Life Graph only after separate explicit approval
+16. Full web command center
 
 We do **not** start with groceries, Amazon, banking, healthcare, household automation, or a collection of autonomous agents.
 
@@ -140,3 +141,7 @@ Later north star: **Verified loops closed by APM per user per week.**
 ## Anti-drift rule
 
 Implementation convenience, model fashions, or new feature ideas do not silently alter this constitution. Any material deviation requires an ADR and explicit approval.
+
+## ADR-0002 amendment — individual service levels
+
+ADR-0002 supersedes the earlier sequencing rule that deferred Life OS and Autopilot source implementation until after a Chief-of-Staff-only launch. The product remains one app and one Life Graph. Chief of Staff, Life OS, and Autopilot are now built as three individual service levels in the same product train. Household remains waitlist-only until separately approved.
