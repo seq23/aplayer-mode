@@ -6,13 +6,29 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "scheme": "aplayermode",
-    "plugins": ["expo-router", "expo-secure-store"],
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow A Player Mode to read calendars you choose so it can understand schedule constraints and notice conflicts."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "apm-attention"
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.aplayermode.app"
     },
     "android": {
-      "package": "com.aplayermode.app"
+      "package": "com.aplayermode.app",
+      "permissions": ["READ_CALENDAR"]
     },
     "web": {
       "bundler": "metro"

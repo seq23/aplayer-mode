@@ -15,6 +15,7 @@
     "api:dev": "npm run dev -w @apm/api",
     "api:deploy": "npm run deploy -w @apm/api",
     "runtime:verify": "node scripts/verify-runtime.mjs",
+    "model:eval": "node scripts/evaluate-openrouter-routes.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },

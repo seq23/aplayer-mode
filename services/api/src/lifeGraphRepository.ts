@@ -18,6 +18,7 @@ import type {
 } from '@apm/domain';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
+import { getPlatformState } from './platformRepository';
 
 export interface OnboardingPayload {
   displayName: string;
@@ -47,6 +48,13 @@ export interface MethodologyIntakePayload extends OnboardingPayload {
   minimumFloors: Partial<Record<PillarName, string>>;
   trackKeys: TrackKey[];
   activeMode?: OperatingModeKey;
+  morningSequence?: string[];
+  schedulingPreference?: PersonalOS['schedulingPreference'];
+  hardBoundaries?: string[];
+  scoringConfig?: PersonalOS['scoringConfig'];
+  foregroundProjectName?: string;
+  foregroundProjectObjective?: string;
+  reviewGateDays?: 30 | 60 | 90;
 }
 
 interface ProfileRow {
@@ -84,7 +92,7 @@ interface GoalRow {
   created_at: string;
 }
 
-interface ActionRow {
+interface NextActionRow {
   id: string;
   project_id: string | null;
   goal_id: string | null;
@@ -101,6 +109,7 @@ interface EvidenceRow {
   source_type: Evidence['sourceType'];
   source_ref: string | null;
   related_goal_id: string | null;
+  related_commitment_id: string | null;
   related_action_id: string | null;
   created_at: string;
 }
@@ -119,6 +128,11 @@ interface PersonalOSRow {
   accountability: AccountabilityPolicy;
   active_mode: OperatingModeKey;
   foreground_goal_id: string | null;
+  morning_sequence: string[];
+  scheduling_preference: PersonalOS['schedulingPreference'];
+  hard_boundaries: string[];
+  scoring_config: PersonalOS['scoringConfig'];
+  stabilization_started_at: string | null;
   installed_at: string;
   updated_at: string;
 }
@@ -174,20 +188,18 @@ export async function getLifeGraph(
     pillarRows,
     trackRows,
     modeRows,
+    platform,
   ] = await Promise.all([
-    supabaseRest<ProfileRow[]>(
-      env,
-      accessToken,
-      `/rest/v1/user_profiles?${filter}&select=user_id,display_name,timezone,current_season,becoming&limit=1`,
-    ),
+    supabaseRest<ProfileRow[]>(env, accessToken, `/rest/v1/user_profiles?${filter}&select=user_id,display_name,timezone,current_season,becoming&limit=1`),
     supabaseRest<RoleRow[]>(env, accessToken, `/rest/v1/roles?${filter}&select=*&order=created_at.asc`),
     supabaseRest<GoalRow[]>(env, accessToken, `/rest/v1/goals?${filter}&select=*&order=priority.asc,created_at.desc`),
-    supabaseRest<ActionRow[]>(env, accessToken, `/rest/v1/next_actions?${filter}&select=*&order=created_at.desc`),
+    supabaseRest<NextActionRow[]>(env, accessToken, `/rest/v1/next_actions?${filter}&select=*&order=created_at.desc`),
     supabaseRest<EvidenceRow[]>(env, accessToken, `/rest/v1/evidence?${filter}&select=*&order=created_at.desc`),
     supabaseRest<PersonalOSRow[]>(env, accessToken, `/rest/v1/personal_os?${filter}&select=*&limit=1`),
     supabaseRest<PillarSettingRow[]>(env, accessToken, `/rest/v1/pillar_settings?${filter}&select=*&order=name.asc`),
     supabaseRest<TrackRow[]>(env, accessToken, `/rest/v1/tracks?${filter}&select=*&order=created_at.asc`),
     supabaseRest<ModeRow[]>(env, accessToken, `/rest/v1/operating_modes?${filter}&select=*&order=created_at.asc`),
+    getPlatformState(env, accessToken, userId),
   ]);
 
   const profile = profiles[0];
@@ -251,6 +263,7 @@ export async function getLifeGraph(
     sourceType: row.source_type,
     sourceRef: row.source_ref ?? undefined,
     relatedGoalId: row.related_goal_id ?? undefined,
+    relatedCommitmentId: row.related_commitment_id ?? undefined,
     relatedActionId: row.related_action_id ?? undefined,
     createdAt: new Date(row.created_at).toISOString(),
   }));
@@ -310,6 +323,11 @@ export async function getLifeGraph(
         accountability: osRow.accountability ?? { dayStart: 'guided' },
         activeMode: osRow.active_mode,
         foregroundGoalId: osRow.foreground_goal_id ?? undefined,
+        morningSequence: osRow.morning_sequence ?? [],
+        schedulingPreference: osRow.scheduling_preference ?? 'ordered_stack',
+        hardBoundaries: osRow.hard_boundaries ?? [],
+        scoringConfig: osRow.scoring_config ?? { enabled: true, showSevenDaySnapshot: true },
+        stabilizationStartedAt: osRow.stabilization_started_at ?? undefined,
         installedAt: new Date(osRow.installed_at).toISOString(),
         updatedAt: new Date(osRow.updated_at).toISOString(),
       }
@@ -323,16 +341,23 @@ export async function getLifeGraph(
     modes,
     personalOS,
     goals,
-    milestones: [],
-    projects: [],
-    commitments: [],
+    milestones: platform.milestones,
+    projects: platform.projects,
+    commitments: platform.commitments,
     nextActions,
-    routines: [],
-    people: [],
-    preferences: [],
-    rules: [],
+    routines: platform.routines,
+    people: platform.people,
+    preferences: platform.preferences,
+    rules: platform.rules,
     radarItems: [],
     evidence,
+    connections: platform.connections,
+    calendarEvents: platform.calendarEvents,
+    messageSignals: platform.messageSignals,
+    permissions: platform.permissions,
+    actions: platform.actions,
+    dayRecords: platform.dayRecords,
+    entitlement: platform.entitlement,
   };
 }
 
@@ -353,9 +378,17 @@ export async function saveOnboarding(
       p_pillar: input.pillar ?? null,
     }),
   });
-
   return getLifeGraph(env, accessToken, userId);
 }
+
+const legacyTrackKeys = new Set<TrackKey>([
+  'billionaire_mindset',
+  'operator_discipline',
+  'strategic_patience',
+  'manifestation_mastery',
+  'investor_ai_leverage',
+]);
+const legacyModeKeys = new Set<OperatingModeKey>(['standard', 'recovery', 'high_pressure', 'executive_review']);
 
 export async function saveMethodologyIntake(
   env: ApiEnv,
@@ -363,6 +396,9 @@ export async function saveMethodologyIntake(
   userId: string,
   input: MethodologyIntakePayload,
 ): Promise<LifeGraphSnapshot> {
+  const legacyMode = input.activeMode && legacyModeKeys.has(input.activeMode) ? input.activeMode : 'standard';
+  const legacyTracks = input.trackKeys.filter((key) => legacyTrackKeys.has(key));
+
   await supabaseRest<void>(env, accessToken, '/rest/v1/rpc/apm_save_methodology_intake', {
     method: 'POST',
     body: JSON.stringify({
@@ -389,11 +425,63 @@ export async function saveMethodologyIntake(
         accountability: input.accountability,
         critical_pillars: input.criticalPillars,
         minimum_floors: input.minimumFloors,
-        track_keys: input.trackKeys,
-        active_mode: input.activeMode ?? 'standard',
+        track_keys: legacyTracks,
+        active_mode: legacyMode,
       },
     }),
   });
+
+  await supabaseRest(env, accessToken, `/rest/v1/personal_os?user_id=eq.${qs(userId)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      morning_sequence: (input.morningSequence ?? []).slice(0, 5),
+      scheduling_preference: input.schedulingPreference ?? 'ordered_stack',
+      hard_boundaries: input.hardBoundaries ?? [],
+      scoring_config: input.scoringConfig ?? { enabled: true, showSevenDaySnapshot: true },
+      active_mode: input.activeMode ?? legacyMode,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+
+  if (input.trackKeys.includes('resilience')) {
+    await supabaseRest(env, accessToken, '/rest/v1/tracks?on_conflict=user_id,key', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ user_id: userId, key: 'resilience', name: 'Resilience', active: true, foreground: false, provenance_kind: 'stated', source_type: 'manual', confidence: 1 }]),
+    });
+  }
+
+  const modeNames: Record<OperatingModeKey, string> = {
+    standard: 'Standard', recovery: 'Recovery', high_pressure: 'High-Pressure Coaching', executive_review: 'Executive Review', sprint: 'Sprint', deep_work: 'Deep Work',
+  };
+  await supabaseRest(env, accessToken, '/rest/v1/operating_modes?on_conflict=user_id,key', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify((Object.keys(modeNames) as OperatingModeKey[]).map((key) => ({ user_id: userId, key, name: modeNames[key], active: key === (input.activeMode ?? legacyMode), provenance_kind: 'system', source_type: 'system', confidence: 1 }))),
+  });
+
+  const graphAfterBase = await getLifeGraph(env, accessToken, userId);
+  const foregroundGoal = graphAfterBase.goals.find((goal) => goal.priority === 1 && goal.status === 'active');
+  if (foregroundGoal) {
+    await supabaseRest(env, accessToken, `/rest/v1/projects?user_id=eq.${qs(userId)}&foreground=eq.true`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ foreground: false, updated_at: new Date().toISOString() }),
+    });
+    await supabaseRest(env, accessToken, '/rest/v1/projects?on_conflict=id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{
+        user_id: userId,
+        goal_id: foregroundGoal.id,
+        title: input.foregroundProjectName ?? foregroundGoal.title,
+        objective: input.foregroundProjectObjective ?? foregroundGoal.outcome ?? foregroundGoal.title,
+        status: 'active',
+        foreground: true,
+        review_gate_days: input.reviewGateDays ?? 30,
+        review_gate_at: new Date(Date.now() + (input.reviewGateDays ?? 30) * 86_400_000).toISOString().slice(0, 10),
+      }]),
+    });
+  }
 
   return getLifeGraph(env, accessToken, userId);
 }
@@ -417,18 +505,13 @@ export async function completeNextAction(
   userId: string,
   actionId: string,
 ): Promise<{ action: NextAction; evidence: Evidence } | null> {
-  const result = await supabaseRest<{ action: ActionRow; evidence: EvidenceRow } | null>(
+  const result = await supabaseRest<{ action: NextActionRow; evidence: EvidenceRow } | null>(
     env,
     accessToken,
     '/rest/v1/rpc/apm_complete_next_action',
-    {
-      method: 'POST',
-      body: JSON.stringify({ p_action_id: actionId }),
-    },
+    { method: 'POST', body: JSON.stringify({ p_action_id: actionId }) },
   );
-
   if (!result) return null;
-
   return {
     action: {
       id: result.action.id,
@@ -448,6 +531,7 @@ export async function completeNextAction(
       sourceType: result.evidence.source_type,
       sourceRef: result.evidence.source_ref ?? undefined,
       relatedGoalId: result.evidence.related_goal_id ?? undefined,
+      relatedCommitmentId: result.evidence.related_commitment_id ?? undefined,
       relatedActionId: result.evidence.related_action_id ?? undefined,
       createdAt: new Date(result.evidence.created_at).toISOString(),
     },

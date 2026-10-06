@@ -2,7 +2,7 @@ export type UUID = string;
 export type ISODateTime = string;
 
 export type ProvenanceKind = 'stated' | 'observed' | 'inferred' | 'imported';
-export type SourceType = 'conversation' | 'gmail' | 'calendar' | 'manual' | 'system';
+export type SourceType = 'conversation' | 'gmail' | 'outlook' | 'calendar' | 'manual' | 'system';
 
 export interface Provenance {
   kind: ProvenanceKind;
@@ -45,7 +45,8 @@ export type TrackKey =
   | 'operator_discipline'
   | 'strategic_patience'
   | 'manifestation_mastery'
-  | 'investor_ai_leverage';
+  | 'investor_ai_leverage'
+  | 'resilience';
 
 export interface Track {
   id: UUID;
@@ -57,7 +58,13 @@ export interface Track {
   provenance: Provenance;
 }
 
-export type OperatingModeKey = 'standard' | 'recovery' | 'high_pressure' | 'executive_review';
+export type OperatingModeKey =
+  | 'standard'
+  | 'recovery'
+  | 'high_pressure'
+  | 'executive_review'
+  | 'sprint'
+  | 'deep_work';
 
 export interface OperatingMode {
   id: UUID;
@@ -86,6 +93,11 @@ export interface AccountabilityPolicy {
   coachingReminderAfterDays?: number;
 }
 
+export interface ScoringConfig {
+  enabled: boolean;
+  showSevenDaySnapshot: boolean;
+}
+
 export interface PersonalOS {
   userId: UUID;
   northStar?: string;
@@ -100,6 +112,11 @@ export interface PersonalOS {
   accountability: AccountabilityPolicy;
   activeMode: OperatingModeKey;
   foregroundGoalId?: UUID;
+  morningSequence: string[];
+  schedulingPreference: 'strict_blocks' | 'loose_dayparts' | 'ordered_stack';
+  hardBoundaries: string[];
+  scoringConfig: ScoringConfig;
+  stabilizationStartedAt?: string;
   installedAt: ISODateTime;
   updatedAt: ISODateTime;
 }
@@ -121,8 +138,9 @@ export interface Milestone {
   id: UUID;
   userId: UUID;
   goalId: UUID;
+  projectId?: UUID;
   title: string;
-  status: 'open' | 'complete' | 'missed';
+  status: 'open' | 'complete' | 'missed' | 'parked';
   dueAt?: ISODateTime;
 }
 
@@ -131,7 +149,11 @@ export interface Project {
   userId: UUID;
   goalId?: UUID;
   title: string;
-  status: 'active' | 'paused' | 'complete';
+  objective?: string;
+  status: 'active' | 'paused' | 'complete' | 'parked';
+  foreground: boolean;
+  reviewGateDays?: 30 | 60 | 90;
+  reviewGateAt?: string;
 }
 
 export type CommitmentStatus =
@@ -176,7 +198,9 @@ export interface Routine {
   title: string;
   pillar?: PillarName;
   targetFrequencyPerWeek?: number;
+  preferredWindow?: Record<string, unknown>;
   active: boolean;
+  minimumVersion?: string;
   provenance: Provenance;
 }
 
@@ -185,6 +209,8 @@ export interface Person {
   userId: UUID;
   name: string;
   relationship?: string;
+  email?: string;
+  phone?: string;
   provenance: Provenance;
 }
 
@@ -192,7 +218,7 @@ export interface Preference {
   id: UUID;
   userId: UUID;
   key: string;
-  value: string | number | boolean;
+  value: unknown;
   provenance: Provenance;
 }
 
@@ -201,6 +227,8 @@ export interface Rule {
   userId: UUID;
   key: string;
   description: string;
+  ruleType: 'boundary' | 'scheduling' | 'continuity' | 'governance' | 'permission' | 'custom';
+  config: Record<string, unknown>;
   active: boolean;
   provenance: Provenance;
 }
@@ -255,6 +283,7 @@ export interface Evidence {
   sourceType: SourceType;
   sourceRef?: string;
   relatedGoalId?: UUID;
+  relatedCommitmentId?: UUID;
   relatedActionId?: UUID;
   createdAt: ISODateTime;
 }
@@ -266,6 +295,7 @@ export interface DailyPlanBlock {
   endAt?: ISODateTime;
   goalId?: UUID;
   actionId?: UUID;
+  source?: 'methodology' | 'calendar' | 'commitment' | 'routine';
 }
 
 export interface DailyPlan {
@@ -273,6 +303,7 @@ export interface DailyPlan {
   date: string;
   mode: OperatingModeKey;
   numberOneMove?: NextAction;
+  morningSequence: string[];
   blocks: DailyPlanBlock[];
   routineIds: UUID[];
   commitmentIds: UUID[];
@@ -280,6 +311,173 @@ export interface DailyPlan {
   radarItemIds: UUID[];
   completionState: 'not_started' | 'in_progress' | 'complete';
   verdict?: 'full_day' | 'mvd' | 'miss';
+}
+
+export type IntegrationProvider = 'device' | 'google' | 'microsoft' | 'apple_caldav';
+export type IntegrationKind = 'calendar' | 'email';
+
+export interface IntegrationConnection {
+  id: UUID;
+  userId: UUID;
+  provider: IntegrationProvider;
+  kind: IntegrationKind;
+  accountLabel?: string;
+  externalAccountId?: string;
+  status: 'connected' | 'needs_reauth' | 'error' | 'disconnected';
+  scopes: string[];
+  lastSyncAt?: ISODateTime;
+  lastErrorCode?: string;
+}
+
+export interface CalendarEvent {
+  id: UUID;
+  userId: UUID;
+  connectionId?: UUID;
+  provider: string;
+  externalEventId: string;
+  calendarExternalId?: string;
+  title: string;
+  location?: string;
+  startsAt: ISODateTime;
+  endsAt: ISODateTime;
+  timezone?: string;
+  allDay: boolean;
+  availability: 'free' | 'busy' | 'tentative' | 'out_of_office';
+  recurrence: Record<string, unknown>;
+  organizer: Record<string, unknown>;
+  attendees: unknown[];
+  sourceVersion?: string;
+  deleted: boolean;
+}
+
+export type MessageSignalType =
+  | 'commitment'
+  | 'request'
+  | 'follow_up'
+  | 'waiting_for'
+  | 'deadline'
+  | 'meeting'
+  | 'cancellation'
+  | 'completion'
+  | 'person';
+
+export interface MessageSignal {
+  id: UUID;
+  userId: UUID;
+  connectionId?: UUID;
+  provider: 'google' | 'microsoft';
+  externalMessageId: string;
+  externalThreadId?: string;
+  signalType: MessageSignalType;
+  summary: string;
+  dueAt?: ISODateTime;
+  confidence: number;
+  relatedCommitmentId?: UUID;
+  userCorrectedAt?: ISODateTime;
+  observedAt: ISODateTime;
+}
+
+export type AutonomyLevel = 0 | 1 | 2 | 3 | 4 | 5;
+
+export interface Permission {
+  id: UUID;
+  userId: UUID;
+  domain: string;
+  actionType: string;
+  autonomyLevel: AutonomyLevel;
+  constraints: Record<string, unknown>;
+  enabled: boolean;
+  grantedAt?: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
+export type ActionStatus =
+  | 'proposed'
+  | 'prepared'
+  | 'approved'
+  | 'executing'
+  | 'executed'
+  | 'verified'
+  | 'closed'
+  | 'failed'
+  | 'cancelled';
+
+export interface ActionRecord {
+  id: UUID;
+  userId: UUID;
+  domain: string;
+  actionType: string;
+  status: ActionStatus;
+  payload: Record<string, unknown>;
+  reason: string;
+  permissionId?: UUID;
+  idempotencyKey: string;
+  requiresApproval: boolean;
+  approvedAt?: ISODateTime;
+  executedAt?: ISODateTime;
+  verifiedAt?: ISODateTime;
+  failureCode?: string;
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
+export interface AuditEvent {
+  id: UUID;
+  userId?: UUID;
+  eventType: string;
+  actorType: 'user' | 'system' | 'connector' | 'ai';
+  actorRef?: string;
+  objectType?: string;
+  objectId?: string;
+  dataClass?: string;
+  metadata: Record<string, unknown>;
+  createdAt: ISODateTime;
+}
+
+export interface DayRecord {
+  id: UUID;
+  userId: UUID;
+  day: string;
+  mode: OperatingModeKey;
+  verdict?: 'full_day' | 'mvd' | 'miss';
+  completedActionIds: UUID[];
+  note?: string;
+  closedAt?: ISODateTime;
+}
+
+export interface SubscriptionEntitlement {
+  userId: UUID;
+  plan: 'beta' | 'chief_of_staff' | 'life_os' | 'autopilot' | 'household';
+  status: 'active' | 'trialing' | 'past_due' | 'cancelled' | 'expired';
+  provider?: string;
+  currentPeriodEnd?: ISODateTime;
+}
+
+export interface Household {
+  id: UUID;
+  createdBy: UUID;
+  name: string;
+  createdAt: ISODateTime;
+}
+
+export interface HouseholdMember {
+  householdId: UUID;
+  userId: UUID;
+  role: 'owner' | 'adult' | 'caregiver' | 'member';
+  status: 'active' | 'left' | 'removed';
+  joinedAt: ISODateTime;
+}
+
+export interface HouseholdItem {
+  id: UUID;
+  householdId: UUID;
+  createdBy: UUID;
+  itemType: 'commitment' | 'responsibility' | 'event' | 'goal' | 'note';
+  title: string;
+  details: Record<string, unknown>;
+  assignedUserId?: UUID;
+  status: 'open' | 'complete' | 'cancelled';
+  dueAt?: ISODateTime;
 }
 
 export interface LifeGraphSnapshot {
@@ -300,4 +498,11 @@ export interface LifeGraphSnapshot {
   rules: Rule[];
   radarItems: RadarItem[];
   evidence: Evidence[];
+  connections: IntegrationConnection[];
+  calendarEvents: CalendarEvent[];
+  messageSignals: MessageSignal[];
+  permissions: Permission[];
+  actions: ActionRecord[];
+  dayRecords: DayRecord[];
+  entitlement?: SubscriptionEntitlement;
 }
