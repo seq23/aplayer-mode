@@ -29,3 +29,25 @@ test('late completion skips missed occurrences instead of creating catch-up debt
   );
   assert.equal(result?.toISOString(), '2026-05-15T12:00:00.000Z');
 });
+
+
+test('daily recurrence skips more than 500 missed occurrences and remains active', () => {
+  const completed = new Date('2026-10-06T12:00:00.000Z');
+  const result = nextRecurringOccurrence(
+    new Date('2025-01-01T12:00:00.000Z'),
+    completed,
+    { frequency: 'daily', interval: 1 },
+  );
+  assert.ok(result);
+  assert.ok(result.getTime() > completed.getTime());
+  assert.equal(result?.toISOString(), '2026-10-07T12:00:00.000Z');
+});
+
+test('monthly rollover keeps the original month-day anchor after a short month', () => {
+  const result = nextRecurringOccurrence(
+    new Date('2027-01-31T12:00:00.000Z'),
+    new Date('2027-03-01T12:00:00.000Z'),
+    { frequency: 'monthly', interval: 1 },
+  );
+  assert.equal(result?.toISOString(), '2027-03-31T12:00:00.000Z');
+});
