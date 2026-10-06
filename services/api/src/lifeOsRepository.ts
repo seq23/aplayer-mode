@@ -83,6 +83,24 @@ export interface LifeAdminInput {
   details?: Record<string, unknown>;
 }
 
+function recurrenceWithCanonicalAnchors(
+  recurrence: LifeAdminRecurrence,
+  dueAt?: string | null,
+  startsAt?: string | null,
+  resetAnchors = false,
+): LifeAdminRecurrence {
+  if (!recurrence.frequency) return {};
+  const normalized: LifeAdminRecurrence = {
+    frequency: recurrence.frequency,
+    interval: recurrence.interval ?? 1,
+  };
+  const dueAnchor = resetAnchors ? dueAt ?? undefined : recurrence.anchorDueAt ?? dueAt ?? undefined;
+  const startAnchor = resetAnchors ? startsAt ?? undefined : recurrence.anchorStartsAt ?? startsAt ?? undefined;
+  if (dueAnchor) normalized.anchorDueAt = dueAnchor;
+  if (startAnchor) normalized.anchorStartsAt = startAnchor;
+  return normalized;
+}
+
 function mapRelationship(row: RelationshipRow, userId: string): LifeRelationship {
   return {
     id: row.id,
@@ -285,7 +303,7 @@ export async function createLifeAdminItem(
       due_at: input.dueAt ?? null,
       starts_at: input.startsAt ?? null,
       ends_at: input.endsAt ?? null,
-      recurrence: input.recurrence ?? {},
+      recurrence: recurrenceWithCanonicalAnchors(input.recurrence ?? {}, input.dueAt ?? null, input.startsAt ?? null, true),
       amount_minor: input.amountMinor ?? null,
       currency: input.currency ?? null,
       details: input.details ?? {},
@@ -314,7 +332,9 @@ export async function updateLifeAdminItem(
   if (!existing) throw new Error('life_os_item_not_found');
 
   if (input.personId) await ensureOwnedPerson(env, accessToken, userId, input.personId);
+  if (input.status === 'completed') throw new Error('life_os_use_completion_route');
 
+  const mergedDueAt = input.dueAt !== undefined ? input.dueAt || null : existing.due_at;
   const mergedStartsAt = input.startsAt !== undefined ? input.startsAt || null : existing.starts_at;
   const mergedEndsAt = input.endsAt !== undefined ? input.endsAt || null : existing.ends_at;
   if (mergedStartsAt && mergedEndsAt && Date.parse(mergedEndsAt) < Date.parse(mergedStartsAt)) {
@@ -330,7 +350,14 @@ export async function updateLifeAdminItem(
   if (input.dueAt !== undefined) body.due_at = input.dueAt || null;
   if (input.startsAt !== undefined) body.starts_at = input.startsAt || null;
   if (input.endsAt !== undefined) body.ends_at = input.endsAt || null;
-  if (input.recurrence !== undefined) body.recurrence = input.recurrence;
+  if (input.recurrence !== undefined || input.dueAt !== undefined || input.startsAt !== undefined) {
+    body.recurrence = recurrenceWithCanonicalAnchors(
+      input.recurrence ?? existing.recurrence,
+      mergedDueAt,
+      mergedStartsAt,
+      true,
+    );
+  }
   if (input.amountMinor !== undefined) body.amount_minor = input.amountMinor;
   if (input.currency !== undefined) body.currency = input.currency || null;
   if (input.details !== undefined) body.details = input.details;
@@ -371,7 +398,15 @@ export async function completeLifeAdminItem(
     return Number.isNaN(parsed.getTime()) ? undefined : parsed;
   };
 
-  const nextSchedule = existing.recurrence?.frequency
+  const effectiveRecurrence = existing.recurrence?.frequency
+    ? recurrenceWithCanonicalAnchors(
+        existing.recurrence,
+        existing.due_at ?? (!existing.starts_at ? completedAt.toISOString() : null),
+        existing.starts_at,
+      )
+    : {};
+
+  const nextSchedule = effectiveRecurrence.frequency
     ? nextRecurringSchedule(
         {
           dueAt: parseDate(existing.due_at),
@@ -379,14 +414,20 @@ export async function completeLifeAdminItem(
           endsAt: parseDate(existing.ends_at),
         },
         completedAt,
-        existing.recurrence,
+        effectiveRecurrence,
       )
     : {};
 
   const hasNextOccurrence = Boolean(nextSchedule.dueAt || nextSchedule.startsAt);
   const details = { ...(existing.details ?? {}), lastCompletedAt: completedAt.toISOString() };
   const update: Record<string, unknown> = hasNextOccurrence
-    ? { status: 'open', completed_at: completedAt.toISOString(), details, updated_at: completedAt.toISOString() }
+    ? {
+        status: 'open',
+        completed_at: completedAt.toISOString(),
+        details,
+        recurrence: effectiveRecurrence,
+        updated_at: completedAt.toISOString(),
+      }
     : { status: 'completed', completed_at: completedAt.toISOString(), details, updated_at: completedAt.toISOString() };
 
   if (nextSchedule.dueAt) update.due_at = nextSchedule.dueAt.toISOString();
