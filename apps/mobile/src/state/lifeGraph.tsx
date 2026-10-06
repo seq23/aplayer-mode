@@ -1,5 +1,13 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import type { Goal, LifeGraphSnapshot, PillarName, Provenance, UserIdentity } from '@apm/domain';
+import type {
+  Evidence,
+  Goal,
+  LifeGraphSnapshot,
+  NextAction,
+  PillarName,
+  Provenance,
+  UserIdentity,
+} from '@apm/domain';
 
 const now = () => new Date().toISOString();
 const userId = 'local-user';
@@ -22,6 +30,7 @@ const initialGraph: LifeGraphSnapshot = {
   preferences: [],
   rules: [],
   radarItems: [],
+  evidence: [],
 };
 
 const statedProvenance = (): Provenance => ({
@@ -42,6 +51,7 @@ interface OnboardingInput {
 interface LifeGraphContextValue {
   graph: LifeGraphSnapshot;
   completeOnboarding: (input: OnboardingInput) => void;
+  completeNextAction: (actionId: string) => void;
 }
 
 const LifeGraphContext = createContext<LifeGraphContextValue | null>(null);
@@ -53,6 +63,7 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
     () => ({
       graph,
       completeOnboarding: (input) => {
+        const timestamp = Date.now();
         const identity: UserIdentity = {
           userId,
           displayName: input.displayName.trim(),
@@ -61,7 +72,7 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
         };
 
         const goal: Goal = {
-          id: `goal-${Date.now()}`,
+          id: `goal-${timestamp}`,
           userId,
           title: input.primaryGoal.trim(),
           status: 'active',
@@ -71,11 +82,46 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
           provenance: statedProvenance(),
         };
 
+        const nextAction: NextAction = {
+          id: `action-${timestamp}`,
+          userId,
+          goalId: goal.id,
+          title: `Spend 45 focused minutes advancing: ${goal.title}`,
+          status: 'open',
+          estimatedMinutes: 45,
+        };
+
         setGraph((current) => ({
           ...current,
           identity,
           goals: [goal, ...current.goals.filter((item) => item.priority !== 1)],
+          nextActions: [nextAction, ...current.nextActions.filter((item) => item.goalId !== goal.id)],
         }));
+      },
+      completeNextAction: (actionId) => {
+        setGraph((current) => {
+          const action = current.nextActions.find((item) => item.id === actionId);
+          if (!action || action.status === 'done') return current;
+
+          const evidence: Evidence = {
+            id: `evidence-${Date.now()}`,
+            userId,
+            kind: 'user_completion',
+            summary: `User marked complete: ${action.title}`,
+            sourceType: 'manual',
+            relatedGoalId: action.goalId,
+            relatedActionId: action.id,
+            createdAt: now(),
+          };
+
+          return {
+            ...current,
+            nextActions: current.nextActions.map((item) =>
+              item.id === actionId ? { ...item, status: 'done' as const } : item,
+            ),
+            evidence: [evidence, ...current.evidence],
+          };
+        });
       },
     }),
     [graph],
