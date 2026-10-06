@@ -7,6 +7,8 @@ import type {
   HouseholdItem,
   HouseholdMember,
   IntegrationConnection,
+  LifeAdminItem,
+  LifeRelationship,
   MessageSignal,
   Milestone,
   Permission,
@@ -45,6 +47,18 @@ interface PersonRow {
   id: string; name: string; relationship: string | null; email: string | null; phone: string | null;
   provenance_kind: Person['provenance']['kind']; source_type: Person['provenance']['sourceType']; source_ref: string | null;
   confidence: number | null; created_at: string;
+}
+interface LifeRelationshipRow {
+  id: string; person_id: string; birthday: string | null; next_contact_at: string | null; cadence_days: number | null; notes: string | null;
+  provenance_kind: LifeRelationship['provenance']['kind']; source_type: LifeRelationship['provenance']['sourceType']; source_ref: string | null;
+  confidence: number | null; created_at: string; updated_at: string;
+}
+interface LifeAdminItemRow {
+  id: string; person_id: string | null; kind: LifeAdminItem['kind']; title: string; status: LifeAdminItem['status'];
+  importance: 1 | 2 | 3 | 4 | 5; due_at: string | null; starts_at: string | null; ends_at: string | null;
+  recurrence: LifeAdminItem['recurrence']; amount_minor: number | null; currency: string | null; details: Record<string, unknown>;
+  completed_at: string | null; provenance_kind: LifeAdminItem['provenance']['kind']; source_type: LifeAdminItem['provenance']['sourceType'];
+  source_ref: string | null; confidence: number | null; created_at: string; updated_at: string;
 }
 interface PreferenceRow {
   id: string; key: string; value: unknown; provenance_kind: Preference['provenance']['kind'];
@@ -98,6 +112,8 @@ export interface PlatformState {
   commitments: Commitment[];
   routines: Routine[];
   people: Person[];
+  lifeRelationships: LifeRelationship[];
+  lifeAdminItems: LifeAdminItem[];
   preferences: Preference[];
   rules: Rule[];
   connections: IntegrationConnection[];
@@ -114,12 +130,14 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
   const now = new Date();
   const from = new Date(now.getTime() - 14 * 86_400_000).toISOString();
   const to = new Date(now.getTime() + 90 * 86_400_000).toISOString();
-  const [projects, milestones, commitments, routines, people, preferences, rules, connections, calendar, signals, permissions, actions, days, entitlements] = await Promise.all([
+  const [projects, milestones, commitments, routines, people, lifeRelationships, lifeAdminItems, preferences, rules, connections, calendar, signals, permissions, actions, days, entitlements] = await Promise.all([
     supabaseRest<ProjectRow[]>(env, accessToken, `/rest/v1/projects?${filter}&select=*&order=foreground.desc,updated_at.desc`),
     supabaseRest<MilestoneRow[]>(env, accessToken, `/rest/v1/milestones?${filter}&select=*&order=due_at.asc.nullslast`),
     supabaseRest<CommitmentRow[]>(env, accessToken, `/rest/v1/commitments?${filter}&select=*&order=due_at.asc.nullslast,created_at.desc`),
     supabaseRest<RoutineRow[]>(env, accessToken, `/rest/v1/routines?${filter}&select=*&order=created_at.asc`),
     supabaseRest<PersonRow[]>(env, accessToken, `/rest/v1/people?${filter}&select=*&order=name.asc`),
+    supabaseRest<LifeRelationshipRow[]>(env, accessToken, `/rest/v1/life_relationships?${filter}&select=*&order=next_contact_at.asc.nullslast,created_at.desc`),
+    supabaseRest<LifeAdminItemRow[]>(env, accessToken, `/rest/v1/life_admin_items?${filter}&select=*&order=due_at.asc.nullslast,created_at.desc`),
     supabaseRest<PreferenceRow[]>(env, accessToken, `/rest/v1/preferences?${filter}&select=*&order=key.asc`),
     supabaseRest<RuleRow[]>(env, accessToken, `/rest/v1/rules?${filter}&select=*&order=key.asc`),
     supabaseRest<ConnectionRow[]>(env, accessToken, `/rest/v1/integration_connections?${filter}&select=id,provider,kind,account_label,external_account_id,status,scopes,last_sync_at,last_error_code&order=created_at.asc`),
@@ -145,6 +163,16 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
     commitments: commitments.map((row) => ({ id: row.id, userId, projectId: row.project_id ?? undefined, goalId: row.goal_id ?? undefined, personId: row.person_id ?? undefined, title: row.title, owner: row.owner, status: row.status, dueAt: row.due_at ?? undefined, provenance: { ...provenance(row), userCorrectedAt: row.user_corrected_at ?? undefined } })),
     routines: routines.map((row) => ({ id: row.id, userId, title: row.title, pillar: row.pillar ?? undefined, targetFrequencyPerWeek: row.target_frequency_per_week ?? undefined, preferredWindow: row.preferred_window, active: row.active, minimumVersion: row.minimum_version ?? undefined, provenance: provenance(row) })),
     people: people.map((row) => ({ id: row.id, userId, name: row.name, relationship: row.relationship ?? undefined, email: row.email ?? undefined, phone: row.phone ?? undefined, provenance: provenance(row) })),
+    lifeRelationships: lifeRelationships.map((row) => ({
+      id: row.id, userId, personId: row.person_id, birthday: row.birthday ?? undefined, nextContactAt: row.next_contact_at ?? undefined,
+      cadenceDays: row.cadence_days ?? undefined, notes: row.notes ?? undefined, provenance: provenance(row), createdAt: row.created_at, updatedAt: row.updated_at,
+    })),
+    lifeAdminItems: lifeAdminItems.map((row) => ({
+      id: row.id, userId, personId: row.person_id ?? undefined, kind: row.kind, title: row.title, status: row.status, importance: row.importance,
+      dueAt: row.due_at ?? undefined, startsAt: row.starts_at ?? undefined, endsAt: row.ends_at ?? undefined, recurrence: row.recurrence ?? {},
+      amountMinor: row.amount_minor ?? undefined, currency: row.currency ?? undefined, details: row.details ?? {}, completedAt: row.completed_at ?? undefined,
+      provenance: provenance(row), createdAt: row.created_at, updatedAt: row.updated_at,
+    })),
     preferences: preferences.map((row) => ({ id: row.id, userId, key: row.key, value: row.value, provenance: provenance(row) })),
     rules: rules.map((row) => ({ id: row.id, userId, key: row.key, description: row.description, ruleType: row.rule_type, config: row.config, active: row.active, provenance: provenance(row) })),
     connections: connections.map((row) => ({ id: row.id, userId, provider: row.provider, kind: row.kind, accountLabel: row.account_label ?? undefined, externalAccountId: row.external_account_id ?? undefined, status: row.status, scopes: row.scopes ?? [], lastSyncAt: row.last_sync_at ?? undefined, lastErrorCode: row.last_error_code ?? undefined })),
