@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addRecurrence, nextRecurringOccurrence } from '../.test-dist/recurrence.js';
+import { addRecurrence, nextRecurringOccurrence, nextRecurringSchedule } from '../.test-dist/recurrence.js';
 
 test('monthly recurrence clamps January 31 to February month-end', () => {
   const result = addRecurrence(new Date('2027-01-31T12:00:00.000Z'), { frequency: 'monthly', interval: 1 });
@@ -50,4 +50,34 @@ test('monthly rollover keeps the original month-day anchor after a short month',
     { frequency: 'monthly', interval: 1 },
   );
   assert.equal(result?.toISOString(), '2027-03-31T12:00:00.000Z');
+});
+
+
+test('timed recurring items advance start and end while preserving duration', () => {
+  const result = nextRecurringSchedule(
+    {
+      startsAt: new Date('2026-10-06T15:00:00.000Z'),
+      endsAt: new Date('2026-10-06T16:30:00.000Z'),
+    },
+    new Date('2026-10-06T17:00:00.000Z'),
+    { frequency: 'weekly', interval: 1 },
+  );
+  assert.equal(result.startsAt?.toISOString(), '2026-10-13T15:00:00.000Z');
+  assert.equal(result.endsAt?.toISOString(), '2026-10-13T16:30:00.000Z');
+  assert.equal(result.dueAt, undefined);
+});
+
+test('a schedule with both due and timed fields advances both representations', () => {
+  const result = nextRecurringSchedule(
+    {
+      dueAt: new Date('2026-10-06T12:00:00.000Z'),
+      startsAt: new Date('2026-10-06T15:00:00.000Z'),
+      endsAt: new Date('2026-10-06T16:00:00.000Z'),
+    },
+    new Date('2026-10-06T18:00:00.000Z'),
+    { frequency: 'monthly', interval: 1 },
+  );
+  assert.equal(result.dueAt?.toISOString(), '2026-11-06T12:00:00.000Z');
+  assert.equal(result.startsAt?.toISOString(), '2026-11-06T15:00:00.000Z');
+  assert.equal(result.endsAt?.toISOString(), '2026-11-06T16:00:00.000Z');
 });
