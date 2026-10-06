@@ -190,10 +190,11 @@ export async function getLifeOsExportState(
   accessToken: string,
   userId: string,
 ): Promise<{ lifeRelationships: LifeRelationship[]; lifeAdminItems: LifeAdminItem[] }> {
-  const payload = await supabaseRest<{
-    life_relationships?: LifeRelationshipRow[];
-    life_admin_items?: LifeAdminItemRow[];
-  }>(env, accessToken, '/rest/v1/rpc/apm_export_life_os_state', { method: 'POST', body: '{}' });
+  const filter = `user_id=eq.${qs(userId)}`;
+  const [relationshipRows, itemRows] = await Promise.all([
+    supabaseRest<LifeRelationshipRow[]>(env, accessToken, `/rest/v1/life_relationships?${filter}&select=*&order=created_at.asc`),
+    supabaseRest<LifeAdminItemRow[]>(env, accessToken, `/rest/v1/life_admin_items?${filter}&select=*&order=created_at.asc`),
+  ]);
 
   const provenance = <T extends { provenance_kind: any; source_type: any; source_ref: string | null; confidence?: number | null; created_at: string }>(row: T) => ({
     kind: row.provenance_kind,
@@ -204,7 +205,7 @@ export async function getLifeOsExportState(
   });
 
   return {
-    lifeRelationships: (payload?.life_relationships ?? []).map((row) => ({
+    lifeRelationships: relationshipRows.map((row) => ({
       id: row.id,
       userId,
       personId: row.person_id,
@@ -216,7 +217,7 @@ export async function getLifeOsExportState(
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     })),
-    lifeAdminItems: (payload?.life_admin_items ?? []).map((row) => ({
+    lifeAdminItems: itemRows.map((row) => ({
       id: row.id,
       userId,
       personId: row.person_id ?? undefined,
