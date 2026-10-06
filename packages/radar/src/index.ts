@@ -1,4 +1,4 @@
-import type { CalendarEvent, Commitment, Goal, LifeGraphSnapshot, RadarItem } from '@apm/domain';
+import type { CalendarEvent, Commitment, Goal, LifeAdminItem, LifeGraphSnapshot, LifeRelationship, RadarItem } from '@apm/domain';
 
 const DAY_MS = 86_400_000;
 
@@ -73,6 +73,133 @@ function commitmentItem(commitment: Commitment, graph: LifeGraphSnapshot, now: D
     relatedGoalId: commitment.goalId, relatedProjectId: commitment.projectId, relatedCommitmentId: commitment.id,
     createdAt: now.toISOString(), firstRelevantAt: now.toISOString(),
   };
+}
+
+function lifeImportance(item: LifeAdminItem): number {
+  return Math.max(0.4, Math.min(1, 0.4 + (item.importance - 1) * 0.15));
+}
+
+function lifeAdminLeadDays(kind: LifeAdminItem['kind']): number {
+  if (kind === 'trip') return 14;
+  if (kind === 'bill' || kind === 'subscription' || kind === 'recurring_obligation' || kind === 'family_obligation') return 7;
+  if (kind === 'appointment') return 3;
+  if (kind === 'meal_plan' || kind === 'shopping') return 2;
+  return 1;
+}
+
+function lifeAdminItemRadar(item: LifeAdminItem, now: Date): RadarItem | null {
+  if (['completed','cancelled','paused'].includes(item.status)) return null;
+  const relevantAt = item.dueAt ?? item.startsAt;
+  if (!relevantAt) return null;
+  const days = daysUntilDate(relevantAt, now);
+  if (days === undefined || days > lifeAdminLeadDays(item.kind)) return null;
+
+  const overdue = days < 0;
+  const dueNow = days <= 0;
+  const dueTomorrow = days === 1;
+  const kindLabel = item.kind.replaceAll('_', ' ');
+  const headline = overdue
+    ? `${item.title} is overdue`
+    : dueNow
+      ? `${item.title} needs attention today`
+      : dueTomorrow
+        ? `${item.title} is coming up tomorrow`
+        : `${item.title} is coming up in ${days} days`;
+
+  const recurring = Boolean(item.recurrence?.frequency);
+  return {
+    id: `radar:life_os:${item.id}`,
+    userId: item.userId,
+    type: recurring ? 'recurring' : overdue || dueNow ? 'urgent' : 'upcoming',
+    headline,
+    summary: `APM is tracking this ${kindLabel} so it does not have to live in your head.`,
+    status: 'open',
+    severity: overdue ? (item.importance >= 4 ? 'critical' : 'high') : days <= 1 ? 'high' : 'medium',
+    confidence: item.provenance.confidence ?? 1,
+    importance: lifeImportance(item),
+    urgency: overdue || dueNow ? 1 : dueTomorrow ? 0.9 : 0.7,
+    goalAlignment: 0.55,
+    consequence: Math.max(0.55, lifeImportance(item)),
+    sourceRefs: [{ sourceType: 'system', sourceRef: item.id, label: `Life OS · ${kindLabel}` }],
+    reasonCodes: [overdue ? 'life_os.overdue' : 'life_os.upcoming', `life_os.kind.${item.kind}`, ...(recurring ? ['life_os.recurring'] : [])],
+    createdAt: now.toISOString(),
+    firstRelevantAt: now.toISOString(),
+  };
+}
+
+function nextBirthdayDate(birthday: string, now: Date): Date | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthday);
+  if (!match) return undefined;
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!month || !day) return undefined;
+  let year = now.getUTCFullYear();
+  let candidate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (candidate.getTime() < now.getTime()) {
+    year += 1;
+    candidate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  }
+  return candidate;
+}
+
+function relationshipRadar(relationship: LifeRelationship, graph: LifeGraphSnapshot, now: Date): RadarItem[] {
+  const person = graph.people.find((candidate) => candidate.id === relationship.personId);
+  const name = person?.name ?? 'Someone important';
+  const items: RadarItem[] = [];
+
+  if (relationship.birthday) {
+    const birthday = nextBirthdayDate(relationship.birthday, now);
+    if (birthday) {
+      const days = Math.ceil((birthday.getTime() - now.getTime()) / DAY_MS);
+      if (days <= 21) {
+        items.push({
+          id: `radar:relationship_birthday:${relationship.id}:${birthday.getUTCFullYear()}`,
+          userId: relationship.userId,
+          type: 'upcoming',
+          headline: days === 0 ? `${name}'s birthday is today` : `${name}'s birthday is in ${days} day${days === 1 ? '' : 's'}`,
+          summary: 'APM is surfacing this early enough to decide what, if anything, you want to do.',
+          status: 'open',
+          severity: days <= 3 ? 'high' : 'medium',
+          confidence: relationship.provenance.confidence ?? 1,
+          importance: 0.75,
+          urgency: days <= 3 ? 0.9 : days <= 7 ? 0.75 : 0.55,
+          goalAlignment: 0.5,
+          consequence: 0.65,
+          sourceRefs: [{ sourceType: 'system', sourceRef: relationship.id, label: 'Life OS · relationship' }],
+          reasonCodes: ['relationship.birthday_upcoming'],
+          createdAt: now.toISOString(),
+          firstRelevantAt: now.toISOString(),
+        });
+      }
+    }
+  }
+
+  if (relationship.nextContactAt) {
+    const days = daysUntilDate(relationship.nextContactAt, now);
+    if (days !== undefined && days <= 7) {
+      const overdue = days < 0;
+      items.push({
+        id: `radar:relationship_contact:${relationship.id}`,
+        userId: relationship.userId,
+        type: overdue ? 'urgent' : 'recurring',
+        headline: overdue ? `Reconnect with ${name}` : days === 0 ? `Reconnect with ${name} today` : `Reconnect with ${name} in ${days} days`,
+        summary: relationship.cadenceDays ? `You asked APM to help protect this relationship on roughly a ${relationship.cadenceDays}-day cadence.` : 'You asked APM to keep this relationship from drifting.',
+        status: 'open',
+        severity: overdue ? 'high' : 'medium',
+        confidence: relationship.provenance.confidence ?? 1,
+        importance: 0.7,
+        urgency: overdue ? 0.9 : days <= 1 ? 0.8 : 0.6,
+        goalAlignment: 0.5,
+        consequence: 0.6,
+        sourceRefs: [{ sourceType: 'system', sourceRef: relationship.id, label: 'Life OS · relationship' }],
+        reasonCodes: [overdue ? 'relationship.contact_overdue' : 'relationship.contact_upcoming'],
+        createdAt: now.toISOString(),
+        firstRelevantAt: now.toISOString(),
+      });
+    }
+  }
+
+  return items;
 }
 
 function overlaps(a: CalendarEvent, b: CalendarEvent): boolean {
@@ -171,6 +298,15 @@ export function buildRadarItems(graph: LifeGraphSnapshot, options: RadarBuildOpt
         createdAt: now.toISOString(), firstRelevantAt: now.toISOString(),
       });
     }
+  }
+
+  for (const item of graph.lifeAdminItems ?? []) {
+    const radarItem = lifeAdminItemRadar(item, now);
+    if (radarItem) items.push(radarItem);
+  }
+
+  for (const relationship of graph.lifeRelationships ?? []) {
+    items.push(...relationshipRadar(relationship, graph, now));
   }
 
   items.push(...calendarConflictItems(graph, now));
