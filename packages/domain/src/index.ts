@@ -175,6 +175,18 @@ export interface RadarItem {
   resolution?: string;
 }
 
+export interface Evidence {
+  id: UUID;
+  userId: UUID;
+  kind: 'user_completion' | 'external' | 'system';
+  summary: string;
+  sourceType: SourceType;
+  sourceRef?: string;
+  relatedGoalId?: UUID;
+  relatedActionId?: UUID;
+  createdAt: ISODateTime;
+}
+
 export interface DailyPlanBlock {
   id: UUID;
   title: string;
@@ -211,4 +223,5 @@ export interface LifeGraphSnapshot {
   preferences: Preference[];
   rules: Rule[];
   radarItems: RadarItem[];
+  evidence: Evidence[];
 }
