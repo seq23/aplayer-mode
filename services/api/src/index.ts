@@ -65,7 +65,8 @@ function entitlementIsUsable(entitlement: SubscriptionEntitlement | undefined): 
 }
 
 function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: string) {
-  const resolved: SubscriptionEntitlement = entitlement ?? { userId, plan: 'beta', status: 'active' };
+  const raw: SubscriptionEntitlement = entitlement ?? { userId, plan: 'beta', status: 'active' };
+  const resolved: SubscriptionEntitlement = raw.plan === 'household' ? { ...raw, plan: 'autopilot' } : raw;
   const usable = entitlementIsUsable(resolved);
   const policy = productPlanPolicies[resolved.plan];
   const maxAutonomyLevel = usable ? maxAutonomyForPlan(resolved.plan, 'calendar') : 0;
@@ -333,17 +334,18 @@ app.put('/v1/permissions/:domain/:actionType', async (c) => {
     ? maxAutonomyForPlan(entitlement.plan, domain.data as ActionDomain)
     : 0;
 
-  if (parsed.data.autonomyLevel > ceiling) {
+  const requestedLevel = parsed.data.enabled === false ? 0 : parsed.data.autonomyLevel;
+  if (requestedLevel > ceiling) {
     return c.json({
       error: 'plan_autonomy_ceiling',
-      currentPlan: entitlement?.plan ?? 'beta',
-      requestedLevel: parsed.data.autonomyLevel,
+      currentPlan: entitlement?.plan === 'household' ? 'autopilot' : entitlement?.plan ?? 'beta',
+      requestedLevel,
       maxAutonomyLevel: ceiling,
       maxAutonomyLabel: autonomyLabels[ceiling],
     }, 403);
   }
 
-  const permission = await upsertPermission(c.env, user.accessToken, user.id, { domain: domain.data, actionType: c.req.param('actionType'), autonomyLevel: parsed.data.autonomyLevel as AutonomyLevel, constraints: parsed.data.constraints, enabled: parsed.data.enabled });
+  const permission = await upsertPermission(c.env, user.accessToken, user.id, { domain: domain.data, actionType: c.req.param('actionType'), autonomyLevel: requestedLevel as AutonomyLevel, constraints: parsed.data.constraints, enabled: requestedLevel > 0 && parsed.data.enabled !== false });
   await audit(c.env, user.accessToken, user.id, 'permission.changed', { domain: permission.domain, actionType: permission.actionType, autonomyLevel: permission.autonomyLevel, plan: entitlement?.plan ?? 'beta' }, 'permission', permission.id);
   return c.json({ permission });
 });
