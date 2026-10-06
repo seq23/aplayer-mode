@@ -81,3 +81,15 @@ test('a schedule with both due and timed fields advances both representations', 
   assert.equal(result.startsAt?.toISOString(), '2026-11-06T15:00:00.000Z');
   assert.equal(result.endsAt?.toISOString(), '2026-11-06T16:00:00.000Z');
 });
+
+
+test('undated recurring items use completion as the next-occurrence anchor', () => {
+  const completed = new Date('2026-10-06T12:00:00.000Z');
+  const result = nextRecurringSchedule(
+    {},
+    completed,
+    { frequency: 'monthly', interval: 1 },
+  );
+  assert.equal(result.dueAt?.toISOString(), '2026-11-06T12:00:00.000Z');
+  assert.equal(result.startsAt, undefined);
+});
