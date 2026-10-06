@@ -396,12 +396,16 @@ export async function completeLifeAdminItem(
     const baseRaw = existing.due_at ?? existing.starts_at ?? completedAt.toISOString();
     let cursor = new Date(baseRaw);
     if (Number.isNaN(cursor.getTime())) cursor = completedAt;
-    for (let i = 0; i < 500 && cursor.getTime() <= completedAt.getTime(); i += 1) {
-      const next = addRecurrence(cursor, existing.recurrence);
-      if (!next) break;
-      cursor = next;
+    const firstNext = addRecurrence(cursor, existing.recurrence);
+    if (firstNext) {
+      cursor = firstNext;
+      for (let i = 0; i < 500 && cursor.getTime() <= completedAt.getTime(); i += 1) {
+        const later = addRecurrence(cursor, existing.recurrence);
+        if (!later) break;
+        cursor = later;
+      }
+      if (cursor.getTime() > completedAt.getTime()) nextDue = cursor;
     }
-    if (cursor.getTime() > completedAt.getTime()) nextDue = cursor;
   }
 
   const details = { ...(existing.details ?? {}), lastCompletedAt: completedAt.toISOString() };
