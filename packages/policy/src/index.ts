@@ -55,7 +55,7 @@ export const productPlanPolicies: Record<ProductPlan, ProductPlanPolicy> = {
     displayName: 'Household OS',
     promise: 'Coordinate shared household mental load.',
     publicAvailability: 'waitlist',
-    capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval','standing_autopilot','household_shared_graph'],
+    capabilities: [],
   },
 };
 
@@ -83,7 +83,8 @@ export type ActionDomain =
 export function maxAutonomyForPlan(plan: ProductPlan, domain: ActionDomain): AutonomyLevel {
   if (plan === 'beta' || plan === 'chief_of_staff') return 3;
   if (plan === 'life_os') return 4;
-  if (plan === 'autopilot' || plan === 'household') return domain === 'purchase' ? 2 : 5;
+  if (plan === 'autopilot') return domain === 'purchase' ? 2 : 5;
+  if (plan === 'household') return 0;
   return 0;
 }
 
