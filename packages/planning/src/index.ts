@@ -10,6 +10,27 @@ export * from './methodology.js';
 export interface TodayProjectionOptions {
   date?: string;
   mode?: DailyPlan['mode'];
+  now?: Date;
+}
+
+export function calendarDateInTimezone(value: string | Date, timezone?: string): string {
+  const date = typeof value === 'string' ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+    const year = read('year');
+    const month = read('month');
+    const day = read('day');
+    return year && month && day ? `${year}-${month}-${day}` : date.toISOString().slice(0, 10);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
 }
 
 function compareGoals(a: Goal, b: Goal): number {
@@ -43,8 +64,9 @@ function selectStandardNumberOneMove(graph: LifeGraphSnapshot): NextAction | und
 }
 
 function calendarBlocks(graph: LifeGraphSnapshot, date: string): DailyPlanBlock[] {
+  const timezone = graph.identity.timezone;
   return graph.calendarEvents
-    .filter((event) => !event.deleted && event.startsAt.slice(0, 10) === date)
+    .filter((event) => !event.deleted && calendarDateInTimezone(event.startsAt, timezone) === date)
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .map((event) => ({
       id: `calendar:${event.id}`,
@@ -56,11 +78,12 @@ function calendarBlocks(graph: LifeGraphSnapshot, date: string): DailyPlanBlock[
 }
 
 function lifeOsBlocks(graph: LifeGraphSnapshot, date: string, minImportance = 1): DailyPlanBlock[] {
+  const timezone = graph.identity.timezone;
   return (graph.lifeAdminItems ?? [])
     .filter((item) => {
       if (['completed','cancelled','paused'].includes(item.status) || item.importance < minImportance) return false;
       const relevantAt = item.startsAt ?? item.dueAt;
-      return Boolean(relevantAt && relevantAt.slice(0, 10) === date);
+      return Boolean(relevantAt && calendarDateInTimezone(relevantAt, timezone) === date);
     })
     .sort((a, b) => (a.startsAt ?? a.dueAt ?? '').localeCompare(b.startsAt ?? b.dueAt ?? ''))
     .map((item) => ({
@@ -91,7 +114,7 @@ export function buildDailyPlan(
   graph: LifeGraphSnapshot,
   options: TodayProjectionOptions = {},
 ): DailyPlan {
-  const date = options.date ?? new Date().toISOString().slice(0, 10);
+  const date = options.date ?? calendarDateInTimezone(options.now ?? new Date(), graph.identity.timezone);
   const continuityRecovery = shouldForceRecovery(graph.dayRecords);
   const mode = options.mode ?? (continuityRecovery ? 'recovery' : graph.personalOS?.activeMode ?? 'standard');
   const numberOneMove = mode === 'recovery' ? selectMinimumViableAction(graph) : selectStandardNumberOneMove(graph);
