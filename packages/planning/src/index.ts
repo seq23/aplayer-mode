@@ -63,10 +63,14 @@ function selectStandardNumberOneMove(graph: LifeGraphSnapshot): NextAction | und
   return graph.nextActions.find((candidate) => candidate.status === 'open');
 }
 
+function calendarEventDate(graph: LifeGraphSnapshot, event: LifeGraphSnapshot['calendarEvents'][number]): string {
+  if (event.allDay) return event.startsAt.slice(0, 10);
+  return calendarDateInTimezone(event.startsAt, graph.identity.timezone);
+}
+
 function calendarBlocks(graph: LifeGraphSnapshot, date: string): DailyPlanBlock[] {
-  const timezone = graph.identity.timezone;
   return graph.calendarEvents
-    .filter((event) => !event.deleted && calendarDateInTimezone(event.startsAt, timezone) === date)
+    .filter((event) => !event.deleted && calendarEventDate(graph, event) === date)
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .map((event) => ({
       id: `calendar:${event.id}`,
@@ -82,18 +86,22 @@ function lifeOsBlocks(graph: LifeGraphSnapshot, date: string, minImportance = 1)
   return (graph.lifeAdminItems ?? [])
     .filter((item) => {
       if (['completed','cancelled','paused'].includes(item.status) || item.importance < minImportance) return false;
-      const relevantAt = item.startsAt ?? item.dueAt;
-      return Boolean(relevantAt && calendarDateInTimezone(relevantAt, timezone) === date);
+      const scheduledToday = Boolean(item.startsAt && calendarDateInTimezone(item.startsAt, timezone) === date);
+      const dueToday = Boolean(item.dueAt && calendarDateInTimezone(item.dueAt, timezone) === date);
+      return scheduledToday || dueToday;
     })
     .sort((a, b) => (a.startsAt ?? a.dueAt ?? '').localeCompare(b.startsAt ?? b.dueAt ?? ''))
-    .map((item) => ({
-      id: `life-os:${item.id}`,
-      title: item.title,
-      startAt: item.startsAt,
-      endAt: item.endsAt,
-      lifeAdminItemId: item.id,
-      source: 'life_os' as const,
-    }));
+    .map((item) => {
+      const scheduledToday = Boolean(item.startsAt && calendarDateInTimezone(item.startsAt, timezone) === date);
+      return {
+        id: `life-os:${item.id}`,
+        title: item.title,
+        startAt: scheduledToday ? item.startsAt : undefined,
+        endAt: scheduledToday ? item.endsAt : undefined,
+        lifeAdminItemId: item.id,
+        source: 'life_os' as const,
+      };
+    });
 }
 
 function actionBlock(action: NextAction | undefined): DailyPlanBlock[] {
