@@ -13,19 +13,19 @@ flowchart LR
   B --> C[Life Graph]
   C --> D[Today]
   D --> E[Radar]
-  E --> F[Calendar]
-  F --> G[Gmail / commitments]
+  E --> RP[Runtime proof]
+  RP --> M[Methodology Engine v1]
+  M --> F[Calendar Fabric]
+  F --> G[Email / commitments]
   G --> H[Proactive push]
   H --> I[Beta]
   I --> J[Chief of Staff]
   J --> K[Actions]
   K --> L[Life OS]
-  L --> M[Autopilot]
+  L --> N[Autopilot]
 ```
 
 ## Phase 0 — Constitution and architecture
-
-**Current phase.**
 
 Deliverables:
 
@@ -111,18 +111,141 @@ Use Life Graph/events only:
 
 Exit: one end-to-end proactive intervention can be generated, explained and resolved.
 
-## Phase 6 — Calendar
+## Phase 5A — Runtime provider proof
 
-- Google OAuth with least privilege;
-- read/sync events;
-- source provenance;
-- availability/conflict detection;
-- schedule recommendations;
-- later prepare/write only after permission/action layer.
+Prove the current source-level slice against real provider boundaries before adding breadth.
 
-Exit: APM understands real schedule constraints.
+Required receipts:
 
-## Phase 7 — Gmail + Commitment Engine
+- deployed Cloudflare API health;
+- Supabase Auth sign-in;
+- authenticated Life Graph read;
+- durable onboarding write;
+- server Today projection;
+- completion + evidence round-trip;
+- deterministic Radar result;
+- cross-user RLS negative-access proof;
+- native mobile session restore + durable state after restart.
+
+Exit: current authenticated persistence loop is runtime-proven, not merely structural.
+
+## Phase 5B — APM Methodology Engine v1
+
+This phase productizes the Billionaire High-Performance Coach / A Player Mode methodology before external integration breadth.
+
+### Full intake
+
+Expand the current first-slice onboarding into one-question-at-a-time structured intake covering:
+
+- identity, time and context;
+- North Star and major goals;
+- goals → Tracks;
+- values and non-negotiables;
+- constraints and failure patterns;
+- Body/health;
+- Work/money;
+- Mind/spirit/learning;
+- weekly cadence;
+- scoring and streak logic;
+- coaching style;
+- accountability choices.
+
+The user may skip/let APM determine where appropriate. Intake outputs durable structured state rather than a giant prompt transcript.
+
+### Operating system primitives
+
+Productize:
+
+- Pillars;
+- Tracks;
+- Modes;
+- Foreground vs Background;
+- Arbitration Engine;
+- 30/60/90 execution plans;
+- Never Miss Twice;
+- Continuity > Intensity;
+- No Catch-Up;
+- No Mid-Day Negotiation;
+- Zeros Allowed;
+- Minimum Viable Day.
+
+### Runtime coaching behavior
+
+Implement:
+
+- daily agenda / Run of Show;
+- standard coaching;
+- High-Pressure Coaching;
+- Executive Review;
+- Recovery Mode;
+- end-of-day check-in;
+- weekly debrief;
+- governed changes to personal operating rules.
+
+The old three-chat prompt architecture is translated into product boundaries:
+
+```text
+OS / Diaries source-of-truth concept → durable Life Graph + Rules + Settings
+Daily Runtime concept              → Today + APM coaching runtime
+Governance concept                 → versioned change review + audit/history
+```
+
+Exit: APM behaves like the productized operating system, not a generic planner with a Goal field.
+
+## Phase 6 — Calendar Fabric
+
+Calendar is provider-neutral. APM must not assume every user uses Google Calendar.
+
+### Canonical layer
+
+Build one normalized calendar contract with:
+
+- account/source identity;
+- provider/source type;
+- event ID + source ID;
+- start/end/time zone/all-day;
+- title/location/availability;
+- recurrence metadata;
+- attendees/organizer where permitted;
+- provenance;
+- sync cursor/version;
+- capability flags for read/write/background sync.
+
+### Phase 6A — Device calendar connector
+
+Use the mobile OS calendar layer where appropriate so APM can read calendars already configured on the phone, subject to explicit permission.
+
+This gives broad early coverage across calendars such as:
+
+- iCloud / CalDAV;
+- Google;
+- Microsoft Exchange / Outlook;
+- local or other supported device calendars.
+
+Device access is normalized into the same canonical calendar model.
+
+### Phase 6B — Direct cloud connectors
+
+Add direct server/background connectors for reliable always-on sync:
+
+- Google Calendar API;
+- Microsoft Graph for Outlook.com / Microsoft 365 / Exchange-backed calendars;
+- Apple/iCloud through an Apple-supported account-data / CalDAV route when practical and secure.
+
+Begin read-only. Ask for write permission only when the Action Engine needs it and the user explicitly grants it.
+
+Exit: APM understands real schedule constraints across supported calendar providers without provider-specific logic leaking into Today/Radar.
+
+## Phase 7 — Email + Commitment Engine
+
+Email is also provider-neutral.
+
+Initial cloud connectors:
+
+- Gmail;
+- Microsoft Outlook / Microsoft 365 mail.
+
+Implement:
 
 - least-privilege OAuth;
 - incremental sync strategy;
@@ -131,6 +254,8 @@ Exit: APM understands real schedule constraints.
 - confidence/correction;
 - raw-content minimization;
 - prompt-injection defenses.
+
+Do not conflate Gmail with Google Calendar: they are separate data sources and separate permissions.
 
 Exit: APM can find valuable real-world open loops from permitted email context.
 
