@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aplayer-mode-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  }
+
+  // Production Hyperdrive binding is intentionally not committed with a fake ID.
+  // After the Postgres origin exists, add:
+  // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<cloudflare-hyperdrive-id>" }]
+  //
+  // Runtime secrets are configured in Cloudflare, never here.
+}
