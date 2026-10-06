@@ -11,6 +11,7 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | **SELECTED FOR MVP / REPLACEABLE BY ADR** | Current infrastructure provider choice; implementation should use it unless an ADR changes the provider. |
 | **DRAFT** | Under discussion; not authoritative. |
 | **LIVING EXECUTION RECORD** | Describes what is actually implemented now; updated as code changes. |
+| **CANONICAL SOURCE-OF-INTENT** | Preserves original methodology intent for translation/review; does not silently override newer locked APM architecture/product decisions. |
 
 ## Canonical documents
 
@@ -38,6 +39,19 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | 19 | [RUNTIME PROOF RUNBOOK](./19-RUNTIME-PROOF-RUNBOOK.md) | **IMPLEMENTATION BASELINE** | Live Expo/Cloudflare/Supabase proof, dedicated test-account verifier, RLS negative-access receipt |
 | 20 | [APM METHODOLOGY ENGINE V1](./20-APM-METHODOLOGY-ENGINE-V1.md) | **LOCKED IMPLEMENTATION BASELINE** | Adaptive intake, Personal OS, Pillars, Tracks, Modes, core laws, MVD, arbitration and coaching runtime foundations |
 
+## Canonical methodology reference
+
+| Reference | Status | Purpose |
+|---|---|---|
+| [BHPC v2.1 Reference](./reference/BHPC-v2.1/README.md) | **CANONICAL SOURCE-OF-INTENT** | Latest canonical BHPC manual available to this project, preserved by section so contributors can map original methodology intent into the multi-persona APM app |
+| [BHPC → APM Intent Mapping](./reference/BHPC-v2.1/APP-INTENT-MAPPING.md) | **REFERENCE TRANSLATION CONTRACT** | Maps BHPC behaviors into APM software primitives and requires persona-neutral intent preservation |
+
+The BHPC reference does not turn APM back into a founder-only or billionaire-only product. Contributors should preserve the behavioral intent while applying the locked positioning:
+
+> **Whatever game you're in, get into A Player Mode.**
+
+A parent, athlete, entrepreneur, student, professional, creator, caregiver, or user in transition shares the same operating loop; their Life Graph provides the context.
+
 ## Architecture decision records
 
 | ADR | Status | Decision |
@@ -48,13 +62,15 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 
 ```mermaid
 flowchart TD
+  SRC[BHPC source-of-intent reference] --> MAP[Intent mapping / product interpretation]
   C[LOCKED Constitutions / requirements] --> ADR[Architecture Decision Records]
+  MAP --> C
   ADR --> SPEC[Product / technical specifications]
   SPEC --> CODE[Implementation]
   CODE --> TEST[Automated tests / policy checks]
 ```
 
-If implementation conflicts with a locked constitution, **the implementation is wrong until an approved ADR changes the constitution.**
+If implementation conflicts with a locked constitution, **the implementation is wrong until an approved ADR changes the constitution.** If a methodology change touches behavior inherited from BHPC, contributors must also show that the original functional intent was preserved or deliberately superseded.
 
 ## Current execution state
 
@@ -67,13 +83,13 @@ flowchart LR
   S -->|merged| E[Mobile Auth + durable persistence]
   E -->|merged| F[Server Today projection]
   F -->|merged| G[Deterministic Radar v0]
-  G --> RP[Runtime proof harness]
-  RP --> M[Methodology Engine v1]
-  M --> H[Calendar Fabric]
+  G -->|merged| M[Methodology Engine v1]
+  M --> RP[Live runtime proof]
+  RP --> H[Calendar Fabric]
   H --> I[Email / Commitments]
 ```
 
-### Implemented and merged before Methodology Engine v1
+### Implemented and merged
 
 - Expo / React Native workspace and Today · Radar · Goals · APM navigation;
 - broad multi-life positioning and multi-role game selection;
@@ -84,23 +100,8 @@ flowchart LR
 - durable onboarding/completion evidence;
 - server Today projection;
 - deterministic Radar v0;
-- runtime-proof harness and provider-neutral Calendar Fabric sequencing.
-
-### Current Methodology Engine v1 branch
-
-The current artifact adds:
-
-- durable Personal OS state;
-- first-class Pillar settings, Tracks and Operating Modes;
-- source-derived core laws and deterministic MVD/recovery behavior;
-- adaptive one-question-at-a-time intake based on selected games;
-- explicit approval before Personal OS installation;
-- role-relevant track recommendations rather than founder-only defaults;
-- APM mode control surface and deterministic coaching opening;
-- Today awareness of Standard vs Recovery mode;
-- deterministic arbitration and methodology tests.
-
-The Supabase methodology migration is already applied to the project and its security advisor currently reports no findings. Source-level CI still must pass before this branch is merge-eligible.
+- runtime-proof harness;
+- APM Methodology Engine v1 with Personal OS, adaptive intake, Pillars, Tracks, Modes, core laws, deterministic MVD/recovery, arbitration and coaching-opening foundations.
 
 ### Still not runtime-proven / not built
 
