@@ -64,7 +64,15 @@ function selectStandardNumberOneMove(graph: LifeGraphSnapshot): NextAction | und
 }
 
 function calendarEventDate(graph: LifeGraphSnapshot, event: LifeGraphSnapshot['calendarEvents'][number]): string {
-  if (event.allDay) return event.startsAt.slice(0, 10);
+  if (event.allDay) {
+    // Cloud providers normalize date-only values to a synthetic UTC midnight, so
+    // preserve their serialized date. Device calendars hand us real instants plus
+    // the source timezone, so recover the local calendar date instead.
+    if (event.provider === 'device') {
+      return calendarDateInTimezone(event.startsAt, event.timezone ?? graph.identity.timezone);
+    }
+    return event.startsAt.slice(0, 10);
+  }
   return calendarDateInTimezone(event.startsAt, graph.identity.timezone);
 }
 
