@@ -1,0 +1,20 @@
+{
+  "name": "aplayer-mode",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "mobile": "npm run start -w @apm/mobile",
+    "mobile:ios": "npm run ios -w @apm/mobile",
+    "mobile:android": "npm run android -w @apm/mobile",
+    "mobile:web": "npm run web -w @apm/mobile",
+    "typecheck": "npm run typecheck -w @apm/mobile"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}
