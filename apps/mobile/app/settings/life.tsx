@@ -19,8 +19,6 @@ const kinds: Array<{ id: LifeAdminKind; label: string }> = [
 ];
 
 const recurringKinds = new Set<LifeAdminKind>(['bill','subscription','health_routine','recurring_obligation','family_obligation']);
-const DAY_MS = 86_400_000;
-
 function parseDateOnly(value: string): { year: number; month: number; day: number } | undefined {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
   if (!match) return undefined;
