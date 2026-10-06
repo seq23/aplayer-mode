@@ -295,6 +295,7 @@ export async function createLifeAdminItem(
   timezone?: string,
 ): Promise<LifeAdminItem> {
   if (input.personId) await ensureOwnedPerson(env, accessToken, userId, input.personId);
+  if (input.status === 'completed') throw new Error('life_os_use_completion_route');
 
   const rows = await supabaseRest<LifeAdminRow[]>(env, accessToken, '/rest/v1/life_admin_items?select=*', {
     method: 'POST',
