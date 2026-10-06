@@ -55,7 +55,7 @@ Every new action type needs schema, permission, constraints, idempotency, connec
 
 ## Life OS expansion
 
-Life OS is not "add every life-admin feature." Modules are promoted from observed beta/customer demand.
+ADR-0002 authorizes Life OS as the next source implementation phase. It is still not "add every life-admin feature": build the agreed high-value domains on the same Life Graph/Today/Radar/action primitives, then refine breadth from beta evidence.
 
 Candidate domains already discussed:
 
@@ -70,9 +70,9 @@ Candidate domains already discussed:
 
 These domains use the same Life Graph, Radar, Today, permission and action primitives instead of separate mini-apps.
 
-## Autopilot evidence gate
+## Autopilot implementation + activation gate
 
-Autopilot should appear when users repeatedly approve the same safe action and ask APM to stop asking every time.
+ADR-0002 authorizes building the Autopilot standing-rule engine and UX after Life OS. **Activation remains evidence-gated**: standing authority is only usable for supported action classes that pass security/runtime proof and only after the user explicitly grants it.
 
 Standing rules must define scope such as:
 
@@ -86,7 +86,7 @@ Collision rule: never override hard-boundary events
 Reversibility: calendar event can be removed/restored
 ```
 
-## Household OS
+## Household OS — waitlist only
 
 ```mermaid
 flowchart TD
@@ -100,7 +100,7 @@ flowchart TD
   S --> N[Notes / logistics]
 ```
 
-The database foundation includes household/member/item primitives with RLS. That is **not** the same as a completed Household product.
+The database foundation includes household/member/item primitives with RLS. ADR-0002 keeps them dormant: customer-facing Household mutation is blocked and the current app only records authenticated interest. That is **not** the same as a completed Household product.
 
 Household UX must later define:
 
