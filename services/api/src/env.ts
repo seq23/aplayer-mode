@@ -4,21 +4,32 @@ export interface ApiEnv {
   AUTH_DEV_BYPASS_USER_ID?: string;
   OPENROUTER_API_KEY?: string;
   ALLOWED_ORIGIN?: string;
+  APP_PUBLIC_URL?: string;
+  CONNECTOR_CREDENTIAL_KEY?: string;
+  OAUTH_STATE_SECRET?: string;
+  GOOGLE_OAUTH_CLIENT_ID?: string;
+  GOOGLE_OAUTH_CLIENT_SECRET?: string;
+  GOOGLE_OAUTH_REDIRECT_URI?: string;
+  MICROSOFT_OAUTH_CLIENT_ID?: string;
+  MICROSOFT_OAUTH_CLIENT_SECRET?: string;
+  MICROSOFT_OAUTH_REDIRECT_URI?: string;
+  MICROSOFT_TENANT?: string;
+  EXPO_ACCESS_TOKEN?: string;
+  GLOBAL_ACTION_EXECUTION?: string;
 }
 
-export function requireSupabaseConfig(env: ApiEnv): {
-  url: string;
-  publishableKey: string;
-} {
+export function requireSupabaseConfig(env: ApiEnv): { url: string; publishableKey: string } {
   const url = env.SUPABASE_URL;
   const publishableKey = env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !publishableKey) throw new Error('Supabase is not configured');
+  return { url: url.replace(/\/$/, ''), publishableKey };
+}
 
-  if (!url || !publishableKey) {
-    throw new Error('Supabase is not configured');
-  }
+export function requireOpenRouterKey(env: ApiEnv): string {
+  if (!env.OPENROUTER_API_KEY) throw new Error('OpenRouter is not configured');
+  return env.OPENROUTER_API_KEY;
+}
 
-  return {
-    url: url.replace(/\/$/, ''),
-    publishableKey,
-  };
+export function actionsGloballyEnabled(env: ApiEnv): boolean {
+  return env.GLOBAL_ACTION_EXECUTION === 'true';
 }
