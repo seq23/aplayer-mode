@@ -1,0 +1,35 @@
+name: Runtime Proof
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify live APM runtime
+        run: npm run runtime:verify
+        env:
+          APM_API_BASE_URL: ${{ vars.APM_API_BASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          APM_TEST_EMAIL: ${{ secrets.APM_TEST_EMAIL }}
+          APM_TEST_PASSWORD: ${{ secrets.APM_TEST_PASSWORD }}
+          APM_TEST_B_EMAIL: ${{ secrets.APM_TEST_B_EMAIL }}
+          APM_TEST_B_PASSWORD: ${{ secrets.APM_TEST_B_PASSWORD }}
+          APM_RUNTIME_PROOF_ACK_DEDICATED_TEST_ACCOUNT: "yes"

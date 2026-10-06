@@ -35,6 +35,7 @@ This directory is the canonical source of product, privacy, AI, architecture, pr
 | 16 | [BACKEND FOUNDATION](./16-BACKEND-FOUNDATION.md) | **LOCKED IMPLEMENTATION BASELINE** | Cloudflare API + Supabase Auth/Data API/RLS/RPC architecture and v1 endpoints |
 | 17 | [MVP INFRASTRUCTURE PROVISIONING](./17-MVP-INFRASTRUCTURE-PROVISIONING.md) | **SELECTED FOR MVP / REPLACEABLE BY ADR** | Supabase Free + Cloudflare Worker provisioning, public/mobile config and runtime boundaries |
 | 18 | [AUTH, PERSISTENCE & RADAR V0](./18-AUTH-PERSISTENCE-AND-RADAR-V0.md) | **IMPLEMENTATION BASELINE** | Secure mobile session, durable Life Graph bridge, server Today projection and deterministic Radar v0 |
+| 19 | [RUNTIME PROOF RUNBOOK](./19-RUNTIME-PROOF-RUNBOOK.md) | **IMPLEMENTATION BASELINE** | Live Expo/Cloudflare/Supabase proof, dedicated test-account verifier, RLS negative-access receipt |
 
 ## Architecture decision records
 
@@ -62,14 +63,16 @@ flowchart LR
   B -->|done| C[Mobile shell + Trust Center]
   C -->|done| D[Life Graph vertical slice]
   D -->|done| S[Supabase Free + schema + RLS + RPC]
-  S -->|implemented in current branch| E[Mobile Auth + durable persistence]
-  E -->|implemented in current branch| F[Server Today projection]
-  F -->|implemented in current branch| G[Deterministic Radar v0]
-  G --> H[Calendar]
-  H --> I[Gmail]
+  S -->|merged| E[Mobile Auth + durable persistence]
+  E -->|merged| F[Server Today projection]
+  F -->|merged| G[Deterministic Radar v0]
+  G --> RP[Runtime proof]
+  RP --> M[Methodology Engine v1]
+  M --> H[Calendar Fabric]
+  H --> I[Email / Commitments]
 ```
 
-### Implemented as code before the current branch
+### Implemented in source and merged
 
 - Expo / React Native workspace scaffold;
 - core navigation: **Today · Radar · Goals · APM**;
@@ -77,32 +80,35 @@ flowchart LR
 - multi-role “what game are you in?” onboarding;
 - Welcome + Privacy Primer;
 - Trust Center screens;
-- canonical `@apm/domain`, `@apm/privacy`, `@apm/policy`, `@apm/ai`, and `@apm/planning` packages;
+- canonical `@apm/domain`, `@apm/privacy`, `@apm/policy`, `@apm/ai`, `@apm/planning`, and `@apm/radar` packages;
 - Cloudflare Worker API workspace;
 - Supabase project on Free plan;
 - first Life Graph schema, RLS policies and transactional RPCs;
-- Cloudflare-to-Supabase Auth/Data API repository layer.
-
-### Implemented in the current auth/persistence branch
-
+- Cloudflare-to-Supabase Auth/Data API repository layer;
 - Expo Supabase session provider with SecureStore-backed native persistence;
 - authenticated onboarding gate;
 - mobile bearer-token calls to Cloudflare;
 - fail-visible behavior instead of silent local-only persistence;
 - `GET /v1/me/today` server projection;
 - server-returned `DailyPlan` used by mobile Today;
-- deterministic `@apm/radar` package;
-- Radar rules for near/overdue deadlines, missing next actions and at-risk/stalled goals;
-- live Radar list + live “Why APM saw this?” explanations;
-- fixture Radar cards removed from the core Today/Radar path;
-- workspace CI expanded to run typecheck + tests;
-- public mobile environment example with server secrets explicitly excluded.
+- deterministic Radar rules and live explanation UI;
+- source-level CI typecheck + tests.
 
-### Still not production-proven
+### Current runtime-proof branch
 
-The current branch requires CI and then a configured live-device/runtime exercise before the authenticated Expo → Cloudflare → Supabase path can be called end-to-end proven. Cloudflare deployment configuration, mobile environment values, Supabase email delivery behavior and app-store binaries are runtime/provider layers, not proven merely by source code.
+The current branch adds:
 
-No Gmail, Calendar, production OpenRouter inference, push notification delivery, or external action execution is connected yet.
+- dedicated test-account live runtime verifier;
+- manual GitHub **Runtime Proof** workflow;
+- cross-user RLS negative-access proof when a second test account is configured;
+- roadmap clarification that the full APM Methodology Engine is built before external connector breadth;
+- provider-neutral Calendar Fabric sequencing for device calendars, Google, Microsoft and Apple/iCloud paths.
+
+### Still not runtime-proven
+
+The merged source requires a configured live-device/runtime exercise before Expo → Cloudflare → Supabase can be called end-to-end proven. Cloudflare deployment configuration, mobile environment values, Supabase email delivery behavior and app-store binaries are runtime/provider layers, not proven merely by source code.
+
+No Calendar Fabric, email connector, production OpenRouter inference, push notification delivery, or external action execution is connected yet.
 
 Use `13-IMPLEMENTATION-STATUS.md` as the detailed current-state record.
 
