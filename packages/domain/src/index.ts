@@ -32,6 +32,78 @@ export interface Role {
 
 export type PillarName = 'wealth' | 'body' | 'spirit' | 'execution';
 
+export interface PillarSetting {
+  userId: UUID;
+  name: PillarName;
+  active: boolean;
+  critical: boolean;
+  minimumFloor?: string;
+}
+
+export type TrackKey =
+  | 'billionaire_mindset'
+  | 'operator_discipline'
+  | 'strategic_patience'
+  | 'manifestation_mastery'
+  | 'investor_ai_leverage';
+
+export interface Track {
+  id: UUID;
+  userId: UUID;
+  key: TrackKey;
+  name: string;
+  active: boolean;
+  foreground: boolean;
+  provenance: Provenance;
+}
+
+export type OperatingModeKey = 'standard' | 'recovery' | 'high_pressure' | 'executive_review';
+
+export interface OperatingMode {
+  id: UUID;
+  userId: UUID;
+  key: OperatingModeKey;
+  name: string;
+  active: boolean;
+  provenance: Provenance;
+}
+
+export interface WeeklyCadence {
+  heavyDays: string[];
+  lightDays: string[];
+  reviewDay?: string;
+  recoveryDay?: string;
+}
+
+export interface CoachingStyle {
+  firmness: 'gentle' | 'direct' | 'high_pressure';
+  helpfulLanguage?: string;
+  avoidLanguage?: string;
+}
+
+export interface AccountabilityPolicy {
+  dayStart: 'guided' | 'hard';
+  coachingReminderAfterDays?: number;
+}
+
+export interface PersonalOS {
+  userId: UUID;
+  northStar?: string;
+  values: string[];
+  nonNegotiables: string[];
+  failurePatterns: string[];
+  bodyContext?: string;
+  workMoneyContext?: string;
+  mindSpiritLearningContext?: string;
+  weeklyCadence: WeeklyCadence;
+  coachingStyle: CoachingStyle;
+  accountability: AccountabilityPolicy;
+  activeMode: OperatingModeKey;
+  foregroundGoalId?: UUID;
+  installedAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
 export interface Goal {
   id: UUID;
   userId: UUID;
@@ -199,7 +271,7 @@ export interface DailyPlanBlock {
 export interface DailyPlan {
   userId: UUID;
   date: string;
-  mode: 'standard' | 'recovery' | 'high_pressure';
+  mode: OperatingModeKey;
   numberOneMove?: NextAction;
   blocks: DailyPlanBlock[];
   routineIds: UUID[];
@@ -213,6 +285,10 @@ export interface DailyPlan {
 export interface LifeGraphSnapshot {
   identity: UserIdentity;
   roles: Role[];
+  pillarSettings: PillarSetting[];
+  tracks: Track[];
+  modes: OperatingMode[];
+  personalOS?: PersonalOS;
   goals: Goal[];
   milestones: Milestone[];
   projects: Project[];
