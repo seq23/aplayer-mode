@@ -1,4 +1,4 @@
-import type { CalendarEvent, Commitment, Goal, LifeGraphSnapshot, RadarItem } from '@apm/domain';
+import type { CalendarEvent, Commitment, Goal, LifeAdminItem, LifeGraphSnapshot, LifeRelationship, RadarItem } from '@apm/domain';
 
 const DAY_MS = 86_400_000;
 
@@ -73,6 +73,166 @@ function commitmentItem(commitment: Commitment, graph: LifeGraphSnapshot, now: D
     relatedGoalId: commitment.goalId, relatedProjectId: commitment.projectId, relatedCommitmentId: commitment.id,
     createdAt: now.toISOString(), firstRelevantAt: now.toISOString(),
   };
+}
+
+function lifeImportance(item: LifeAdminItem): number {
+  return Math.max(0.4, Math.min(1, 0.4 + (item.importance - 1) * 0.15));
+}
+
+function lifeAdminLeadDays(kind: LifeAdminItem['kind']): number {
+  if (kind === 'trip') return 14;
+  if (kind === 'bill' || kind === 'subscription' || kind === 'recurring_obligation' || kind === 'family_obligation') return 7;
+  if (kind === 'appointment') return 3;
+  if (kind === 'meal_plan' || kind === 'shopping') return 2;
+  return 1;
+}
+
+function calendarDaysUntilDate(targetDate: string | undefined, now: Date, timezone?: string): number | undefined {
+  if (!targetDate) return undefined;
+  const target = new Date(targetDate);
+  if (Number.isNaN(target.getTime())) return undefined;
+  const targetParts = localDateParts(target, timezone);
+  const nowParts = localDateParts(now, timezone);
+  const targetIndex = Date.UTC(targetParts.year, targetParts.month - 1, targetParts.day);
+  const nowIndex = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day);
+  return Math.round((targetIndex - nowIndex) / DAY_MS);
+}
+
+function lifeAdminItemRadar(item: LifeAdminItem, now: Date, timezone?: string): RadarItem | null {
+  if (['completed','cancelled','paused'].includes(item.status)) return null;
+  const relevantAt = item.dueAt ?? item.startsAt;
+  if (!relevantAt) return null;
+  const days = calendarDaysUntilDate(relevantAt, now, timezone);
+  if (days === undefined || days > lifeAdminLeadDays(item.kind)) return null;
+
+  const overdue = days < 0;
+  const dueNow = days <= 0;
+  const dueTomorrow = days === 1;
+  const kindLabel = item.kind.replaceAll('_', ' ');
+  const headline = overdue
+    ? `${item.title} is overdue`
+    : dueNow
+      ? `${item.title} needs attention today`
+      : dueTomorrow
+        ? `${item.title} is coming up tomorrow`
+        : `${item.title} is coming up in ${days} days`;
+
+  const recurring = Boolean(item.recurrence?.frequency);
+  return {
+    id: `radar:life_os:${item.id}`,
+    userId: item.userId,
+    type: recurring ? 'recurring' : overdue || dueNow ? 'urgent' : 'upcoming',
+    headline,
+    summary: `APM is tracking this ${kindLabel} so it does not have to live in your head.`,
+    status: 'open',
+    severity: overdue ? (item.importance >= 4 ? 'critical' : 'high') : days <= 1 ? 'high' : 'medium',
+    confidence: item.provenance.confidence ?? 1,
+    importance: lifeImportance(item),
+    urgency: overdue || dueNow ? 1 : dueTomorrow ? 0.9 : 0.7,
+    goalAlignment: 0.55,
+    consequence: Math.max(0.55, lifeImportance(item)),
+    sourceRefs: [{ sourceType: 'system', sourceRef: item.id, label: `Life OS · ${kindLabel}` }],
+    reasonCodes: [overdue ? 'life_os.overdue' : 'life_os.upcoming', `life_os.kind.${item.kind}`, ...(recurring ? ['life_os.recurring'] : [])],
+    createdAt: now.toISOString(),
+    firstRelevantAt: now.toISOString(),
+  };
+}
+
+function localDateParts(now: Date, timezone?: string): { year: number; month: number; day: number } {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(now);
+    const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+    return { year: value('year'), month: value('month'), day: value('day') };
+  } catch {
+    return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, day: now.getUTCDate() };
+  }
+}
+
+function lastDayOfMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function birthdayDaysUntil(birthday: string, now: Date, timezone?: string): number | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthday);
+  if (!match) return undefined;
+  const birthMonth = Number(match[2]);
+  const birthDay = Number(match[3]);
+  if (!birthMonth || !birthDay) return undefined;
+
+  const local = localDateParts(now, timezone);
+  const todayIndex = Date.UTC(local.year, local.month - 1, local.day);
+  const dayThisYear = Math.min(birthDay, lastDayOfMonth(local.year, birthMonth));
+  let candidateIndex = Date.UTC(local.year, birthMonth - 1, dayThisYear);
+  if (candidateIndex < todayIndex) {
+    const nextYear = local.year + 1;
+    const dayNextYear = Math.min(birthDay, lastDayOfMonth(nextYear, birthMonth));
+    candidateIndex = Date.UTC(nextYear, birthMonth - 1, dayNextYear);
+  }
+  return Math.round((candidateIndex - todayIndex) / DAY_MS);
+}
+
+function relationshipRadar(relationship: LifeRelationship, graph: LifeGraphSnapshot, now: Date): RadarItem[] {
+  const person = graph.people.find((candidate) => candidate.id === relationship.personId);
+  const name = person?.name ?? 'Someone important';
+  const items: RadarItem[] = [];
+
+  if (relationship.birthday) {
+    const days = birthdayDaysUntil(relationship.birthday, now, graph.identity.timezone);
+    if (days !== undefined) {
+      if (days <= 21) {
+        items.push({
+          id: `radar:relationship_birthday:${relationship.id}`,
+          userId: relationship.userId,
+          type: 'upcoming',
+          headline: days === 0 ? `${name}'s birthday is today` : `${name}'s birthday is in ${days} day${days === 1 ? '' : 's'}`,
+          summary: 'APM is surfacing this early enough to decide what, if anything, you want to do.',
+          status: 'open',
+          severity: days <= 3 ? 'high' : 'medium',
+          confidence: relationship.provenance.confidence ?? 1,
+          importance: 0.75,
+          urgency: days <= 3 ? 0.9 : days <= 7 ? 0.75 : 0.55,
+          goalAlignment: 0.5,
+          consequence: 0.65,
+          sourceRefs: [{ sourceType: 'system', sourceRef: relationship.id, label: 'Life OS · relationship' }],
+          reasonCodes: ['relationship.birthday_upcoming'],
+          createdAt: now.toISOString(),
+          firstRelevantAt: now.toISOString(),
+        });
+      }
+    }
+  }
+
+  if (relationship.nextContactAt) {
+    const days = calendarDaysUntilDate(relationship.nextContactAt, now, graph.identity.timezone);
+    if (days !== undefined && days <= 7) {
+      const overdue = days < 0;
+      items.push({
+        id: `radar:relationship_contact:${relationship.id}`,
+        userId: relationship.userId,
+        type: overdue ? 'urgent' : 'recurring',
+        headline: overdue ? `Reconnect with ${name}` : days === 0 ? `Reconnect with ${name} today` : `Reconnect with ${name} in ${days} days`,
+        summary: relationship.cadenceDays ? `You asked APM to help protect this relationship on roughly a ${relationship.cadenceDays}-day cadence.` : 'You asked APM to keep this relationship from drifting.',
+        status: 'open',
+        severity: overdue ? 'high' : 'medium',
+        confidence: relationship.provenance.confidence ?? 1,
+        importance: 0.7,
+        urgency: overdue ? 0.9 : days <= 1 ? 0.8 : 0.6,
+        goalAlignment: 0.5,
+        consequence: 0.6,
+        sourceRefs: [{ sourceType: 'system', sourceRef: relationship.id, label: 'Life OS · relationship' }],
+        reasonCodes: [overdue ? 'relationship.contact_overdue' : 'relationship.contact_upcoming'],
+        createdAt: now.toISOString(),
+        firstRelevantAt: now.toISOString(),
+      });
+    }
+  }
+
+  return items;
 }
 
 function overlaps(a: CalendarEvent, b: CalendarEvent): boolean {
@@ -171,6 +331,15 @@ export function buildRadarItems(graph: LifeGraphSnapshot, options: RadarBuildOpt
         createdAt: now.toISOString(), firstRelevantAt: now.toISOString(),
       });
     }
+  }
+
+  for (const item of graph.lifeAdminItems ?? []) {
+    const radarItem = lifeAdminItemRadar(item, now, graph.identity.timezone);
+    if (radarItem) items.push(radarItem);
+  }
+
+  for (const relationship of graph.lifeRelationships ?? []) {
+    items.push(...relationshipRadar(relationship, graph, now));
   }
 
   items.push(...calendarConflictItems(graph, now));

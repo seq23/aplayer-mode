@@ -18,6 +18,7 @@ import type {
 } from '@apm/domain';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
+import { planHasCapability } from '@apm/policy';
 import { getPlatformState } from './platformRepository';
 
 export interface OnboardingPayload {
@@ -307,6 +308,13 @@ export async function getLifeGraph(
     },
   }));
 
+  const lifeOsEnabled = Boolean(
+    platform.entitlement
+    && (platform.entitlement.status === 'active' || platform.entitlement.status === 'trialing')
+    && platform.entitlement.plan !== 'household'
+    && planHasCapability(platform.entitlement.plan, 'life_os_domains'),
+  );
+
   const osRow = personalOSRows[0];
   const personalOS: PersonalOS | undefined = osRow
     ? {
@@ -347,6 +355,8 @@ export async function getLifeGraph(
     nextActions,
     routines: platform.routines,
     people: platform.people,
+    lifeRelationships: lifeOsEnabled ? platform.lifeRelationships : [],
+    lifeAdminItems: lifeOsEnabled ? platform.lifeAdminItems : [],
     preferences: platform.preferences,
     rules: platform.rules,
     radarItems: [],

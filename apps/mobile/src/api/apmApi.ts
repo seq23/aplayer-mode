@@ -3,7 +3,11 @@ import type {
   AutonomyLevel,
   CoachingStyle,
   DailyPlan,
+  LifeAdminItem,
+  LifeAdminKind,
+  LifeAdminRecurrence,
   LifeGraphSnapshot,
+  LifeRelationship,
   OperatingModeKey,
   Permission,
   PillarName,
@@ -62,6 +66,33 @@ export interface ProductPlanCard {
   highlights: string[];
 }
 
+export interface LifeRelationshipInput {
+  personId?: string;
+  personName?: string;
+  relationship?: string;
+  email?: string;
+  phone?: string;
+  birthday?: string;
+  nextContactAt?: string;
+  cadenceDays?: number | null;
+  notes?: string;
+}
+
+export interface LifeAdminInput {
+  personId?: string;
+  kind: LifeAdminKind;
+  title: string;
+  status?: LifeAdminItem['status'];
+  importance?: LifeAdminItem['importance'];
+  dueAt?: string;
+  startsAt?: string;
+  endsAt?: string;
+  recurrence?: LifeAdminRecurrence;
+  amountMinor?: number | null;
+  currency?: string | null;
+  details?: Record<string, unknown>;
+}
+
 export interface ProductPlanResponse {
   entitlement: {
     userId: string;
@@ -103,6 +134,9 @@ export async function fetchLifeGraph(accessToken: string): Promise<LifeGraphSnap
   return (await request<{ graph: LifeGraphSnapshot }>('/v1/me/life-graph', accessToken)).graph;
 }
 export async function fetchTodayState(accessToken: string): Promise<TodayState> { return request<TodayState>('/v1/me/today', accessToken); }
+export async function fetchRetainedLifeOsState(accessToken: string): Promise<{ lifeRelationships: LifeRelationship[]; lifeAdminItems: LifeAdminItem[] }> {
+  return request<{ lifeRelationships: LifeRelationship[]; lifeAdminItems: LifeAdminItem[] }>('/v1/privacy/life-os', accessToken);
+}
 export async function fetchProductPlan(accessToken: string): Promise<ProductPlanResponse> {
   return request<ProductPlanResponse>('/v1/product/plan', accessToken);
 }
@@ -115,6 +149,22 @@ export async function setHouseholdInterest(interested: boolean, accessToken: str
     body: JSON.stringify({ interested }),
   });
 }
+export async function createLifeRelationship(input: LifeRelationshipInput, accessToken: string): Promise<TodayState> {
+  return request<TodayState>('/v1/life-os/relationships', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function updateLifeRelationship(relationshipId: string, input: Partial<LifeRelationshipInput>, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/life-os/relationships/${encodeURIComponent(relationshipId)}`, accessToken, { method: 'PATCH', body: JSON.stringify(input) });
+}
+export async function createLifeOsItem(input: LifeAdminInput, accessToken: string): Promise<TodayState> {
+  return request<TodayState>('/v1/life-os/items', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function updateLifeOsItem(itemId: string, input: Partial<LifeAdminInput>, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/life-os/items/${encodeURIComponent(itemId)}`, accessToken, { method: 'PATCH', body: JSON.stringify(input) });
+}
+export async function completeLifeOsItem(itemId: string, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/life-os/items/${encodeURIComponent(itemId)}/complete`, accessToken, { method: 'POST' });
+}
+
 export async function persistOnboarding(input: ApiOnboardingInput, accessToken: string): Promise<TodayState> {
   return request<TodayState>('/v1/onboarding', accessToken, { method: 'PUT', body: JSON.stringify(input) });
 }

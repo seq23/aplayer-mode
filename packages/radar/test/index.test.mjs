@@ -44,6 +44,8 @@ function graph(goals, nextActions) {
     nextActions,
     routines: [],
     people: [],
+    lifeRelationships: [],
+    lifeAdminItems: [],
     preferences: [],
     rules: [],
     radarItems: [],
@@ -76,4 +78,107 @@ test('does not invent a warning for a healthy executable goal with no near deadl
     { now },
   );
   assert.deepEqual(result, []);
+});
+
+
+test('surfaces a Life OS bill before it becomes a miss', () => {
+  const state = graph([goal({ health: 'on_track' })], [action()]);
+  state.lifeAdminItems = [{
+    id: 'life-1',
+    userId: 'user-1',
+    kind: 'bill',
+    title: 'Pay insurance premium',
+    status: 'open',
+    importance: 4,
+    dueAt: '2026-10-08T12:00:00.000Z',
+    recurrence: { frequency: 'monthly', interval: 1 },
+    details: {},
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: now.toISOString(), confidence: 1 },
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  }];
+  const result = buildRadarItems(state, { now });
+  const item = result.find((candidate) => candidate.id === 'radar:life_os:life-1');
+  assert.ok(item);
+  assert.equal(item.type, 'recurring');
+  assert.ok(item.reasonCodes.includes('life_os.kind.bill'));
+});
+
+test('surfaces an upcoming birthday from the relationship graph', () => {
+  const state = graph([goal({ health: 'on_track' })], [action()]);
+  state.people = [{
+    id: 'person-1',
+    userId: 'user-1',
+    name: 'Avery',
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: now.toISOString(), confidence: 1 },
+  }];
+  state.lifeRelationships = [{
+    id: 'relationship-1',
+    userId: 'user-1',
+    personId: 'person-1',
+    birthday: '1990-10-12',
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: now.toISOString(), confidence: 1 },
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  }];
+  const result = buildRadarItems(state, { now });
+  const item = result.find((candidate) => candidate.reasonCodes.includes('relationship.birthday_upcoming'));
+  assert.ok(item);
+  assert.match(item.headline, /Avery/);
+});
+
+
+test('keeps a birthday reminder active through the full local birthday date', () => {
+  const late = new Date('2026-10-12T23:30:00.000Z');
+  const state = graph([goal({ health: 'on_track' })], [action()]);
+  state.identity.timezone = 'UTC';
+  state.people = [{
+    id: 'person-2',
+    userId: 'user-1',
+    name: 'Jordan',
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: late.toISOString(), confidence: 1 },
+  }];
+  state.lifeRelationships = [{
+    id: 'relationship-2',
+    userId: 'user-1',
+    personId: 'person-2',
+    birthday: '1990-10-12',
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: late.toISOString(), confidence: 1 },
+    createdAt: late.toISOString(),
+    updatedAt: late.toISOString(),
+  }];
+  const result = buildRadarItems(state, { now: late });
+  const item = result.find((candidate) => candidate.reasonCodes.includes('relationship.birthday_upcoming'));
+  assert.ok(item);
+  assert.match(item.headline, /today/i);
+});
+
+
+test('Life OS lead windows use local calendar days instead of elapsed hours', () => {
+  const state = graph([goal({ health: 'on_track' })], [action()]);
+  state.identity.timezone = 'America/Los_Angeles';
+  state.lifeAdminItems = [{
+    id: 'life-local-radar',
+    userId: 'user-1',
+    kind: 'bill',
+    title: 'Pay local bill',
+    status: 'open',
+    importance: 4,
+    dueAt: '2026-10-07T19:00:00.000Z',
+    recurrence: {},
+    details: {},
+    provenance: { kind: 'stated', sourceType: 'manual', createdAt: now.toISOString(), confidence: 1 },
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  }];
+
+  const dayBefore = buildRadarItems(state, { now: new Date('2026-10-06T15:00:00.000Z') });
+  const beforeItem = dayBefore.find((candidate) => candidate.id === 'radar:life_os:life-local-radar');
+  assert.ok(beforeItem);
+  assert.match(beforeItem.headline, /tomorrow/i);
+
+  const dayAfter = buildRadarItems(state, { now: new Date('2026-10-08T15:00:00.000Z') });
+  const afterItem = dayAfter.find((candidate) => candidate.id === 'radar:life_os:life-local-radar');
+  assert.ok(afterItem);
+  assert.match(afterItem.headline, /overdue/i);
 });

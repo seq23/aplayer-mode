@@ -1,13 +1,20 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { DailyPlan, LifeGraphSnapshot, OperatingModeKey, PillarName } from '@apm/domain';
 import {
+  completeLifeOsItem,
+  createLifeOsItem,
+  createLifeRelationship,
   fetchTodayState,
   isApmApiConfigured,
   persistActionCompletion,
   persistMethodologyIntake,
   persistOnboarding,
   persistOperatingMode,
+  updateLifeOsItem,
+  updateLifeRelationship,
   type ApiMethodologyIntakeInput,
+  type LifeAdminInput,
+  type LifeRelationshipInput,
 } from '../api/apmApi';
 import { useSession } from './session';
 
@@ -26,6 +33,8 @@ function emptyGraph(userId = 'unassigned'): LifeGraphSnapshot {
     nextActions: [],
     routines: [],
     people: [],
+    lifeRelationships: [],
+    lifeAdminItems: [],
     preferences: [],
     rules: [],
     radarItems: [],
@@ -62,6 +71,11 @@ interface LifeGraphContextValue {
   completeMethodologyIntake: (input: ApiMethodologyIntakeInput) => Promise<void>;
   setOperatingMode: (mode: OperatingModeKey) => Promise<void>;
   completeNextAction: (actionId: string) => Promise<void>;
+  createRelationship: (input: LifeRelationshipInput) => Promise<void>;
+  updateRelationship: (relationshipId: string, input: Partial<LifeRelationshipInput>) => Promise<void>;
+  createLifeItem: (input: LifeAdminInput) => Promise<void>;
+  updateLifeItem: (itemId: string, input: Partial<LifeAdminInput>) => Promise<void>;
+  completeLifeItem: (itemId: string) => Promise<void>;
 }
 
 const LifeGraphContext = createContext<LifeGraphContextValue | null>(null);
@@ -136,6 +150,31 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
       const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
       try { applyServerState(await persistActionCompletion(actionId, token)); }
       catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to record completion'); throw error; }
+    },
+    createRelationship: async (input) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { applyServerState(await createLifeRelationship(input, token)); }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to save relationship'); throw error; }
+    },
+    updateRelationship: async (relationshipId, input) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { applyServerState(await updateLifeRelationship(relationshipId, input, token)); }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to update relationship'); throw error; }
+    },
+    createLifeItem: async (input) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { applyServerState(await createLifeOsItem(input, token)); }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to save Life OS item'); throw error; }
+    },
+    updateLifeItem: async (itemId, input) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { applyServerState(await updateLifeOsItem(itemId, input, token)); }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to update Life OS item'); throw error; }
+    },
+    completeLifeItem: async (itemId) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { applyServerState(await completeLifeOsItem(itemId, token)); }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to complete Life OS item'); throw error; }
     },
   }), [accessToken, graph, isDurable, sessionStatus, syncError, syncStatus, todayPlan, user]);
 

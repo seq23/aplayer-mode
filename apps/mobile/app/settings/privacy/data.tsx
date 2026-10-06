@@ -1,5 +1,7 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
+import type { LifeAdminItem, LifeRelationship } from '@apm/domain';
 import {
   Body,
   Button,
@@ -11,10 +13,33 @@ import {
   SectionTitle,
   uiStyles,
 } from '../../../src/components/ui';
+import { fetchRetainedLifeOsState } from '../../../src/api/apmApi';
 import { useLifeGraph } from '../../../src/state/lifeGraph';
+import { useSession } from '../../../src/state/session';
 
 export default function YourDataScreen() {
   const { graph } = useLifeGraph();
+  const { accessToken } = useSession();
+  const [retainedLifeRelationships, setRetainedLifeRelationships] = useState<LifeRelationship[]>(graph.lifeRelationships);
+  const [retainedLifeAdminItems, setRetainedLifeAdminItems] = useState<LifeAdminItem[]>(graph.lifeAdminItems);
+  const [lifeOsReadError, setLifeOsReadError] = useState<string>();
+
+  useEffect(() => {
+    if (!accessToken) return;
+    let active = true;
+    fetchRetainedLifeOsState(accessToken)
+      .then((result) => {
+        if (!active) return;
+        setRetainedLifeRelationships(result.lifeRelationships);
+        setRetainedLifeAdminItems(result.lifeAdminItems);
+      })
+      .catch((cause: unknown) => {
+        if (!active) return;
+        setLifeOsReadError(cause instanceof Error ? cause.message : 'Unable to load retained Life OS data.');
+      });
+    return () => { active = false; };
+  }, [accessToken, graph.lifeRelationships, graph.lifeAdminItems]);
+
   const editPersonalOS = () => router.push('/onboarding');
 
   return (
@@ -25,7 +50,7 @@ export default function YourDataScreen() {
     >
       <Card tone="accent">
         <CardTitle>Your Life Graph is APM's private operating memory.</CardTitle>
-        <Body muted>Roles, goals, commitments, routines, people, preferences and rules live in structured state instead of being hidden inside a giant prompt.</Body>
+        <Body muted>Roles, goals, commitments, routines, people, relationships, Life OS obligations, preferences and rules live in structured state instead of being hidden inside a giant prompt.</Body>
       </Card>
 
       <SectionTitle>Identity & game</SectionTitle>
@@ -70,10 +95,43 @@ export default function YourDataScreen() {
         </Card>
       )) : <Card><Body muted>No commitments are stored yet.</Body></Card>}
 
+      <SectionTitle>Life OS</SectionTitle>
+      {lifeOsReadError ? <Card tone="warning"><Body>{lifeOsReadError}</Body></Card> : null}
+      {retainedLifeRelationships.length ? retainedLifeRelationships.slice(0, 20).map((relationship) => {
+        const person = graph.people.find((candidate) => candidate.id === relationship.personId);
+        return (
+          <Card key={relationship.id}>
+            <View style={uiStyles.row}><Pill>Relationship</Pill><Pill tone="success">{relationship.provenance.kind}</Pill></View>
+            <CardTitle>{person?.name ?? 'Person'}</CardTitle>
+            <KeyValue label="Relationship" value={person?.relationship ?? 'Not set'} />
+            <KeyValue label="Birthday" value={relationship.birthday ?? 'Not set'} />
+            <KeyValue label="Next contact" value={relationship.nextContactAt ?? 'Not set'} />
+            <KeyValue label="Source" value={relationship.provenance.sourceType} />
+          </Card>
+        );
+      }) : <Card><Body muted>No Life OS relationship state is stored.</Body></Card>}
+
+      {retainedLifeAdminItems.length ? retainedLifeAdminItems.slice(0, 20).map((item) => (
+        <Card key={item.id}>
+          <View style={uiStyles.row}><Pill>Life OS</Pill><Pill>{item.kind.replaceAll('_', ' ')}</Pill></View>
+          <CardTitle>{item.title}</CardTitle>
+          <KeyValue label="Status" value={item.status} />
+          <KeyValue label="Next date" value={item.dueAt ?? item.startsAt ?? 'Not set'} />
+          <KeyValue label="Source" value={item.provenance.sourceType} />
+        </Card>
+      )) : <Card><Body muted>No Life OS administration items are stored.</Body></Card>}
+
+      <Card>
+        <Body muted>Life OS state is private structured data. Use Life OS to correct or complete it; export and account deletion include this state through the same Life Graph lifecycle.</Body>
+        <Button label="Manage Life OS" variant="secondary" onPress={() => router.push('/settings/life')} />
+      </Card>
+
       <SectionTitle>Operating rules & preferences</SectionTitle>
       <Card>
         <KeyValue label="Routines" value={String(graph.routines.length)} />
         <KeyValue label="People" value={String(graph.people.length)} />
+        <KeyValue label="Life relationships" value={String(retainedLifeRelationships.length)} />
+        <KeyValue label="Life admin items" value={String(retainedLifeAdminItems.length)} />
         <KeyValue label="Preferences" value={String(graph.preferences.length)} />
         <KeyValue label="Rules" value={String(graph.rules.length)} />
         <KeyValue label="Connected accounts" value={String(graph.connections.length)} />

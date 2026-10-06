@@ -3,13 +3,34 @@ import {
   executableActionProblem,
   selectMinimumViableAction,
   shouldForceRecovery,
-} from './methodology';
+} from './methodology.js';
 
-export * from './methodology';
+export * from './methodology.js';
 
 export interface TodayProjectionOptions {
   date?: string;
   mode?: DailyPlan['mode'];
+  now?: Date;
+}
+
+export function calendarDateInTimezone(value: string | Date, timezone?: string): string {
+  const date = typeof value === 'string' ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+    const year = read('year');
+    const month = read('month');
+    const day = read('day');
+    return year && month && day ? `${year}-${month}-${day}` : date.toISOString().slice(0, 10);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
 }
 
 function compareGoals(a: Goal, b: Goal): number {
@@ -42,9 +63,22 @@ function selectStandardNumberOneMove(graph: LifeGraphSnapshot): NextAction | und
   return graph.nextActions.find((candidate) => candidate.status === 'open');
 }
 
+function calendarEventDate(graph: LifeGraphSnapshot, event: LifeGraphSnapshot['calendarEvents'][number]): string {
+  if (event.allDay) {
+    // Cloud providers normalize date-only values to a synthetic UTC midnight, so
+    // preserve their serialized date. Device calendars hand us real instants plus
+    // the source timezone, so recover the local calendar date instead.
+    if (event.provider === 'device') {
+      return calendarDateInTimezone(event.startsAt, event.timezone ?? graph.identity.timezone);
+    }
+    return event.startsAt.slice(0, 10);
+  }
+  return calendarDateInTimezone(event.startsAt, graph.identity.timezone);
+}
+
 function calendarBlocks(graph: LifeGraphSnapshot, date: string): DailyPlanBlock[] {
   return graph.calendarEvents
-    .filter((event) => !event.deleted && event.startsAt.slice(0, 10) === date)
+    .filter((event) => !event.deleted && calendarEventDate(graph, event) === date)
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .map((event) => ({
       id: `calendar:${event.id}`,
@@ -53,6 +87,29 @@ function calendarBlocks(graph: LifeGraphSnapshot, date: string): DailyPlanBlock[
       endAt: event.endsAt,
       source: 'calendar' as const,
     }));
+}
+
+function lifeOsBlocks(graph: LifeGraphSnapshot, date: string, minImportance = 1): DailyPlanBlock[] {
+  const timezone = graph.identity.timezone;
+  return (graph.lifeAdminItems ?? [])
+    .filter((item) => {
+      if (['completed','cancelled','paused'].includes(item.status) || item.importance < minImportance) return false;
+      const scheduledToday = Boolean(item.startsAt && calendarDateInTimezone(item.startsAt, timezone) === date);
+      const dueToday = Boolean(item.dueAt && calendarDateInTimezone(item.dueAt, timezone) === date);
+      return scheduledToday || dueToday;
+    })
+    .sort((a, b) => (a.startsAt ?? a.dueAt ?? '').localeCompare(b.startsAt ?? b.dueAt ?? ''))
+    .map((item) => {
+      const scheduledToday = Boolean(item.startsAt && calendarDateInTimezone(item.startsAt, timezone) === date);
+      return {
+        id: `life-os:${item.id}`,
+        title: item.title,
+        startAt: scheduledToday ? item.startsAt : undefined,
+        endAt: scheduledToday ? item.endsAt : undefined,
+        lifeAdminItemId: item.id,
+        source: 'life_os' as const,
+      };
+    });
 }
 
 function actionBlock(action: NextAction | undefined): DailyPlanBlock[] {
@@ -73,7 +130,7 @@ export function buildDailyPlan(
   graph: LifeGraphSnapshot,
   options: TodayProjectionOptions = {},
 ): DailyPlan {
-  const date = options.date ?? new Date().toISOString().slice(0, 10);
+  const date = options.date ?? calendarDateInTimezone(options.now ?? new Date(), graph.identity.timezone);
   const continuityRecovery = shouldForceRecovery(graph.dayRecords);
   const mode = options.mode ?? (continuityRecovery ? 'recovery' : graph.personalOS?.activeMode ?? 'standard');
   const numberOneMove = mode === 'recovery' ? selectMinimumViableAction(graph) : selectStandardNumberOneMove(graph);
@@ -88,8 +145,11 @@ export function buildDailyPlan(
         : 'not_started';
 
   const calendar = calendarBlocks(graph, date);
+  const lifeOs = lifeOsBlocks(graph, date, mode === 'recovery' ? 4 : 1);
   const firstMove = actionBlock(numberOneMove);
-  const blocks = mode === 'recovery' ? [...calendar, ...firstMove] : [...firstMove, ...calendar];
+  const blocks = mode === 'recovery'
+    ? [...calendar, ...lifeOs, ...firstMove]
+    : [...firstMove, ...calendar, ...lifeOs];
 
   return {
     userId: graph.identity.userId,
@@ -110,3 +170,4 @@ export function buildDailyPlan(
     verdict: mode === 'recovery' && completionState === 'complete' ? 'mvd' : undefined,
   };
 }
+export * from './recurrence.js';
