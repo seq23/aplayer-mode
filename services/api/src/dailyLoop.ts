@@ -113,9 +113,12 @@ export function todayLoopState(graph: LifeGraphSnapshot, input: { now: Date; rec
   const derived = dayStateFor(graph, date, input.recoveryMode);
   const lockedAgenda = day?.agendaStatus === 'locked' && day.agenda ? (day.agenda as unknown as DailyAgenda) : undefined;
   const dayState: DayStateResult = lockedAgenda ? { state: lockedAgenda.state, reason: derived.reason } : derived;
+  const fresh = freshAgenda(graph, { date, state: lockedAgenda?.state ?? derived.state, mood: day?.mood });
+  // The execution stack stays frozen; due gate / day-90 prompts are reconciled with the
+  // current plan records so a review or decision made today disappears at once.
   const agenda = lockedAgenda
-    ? withCompletionStatus(lockedAgenda, graph.planCompletions, graph.nextActions)
-    : freshAgenda(graph, { date, state: derived.state });
+    ? { ...withCompletionStatus(lockedAgenda, graph.planCompletions, graph.nextActions), gateReviews: fresh.gateReviews, decisions: fresh.decisions }
+    : fresh;
   return {
     date,
     agenda,

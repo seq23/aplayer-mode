@@ -274,13 +274,13 @@ export default function TodayScreen() {
       <Card>
         <Body muted>Closing records evidence for continuity. No catch-up is created for tomorrow.</Body>
         <TextField value={closeNote} onChangeText={setCloseNote} placeholder="A note for today (optional)" />
-        {todayLoop && !todayLoop.checkedIn ? <Body muted>A Full Day or MVD needs the check-in first. Without it, today can only close as a Miss.</Body> : (
+        {todayLoop?.closed ? <Body>{`Closed: ${todayLoop.day?.verdict?.replace('_', ' ') ?? 'done'}. Prior days stay closed; tomorrow starts fresh.`}</Body> : todayLoop && (!todayLoop.checkedIn || [agenda?.firstHour.priority, ...(agenda?.dailyStack ?? [])].filter((item) => item?.status === 'done').length === 0) ? <Body muted>A Full Day or MVD needs the check-in and at least one completed action. Otherwise today closes as a Miss — a miss is data.</Body> : (
           <>
             <Button label={closing ? 'Saving…' : 'Full Day'} onPress={() => void closeToday('full_day')} />
             <Button label="Minimum Viable Day" variant="secondary" onPress={() => void closeToday('mvd')} />
           </>
         )}
-        <Button label="Miss" variant="secondary" onPress={() => void closeToday('miss')} />
+        {!todayLoop?.closed ? <Button label="Miss" variant="secondary" onPress={() => void closeToday('miss')} /> : null}
       </Card>
 
         </>

@@ -160,7 +160,8 @@ test('the opening step gates execution; only agenda items complete; completion i
   const checkIn = await rpc(USER_A, 'apm_day_check_in', [today, 6, 'normal', JSON.stringify(agenda)]);
   assert.equal(checkIn.replayed, false);
   assert.equal(checkIn.day.agenda_status, 'locked');
-  const again = await rpc(USER_A, 'apm_day_check_in', [today, 1, 'normal', JSON.stringify(agenda)]);
+  await rejects(rpc(USER_A, 'apm_day_check_in', [today, 1, 'normal', JSON.stringify(agenda)]), /loop_invalid_agenda/, 'mood 1 never locks a standard agenda');
+  const again = await rpc(USER_A, 'apm_day_check_in', [today, 1, 'normal', JSON.stringify(agendaFor(stored, today, { mood: 1 }))]);
   assert.equal(again.replayed, true);
   assert.equal(again.day.mood, 6, 'the mood is recorded once; it is not renegotiated mid-day');
 
@@ -285,4 +286,47 @@ test('evidence before verdict, and the legacy path only completes what today’s
   await rejects(rpc(USER_B, 'apm_complete_next_action', [offAgenda]), /loop_not_on_agenda/);
   const closed = await rpc(USER_B, 'apm_close_day', ['full_day', null]);
   assert.equal(closed.verdict, 'full_day', 'after the check-in a Full Day is accepted');
+});
+
+test('the database checks the day’s supply, the Mood Gate and Never Miss Twice, and evidence before verdict', async () => {
+  const USER_C = '00000000-0000-4000-8000-0000000000c1';
+  const GOAL_C = '00000000-0000-4000-8000-00000000c0c1';
+  await admin(`insert into auth.users (id) values ('${USER_C}')`);
+  await admin(`update public.user_profiles set timezone = 'Europe/London' where user_id = '${USER_C}'`);
+  await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_C}', 'standard', current_date - 10)`);
+  await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL_C}', '${USER_C}', 'lose 30 lbs', 'active', 'unknown', 1, 'stated', 'manual')`);
+  const today = await localToday(USER_C);
+  const stored = await rpc(USER_C, 'apm_save_goal_plan', [GOAL_C, JSON.stringify(plan('lose 30 lbs', shift(today, -3))), 'intake']);
+  const entry = { record: { id: stored.id, goalId: GOAL_C, status: 'active', gateReviews: {}, startDate: stored.start_date }, plan: stored.plan };
+  const compose = (extra) => planning.composeAgenda({ date: today, plans: [entry], goals: [{ id: GOAL_C, title: 'lose 30 lbs', status: 'active', priority: 1 }], completions: [], morningSequence: [], ...extra });
+
+  // Yesterday had no close and no evidence: Never Miss Twice makes today a Recovery Day.
+  await rejects(rpc(USER_C, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(compose({ state: 'normal' }))]), /loop_invalid_agenda/);
+  // The Mood Gate: mood 2 never locks a standard agenda.
+  await rejects(rpc(USER_C, 'apm_day_check_in', [today, 2, 'missed_yesterday', JSON.stringify({ ...compose({ state: 'missed_yesterday' }), mode: 'standard' })]), /loop_invalid_agenda/);
+  // An off-schedule action (the day-90 decision on day 4) never gets onto the agenda.
+  const recovery = compose({ state: 'missed_yesterday', mood: 6 });
+  const offSchedule = { ...recovery, dailyStack: [{ id: 'x', kind: 'plan_floor', title: 'Make the day-90 call', planId: stored.id, actionKey: 'day90_decision', status: 'open', reasonCodes: [] }] };
+  await rejects(rpc(USER_C, 'apm_day_check_in', [today, 6, 'missed_yesterday', JSON.stringify(offSchedule)]), /loop_invalid_agenda/);
+  await rpc(USER_C, 'apm_day_check_in', [today, 6, 'missed_yesterday', JSON.stringify(recovery)]);
+
+  await rejects(rpc(USER_C, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'no win without evidence');
+  await rejects(rpc(USER_C, 'apm_complete_plan_action', [stored.id, 'day90_decision', null]), /loop_not_on_agenda/);
+  await rpc(USER_C, 'apm_complete_plan_action', [stored.id, recovery.firstHour.priority.actionKey, null]);
+  assert.equal((await rpc(USER_C, 'apm_close_day', ['mvd', null])).verdict, 'mvd');
+  await rejects(rpc(USER_C, 'apm_close_day', ['full_day', null]), /loop_day_closed/, 'a closed day stays closed');
+  await rejects(rpc(USER_C, 'apm_close_day', ['miss', null]), /loop_day_closed/);
+
+  const allowed = (await admin('select private.apm_loop_allowed_actions($1::jsonb, $2::date) a', [JSON.stringify(stored.plan), today])).rows[0].a;
+  const engine = planning.supplyDailyActions(stored.plan, { date: today, state: 'normal' });
+  for (const action of [engine.foreground, ...engine.floors]) assert.ok(allowed.includes(action.actionKey), `SQL supply includes ${action.actionKey}`);
+  for (let offset = -1; offset <= 95; offset += 7) {
+    const day = shift(stored.start_date, offset);
+    const sqlKeys = (await admin('select private.apm_loop_allowed_actions($1::jsonb, $2::date) a', [JSON.stringify(stored.plan), day])).rows[0].a;
+    for (const state of ['normal', 'recovery']) {
+      const supply = planning.supplyDailyActions(stored.plan, { date: day, state });
+      for (const action of [supply.foreground, ...supply.floors]) assert.ok(sqlKeys.includes(action.actionKey), `day ${offset + 1} ${state}: ${action.actionKey}`);
+    }
+    assert.ok(offset + 1 >= 90 || !sqlKeys.includes('day90_decision'), `day ${offset + 1} never offers the day-90 decision early`);
+  }
 });

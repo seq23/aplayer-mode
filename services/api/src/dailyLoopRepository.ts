@@ -39,6 +39,7 @@ const LOOP_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 409
   loop_gate_not_reached: { error: 'gate_not_reached', status: 409, message: 'This gate has not been reached yet.' },
   loop_decision_not_due: { error: 'decision_not_due', status: 409, message: 'The day-90 decision is not due yet.' },
   loop_goal_parked: { error: 'goal_parked', status: 409, message: 'This goal was parked at its day-90 decision; parked goals stay in the background.' },
+  loop_verdict_needs_evidence: { error: 'verdict_needs_evidence', status: 409, message: 'A Full Day or MVD needs at least one completed action today. Otherwise close it as a Miss — a miss is data.' },
   loop_already_decided: { error: 'already_decided', status: 409, message: 'This plan already has its day-90 decision.' },
 };
 
