@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import { Body, Button, Card, CardTitle, KeyValue, Label, Screen, SectionTitle, TextField } from '../src/components/ui';
 import { completeWeeklyReview, fetchWeeklyDebrief, type WeeklyDebriefView } from '../src/api/apmApi';
 import { useLifeGraph } from '../src/state/lifeGraph';
 import { useSession } from '../src/state/session';
+import { plainError } from '../src/api/errors';
 
 /** BHPC Prompt #7: Execution Score, Foreground Focus, Friction Analysis, One Adjustment. */
 export default function WeeklyReviewScreen() {
@@ -13,16 +14,23 @@ export default function WeeklyReviewScreen() {
   const [adjustment, setAdjustment] = useState('');
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string>();
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!accessToken) return;
-    void fetchWeeklyDebrief(accessToken).then((result) => setDebrief(result.debrief)).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load the debrief.'));
+    setLoadFailed(false); setError(undefined);
+    void fetchWeeklyDebrief(accessToken).then((result) => setDebrief(result.debrief)).catch((cause: unknown) => { setLoadFailed(true); setError(plainError(cause, 'The debrief did not load.')); });
   }, [accessToken]);
+  useEffect(() => { load(); }, [load]);
 
+  // One record per tap: a second tap while saving, or after it is recorded, does nothing (docs/35 E11).
   const finish = async () => {
-    setError(undefined);
+    if (busy || done) return;
+    setBusy(true); setError(undefined);
     try { await perform((token) => completeWeeklyReview(adjustment.trim() || undefined, token)); setDone(true); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Not saved.'); }
+    catch (cause) { setError(plainError(cause, 'Not saved. Try again.')); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -58,12 +66,12 @@ export default function WeeklyReviewScreen() {
           <Card>
             <Body muted>{debrief.adjustmentPrompt}</Body>
             <TextField value={adjustment} onChangeText={setAdjustment} placeholder="e.g. Move the long walk to Saturday mornings" />
-            <Button label={done ? 'Debrief recorded' : 'Record the debrief'} onPress={() => void finish()} />
+            <Button label={done ? 'Debrief recorded' : busy ? 'Recording…' : 'Record the debrief'} disabled={done || busy} onPress={() => void finish()} />
             {done ? <Button label="Draft that change in the Drafting Room" variant="secondary" onPress={() => router.push('/settings/os')} /> : null}
           </Card>
           <Card tone="muted"><Body>{debrief.executiveReview.close}</Body></Card>
         </>
-      ) : <Card><Body muted>Loading…</Body></Card>}
+      ) : loadFailed ? <Card><Button label="Try again" onPress={load} /></Card> : <Card><Body muted>Loading…</Body></Card>}
     </Screen>
   );
 }

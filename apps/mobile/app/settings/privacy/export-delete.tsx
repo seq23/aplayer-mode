@@ -4,15 +4,17 @@ import {
   Button,
   Card,
   CardTitle,
-  KeyValue,
   Screen,
   SectionTitle,
 } from '../../../src/components/ui';
 import { exportMyData, requestDeletion } from '../../../src/api/apmApi';
+import { router } from 'expo-router';
 import { useSession } from '../../../src/state/session';
+import { plainError } from '../../../src/api/errors';
 
 export default function ExportDeleteScreen() {
-  const { accessToken } = useSession();
+  const { accessToken, signOut } = useSession();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState<'export' | 'delete'>();
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
@@ -22,9 +24,9 @@ export default function ExportDeleteScreen() {
     setBusy('export'); setError(undefined); setMessage(undefined);
     try {
       const result = await exportMyData(accessToken);
-      setMessage(`Export ${result.job.id} is ${result.job.status}. Snapshot generated ${result.export.generatedAt}.`);
+      setMessage(`Your export is ready (made ${new Date(result.export.generatedAt).toLocaleString()}). It holds your Life Graph and APM's activity record.`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to create export.');
+      setError(plainError(cause, 'The export did not finish. Try again.'));
     } finally { setBusy(undefined); }
   };
 
@@ -32,10 +34,11 @@ export default function ExportDeleteScreen() {
     if (!accessToken || busy) return;
     setBusy('delete'); setError(undefined); setMessage(undefined);
     try {
-      const result = await requestDeletion(accessToken);
-      setMessage(`Deletion request ${result.job.id} is ${result.job.status}. ${result.note}`);
+      await requestDeletion(accessToken);
+      await signOut().catch(() => undefined);
+      router.replace({ pathname: '/welcome', params: { deleted: '1' } });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to request deletion.');
+      setError(plainError(cause, 'Deletion was not requested. Check your connection and try again.'));
     } finally { setBusy(undefined); }
   };
 
@@ -43,29 +46,39 @@ export default function ExportDeleteScreen() {
     <Screen
       eyebrow="Export & Delete"
       title="Your data should not be trapped."
-      subtitle="Export is available through the authenticated APM API. Account deletion is deliberately orchestrated and is not represented as finished until the privileged deletion worker verifies every lifecycle step."
+      subtitle="Take a copy of everything APM holds, or delete your account and all of it."
     >
       {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
-      {message ? <Card tone="accent"><KeyValue label="Request status" value={message} /></Card> : null}
+      {message ? <Card tone="accent"><Body>{message}</Body></Card> : null}
 
       <SectionTitle>Export</SectionTitle>
       <Card>
         <CardTitle>Export my APM data</CardTitle>
-        <Body muted>The export contains your current Life Graph and meaningful APM activity. It is generated through your authenticated user boundary rather than a support ticket.</Body>
+        <Body muted>Your Life Graph and APM's activity record, made on the spot. No support ticket.</Body>
         <Button label={busy === 'export' ? 'Generating…' : 'Generate export'} variant="secondary" onPress={() => void runExport()} />
       </Card>
 
       <SectionTitle>Connections</SectionTitle>
       <Card>
         <CardTitle>Disconnect without deleting your account</CardTitle>
-        <Body muted>External connections remain independently manageable from the Connections page. Deleting your APM account is not required to revoke a provider connection.</Body>
+        <Body muted>You can disconnect a calendar or inbox from Privacy & AI → Connections and keep your account.</Body>
       </Card>
 
       <SectionTitle>Delete</SectionTitle>
       <Card tone="danger">
-        <CardTitle>Request deletion of my APM account and data</CardTitle>
-        <Body>APM queues an auditable deletion job. Production completion must stop sessions/actions, disconnect integrations, remove primary and derived state, apply published retention exceptions, and record non-sensitive completion evidence.</Body>
-        <Button label={busy === 'delete' ? 'Requesting…' : 'Request account deletion'} variant="danger" onPress={() => void queueDeletion()} />
+        <CardTitle>Delete my APM account and data</CardTitle>
+        {!confirmDelete ? (
+          <>
+            <Body>Your account, your OS, your history and your connections are erased within 24 hours, and you are signed out.</Body>
+            <Button label="Delete my account" variant="danger" onPress={() => setConfirmDelete(true)} />
+          </>
+        ) : (
+          <>
+            <Body>Delete everything? This cannot be undone. A store subscription is cancelled in the App Store or Google Play, not here.</Body>
+            <Button label={busy === 'delete' ? 'Deleting…' : 'Delete everything'} variant="danger" onPress={() => void queueDeletion()} />
+            <Button label="Keep my account" variant="secondary" onPress={() => setConfirmDelete(false)} />
+          </>
+        )}
       </Card>
     </Screen>
   );

@@ -7,7 +7,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { getSupabaseClient, isSupabaseConfigured } from '../auth/supabase';
 import { forgetBillingUser, identifyBillingUser } from '../billing/purchases';
 import { disableApmPushForSignOut } from '../integrations/push';
-import { mergeAnonymousIntakeDraft } from '../api/apmApi';
+import { mergeAnonymousIntakeDraft, reviewerSignIn, setAccessTokenRefresher } from '../api/apmApi';
 
 type SessionStatus = 'loading' | 'signed_out' | 'signed_in' | 'unconfigured';
 
@@ -66,7 +66,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string>();
   const [firstName, setFirstName] = useState<string>();
   // The email-code mode chosen when the code was sent.
-  const emailMode = useRef<'link' | 'signin' | 'existing'>('signin');
+  const emailMode = useRef<'link' | 'signin' | 'existing' | 'review'>('signin');
   // The anonymous session's token, kept while signing in to an existing account (merge proof).
   const anonymousToken = useRef<string | undefined>(undefined);
 
@@ -77,6 +77,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     const supabase = getSupabaseClient();
     let active = true;
+    // One refresh-and-retry when the API answers 401 (an expired token after a long background).
+    setAccessTokenRefresher(async () => (await supabase.auth.refreshSession()).data.session?.access_token);
     void supabase.auth.getSession().then(({ data, error: sessionError }) => {
       if (!active) return;
       if (sessionError) {
@@ -96,6 +98,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       active = false;
+      setAccessTokenRefresher(undefined);
       subscription.unsubscribe();
     };
   }, []);
@@ -152,6 +155,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setError(undefined);
         const address = email.trim().toLowerCase();
         try {
+          // App Review demo account (docs/33 §8): the server says so only for its one address.
+          if ((await reviewerSignIn({ email: address }))?.review) { emailMode.current = 'review'; return; }
           if (session && isAnonymous) {
             const { error: linkError } = await supabase().auth.updateUser({ email: address });
             if (!linkError) { emailMode.current = 'link'; return; }
@@ -172,6 +177,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setError(undefined);
         const address = email.trim().toLowerCase();
         try {
+          if (emailMode.current === 'review') {
+            const review = await reviewerSignIn({ email: address, code: code.trim() });
+            if (!review?.session) throw new Error('code did not match');
+            if (session && isAnonymous) anonymousToken.current = session.access_token;
+            const { data, error: setError_ } = await supabase().auth.setSession(review.session);
+            if (setError_) throw setError_;
+            await saveName(name);
+            const mergeOutcome = await mergeFromAnonymous(data.session?.access_token);
+            return { outcome: mergeOutcome ? 'merged' : 'signed_in', provider: 'email', ...(mergeOutcome ? { mergeOutcome } : {}), ...(name ? { firstName: name } : {}) };
+          }
           const type = emailMode.current === 'link' ? 'email_change' : 'email';
           const { data, error: verifyError } = await supabase().auth.verifyOtp({ email: address, token: code.trim(), type });
           if (verifyError) throw verifyError;

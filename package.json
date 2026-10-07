@@ -17,7 +17,8 @@
     "runtime:verify": "node scripts/verify-runtime.mjs",
     "model:eval": "node scripts/evaluate-openrouter-routes.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "presubmit:ios": "node scripts/presubmit-ios.mjs"
   },
   "engines": {
     "node": ">=22.13.0"

@@ -17,6 +17,7 @@ import {
   type AutopilotOverview,
 } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
+import { plainError } from '../../src/api/errors';
 import { useSession } from '../../src/state/session';
 
 const WEEKDAYS: Array<{ id: number; label: string }> = [
@@ -201,7 +202,7 @@ export default function AutopilotScreen() {
       setOverview(next);
       setDone(today.items);
     }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to load Autopilot.'); }
+    catch (cause) { setError(plainError(cause, 'Autopilot did not load. Check your connection and try again.')); }
   }, [accessToken]);
 
   useEffect(() => { void load(); }, [load]);
@@ -210,7 +211,7 @@ export default function AutopilotScreen() {
     if (!accessToken || busy) return;
     setBusy(true); setError(undefined);
     try { await work(); await load(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Autopilot request failed.'); }
+    catch (cause) { setError(plainError(cause, 'That did not go through. Try again.')); }
     finally { setBusy(false); }
   };
 
@@ -220,7 +221,7 @@ export default function AutopilotScreen() {
   if (!overview) {
     return (
       <Screen eyebrow="Autopilot" title="Standing authority, inside your rules." subtitle="Loading your rules…">
-        {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+        {error ? <Card tone="danger"><Body>{error}</Body><Button label="Try again" variant="secondary" onPress={() => { setError(undefined); void load(); }} /></Card> : null}
       </Screen>
     );
   }

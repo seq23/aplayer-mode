@@ -35,6 +35,10 @@ import { areaDisplay } from '../../src/content/areas';
 import { BedRoutineToday, CoachingModeChips, PillarRollUpLine, PracticesToday, QuickTaps, SaveAccountBanner } from '../../src/components/today/FirstRunCards';
 import { useSession } from '../../src/state/session';
 import { sourceAccountLabel } from '../../src/integrations/accounts';
+import { hasDailyLoopAccess, noPlanCopy } from '../../src/billing/access';
+import { billingAvailability } from '../../src/billing/purchases';
+import { plainError } from '../../src/api/errors';
+import { greeting } from '../../src/content/greeting';
 
 function timeLabel(value?: string) {
   if (!value) return undefined;
@@ -43,7 +47,7 @@ function timeLabel(value?: string) {
 }
 
 export default function TodayScreen() {
-  const { graph, todayPlan, modeState, todayLoop, completeNextAction, isDurable, syncError, refresh, perform } = useLifeGraph();
+  const { graph, todayPlan, modeState, todayLoop, completeNextAction, isDurable, syncStatus, refresh, perform } = useLifeGraph();
   const { accessToken } = useSession();
   const [busy, setBusy] = useState(false);
   const [busyActionId, setBusyActionId] = useState<string>();
@@ -72,7 +76,7 @@ export default function TodayScreen() {
     if (busy) return;
     setBusy(true); setActionError(undefined); setNotice(undefined);
     try { await call(label); }
-    catch (error) { setActionError(error instanceof Error ? error.message : 'That did not save.'); }
+    catch (error) { setActionError(plainError(error, 'That did not save. Try again.')); }
     finally { setBusy(false); }
   };
   const checkIn = () => mood !== undefined && run('check-in', () => perform((token) => checkInToday(mood, token)));
@@ -85,7 +89,7 @@ export default function TodayScreen() {
       const state = await perform((token) => replanToday({ reason }, token));
       setNotice(state.message);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message.replace(/ \(409\).*$/, '') : undefined);
+      setNotice(plainError(error, 'The plan stands for today.'));
     }
   });
   // One question at a time: the first due gate, then the first due day-90 decision.
@@ -93,7 +97,15 @@ export default function TodayScreen() {
   const decisionDue = agenda?.decisions?.[0];
   const goalTitleForPlan = (planId: string) => graph.goals.find((goal) => goal.id === graph.goalPlans.find((plan) => plan.id === planId)?.goalId)?.title ?? 'this goal';
   const reviewGate = (stillAligned: boolean) => gateDue && run('gate', () => perform((token) => reviewPlanGate(gateDue.planId, { gate: gateDue.gate as 'foundation' | 'build', stillAligned }, token)));
-  const decide = () => decisionDue && decision && decisionReason.trim().length >= 3 && run('decide', () => perform((token) => decideGoalPlan(decisionDue.planId, { decision, reason: decisionReason.trim() }, token)));
+  // Day 90: APM's recommendation is pre-selected and the "why" is optional; one tap records it (docs/35 U5).
+  const chosenDecision = decision ?? decisionDue?.recommended;
+  const decide = () => decisionDue && chosenDecision && run('decide', () => perform((token) => decideGoalPlan(decisionDue.planId, {
+    decision: chosenDecision,
+    reason: decisionReason.trim().length >= 3 ? decisionReason.trim() : `${chosenDecision === decisionDue.recommended ? 'Went with' : 'Chose over'} APM's recommendation (${decisionDue.recommended}).`,
+  }, token)));
+  // No plan yet (or a lapsed one): Today offers the plan, never a check-in the server refuses (docs/35 E5).
+  const loopOpen = hasDailyLoopAccess(graph.entitlement);
+  const planCopy = noPlanCopy(billingAvailability().available);
 
   const itemCard = (item: AgendaItem, label?: string) => (
     <Card key={item.id} tone={item.kind === 'plan_action' ? 'accent' : 'default'}>
@@ -126,7 +138,7 @@ export default function TodayScreen() {
     if (!primaryAction || busy) return;
     setBusy(true); setActionError(undefined);
     try { await completeNextAction(primaryAction.id); }
-    catch (error) { setActionError(error instanceof Error ? error.message : 'Unable to record completion.'); }
+    catch (error) { setActionError(plainError(error, 'That did not record. Try again.')); }
     finally { setBusy(false); }
   };
 
@@ -137,7 +149,7 @@ export default function TodayScreen() {
       await approveExternalAction(actionId, accessToken);
       await refresh();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to execute the approved action.');
+      setActionError(plainError(error, 'That action did not run. Nothing was sent; try again.'));
     } finally { setBusyActionId(undefined); }
   };
 
@@ -163,7 +175,7 @@ export default function TodayScreen() {
         ...(carry.trim() ? { carryForward: carry.trim() } : {}),
       }, token));
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to close the day.');
+      setActionError(plainError(error, 'The day did not close. Try again.'));
     } finally { setClosing(false); }
   };
 
@@ -171,24 +183,38 @@ export default function TodayScreen() {
   return (
     <Screen
       eyebrow="Today"
-      title={`Good morning, ${name}.`}
+      title={`${greeting(new Date().getHours())}, ${name}.`}
       subtitle={primaryGoal ? recovery ? 'Recovery Mode is active. Today protects continuity instead of demanding intensity.' : 'APM rebuilt Today from your Personal OS, Life Graph, calendar and current execution state.' : 'APM is ready to build your first durable Personal OS.'}
     >
       <View style={uiStyles.row}>
-        <Pill tone={isDurable ? 'success' : 'warning'}>{isDurable ? 'Server-backed' : 'Connection needed'}</Pill>
         <Pill tone={recovery ? 'warning' : 'neutral'}>{mode.replace('_', ' ')}</Pill>
         {todayPlan ? <Pill>{todayPlan.completionState.replace('_', ' ')}</Pill> : null}
       </View>
 
       <SaveAccountBanner />
 
-      {!isDurable ? <Card tone="warning"><CardTitle>APM is not pretending local state is durable.</CardTitle><Body muted>{syncError ?? 'Reconnect the authenticated APM API before changing private Life Graph state.'}</Body></Card> : null}
+      {!isDurable || (syncStatus === 'error' && !todayLoop) ? (
+        <Card tone="warning">
+          <CardTitle>APM can't reach your account right now.</CardTitle>
+          <Body muted>Nothing is lost. Check your connection, then try again.</Body>
+          <Button label="Try again" variant="secondary" onPress={() => void refresh().catch(() => undefined)} />
+        </Card>
+      ) : null}
+
+      {graph.personalOS && !loopOpen ? (
+        <Card tone="accent">
+          <Label>Day 1 is ready</Label>
+          <CardTitle>{planCopy.title}</CardTitle>
+          <Body muted>{planCopy.body}</Body>
+          <Button label={planCopy.action} onPress={() => router.push('/settings/plan')} />
+        </Card>
+      ) : null}
 
       {modeState?.todayEffect && (mode === 'sprint' || mode === 'deep_work') ? <Card tone="accent"><Label>{mode === 'sprint' ? 'Sprint' : 'Deep Work'}</Label><CardTitle>{modeState.todayEffect.summary}</CardTitle>{modeState.todayEffect.heldBlocks.length ? <Body muted>{modeState.todayEffect.heldBlocks.length} item(s) held {mode === 'sprint' ? 'in maintenance' : 'until the block ends'}.</Body> : null}</Card> : null}
 
       {recovery ? <Card tone="warning"><Label>Minimum Viable Day</Label><CardTitle>One useful thing. No catch-up debt.</CardTitle><Body muted>Continuity beats intensity today. Completing the smallest critical move is enough.</Body></Card> : null}
 
-      {!graph.personalOS ? (
+      {!graph.personalOS && syncStatus === 'ready' ? (
         <Card tone="accent">
           <Label>Start here</Label>
           <CardTitle>Build your Personal OS so APM can plan around your actual game.</CardTitle>
@@ -229,7 +255,7 @@ export default function TodayScreen() {
           {todayLoop.weeklyReview.due ? <Card tone="accent"><Label>{`Weekly debrief · ${todayLoop.weeklyReview.reviewDay}`}</Label><CardTitle>Run your weekly debrief.</CardTitle><Button label="Open the debrief" onPress={() => router.push('/review')} /></Card> : null}
           {todayLoop.dayState.state === 'missed_yesterday' ? <Card tone="warning"><Label>Never Miss Twice</Label><CardTitle>Yesterday is closed. Today is a Recovery Day.</CardTitle><Body muted>One small thing, then close the day. Nothing from yesterday is owed.</Body></Card> : null}
 
-          {!todayLoop.checkedIn && !todayLoop.closed ? (
+          {loopOpen && !todayLoop.checkedIn && !todayLoop.closed ? (
             <Card tone="accent">
               <Label>{todayLoop.dayStart === 'hard' ? 'Hard Start · opening step' : 'Guided Start · opening step'}</Label>
               <CardTitle>How is your energy right now, 1 to 10?</CardTitle>
@@ -291,8 +317,8 @@ export default function TodayScreen() {
               <Label>Day 90 · forced decision</Label>
               <CardTitle>{`${goalTitleForPlan(decisionDue.planId)}: Promote, Maintain or Park? APM recommends ${decisionDue.recommended}.`}</CardTitle>
               {decisionDue.criteria.map((line) => <Body key={line} muted>{line}</Body>)}
-              <ChoiceRow options={[{ id: 'promote', label: 'Promote' }, { id: 'maintain', label: 'Maintain' }, { id: 'park', label: 'Park' }]} value={decision} onChange={setDecision} />
-              <TextField value={decisionReason} onChangeText={setDecisionReason} placeholder="One line why" />
+              <ChoiceRow options={[{ id: 'promote', label: 'Promote' }, { id: 'maintain', label: 'Maintain' }, { id: 'park', label: 'Park' }]} value={chosenDecision} onChange={setDecision} />
+              <TextField value={decisionReason} onChangeText={setDecisionReason} placeholder="Why (optional)" />
               <Button label="Record the decision" onPress={() => void decide()} />
               <Body muted>Parking is a successful outcome: it is a strategic allocation choice.</Body>
             </Card>
@@ -362,7 +388,7 @@ export default function TodayScreen() {
           {todayLoop.day?.insight ? <Body>{todayLoop.day.insight}</Body> : null}
           {todayLoop.day?.carryForward ? <KeyValue label="Carrying to tomorrow" value={todayLoop.day.carryForward} /> : null}
         </Card>
-      ) : todayLoop ? (
+      ) : todayLoop && loopOpen ? (
         <Card>
           <Body muted>What did you complete today? Score each area; the line below rolls them up to Mind, Body and Spirit. Closing records evidence for continuity; nothing becomes debt for tomorrow.</Body>
           {todayLoop.closePreview.evidence.length ? <><Label>Completion evidence</Label>{todayLoop.closePreview.evidence.map((line) => <Body key={line}>{`• ${line}`}</Body>)}</> : <Body muted>No completion evidence yet today.</Body>}

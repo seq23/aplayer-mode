@@ -13,19 +13,21 @@ export default function Index() {
   const { graph, syncStatus, syncError, refresh } = useLifeGraph();
   const { draft } = useIntake();
   const started = Object.keys(draft.answers).length > 0;
+  // An OS installed from this phone: setup is finished, so an outage must never reopen it (docs/35 E1).
+  const installedHere = draft.installedVersion !== undefined && draft.installedVersion !== null;
 
   if (status === 'loading' || (status === 'signed_in' && (syncStatus === 'idle' || syncStatus === 'loading'))) {
     return <Screen eyebrow="A Player Mode" title="Opening your APM…">{null}</Screen>;
   }
 
-  if (status === 'signed_in' && syncStatus === 'error' && !started) {
+  if (status === 'signed_in' && syncStatus === 'error' && (!started || installedHere)) {
     return (
       <Screen eyebrow="A Player Mode" title="We couldn't reach your APM yet.">
         <Card tone="warning">
           <CardTitle>Everything on this phone is safe.</CardTitle>
           <Body muted>{syncError?.includes('configured') ? 'Setup isn\'t finished on this build.' : 'Check your connection and try again.'}</Body>
         </Card>
-        <Button label="Try again" onPress={() => void refresh()} />
+        <Button label="Try again" onPress={() => void refresh().catch(() => undefined)} />
       </Screen>
     );
   }

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   CONTINUITY,
   CTA_LABEL,
@@ -32,6 +32,7 @@ import { colors, radius, spacing } from '../src/theme';
 export default function WelcomeScreen() {
   const { startAnonymous } = useSession();
   const { track } = useIntake();
+  const { deleted } = useLocalSearchParams<{ deleted?: string }>();
   const start = () => {
     // Silent anonymous session (when the project allows it); the draft is saved on this phone either way.
     void startAnonymous().catch(() => false);
@@ -42,6 +43,7 @@ export default function WelcomeScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scroll}>
+        {deleted === '1' ? <Text accessibilityLiveRegion="polite" style={styles.strong}>Your account deletion is under way. Everything is erased within 24 hours, and you are signed out.</Text> : null}
         <Text style={styles.eyebrow}>{HERO.eyebrow}</Text>
         <Text accessibilityRole="header" style={styles.headline}>{HERO.headline}</Text>
         <Text style={styles.sub}>{HERO.sub}</Text>

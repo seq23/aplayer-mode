@@ -35,6 +35,10 @@ export interface ApiEnv {
   REVENUECAT_WEBHOOK_SECRET?: string;
   /** 'true' on staging only: accept RevenueCat SANDBOX events. Production ignores them. */
   BILLING_ALLOW_SANDBOX?: string;
+  /** App Review demo account (docs/33 §8): the one address whose fixed code signs in. Off unless set. */
+  APP_REVIEW_EMAIL?: string;
+  /** Its fixed code, 6–12 digits (Worker secret). Off unless set together with APP_REVIEW_EMAIL. */
+  APP_REVIEW_CODE?: string;
 }
 
 export function requireSupabaseConfig(env: ApiEnv): { url: string; publishableKey: string } {

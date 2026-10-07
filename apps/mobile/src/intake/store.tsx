@@ -17,6 +17,7 @@ import { fetchIntakeDraft, isApmApiConfigured, saveIntakeDraft, trackEvent } fro
 import { useSession } from '../state/session';
 import { useLifeGraph } from '../state/lifeGraph';
 import { readSync, removeSync, writeSync } from './storage';
+import { errorStatus } from '../api/errors';
 
 /**
  * The one IntakeDraft store (docs/34 §6). Screens read answers from here and write every
@@ -145,10 +146,13 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
       setPendingInstall(false);
       return 'installed';
     } catch (error) {
+      // A refusal (4xx other than "already installing") is shown, never queued as "offline":
+      // queuing it would promise "we'll finish when you're online" forever (docs/35 E13).
+      const status = errorStatus(error);
+      if (status !== undefined && status >= 400 && status < 500 && status !== 409) throw error;
       // Offline or the API is down: the draft is safe; install retries with the same key.
       writeSync(PENDING_INSTALL_KEY, '1');
       setPendingInstall(true);
-      if (error instanceof Error && /\(4\d\d\)/.test(error.message) && !/\(409\)/.test(error.message)) throw error;
       return 'queued';
     } finally {
       setInstalling(false);
