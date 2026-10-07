@@ -2,7 +2,8 @@
 
 **Status:** ACCEPTED / LOCKED  
 **Date:** 2026-10-06  
-**Approved by:** Product owner
+**Approved by:** Product owner  
+**Amended by:** ADR-0004 (Pricing section only)
 
 ## Decision
 
@@ -60,12 +61,7 @@ Household is **waitlist-only** until a later explicit approval. No subscription 
 
 ## Pricing
 
-Current pricing remains a testable hypothesis, not constitutional truth:
-
-- Chief of Staff: $29/mo standard; $24/mo founding hypothesis.
-- Life OS: ~$59/mo.
-- Autopilot: ~$129+/mo.
-- Household: no active product price while waitlist-only.
+**Superseded by ADR-0004 (2026-10-07).** The pricing hypotheses that stood here are retired; the final, owner-decided prices and the Chief of Staff intro offers are in ADR-0004 and in `packages/policy/src/index.ts`. Household still has no active product price while waitlist-only.
 
 ## Validation
 

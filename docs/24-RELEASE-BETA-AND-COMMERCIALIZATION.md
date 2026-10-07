@@ -67,16 +67,17 @@ The key beta question remains:
 
 ## Commercial ladder
 
-| Product state | Promise | Pricing hypothesis |
+| Product state | Promise | Price (ADR-0004) |
 |---|---|---:|
 | Closed beta | Prove proactive value | Free |
-| Founding Chief of Staff | Keep me on top of my life | $24/mo or $228/yr |
-| Chief of Staff | Keep me on top of my life | $29/mo or $276/yr |
-| Life OS | Carry more of my mental load | ~$59/mo / $564/yr |
-| Autopilot | Handle approved recurring work | ~$129+/mo |
+| Chief of Staff — Founding 100 | decides the day | $9.99/mo, locked while continuously subscribed |
+| Chief of Staff — intro | decides the day | $9.99/mo for the first 3 months, then $24.99/mo |
+| Chief of Staff | decides the day | $24.99/mo |
+| Life OS | remembers and prepares (includes Chief of Staff) | $39.99/mo |
+| Autopilot | does (includes Life OS) | $79.99/mo |
 | Household | Future shared mental load | Waitlist only |
 
-These prices are hypotheses. They are not permission to expose capabilities that do not exist.
+These prices are final (ADR-0004) and pinned to `PLAN_PRICES` in code. Billing is App Store + Google Play in-app subscriptions (Phase D, not built). A price is not permission to expose capabilities that do not exist, and buying a tier never grants autonomy.
 
 ## Entitlement vs authority
 

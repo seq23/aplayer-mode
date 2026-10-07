@@ -51,7 +51,8 @@ flowchart LR
 | AI cost / successful task | TBD | routing economics |
 | Variable cost / active user / month | TBD | gross margin |
 | Trust comprehension pass rate | TBD | privacy UX |
-| Willing to pay $24 founding price | TBD | commercialization |
+| Willing to pay the $9.99 Chief of Staff intro, then $24.99 | TBD | commercialization |
+| Willing to pay $39.99 for Life OS | TBD | commercialization |
 
 ## Qualitative beta questions
 

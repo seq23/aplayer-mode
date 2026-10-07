@@ -32,21 +32,21 @@ export const productPlanPolicies: Record<ProductPlan, ProductPlanPolicy> = {
   chief_of_staff: {
     plan: 'chief_of_staff',
     displayName: 'Chief of Staff',
-    promise: 'Keep me on top of my life.',
+    promise: 'APM decides the day.',
     publicAvailability: 'available',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions'],
   },
   life_os: {
     plan: 'life_os',
     displayName: 'Life OS',
-    promise: 'Carry more of my mental load.',
+    promise: 'APM remembers and prepares: everything in Chief of Staff, across more of your life.',
     publicAvailability: 'available',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval'],
   },
   autopilot: {
     plan: 'autopilot',
     displayName: 'Autopilot',
-    promise: 'Handle approved recurring work inside rules I set.',
+    promise: 'APM does: everything in Life OS, plus approved work carried out inside rules you set.',
     publicAvailability: 'available',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval','standing_autopilot'],
   },
@@ -57,6 +57,61 @@ export const productPlanPolicies: Record<ProductPlan, ProductPlanPolicy> = {
     publicAvailability: 'waitlist',
     capabilities: [],
   },
+};
+
+/**
+ * THE price list (owner-decided, final, 2026-10-07; ADR-0004). Every doc that
+ * states a price is pinned to these constants by packages/policy/test/pricing.test.mjs,
+ * and the API's plan labels are derived from them. Change a price here and in
+ * ADR-0004 together, never in a doc alone.
+ *
+ * Tiers are cumulative and every tier reduces cognitive load (upper tiers more).
+ * A price buys capability, never autonomy: authority still needs explicit user
+ * permission AND server policy AND kill switches (see decideAuthority).
+ */
+export type PaidPlan = 'chief_of_staff' | 'life_os' | 'autopilot';
+
+export interface PlanPrice {
+  plan: PaidPlan;
+  displayName: string;
+  /** The one-line job of the tier. */
+  tagline: string;
+  /** USD cents per month, before any intro offer. */
+  monthlyUsdCents: number;
+  /** The tier this one fully includes (cumulative ladder). */
+  includes: PaidPlan | null;
+}
+
+export const PLAN_PRICES: Readonly<Record<PaidPlan, PlanPrice>> = {
+  chief_of_staff: { plan: 'chief_of_staff', displayName: 'Chief of Staff', tagline: 'decides the day', monthlyUsdCents: 2499, includes: null },
+  life_os: { plan: 'life_os', displayName: 'Life OS', tagline: 'remembers and prepares', monthlyUsdCents: 3999, includes: 'chief_of_staff' },
+  autopilot: { plan: 'autopilot', displayName: 'Autopilot', tagline: 'does', monthlyUsdCents: 7999, includes: 'life_os' },
+};
+
+/** Intro offers exist on Chief of Staff only. */
+export const CHIEF_OF_STAFF_INTRO_OFFERS = {
+  /** First 100 subscribers: the intro price for as long as they stay continuously subscribed. */
+  founding100: { subscribers: 100, monthlyUsdCents: 999, lockedWhileContinuouslySubscribed: true },
+  /** Everyone else: the intro price for the first months, then the standard price. */
+  introductory: { monthlyUsdCents: 999, months: 3, thenMonthlyUsdCents: 2499 },
+} as const;
+
+/** Billing is store in-app subscriptions only (Phase D, not built). */
+export const BILLING_CHANNELS = ['app_store', 'google_play'] as const;
+export type BillingChannel = (typeof BILLING_CHANNELS)[number];
+
+export function formatUsdCents(cents: number): string {
+  if (!Number.isInteger(cents) || cents < 0) throw new Error('price_cents_invalid');
+  return `$${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
+}
+
+/** The plan labels the API returns; derived from PLAN_PRICES, never typed by hand. */
+export const planPriceLabels: Readonly<Record<ProductPlan, string>> = {
+  beta: 'Free during beta',
+  chief_of_staff: `${formatUsdCents(PLAN_PRICES.chief_of_staff.monthlyUsdCents)}/mo · founding 100: ${formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents)}/mo locked · everyone else: ${formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents)}/mo for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months`,
+  life_os: `${formatUsdCents(PLAN_PRICES.life_os.monthlyUsdCents)}/mo · includes Chief of Staff`,
+  autopilot: `${formatUsdCents(PLAN_PRICES.autopilot.monthlyUsdCents)}/mo · includes Life OS`,
+  household: 'Waitlist only',
 };
 
 export function capabilitiesForPlan(plan: ProductPlan): ProductCapability[] {
