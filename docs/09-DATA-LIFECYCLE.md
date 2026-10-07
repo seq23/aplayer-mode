@@ -169,3 +169,15 @@ Phase B analytics contain event type and coarse domain kind/recurrence state onl
 Data-rights access is separate from product entitlement, but it is not an RLS bypass for ordinary reads: ordinary SELECT needs own-row AND entitlement, and only the dedicated owner-only `apm_life_os_data_rights_export()` path (used by `/v1/privacy/life-os` and `/v1/privacy/export`) reads retained rows after downgrade. Every Life OS write is a governed RPC that checks ownership, entitlement and lifecycle rules, forces user-stated provenance, and writes its audit event in the same transaction.
 
 Life OS state retains provenance. User-managed edits and completion are canonical state changes; future inferred Life OS facts must preserve the correction rules above.
+
+## Phase C Autopilot storage classes
+
+| Object | Owner / boundary | Classification | Retention intent | Export / deletion | AI-context eligibility |
+|---|---|---|---|---|---|
+| `autopilot_rules` | individual user; own-row + Autopilot entitlement RLS for reads; no direct client writes (governed RPCs only, migration 0018) | Class 1–2 (schedule windows, caps, recipient domains) | history until account deletion; revocation recorded, not deleted | included in export via `apm_autopilot_data_rights_export()` (also after downgrade); cascades with account deletion | none — Phase C is deterministic |
+| `autopilot_executions` | individual user; same as above | Class 1 (structural: times, status, provider reference); content lives on `actions.payload` (Class 2) | history until account deletion | same as above | none |
+| `autopilot_settings` | individual user; same as above | Class 1 | until account deletion | same as above | none |
+| `autopilot_action_classes` | product catalogue; read-only to authenticated users | public metadata | permanent | not personal data | n/a |
+
+Autopilot audit events and analytics carry the action class, ids and failure codes only — never titles, recipients, subjects or bodies.
+

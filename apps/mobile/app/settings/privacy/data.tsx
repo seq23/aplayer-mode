@@ -13,7 +13,7 @@ import {
   SectionTitle,
   uiStyles,
 } from '../../../src/components/ui';
-import { fetchRetainedLifeOsState } from '../../../src/api/apmApi';
+import { fetchRetainedAutopilotState, fetchRetainedLifeOsState } from '../../../src/api/apmApi';
 import { useLifeGraph } from '../../../src/state/lifeGraph';
 import { useSession } from '../../../src/state/session';
 
@@ -23,6 +23,7 @@ export default function YourDataScreen() {
   const [retainedLifeRelationships, setRetainedLifeRelationships] = useState<LifeRelationship[]>(graph.lifeRelationships);
   const [retainedLifeAdminItems, setRetainedLifeAdminItems] = useState<LifeAdminItem[]>(graph.lifeAdminItems);
   const [lifeOsReadError, setLifeOsReadError] = useState<string>();
+  const [autopilotRetained, setAutopilotRetained] = useState<{ rules: number; executions: number }>();
 
   useEffect(() => {
     if (!accessToken) return;
@@ -39,6 +40,17 @@ export default function YourDataScreen() {
       });
     return () => { active = false; };
   }, [accessToken, graph.lifeRelationships, graph.lifeAdminItems]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    let active = true;
+    // Owner-only data-rights read: retained Autopilot rules and history stay
+    // inspectable after a downgrade.
+    fetchRetainedAutopilotState(accessToken)
+      .then((result) => { if (active) setAutopilotRetained({ rules: result.rules.length, executions: result.executions.length }); })
+      .catch(() => { if (active) setAutopilotRetained(undefined); });
+    return () => { active = false; };
+  }, [accessToken]);
 
   const editPersonalOS = () => router.push('/onboarding');
 
@@ -132,6 +144,8 @@ export default function YourDataScreen() {
         <KeyValue label="People" value={String(graph.people.length)} />
         <KeyValue label="Life relationships" value={String(retainedLifeRelationships.length)} />
         <KeyValue label="Life admin items" value={String(retainedLifeAdminItems.length)} />
+        <KeyValue label="Autopilot rules" value={autopilotRetained ? String(autopilotRetained.rules) : '—'} />
+        <KeyValue label="Autopilot runs" value={autopilotRetained ? String(autopilotRetained.executions) : '—'} />
         <KeyValue label="Preferences" value={String(graph.preferences.length)} />
         <KeyValue label="Rules" value={String(graph.rules.length)} />
         <KeyValue label="Connected accounts" value={String(graph.connections.length)} />

@@ -214,3 +214,17 @@ Phase B adds two individual-user Life Graph primitives without creating a Househ
 Recurring LifeAdminItems use deterministic rollover. Completion advances the next occurrence to the first future due point rather than creating catch-up backlog, preserving the No Catch-Up operating rule.
 
 Both entities retain provenance and remain inside the same Life Graph / Today / Radar architecture defined by this document.
+
+## ADR-0002 / Phase C Autopilot extension
+
+Phase C adds the standing-authority primitives (migration 0018, docs/31):
+
+| Entity | Purpose |
+|---|---|
+| AutopilotActionClass | catalogue of the only classes that can ever hold standing authority (`calendar.create`, `email.draft`), with activation status and evidence reference |
+| AutopilotRule | one user's explicit, versioned, expiring (≤ 90 days), revocable rule for one class, with its constraints |
+| AutopilotExecution | the authority ledger: one claimed standing run, linked to the rule version and the canonical `Action` |
+| AutopilotSettings | the user's master pause |
+
+An AutopilotExecution always has a matching `Action`; the action lifecycle (`executing → verified/failed`, `cancelled` on undo) is unchanged. Rules never come from inference or external content.
+
