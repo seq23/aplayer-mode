@@ -66,13 +66,13 @@ function harness({ installed = true, rpcErrors = {} } = {}) {
     if (rpc) {
       calls.rpc.push({ fn: rpc, args: body });
       if (rpcErrors[rpc]) return json({ message: rpcErrors[rpc] }, 400);
-      if (rpc === 'apm_save_goal_plan' || rpc === 'apm_create_goal') {
-        const plan = rpc === 'apm_save_goal_plan' ? body.p_plan : body.p_plan;
-        const goalId = rpc === 'apm_save_goal_plan' ? body.p_goal_id : '00000000-0000-4000-8000-0000000000a2';
-        if (rpc === 'apm_create_goal') store.goals.push({ ...store.goals[0], id: goalId, title: body.p_goal.title, priority: 2 });
-        const row = { id: rpc === 'apm_save_goal_plan' ? PLAN_ID : '00000000-0000-4000-8000-0000000000b2', user_id: USER, goal_id: goalId, plan_key: plan.id, template_key: plan.provenance.templateKey, persona: plan.persona.key, foreground_pillar: plan.foreground.pillar, start_date: plan.startDate, end_date: plan.endDate, timezone: plan.timezone ?? null, plan, status: 'active', decision: null, decision_reason: null, decided_at: null, gate_reviews: {}, created_at: new Date().toISOString() };
+      if (rpc === 'apm_service_save_goal_plan' || rpc === 'apm_service_create_goal') {
+        const plan = body.p_plan;
+        const goalId = rpc === 'apm_service_save_goal_plan' ? body.p_goal_id : '00000000-0000-4000-8000-0000000000a2';
+        if (rpc === 'apm_service_create_goal') store.goals.push({ ...store.goals[0], id: goalId, title: body.p_goal.title, priority: 2 });
+        const row = { id: rpc === 'apm_service_save_goal_plan' ? PLAN_ID : '00000000-0000-4000-8000-0000000000b2', user_id: USER, goal_id: goalId, plan_key: plan.id, template_key: plan.provenance.templateKey, persona: plan.persona.key, foreground_pillar: plan.foreground.pillar, start_date: plan.startDate, end_date: plan.endDate, timezone: plan.timezone ?? null, plan, status: 'active', decision: null, decision_reason: null, decided_at: null, gate_reviews: {}, created_at: new Date().toISOString() };
         store.goal_plans = store.goal_plans.filter((existing) => existing.goal_id !== goalId).concat(row);
-        return json(rpc === 'apm_create_goal' ? { goal: { id: goalId }, plan: row } : row);
+        return json(rpc === 'apm_service_create_goal' ? { goal: { id: goalId }, plan: row } : row);
       }
       if (rpc === 'apm_service_day_check_in') {
         calls.serviceAuth = new Headers(init.headers).get('apikey');
@@ -102,7 +102,7 @@ test('Today never runs dry: a planless active goal is planned once (backfill) an
     const response = await request('/v1/me/today');
     assert.equal(response.status, 200);
     const body = await response.json();
-    const saves = h.calls.rpc.filter((c) => c.fn === 'apm_save_goal_plan');
+    const saves = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan');
     assert.equal(saves.length, 1);
     assert.equal(saves[0].args.p_source, 'backfill');
     assert.equal(saves[0].args.p_goal_id, GOAL);
@@ -115,7 +115,7 @@ test('Today never runs dry: a planless active goal is planned once (backfill) an
     assert.deepEqual(body.today.agenda.firstHour.sequence, ['Drink water']);
 
     await request('/v1/me/today');
-    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_save_goal_plan').length, 1, 'planned once, not on every read');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').length, 1, 'planned once, not on every read');
   } finally { h.restore(); }
 });
 
@@ -123,7 +123,7 @@ test('no Personal OS, no backfill: planning starts at the intake', async () => {
   const h = harness({ installed: false });
   try {
     await request('/v1/me/today');
-    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_save_goal_plan').length, 0);
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').length, 0);
   } finally { h.restore(); }
 });
 
@@ -136,7 +136,7 @@ test('the intake creates the primary goal’s plan through the governed RPC', as
       criticalPillars: ['body'], minimumFloors: { body: 'Walk 10 minutes' }, trackKeys: ['body_foundation'],
     }) });
     assert.equal(response.status, 200);
-    const intake = h.calls.rpc.filter((c) => c.fn === 'apm_save_goal_plan');
+    const intake = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan');
     assert.equal(intake[0].args.p_source, 'intake');
     assert.equal(intake[0].args.p_plan.persona.key, 'weight_loss');
     assert.equal(intake[0].args.p_plan.minimumFloors, undefined);
@@ -195,7 +195,7 @@ test('the four LOCKED pillars: family is refused as a life pillar at the API', a
   try {
     const goal = await request('/v1/goals', { method: 'POST', body: JSON.stringify({ title: 'Be home for dinner', pillar: 'family' }) });
     assert.equal(goal.status, 400);
-    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_create_goal').length, 0);
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_create_goal').length, 0);
   } finally { h.restore(); }
 });
 
@@ -214,14 +214,14 @@ test('Goals: a new goal is planned, created through the governed RPC and run thr
     await request('/v1/me/today');
     const response = await request('/v1/goals', { method: 'POST', body: JSON.stringify({ title: 'Build a 3-month emergency fund', pillar: 'wealth' }) });
     assert.equal(response.status, 201);
-    const created = h.calls.rpc.find((c) => c.fn === 'apm_create_goal');
+    const created = h.calls.rpc.find((c) => c.fn === 'apm_service_create_goal');
     assert.equal(created.args.p_plan.persona.key, 'wealth_building');
     const body = await response.json();
     assert.equal(body.arbitration.ranked.length, 2);
     assert.ok(body.recommendedForegroundGoalId);
     assert.equal(body.today.agenda.foregroundPriority.goalId, GOAL, 'the declared foreground keeps the day until the user moves it');
   } finally { h.restore(); }
-  const locked = harness({ rpcErrors: { apm_create_goal: 'loop_week_one_lock' } });
+  const locked = harness({ rpcErrors: { apm_service_create_goal: 'loop_week_one_lock' } });
   try {
     const response = await request('/v1/goals', { method: 'POST', body: JSON.stringify({ title: 'Run a 10k' }) });
     assert.equal(response.status, 409);

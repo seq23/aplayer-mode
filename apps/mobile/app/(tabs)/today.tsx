@@ -49,7 +49,7 @@ export default function TodayScreen() {
   const [closeNote, setCloseNote] = useState('');
   const agenda = todayLoop?.agenda;
   const executionOpen = Boolean(todayLoop?.checkedIn && !todayLoop.closed);
-  const planItems = [agenda?.firstHour.priority, ...(agenda?.dailyStack ?? [])].filter((item): item is AgendaItem => Boolean(item?.planId && item.actionKey));
+  const planItems = [agenda?.firstHour.priority, ...(agenda?.dailyStack ?? [])].filter((item): item is AgendaItem => Boolean((item?.planId && item.actionKey) || item?.nextActionId));
   const planItemCount = planItems.length;
   const doneCount = planItems.filter((item) => item.status === 'done').length;
   const hideAgenda = todayLoop?.dayStart === 'hard' && !todayLoop.checkedIn;

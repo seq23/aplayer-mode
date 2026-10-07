@@ -539,7 +539,7 @@ app.put('/v1/methodology/intake', async (c) => {
   const primary = installed.goals.find((goal) => goal.id === installed.personalOS?.foregroundGoalId)
     ?? installed.goals.find((goal) => goal.status === 'active' && goal.priority === 1);
   if (primary) {
-    try { await saveGoalPlan(c.env, user.accessToken, primary.id, buildGoalPlan(installed, primary, new Date()), 'intake'); }
+    try { await saveGoalPlan(c.env, user.id, primary.id, buildGoalPlan(installed, primary, new Date()), 'intake'); }
     catch (error) { return loopFailure(c, error); }
   }
   return c.json(await buildUserState(c.env, user.accessToken, user.id));
@@ -645,7 +645,7 @@ app.post('/v1/goals', async (c) => {
   const graph = await getLifeGraph(c.env, user.accessToken, user.id);
   const plan = buildGoalPlan(graph, parsed.data, now);
   let created;
-  try { created = await createGoalWithPlan(c.env, user.accessToken, parsed.data, plan); }
+  try { created = await createGoalWithPlan(c.env, user.id, parsed.data, plan); }
   catch (error) { return loopFailure(c, error); }
   const state = await buildUserState(c.env, user.accessToken, user.id);
   // BHPC: a new project is run through the Arbitration Engine against the current foreground.

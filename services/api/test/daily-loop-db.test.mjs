@@ -52,6 +52,7 @@ async function as(userId, sql, params = []) {
 async function rejects(promise, pattern) {
   await assert.rejects(promise, (error) => { assert.match(String(error?.message ?? error), pattern); return true; });
 }
+const asEvidence = (userId) => as(userId, "insert into public.evidence (user_id, kind, summary, source_type) values ($1, 'user_completion', 'Fake win', 'manual')", [userId]);
 async function svc(fn, args) {
   const result = await db.transaction(async (tx) => {
     await tx.exec("set local role service_role; select set_config('request.jwt.claim.sub', '', true);");
@@ -122,15 +123,15 @@ test('no direct writes: plans, completions and day records only move through gov
 
 test('plans are shape-checked, audited and one-live-per-goal; reads need owner + entitlement, export does not', async () => {
   const today = await localToday(USER_A);
-  await rejects(rpc(USER_A, 'apm_save_goal_plan', [GOAL_A, JSON.stringify({ version: 1 }), 'goals']), /loop_invalid_plan/);
+  await rejects(svc('apm_service_save_goal_plan', [USER_A, GOAL_A, JSON.stringify({ version: 1 }), 'goals']), /loop_invalid_plan/);
   const tampered = { ...plan('lose 30 lbs', today), endDate: shift(today, 200) };
-  await rejects(rpc(USER_A, 'apm_save_goal_plan', [GOAL_A, JSON.stringify(tampered), 'goals']), /loop_invalid_plan/);
-  await rejects(rpc(USER_A, 'apm_save_goal_plan', [GOAL_B, JSON.stringify(plan('lose 30 lbs', today)), 'goals']), /loop_goal_not_found/);
+  await rejects(svc('apm_service_save_goal_plan', [USER_A, GOAL_A, JSON.stringify(tampered), 'goals']), /loop_invalid_plan/);
+  await rejects(svc('apm_service_save_goal_plan', [USER_A, GOAL_B, JSON.stringify(plan('lose 30 lbs', today)), 'goals']), /loop_goal_not_found/);
 
-  const first = await rpc(USER_A, 'apm_save_goal_plan', [GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'intake']);
+  const first = await svc('apm_service_save_goal_plan', [USER_A, GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'intake']);
   assert.equal(first.persona, 'weight_loss');
   assert.equal(first.foreground_pillar, 'body');
-  const second = await rpc(USER_A, 'apm_save_goal_plan', [GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'goals']);
+  const second = await svc('apm_service_save_goal_plan', [USER_A, GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'goals']);
   const live = (await admin(`select id, status from public.goal_plans where goal_id = '${GOAL_A}' order by created_at`)).rows;
   assert.deepEqual(live.map((row) => row.status), ['superseded', 'active']);
   assert.equal(live[1].id, second.id);
@@ -141,7 +142,7 @@ test('plans are shape-checked, audited and one-live-per-goal; reads need owner +
   assert.equal((await as(USER_B, 'select count(*)::int n from public.goal_plans')).rows[0].n, 0, 'another user sees nothing');
   await admin(`update public.subscription_entitlements set status = 'cancelled' where user_id = '${USER_A}'`);
   assert.equal((await as(USER_A, 'select count(*)::int n from public.goal_plans')).rows[0].n, 0, 'no entitlement, no ordinary read');
-  await rejects(rpc(USER_A, 'apm_save_goal_plan', [GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'goals']), /loop_entitlement_required/);
+  await rejects(svc('apm_service_save_goal_plan', [USER_A, GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'goals']), /loop_entitlement_required/);
   const exported = await rpc(USER_A, 'apm_daily_loop_data_rights_export', []);
   assert.equal(exported.goalPlans.length, 2, 'export still returns every plan, superseded included');
   await admin(`update public.subscription_entitlements set status = 'active' where user_id = '${USER_A}'`);
@@ -155,6 +156,14 @@ test('agendas are server-derived: a client can no longer lock its own agenda (00
   await admin(`update public.subscription_entitlements set status = 'cancelled' where user_id = '${USER_A}'`);
   await rejects(svc('apm_service_day_check_in', [USER_A, today, 6, 'normal', JSON.stringify({ version: 1 })]), /loop_entitlement_required/);
   await admin(`update public.subscription_entitlements set status = 'active' where user_id = '${USER_A}'`);
+});
+
+test('plans and evidence are server-derived: no client plan writes, no direct evidence (0029)', async () => {
+  const today = await localToday(USER_A);
+  await rejects(rpc(USER_A, 'apm_save_goal_plan', [GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'goals']), /permission denied/);
+  await rejects(rpc(USER_A, 'apm_create_goal', [JSON.stringify({ title: 'x y z' }), JSON.stringify(plan('x y z', today))]), /permission denied/);
+  await rejects(rpc(USER_A, 'apm_service_save_goal_plan', [USER_A, GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'goals']), /permission denied/);
+  await rejects(asEvidence(USER_A), /permission denied/);
 });
 
 test('the opening step gates execution; only agenda items complete; completion is idempotent evidence', async () => {
@@ -231,10 +240,10 @@ test('closing the day closes the LOCAL today, audits it, and then execution stop
 
 test('Week 1 blocks new projects and foreground changes; after it, a goal is created with its plan', async () => {
   const todayB = await localToday(USER_B);
-  await rejects(rpc(USER_B, 'apm_create_goal', [JSON.stringify({ title: 'Run a 10k' }), JSON.stringify(plan('Run a 10k', todayB))]), /loop_week_one_lock/);
+  await rejects(svc('apm_service_create_goal', [USER_B, JSON.stringify({ title: 'Run a 10k' }), JSON.stringify(plan('Run a 10k', todayB))]), /loop_week_one_lock/);
   const todayA = await localToday(USER_A);
-  await rejects(rpc(USER_A, 'apm_create_goal', [JSON.stringify({ title: 'Run a 10k', user_id: USER_B }), JSON.stringify(plan('Run a 10k', todayA))]), /loop_field_not_allowed/);
-  const created = await rpc(USER_A, 'apm_create_goal', [JSON.stringify({ title: 'Build a 3-month emergency fund', pillar: 'wealth' }), JSON.stringify(plan('Build a 3-month emergency fund', todayA))]);
+  await rejects(svc('apm_service_create_goal', [USER_A, JSON.stringify({ title: 'Run a 10k', user_id: USER_B }), JSON.stringify(plan('Run a 10k', todayA))]), /loop_field_not_allowed/);
+  const created = await svc('apm_service_create_goal', [USER_A, JSON.stringify({ title: 'Build a 3-month emergency fund', pillar: 'wealth' }), JSON.stringify(plan('Build a 3-month emergency fund', todayA))]);
   assert.equal(created.goal.priority, 2, 'a new project goes to the background');
   assert.equal(created.plan.persona, 'wealth_building');
   await admin(`update public.personal_os set foreground_goal_id = '${GOAL_A}' where user_id = '${USER_A}'`);
@@ -252,7 +261,7 @@ test('gate reviews and the day-90 decision open only on time and compute the ver
 
   // A plan that started 95 days ago.
   const oldGoal = (await admin(`insert into public.goals (user_id, title, status, health, priority, provenance_kind, source_type) values ('${USER_A}', 'Pass the bar exam', 'active', 'unknown', 3, 'stated', 'manual') returning id`)).rows[0].id;
-  const old = await rpc(USER_A, 'apm_save_goal_plan', [oldGoal, JSON.stringify(plan('Pass the bar exam', shift(today, -95))), 'goals']);
+  const old = await svc('apm_service_save_goal_plan', [USER_A, oldGoal, JSON.stringify(plan('Pass the bar exam', shift(today, -95))), 'goals']);
   const reviewed = await rpc(USER_A, 'apm_review_plan_gate', [old.id, 'foundation', true]);
   assert.equal(reviewed.gate_reviews.foundation.verdict, 'park', 'no evidence in the window parks it');
   assert.equal(reviewed.gate_reviews.foundation.completedDays, 0);
@@ -283,7 +292,7 @@ test('the legacy next-action completion honours the opening step once the daily 
   const done = await rpc(USER_B, 'apm_complete_next_action', [noLoopAction]);
   assert.equal(done.action.status, 'done', 'no live plan: legacy behaviour');
   await admin(`update public.personal_os set stabilization_started_at = current_date - 10 where user_id = '${USER_B}'`);
-  await rpc(USER_B, 'apm_save_goal_plan', [GOAL_B, JSON.stringify(plan('Pass the CPA exam', await localToday(USER_B))), 'intake']);
+  await svc('apm_service_save_goal_plan', [USER_B, GOAL_B, JSON.stringify(plan('Pass the CPA exam', await localToday(USER_B))), 'intake']);
   await rejects(rpc(USER_B, 'apm_complete_next_action', [await insert(USER_B)]), /loop_opening_step_required/);
 });
 
@@ -316,7 +325,7 @@ test('the database checks the day’s supply, the Mood Gate and Never Miss Twice
   await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_C}', 'standard', current_date - 10)`);
   await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL_C}', '${USER_C}', 'lose 30 lbs', 'active', 'unknown', 1, 'stated', 'manual')`);
   const today = await localToday(USER_C);
-  const stored = await rpc(USER_C, 'apm_save_goal_plan', [GOAL_C, JSON.stringify(plan('lose 30 lbs', shift(today, -3))), 'intake']);
+  const stored = await svc('apm_service_save_goal_plan', [USER_C, GOAL_C, JSON.stringify(plan('lose 30 lbs', shift(today, -3))), 'intake']);
   const entry = { record: { id: stored.id, goalId: GOAL_C, status: 'active', gateReviews: {}, startDate: stored.start_date }, plan: stored.plan };
   const compose = (extra) => planning.composeAgenda({ date: today, plans: [entry], goals: [{ id: GOAL_C, title: 'lose 30 lbs', status: 'active', priority: 1 }], completions: [], morningSequence: [], ...extra });
 
@@ -361,7 +370,7 @@ test('a Full Day needs the whole locked agenda done; setup days supply only setu
   await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL_D}', '${USER_D}', 'Launch my business', 'active', 'unknown', 1, 'stated', 'manual')`);
   const today = await localToday(USER_D);
   const parentPlan = planning.generateGoalPlan('Launch my business', { roles: ['Parenting / caregiving', 'Building a business'], startDate: shift(today, -9) });
-  const stored = await rpc(USER_D, 'apm_save_goal_plan', [GOAL_D, JSON.stringify(parentPlan), 'intake']);
+  const stored = await svc('apm_service_save_goal_plan', [USER_D, GOAL_D, JSON.stringify(parentPlan), 'intake']);
   const entry = { record: { id: stored.id, goalId: GOAL_D, status: 'active', gateReviews: {}, startDate: stored.start_date }, plan: stored.plan };
   // Yesterday was closed with evidence-free MVD? No: make yesterday a clean full day via admin so today is normal.
   await admin(`insert into public.day_records (user_id, day, mode, verdict, closed_at) values ('${USER_D}', $1::date - 1, 'standard', 'full_day', now())`, [today]);
@@ -394,7 +403,7 @@ test('a locked agenda must carry the floors the supply requires; the day-90 deci
   await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_E}', 'standard', current_date - 100)`);
   await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL_E}', '${USER_E}', 'Launch my business', 'active', 'unknown', 1, 'stated', 'manual')`);
   const today = await localToday(USER_E);
-  const stored = await rpc(USER_E, 'apm_save_goal_plan', [GOAL_E, JSON.stringify(planning.generateGoalPlan('Launch my business', { roles: ['Parenting / caregiving', 'Building a business'], startDate: shift(today, -95) })), 'intake']);
+  const stored = await svc('apm_service_save_goal_plan', [USER_E, GOAL_E, JSON.stringify(planning.generateGoalPlan('Launch my business', { roles: ['Parenting / caregiving', 'Building a business'], startDate: shift(today, -95) })), 'intake']);
   await admin(`insert into public.day_records (user_id, day, mode, verdict, closed_at) values ('${USER_E}', $1::date - 1, 'standard', 'full_day', now())`, [today]);
   await rejects(rpc(USER_E, 'apm_decide_goal_plan', [stored.id, 'promote', 'It worked']), /loop_opening_step_required/, 'no decision before the opening step');
   await rejects(rpc(USER_E, 'apm_review_plan_gate', [stored.id, 'foundation', true]), /loop_opening_step_required/, 'no gate review before the opening step');

@@ -61,7 +61,7 @@ export async function ensureGoalPlans(env: ApiEnv, accessToken: string, graph: L
   if (missing.length === 0) return graph;
   for (const goal of missing) {
     // One bad goal must never take Today down: it stays planless (and retried next read).
-    try { await saveGoalPlan(env, accessToken, goal.id, buildGoalPlan(graph, goal, now), 'backfill'); }
+    try { await saveGoalPlan(env, graph.identity.userId, goal.id, buildGoalPlan(graph, goal, now), 'backfill'); }
     catch (error) { console.error('APM goal-plan backfill failed', { goalId: goal.id, message: (error as Error)?.message }); }
   }
   return { ...graph, goalPlans: await getGoalPlans(env, accessToken, graph.identity.userId) as unknown as StoredGoalPlan[] };

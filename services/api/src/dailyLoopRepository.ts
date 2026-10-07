@@ -160,18 +160,6 @@ export async function getPlanCompletions(env: ApiEnv, accessToken: string, userI
 }
 
 // ---------------------------------------------------------------- governed writes
-export function saveGoalPlan(env: ApiEnv, accessToken: string, goalId: string, plan: GoalPlan, source: 'intake' | 'goals' | 'backfill' | 'clearance') {
-  return loopRpc<GoalPlanRow>(env, accessToken, 'apm_save_goal_plan', { p_goal_id: goalId, p_plan: plan, p_source: source });
-}
-
-export function createGoalWithPlan(env: ApiEnv, accessToken: string, goal: { title: string; outcome?: string; pillar?: string; targetDate?: string }, plan: GoalPlan) {
-  return loopRpc<{ goal: { id: string }; plan: GoalPlanRow }>(env, accessToken, 'apm_create_goal', { p_goal: goal, p_plan: plan });
-}
-
-export function setForegroundGoal(env: ApiEnv, accessToken: string, goalId: string) {
-  return loopRpc<{ foregroundGoalId: string; changed: boolean }>(env, accessToken, 'apm_set_foreground_goal', { p_goal_id: goalId });
-}
-
 /**
  * Agenda-locking writes (check-in, declared replan) are service-role only since 0028: the
  * Worker has authenticated the user and computed the agenda with the deterministic engine,
@@ -180,6 +168,19 @@ export function setForegroundGoal(env: ApiEnv, accessToken: string, goalId: stri
 function serviceToken(env: ApiEnv): string {
   if (!env.SUPABASE_SECRET_KEY) throw new LoopError('loop_service_unavailable');
   return SERVICE_ROLE_TOKEN;
+}
+
+/** Plans are server-derived (0029): only the Worker, with the engine's output, writes them. */
+export function saveGoalPlan(env: ApiEnv, userId: string, goalId: string, plan: GoalPlan, source: 'intake' | 'goals' | 'backfill' | 'clearance') {
+  return loopRpc<GoalPlanRow>(env, serviceToken(env), 'apm_service_save_goal_plan', { p_user_id: userId, p_goal_id: goalId, p_plan: plan, p_source: source });
+}
+
+export function createGoalWithPlan(env: ApiEnv, userId: string, goal: { title: string; outcome?: string; pillar?: string; targetDate?: string }, plan: GoalPlan) {
+  return loopRpc<{ goal: { id: string }; plan: GoalPlanRow }>(env, serviceToken(env), 'apm_service_create_goal', { p_user_id: userId, p_goal: goal, p_plan: plan });
+}
+
+export function setForegroundGoal(env: ApiEnv, accessToken: string, goalId: string) {
+  return loopRpc<{ foregroundGoalId: string; changed: boolean }>(env, accessToken, 'apm_set_foreground_goal', { p_goal_id: goalId });
 }
 
 export function checkInDay(env: ApiEnv, userId: string, input: { day: string; mood: number; agenda: DailyAgenda }) {
