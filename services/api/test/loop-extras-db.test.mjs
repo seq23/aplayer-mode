@@ -139,6 +139,11 @@ test('the Body red-flag pause persists until clearance; a body plan saved meanwh
   assert.equal(stored.plan.safety.referral, true);
   assert.deepEqual([stored.start_date, stored.end_date], [started, shift(started, 89)], 'same 90 days');
   assert.deepEqual(stored.gate_reviews, { foundation: { verdict: 'maintain' } }, 'gate reviews survive the rebuild');
+  // In place (0036): the same plan row, so completions already recorded keep counting
+  // for the remaining reviews and a locked agenda naming this plan stays completable.
+  assert.equal(stored.id, live.id, 'a rebuild never supersedes the plan');
+  assert.equal(Number((await admin(`select count(*)::int n from public.goal_plans where goal_id = $1`, [GOAL])).rows[0].n), 1, 'no superseded copy');
+  assert.equal(Number((await admin(`select count(*)::int n from public.audit_events where event_type = 'goal_plan.rebuilt' and object_id = $1`, [live.id])).rows[0].n), 1);
   assert.equal((await admin('select private.apm_loop_track_floor_allowed($1, $2) a', [USER, 'track:body_floor'])).rows[0].a, false, 'no body floor while paused');
   const cleared = await rpc(USER, 'apm_record_clinician_clearance', []);
   assert.ok(cleared.clinicianClearedAt);
@@ -147,6 +152,7 @@ test('the Body red-flag pause persists until clearance; a body plan saved meanwh
   await rejects(svc('apm_service_save_goal_plan', [USER, '00000000-0000-4000-8000-00000000dead', JSON.stringify(unpaused), 'os_change']), /loop_plan_restart_refused|loop_goal_not_found/);
   const clearedPlan = await svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(unpaused), 'clearance']);
   assert.equal(clearedPlan.start_date, started, 'clearance keeps the 90 days too');
+  assert.equal(clearedPlan.id, live.id, 'and the same plan, so its completion history stays attached');
   assert.equal((await admin('select private.apm_loop_track_floor_allowed($1, $2) a', [USER, 'track:body_floor'])).rows[0].a, true);
   assert.equal((await admin('select private.apm_loop_track_floor_allowed($1, $2) a', [USER, 'track:home_touchpoint'])).rows[0].a, false, 'Home Front is not active');
 });
@@ -165,6 +171,13 @@ test('Phase Bridge, Return/Reset and REPRINT on the day record', async () => {
   assert.equal((await rpc(USER, 'apm_set_day_phase', ['first_hour'])).phase, 'first_hour');
   assert.equal((await rpc(USER, 'apm_set_day_phase', ['executing'])).phase, 'executing');
   assert.equal((await rpc(USER, 'apm_set_day_phase', ['first_hour'])).phase, 'executing', 'the phase never moves back');
+
+  // A same-day Drafting Room rebuild (in place, 0036) keeps the locked agenda completable.
+  const rebuilt = await svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(stored.plan), 'os_change']);
+  assert.equal(rebuilt.id, stored.id);
+  const priority = agenda.firstHour.priority;
+  const completed = await rpc(USER, 'apm_complete_plan_action', [priority.planId, priority.actionKey, null]);
+  assert.equal(completed.replayed, false, 'today’s locked agenda still completes after the rebuild');
 
   await rejects(rpc(USER, 'apm_service_day_reprint', [USER, today, JSON.stringify(agenda)]), /permission denied/, 'REPRINT is server-derived too');
   await rejects(svc('apm_service_day_reprint', [USER, today, JSON.stringify({ ...agenda, mode: agenda.mode === 'recovery' ? 'standard' : 'recovery' })]), /loop_invalid_agenda/, 'a reprint never changes scope');
