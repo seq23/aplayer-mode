@@ -1,6 +1,8 @@
 export interface ApiEnv {
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
+  /** Server-only Supabase secret key: agenda-locking writes (0028) and the scheduled Morning Trigger. Never in the mobile bundle. */
+  SUPABASE_SECRET_KEY?: string;
   AUTH_DEV_BYPASS_USER_ID?: string;
   OPENROUTER_API_KEY?: string;
   ALLOWED_ORIGIN?: string;

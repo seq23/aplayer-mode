@@ -52,6 +52,13 @@ async function as(userId, sql, params = []) {
 async function rejects(promise, pattern) {
   await assert.rejects(promise, (error) => { assert.match(String(error?.message ?? error), pattern); return true; });
 }
+async function svc(fn, args) {
+  const result = await db.transaction(async (tx) => {
+    await tx.exec("set local role service_role; select set_config('request.jwt.claim.sub', '', true);");
+    return tx.query(`select public.${fn}(${args.map((_, i) => `$${i + 1}`).join(', ')}) as r`, args);
+  });
+  return result.rows[0].r;
+}
 const rpc = async (userId, fn, args) => (await as(userId, `select public.${fn}(${args.map((_, i) => `$${i + 1}`).join(', ')}) as r`, args)).rows[0].r;
 const localToday = async (userId) => (await admin('select private.apm_local_today($1)::text as d', [userId])).rows[0].d;
 const shift = (date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
@@ -140,6 +147,16 @@ test('plans are shape-checked, audited and one-live-per-goal; reads need owner +
   await admin(`update public.subscription_entitlements set status = 'active' where user_id = '${USER_A}'`);
 });
 
+test('agendas are server-derived: a client can no longer lock its own agenda (0028)', async () => {
+  const today = await localToday(USER_A);
+  await rejects(rpc(USER_A, 'apm_day_check_in', [today, 6, 'normal', JSON.stringify({ version: 1 })]), /permission denied/);
+  await rejects(rpc(USER_A, 'apm_day_replan', [today, 'safety', null, JSON.stringify({ version: 1 })]), /permission denied/);
+  await rejects(rpc(USER_A, 'apm_service_day_check_in', [USER_A, today, 6, 'normal', JSON.stringify({ version: 1 })]), /permission denied/);
+  await admin(`update public.subscription_entitlements set status = 'cancelled' where user_id = '${USER_A}'`);
+  await rejects(svc('apm_service_day_check_in', [USER_A, today, 6, 'normal', JSON.stringify({ version: 1 })]), /loop_entitlement_required/);
+  await admin(`update public.subscription_entitlements set status = 'active' where user_id = '${USER_A}'`);
+});
+
 test('the opening step gates execution; only agenda items complete; completion is idempotent evidence', async () => {
   const today = await localToday(USER_A);
   const stored = (await admin(`select * from public.goal_plans where goal_id = '${GOAL_A}' and status = 'active'`)).rows[0];
@@ -147,21 +164,21 @@ test('the opening step gates execution; only agenda items complete; completion i
   const key = agenda.firstHour.priority.actionKey;
 
   await rejects(rpc(USER_A, 'apm_complete_plan_action', [stored.id, key, null]), /loop_opening_step_required/);
-  await rejects(rpc(USER_A, 'apm_day_check_in', [shift(today, -1), 6, 'normal', JSON.stringify({ ...agenda, date: shift(today, -1) })]), /loop_day_not_today/);
-  await rejects(rpc(USER_A, 'apm_day_check_in', [today, 11, 'normal', JSON.stringify(agenda)]), /loop_invalid_request/);
-  await rejects(rpc(USER_A, 'apm_day_check_in', [today, 6, 'recovery', JSON.stringify(agenda)]), /loop_invalid_agenda/);
+  await rejects(svc('apm_service_day_check_in', [USER_A, shift(today, -1), 6, 'normal', JSON.stringify({ ...agenda, date: shift(today, -1) })]), /loop_day_not_today/);
+  await rejects(svc('apm_service_day_check_in', [USER_A, today, 11, 'normal', JSON.stringify(agenda)]), /loop_invalid_request/);
+  await rejects(svc('apm_service_day_check_in', [USER_A, today, 6, 'recovery', JSON.stringify(agenda)]), /loop_invalid_agenda/);
 
   // The stored plan is the source of truth: a forged agenda item never gets in.
   const forged = { ...agenda, dailyStack: [...agenda.dailyStack, { id: 'f', kind: 'plan_floor', title: 'Invented action', planId: stored.id, actionKey: 'invented', status: 'open', reasonCodes: [] }] };
-  await rejects(rpc(USER_A, 'apm_day_check_in', [today, 6, 'normal', JSON.stringify(forged)]), /loop_invalid_agenda/);
+  await rejects(svc('apm_service_day_check_in', [USER_A, today, 6, 'normal', JSON.stringify(forged)]), /loop_invalid_agenda/);
   const foreignPlan = { ...agenda, dailyStack: [{ ...agenda.firstHour.priority, planId: '00000000-0000-4000-8000-00000000dead' }] };
-  await rejects(rpc(USER_A, 'apm_day_check_in', [today, 6, 'normal', JSON.stringify(foreignPlan)]), /loop_invalid_agenda/);
+  await rejects(svc('apm_service_day_check_in', [USER_A, today, 6, 'normal', JSON.stringify(foreignPlan)]), /loop_invalid_agenda/);
 
-  const checkIn = await rpc(USER_A, 'apm_day_check_in', [today, 6, 'normal', JSON.stringify(agenda)]);
+  const checkIn = await svc('apm_service_day_check_in', [USER_A, today, 6, 'normal', JSON.stringify(agenda)]);
   assert.equal(checkIn.replayed, false);
   assert.equal(checkIn.day.agenda_status, 'locked');
-  await rejects(rpc(USER_A, 'apm_day_check_in', [today, 1, 'normal', JSON.stringify(agenda)]), /loop_invalid_agenda/, 'mood 1 never locks a standard agenda');
-  const again = await rpc(USER_A, 'apm_day_check_in', [today, 1, 'normal', JSON.stringify(agendaFor(stored, today, { mood: 1 }))]);
+  await rejects(svc('apm_service_day_check_in', [USER_A, today, 1, 'normal', JSON.stringify(agenda)]), /loop_invalid_agenda/, 'mood 1 never locks a standard agenda');
+  const again = await svc('apm_service_day_check_in', [USER_A, today, 1, 'normal', JSON.stringify(agendaFor(stored, today, { mood: 1 }))]);
   assert.equal(again.replayed, true);
   assert.equal(again.day.mood, 6, 'the mood is recorded once; it is not renegotiated mid-day');
 
@@ -189,14 +206,14 @@ test('No Mid-Day Negotiation holds in the database: only declared external/safet
   const stored = (await admin(`select * from public.goal_plans where goal_id = '${GOAL_A}' and status = 'active'`)).rows[0];
   const agenda = agendaFor(stored, today, { state: 'recovery' });
   for (const reason of ['mood', 'discomfort', null]) {
-    await rejects(rpc(USER_A, 'apm_day_replan', [today, reason, null, JSON.stringify(agenda)]), /loop_no_midday_negotiation/);
+    await rejects(svc('apm_service_day_replan', [USER_A, today, reason, null, JSON.stringify(agenda)]), /loop_no_midday_negotiation/);
   }
-  const replanned = await rpc(USER_A, 'apm_day_replan', [today, 'safety', 'Rolled an ankle', JSON.stringify(agenda)]);
+  const replanned = await svc('apm_service_day_replan', [USER_A, today, 'safety', 'Rolled an ankle', JSON.stringify(agenda)]);
   assert.equal(replanned.day_state, 'recovery');
   assert.equal(replanned.replans[0].reason, 'safety');
-  await rejects(rpc(USER_B, 'apm_day_replan', [await localToday(USER_B), 'external_change', null, JSON.stringify({ ...agenda, date: await localToday(USER_B) })]), /loop_invalid_agenda/, 'another user’s plan items are refused');
+  await rejects(svc('apm_service_day_replan', [USER_B, await localToday(USER_B), 'external_change', null, JSON.stringify({ ...agenda, date: await localToday(USER_B) })]), /loop_invalid_agenda/, 'another user’s plan items are refused');
   const emptyB = { ...agenda, date: await localToday(USER_B), foregroundPriority: undefined, firstHour: { sequence: [] }, dailyStack: [] };
-  await rejects(rpc(USER_B, 'apm_day_replan', [await localToday(USER_B), 'external_change', null, JSON.stringify(emptyB)]), /loop_day_not_locked/);
+  await rejects(svc('apm_service_day_replan', [USER_B, await localToday(USER_B), 'external_change', null, JSON.stringify(emptyB)]), /loop_day_not_locked/);
 });
 
 test('closing the day closes the LOCAL today, audits it, and then execution stops', async () => {
@@ -283,7 +300,7 @@ test('evidence before verdict, and the legacy path only completes what today’s
     goals: [{ id: GOAL_B, title: 'Pass the CPA exam', status: 'active', priority: 1 }],
     completions: [], morningSequence: [], nextActions: [{ id: onAgenda, title: 'Book the CPA exam seat for March', status: 'open' }],
   });
-  await rpc(USER_B, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(agenda)]);
+  await svc('apm_service_day_check_in', [USER_B, today, 7, 'normal', JSON.stringify(agenda)]);
   assert.equal((await rpc(USER_B, 'apm_complete_next_action', [onAgenda])).action.status, 'done');
   await rejects(rpc(USER_B, 'apm_complete_next_action', [offAgenda]), /loop_not_on_agenda/);
   await rejects(rpc(USER_B, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'the plan action is still open');
@@ -304,14 +321,14 @@ test('the database checks the day’s supply, the Mood Gate and Never Miss Twice
   const compose = (extra) => planning.composeAgenda({ date: today, plans: [entry], goals: [{ id: GOAL_C, title: 'lose 30 lbs', status: 'active', priority: 1 }], completions: [], morningSequence: [], ...extra });
 
   // Yesterday had no close and no evidence: Never Miss Twice makes today a Recovery Day.
-  await rejects(rpc(USER_C, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(compose({ state: 'normal' }))]), /loop_invalid_agenda/);
+  await rejects(svc('apm_service_day_check_in', [USER_C, today, 7, 'normal', JSON.stringify(compose({ state: 'normal' }))]), /loop_invalid_agenda/);
   // The Mood Gate: mood 2 never locks a standard agenda.
-  await rejects(rpc(USER_C, 'apm_day_check_in', [today, 2, 'missed_yesterday', JSON.stringify({ ...compose({ state: 'missed_yesterday' }), mode: 'standard' })]), /loop_invalid_agenda/);
+  await rejects(svc('apm_service_day_check_in', [USER_C, today, 2, 'missed_yesterday', JSON.stringify({ ...compose({ state: 'missed_yesterday' }), mode: 'standard' })]), /loop_invalid_agenda/);
   // An off-schedule action (the day-90 decision on day 4) never gets onto the agenda.
   const recovery = compose({ state: 'missed_yesterday', mood: 6 });
   const offSchedule = { ...recovery, dailyStack: [{ id: 'x', kind: 'plan_floor', title: 'Make the day-90 call', planId: stored.id, actionKey: 'day90_decision', status: 'open', reasonCodes: [] }] };
-  await rejects(rpc(USER_C, 'apm_day_check_in', [today, 6, 'missed_yesterday', JSON.stringify(offSchedule)]), /loop_invalid_agenda/);
-  await rpc(USER_C, 'apm_day_check_in', [today, 6, 'missed_yesterday', JSON.stringify(recovery)]);
+  await rejects(svc('apm_service_day_check_in', [USER_C, today, 6, 'missed_yesterday', JSON.stringify(offSchedule)]), /loop_invalid_agenda/);
+  await svc('apm_service_day_check_in', [USER_C, today, 6, 'missed_yesterday', JSON.stringify(recovery)]);
 
   await rejects(rpc(USER_C, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'no win without evidence');
   await rejects(rpc(USER_C, 'apm_complete_plan_action', [stored.id, 'day90_decision', null]), /loop_not_on_agenda/);
@@ -350,7 +367,7 @@ test('a Full Day needs the whole locked agenda done; setup days supply only setu
   await admin(`insert into public.day_records (user_id, day, mode, verdict, closed_at) values ('${USER_D}', $1::date - 1, 'standard', 'full_day', now())`, [today]);
   const agenda = planning.composeAgenda({ date: today, state: 'normal', plans: [entry], goals: [{ id: GOAL_D, title: 'Launch my business', status: 'active', priority: 1 }], completions: [], morningSequence: [] });
   assert.ok(agenda.dailyStack.length >= 1, 'a foreground action plus the family floor');
-  await rpc(USER_D, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(agenda)]);
+  await svc('apm_service_day_check_in', [USER_D, today, 7, 'normal', JSON.stringify(agenda)]);
   await rpc(USER_D, 'apm_complete_plan_action', [stored.id, agenda.firstHour.priority.actionKey, null]);
   await rejects(rpc(USER_D, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'one of two done is not a Full Day');
   assert.equal((await admin('select private.apm_loop_max_verdict($1, $2::date) v', [USER_D, today])).rows[0].v, 'mvd');
@@ -385,12 +402,12 @@ test('a locked agenda must carry the floors the supply requires; the day-90 deci
   const agenda = planning.composeAgenda({ date: today, state: 'normal', plans: [entry], goals: [{ id: GOAL_E, title: 'Launch my business', status: 'active', priority: 1 }], completions: [], morningSequence: [] });
   assert.ok(agenda.dailyStack.some((item) => item.actionKey === 'family_floor'));
   const stripped = { ...agenda, dailyStack: agenda.dailyStack.filter((item) => item.actionKey !== 'family_floor') };
-  await rejects(rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(stripped)]), /loop_invalid_agenda/, 'the family floor cannot be dropped to fake a Full Day');
+  await rejects(svc('apm_service_day_check_in', [USER_E, today, 7, 'normal', JSON.stringify(stripped)]), /loop_invalid_agenda/, 'the family floor cannot be dropped to fake a Full Day');
   const foreignPriority = { ...agenda, firstHour: { ...agenda.firstHour, priority: undefined } };
-  await rejects(rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(foreignPriority)]), /loop_invalid_agenda/);
+  await rejects(svc('apm_service_day_check_in', [USER_E, today, 7, 'normal', JSON.stringify(foreignPriority)]), /loop_invalid_agenda/);
   const planless = { ...agenda, foregroundPriority: undefined, firstHour: { sequence: [] }, dailyStack: [] };
-  await rejects(rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(planless)]), /loop_invalid_agenda/, 'a running plan cannot be left off the agenda');
-  await rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(agenda)]);
+  await rejects(svc('apm_service_day_check_in', [USER_E, today, 7, 'normal', JSON.stringify(planless)]), /loop_invalid_agenda/, 'a running plan cannot be left off the agenda');
+  await svc('apm_service_day_check_in', [USER_E, today, 7, 'normal', JSON.stringify(agenda)]);
   assert.equal((await rpc(USER_E, 'apm_review_plan_gate', [stored.id, 'foundation', true])).gate_reviews.foundation.verdict, 'park');
   assert.equal((await rpc(USER_E, 'apm_decide_goal_plan', [stored.id, 'promote', 'It worked'])).decision, 'promote');
 });

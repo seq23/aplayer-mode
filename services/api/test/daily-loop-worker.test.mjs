@@ -31,7 +31,7 @@ const USER = '00000000-0000-4000-8000-00000000000a';
 const GOAL = '00000000-0000-4000-8000-0000000000g1'.replace('g', 'a');
 const PLAN_ID = '00000000-0000-4000-8000-0000000000p1'.replace('p', 'b');
 const TZ = 'Pacific/Auckland';
-const env = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', AUTH_DEV_BYPASS_USER_ID: USER };
+const env = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', SUPABASE_SECRET_KEY: 'sb_secret_test', AUTH_DEV_BYPASS_USER_ID: USER };
 const localToday = () => planning.calendarDateInTimezone(new Date(), TZ);
 
 function personalOsRow() {
@@ -74,7 +74,8 @@ function harness({ installed = true, rpcErrors = {} } = {}) {
         store.goal_plans = store.goal_plans.filter((existing) => existing.goal_id !== goalId).concat(row);
         return json(rpc === 'apm_create_goal' ? { goal: { id: goalId }, plan: row } : row);
       }
-      if (rpc === 'apm_day_check_in') {
+      if (rpc === 'apm_service_day_check_in') {
+        calls.serviceAuth = new Headers(init.headers).get('apikey');
         const row = { id: 'd1', day: body.p_day, mode: 'standard', verdict: null, completed_action_ids: [], note: null, closed_at: null, mood: body.p_mood, day_state: body.p_state, agenda: body.p_agenda, agenda_status: 'locked', checked_in_at: new Date().toISOString(), replans: [] };
         store.day_records = [row];
         return json({ day: row, replayed: false });
@@ -149,7 +150,9 @@ test('check-in runs the Mood Gate for the local day: mood 2 locks a Minimum Viab
     await request('/v1/me/today');
     const response = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 2 }) });
     assert.equal(response.status, 200);
-    const checkIn = h.calls.rpc.find((c) => c.fn === 'apm_day_check_in');
+    const checkIn = h.calls.rpc.find((c) => c.fn === 'apm_service_day_check_in');
+    assert.equal(checkIn.args.p_user_id, USER);
+    assert.equal(h.calls.serviceAuth, 'sb_secret_test', 'the agenda is written with the server-only key, not the user JWT');
     assert.equal(checkIn.args.p_day, localToday());
     assert.equal(checkIn.args.p_mood, 2);
     assert.equal(checkIn.args.p_agenda.mode, 'recovery');
@@ -161,7 +164,7 @@ test('check-in runs the Mood Gate for the local day: mood 2 locks a Minimum Viab
 
     const again = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 9 }) });
     assert.equal((await again.json()).replayed, true);
-    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_day_check_in').length, 1, 'the mood is not renegotiated');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 1, 'the mood is not renegotiated');
   } finally { h.restore(); }
 });
 
@@ -171,7 +174,7 @@ test('No Mid-Day Negotiation: a mood replan is refused before any write and audi
     const response = await request('/v1/today/replan', { method: 'POST', body: JSON.stringify({ reason: 'mood' }) });
     assert.equal(response.status, 409);
     assert.equal((await response.json()).error, 'no_midday_negotiation');
-    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_day_replan').length, 0);
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_replan').length, 0);
     assert.equal(h.calls.audits.at(-1).event_type, 'day.replan_refused');
   } finally { h.restore(); }
 });
@@ -235,5 +238,15 @@ test('the data-rights export includes plans, completions and day records', async
     assert.equal(body.export.dailyLoop.goalPlans.length, 1);
     assert.ok(Array.isArray(body.export.dailyLoop.planActionCompletions));
     assert.ok(Array.isArray(body.export.dailyLoop.dayRecords));
+  } finally { h.restore(); }
+});
+
+test('without the server-only key the check-in is a named 503, never a silent success', async () => {
+  const h = harness();
+  try {
+    const response = await app.fetch(new Request('https://api.test/v1/today/check-in', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mood: 6 }) }), { ...env, SUPABASE_SECRET_KEY: undefined });
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, 'service_unavailable');
+    assert.equal(h.calls.rpc.filter((c) => c.fn.includes('check_in')).length, 0);
   } finally { h.restore(); }
 });

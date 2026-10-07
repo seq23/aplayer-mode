@@ -597,7 +597,7 @@ app.post('/v1/today/check-in', async (c) => {
   if (state.today.checkedIn) return c.json({ replayed: true, ...state });
   // The Mood Gate runs here, in the morning: mood ≤ 2 prints a Minimum Viable Day.
   const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, mood: parsed.data.mood });
-  try { await checkInDay(c.env, user.accessToken, { day: state.today.date, mood: parsed.data.mood, agenda }); }
+  try { await checkInDay(c.env, user.id, { day: state.today.date, mood: parsed.data.mood, agenda }); }
   catch (error) { return loopFailure(c, error); }
   return c.json({ replayed: false, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });
@@ -627,7 +627,7 @@ app.post('/v1/today/replan', async (c) => {
   // A declared safety issue runs the rest of today at recovery scope; an external change keeps the day's state.
   const dayState = parsed.data.reason === 'safety' ? 'recovery' : state.today.agenda.state;
   const agenda = freshAgenda(state.graph, { date: state.today.date, state: dayState, mood: state.today.day?.mood });
-  try { await replanDay(c.env, user.accessToken, { day: state.today.date, reason: parsed.data.reason, detail: parsed.data.detail, agenda }); }
+  try { await replanDay(c.env, user.id, { day: state.today.date, reason: parsed.data.reason, detail: parsed.data.detail, agenda }); }
   catch (error) { return loopFailure(c, error); }
   return c.json({ message: decision.message, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });

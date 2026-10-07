@@ -24,6 +24,7 @@ These secrets should be scoped to the minimum access required by their workflow.
 |---|---|---|
 | `SUPABASE_URL` | config | Supabase Auth/Data API |
 | `SUPABASE_PUBLISHABLE_KEY` | publishable config | RLS-bound Supabase access |
+| `SUPABASE_SECRET_KEY` | Worker secret (server-only) | Agenda-locking writes (check-in, declared replan, reprint; migration 0028) and the scheduled Morning Trigger. Without it check-in answers 503 `service_unavailable` and the cron logs a named stop. Never in the mobile bundle. |
 | `OPENROUTER_API_KEY` | secret | Model inference |
 | `CONNECTOR_CREDENTIAL_KEY` | secret | AES-GCM encryption of provider tokens |
 | `OAUTH_STATE_SECRET` | secret | OAuth state integrity |

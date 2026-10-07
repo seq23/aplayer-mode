@@ -1,7 +1,7 @@
 import type { DayRecord, GoalPlanDecision, PlanActionCompletion, StoredGoalPlan } from '@apm/domain';
 import type { DailyAgenda, GoalPlan } from '@apm/planning';
 import type { ApiEnv } from './env';
-import { SupabaseRestError, supabaseRest } from './db';
+import { SERVICE_ROLE_TOKEN, SupabaseRestError, supabaseRest } from './db';
 
 const qs = (value: string) => encodeURIComponent(value);
 
@@ -18,7 +18,8 @@ export class LoopError extends Error {
   }
 }
 
-const LOOP_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 409; message: string }> = {
+const LOOP_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 409 | 503; message: string }> = {
+  loop_service_unavailable: { error: 'service_unavailable', status: 503, message: 'The daily loop is not configured on this server (SUPABASE_SECRET_KEY is missing).' },
   loop_unauthenticated: { error: 'unauthorized', status: 403, message: 'Sign in again.' },
   loop_entitlement_required: { error: 'entitlement_required', status: 403, message: 'Your plan does not include the daily loop right now.' },
   loop_invalid_request: { error: 'invalid_request', status: 400, message: 'That request is not valid.' },
@@ -43,7 +44,7 @@ const LOOP_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 409
   loop_already_decided: { error: 'already_decided', status: 409, message: 'This plan already has its day-90 decision.' },
 };
 
-export function loopErrorResponse(error: unknown): { error: string; status: 400 | 403 | 404 | 409; message: string } | undefined {
+export function loopErrorResponse(error: unknown): { error: string; status: 400 | 403 | 404 | 409 | 503; message: string } | undefined {
   return error instanceof LoopError ? LOOP_ERRORS[error.code] ?? { error: error.code, status: 409, message: error.code } : undefined;
 }
 
@@ -171,12 +172,22 @@ export function setForegroundGoal(env: ApiEnv, accessToken: string, goalId: stri
   return loopRpc<{ foregroundGoalId: string; changed: boolean }>(env, accessToken, 'apm_set_foreground_goal', { p_goal_id: goalId });
 }
 
-export function checkInDay(env: ApiEnv, accessToken: string, input: { day: string; mood: number; agenda: DailyAgenda }) {
-  return loopRpc<{ day: DayRow; replayed: boolean }>(env, accessToken, 'apm_day_check_in', { p_day: input.day, p_mood: input.mood, p_state: input.agenda.state, p_agenda: input.agenda });
+/**
+ * Agenda-locking writes (check-in, declared replan) are service-role only since 0028: the
+ * Worker has authenticated the user and computed the agenda with the deterministic engine,
+ * so no client can lock an agenda of its own making.
+ */
+function serviceToken(env: ApiEnv): string {
+  if (!env.SUPABASE_SECRET_KEY) throw new LoopError('loop_service_unavailable');
+  return SERVICE_ROLE_TOKEN;
 }
 
-export function replanDay(env: ApiEnv, accessToken: string, input: { day: string; reason: string; detail?: string; agenda: DailyAgenda }) {
-  return loopRpc<DayRow>(env, accessToken, 'apm_day_replan', { p_day: input.day, p_reason: input.reason, p_detail: input.detail ?? null, p_agenda: input.agenda });
+export function checkInDay(env: ApiEnv, userId: string, input: { day: string; mood: number; agenda: DailyAgenda }) {
+  return loopRpc<{ day: DayRow; replayed: boolean }>(env, serviceToken(env), 'apm_service_day_check_in', { p_user_id: userId, p_day: input.day, p_mood: input.mood, p_state: input.agenda.state, p_agenda: input.agenda });
+}
+
+export function replanDay(env: ApiEnv, userId: string, input: { day: string; reason: string; detail?: string; agenda: DailyAgenda }) {
+  return loopRpc<DayRow>(env, serviceToken(env), 'apm_service_day_replan', { p_user_id: userId, p_day: input.day, p_reason: input.reason, p_detail: input.detail ?? null, p_agenda: input.agenda });
 }
 
 export function completePlanAction(env: ApiEnv, accessToken: string, input: { planId: string; actionKey: string; note?: string }) {
