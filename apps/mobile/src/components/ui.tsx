@@ -4,6 +4,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   type ViewProps,
 } from 'react-native';
@@ -135,6 +136,62 @@ export function KeyValue({ label, value }: { label: string; value: string }) {
   );
 }
 
+export function TextField({
+  value,
+  onChangeText,
+  placeholder,
+  multiline = false,
+  label,
+}: {
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  multiline?: boolean;
+  label?: string;
+}) {
+  return (
+    <View style={styles.fieldWrap}>
+      {label ? <Text style={styles.key}>{label}</Text> : null}
+      <TextInput
+        accessibilityLabel={label ?? placeholder}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.inkMuted}
+        multiline={multiline}
+        style={[styles.field, multiline && styles.fieldMultiline]}
+      />
+    </View>
+  );
+}
+
+/** A row of single-choice chips (one question at a time, no free-form form walls). */
+export function ChoiceRow<T extends string | number>({
+  options,
+  value,
+  onChange,
+}: {
+  options: Array<{ id: T; label: string }>;
+  value?: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <View style={styles.choiceRow}>
+      {options.map((option) => (
+        <Pressable
+          key={String(option.id)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: option.id === value }}
+          onPress={() => onChange(option.id)}
+          style={({ pressed }) => [styles.choice, option.id === value && styles.choiceSelected, pressed && styles.pressed]}
+        >
+          <Text style={[styles.choiceText, option.id === value && styles.choiceTextSelected]}>{option.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 export function Divider() {
   return <View style={styles.divider} />;
 }
@@ -245,6 +302,14 @@ const styles = StyleSheet.create({
   buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   buttonSecondaryText: { color: colors.ink },
   pressed: { opacity: 0.72 },
+  fieldWrap: { gap: spacing.xs },
+  field: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, color: colors.ink, fontSize: 16 },
+  fieldMultiline: { minHeight: 88, textAlignVertical: 'top' },
+  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  choice: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 9, minWidth: 44, alignItems: 'center' },
+  choiceSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
+  choiceText: { color: colors.ink, fontWeight: '700' },
+  choiceTextSelected: { color: '#FFFFFF' },
   pill: {
     alignSelf: 'flex-start',
     backgroundColor: colors.surfaceMuted,

@@ -238,7 +238,7 @@ interface WeightTarget {
 export function parseWeightTarget(goalText: string): WeightTarget | undefined {
   const match = goalText.match(/(\d+(?:\.\d+)?)\s*(lbs?|pounds|kg|kilos?|kilograms)\b/i);
   if (!match) return undefined;
-  const unit = /^(kg|kilo)/i.test(match[2]) ? 'kg' : 'lb';
+  const unit = /^(kg|kilo)/i.test(match[2] ?? '') ? 'kg' : 'lb';
   return { amount: Number(match[1]), unit };
 }
 

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@apm/domain": "0.1.0",
+    "@apm/planning": "0.1.0",
     "@supabase/supabase-js": "^2.0.0",
     "expo": "^58.0.0",
     "expo-auth-session": "~58.0.2",

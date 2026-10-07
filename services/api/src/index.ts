@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { buildDailyPlan } from '@apm/planning';
+import { buildDailyPlan, midDayReplanDecision, selectForeground } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
 import { autonomyLabels, capabilitiesForPlan, forbiddenStandingActions, maxAutonomyForPlan, planHasCapability, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
@@ -57,6 +57,20 @@ import {
   updateAutopilotRule,
 } from './autopilotRepository';
 import { notifyRadarItems } from './push';
+import { buildGoalPlan, ensureGoalPlans, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
+import {
+  asLoopError,
+  checkInDay,
+  completePlanAction,
+  createGoalWithPlan,
+  decideGoalPlan,
+  getDailyLoopExportState,
+  loopErrorResponse,
+  replanDay,
+  reviewGoalPlanGate,
+  saveGoalPlan,
+  setForegroundGoal,
+} from './dailyLoopRepository';
 
 type WorkerEnv = { Bindings: ApiEnv };
 const app = new Hono<WorkerEnv>();
@@ -346,7 +360,7 @@ async function currentModeState(env: ApiEnv, accessToken: string, userId: string
 
 async function buildUserState(env: ApiEnv, accessToken: string, userId: string) {
   const now = new Date();
-  const persistedGraph = await getLifeGraph(env, accessToken, userId);
+  const persistedGraph = await ensureGoalPlans(env, accessToken, await getLifeGraph(env, accessToken, userId), now);
   const modeState = persistedGraph.personalOS
     ? await currentModeState(env, accessToken, userId, persistedGraph.identity.timezone, now)
     : { mode: 'standard' as const };
@@ -356,7 +370,14 @@ async function buildUserState(env: ApiEnv, accessToken: string, userId: string) 
     radarItems: buildRadarItems(persistedGraph),
   };
   const projected = applyModeToPlan(buildDailyPlan(graph, { mode: modeState.mode === 'recovery' ? 'recovery' : undefined, now }), graph, modeState);
-  return { graph, plan: projected.plan, mode: { ...modeView(modeState, now), todayEffect: projected.effect } };
+  const today = todayLoopState(graph, { now, recoveryMode: modeState.mode === 'recovery' });
+  return { graph, plan: projected.plan, mode: { ...modeView(modeState, now), todayEffect: projected.effect }, today };
+}
+
+function loopFailure(c: any, error: unknown) {
+  const mapped = loopErrorResponse(error);
+  if (!mapped) throw error;
+  return c.json({ error: mapped.error, message: mapped.message }, mapped.status);
 }
 
 async function requireUser(c: any) {
@@ -512,8 +533,15 @@ app.put('/v1/methodology/intake', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = methodologyIntakeSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request', fields: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) }, 400);
-  await saveMethodologyIntake(c.env, user.accessToken, user.id, parsed.data);
+  const installed = await saveMethodologyIntake(c.env, user.accessToken, user.id, parsed.data);
   await audit(c.env, user.accessToken, user.id, 'personal_os.installed', { roles: parsed.data.roles.length, trackCount: parsed.data.trackKeys.length }, 'personal_os', user.id);
+  // Goal → plan at intake: the primary goal gets its 30/60/90 plan now (a re-run intake replaces it).
+  const primary = installed.goals.find((goal) => goal.id === installed.personalOS?.foregroundGoalId)
+    ?? installed.goals.find((goal) => goal.status === 'active' && goal.priority === 1);
+  if (primary) {
+    try { await saveGoalPlan(c.env, user.id, primary.id, buildGoalPlan(installed, primary, new Date()), 'intake'); }
+    catch (error) { return loopFailure(c, error); }
+  }
   return c.json(await buildUserState(c.env, user.accessToken, user.id));
 });
 
@@ -553,14 +581,119 @@ app.post('/v1/methodology/day/close', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ verdict: z.enum(['full_day','mvd','miss']), note: z.string().trim().max(1000).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  const row = await closeDay(c.env, user.accessToken, parsed.data.verdict, parsed.data.note);
-  await audit(c.env, user.accessToken, user.id, 'day.closed', { verdict: parsed.data.verdict }, 'day_record', row.id);
+  let row;
+  try { row = await closeDay(c.env, user.accessToken, parsed.data.verdict, parsed.data.note); }
+  catch (error) { return loopFailure(c, error); }
   return c.json({ day: row, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+// ---------------------------------------------------------------- BHPC daily loop (migration 0021)
+app.post('/v1/today/check-in', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ mood: z.number().int().min(1).max(10) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const state = await buildUserState(c.env, user.accessToken, user.id);
+  if (!state.graph.personalOS) return c.json({ error: 'personal_os_missing', message: 'Complete the Personal OS intake first.' }, 409);
+  if (state.today.checkedIn) return c.json({ replayed: true, ...state });
+  // The Mood Gate runs here, in the morning: mood ≤ 2 prints a Minimum Viable Day.
+  const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, mood: parsed.data.mood });
+  try { await checkInDay(c.env, user.id, { day: state.today.date, mood: parsed.data.mood, agenda }); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json({ replayed: false, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+app.post('/v1/today/actions/complete', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ planId: z.string().uuid(), actionKey: z.string().trim().min(1).max(120), note: z.string().trim().max(500).optional() }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  let result;
+  try { result = await completePlanAction(c.env, user.accessToken, parsed.data); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json({ replayed: result.replayed, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+const replanReasonSchema = z.enum(['external_change', 'safety', 'permission', 'mood', 'discomfort']);
+app.post('/v1/today/replan', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ reason: replanReasonSchema, detail: z.string().trim().max(300).optional() }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const decision = midDayReplanDecision(parsed.data.reason);
+  if (!decision.allowed) {
+    await audit(c.env, user.accessToken, user.id, 'day.replan_refused', { reason: parsed.data.reason }, 'day_record');
+    return c.json({ error: decision.code, message: decision.message }, 409);
+  }
+  const state = await buildUserState(c.env, user.accessToken, user.id);
+  if (!state.today.locked) return c.json({ error: 'opening_step_required', message: 'Check in first; the agenda is set at check-in.' }, 409);
+  // A declared safety issue runs the rest of today at recovery scope; an external change keeps the day's state.
+  const dayState = parsed.data.reason === 'safety' ? 'recovery' : state.today.agenda.state;
+  const agenda = freshAgenda(state.graph, { date: state.today.date, state: dayState, mood: state.today.day?.mood });
+  try { await replanDay(c.env, user.id, { day: state.today.date, reason: parsed.data.reason, detail: parsed.data.detail, agenda }); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json({ message: decision.message, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+app.post('/v1/goals', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({
+    title: z.string().trim().min(3).max(300),
+    outcome: z.string().trim().max(800).optional(),
+    pillar: pillarSchema.optional(),
+    targetDate: dateOnlySchema.optional(),
+  }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request', fields: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) }, 400);
+  const now = new Date();
+  const graph = await getLifeGraph(c.env, user.accessToken, user.id);
+  const plan = buildGoalPlan(graph, parsed.data, now);
+  let created;
+  try { created = await createGoalWithPlan(c.env, user.id, parsed.data, plan); }
+  catch (error) { return loopFailure(c, error); }
+  const state = await buildUserState(c.env, user.accessToken, user.id);
+  // BHPC: a new project is run through the Arbitration Engine against the current foreground.
+  // The result is a recommendation; only the user moves the foreground.
+  const arbitration = selectForeground({
+    plans: planEntries(state.graph),
+    goals: state.graph.goals,
+    date: localToday(state.graph, now),
+    completions: state.graph.planCompletions,
+  });
+  return c.json({
+    goalId: created.goal.id,
+    arbitration: arbitration.arbitration ?? null,
+    recommendedForegroundGoalId: arbitration.foreground?.record.goalId ?? null,
+    ...state,
+  }, 201);
+});
+
+app.post('/v1/goals/:id/foreground', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  try { await setForegroundGoal(c.env, user.accessToken, c.req.param('id')); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
+});
+
+app.post('/v1/goal-plans/:id/gate-review', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ gate: z.enum(['foundation', 'build']), stillAligned: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  try { await reviewGoalPlanGate(c.env, user.accessToken, { planId: c.req.param('id'), ...parsed.data }); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
+});
+
+app.post('/v1/goal-plans/:id/decision', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ decision: z.enum(['promote', 'maintain', 'park']), reason: z.string().trim().min(3).max(500) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  try { await decideGoalPlan(c.env, user.accessToken, { planId: c.req.param('id'), ...parsed.data }); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
 });
 
 app.post('/v1/next-actions/:id/complete', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const result = await completeNextAction(c.env, user.accessToken, user.id, c.req.param('id'));
+  let result;
+  try { result = await completeNextAction(c.env, user.accessToken, user.id, c.req.param('id')); }
+  catch (error) { return loopFailure(c, asLoopError(error)); }
   if (!result) return c.json({ error: 'not_found' }, 404);
   await audit(c.env, user.accessToken, user.id, 'next_action.completed', {}, 'next_action', c.req.param('id'));
   return c.json({ ...result, ...(await buildUserState(c.env, user.accessToken, user.id)) });
@@ -863,9 +996,10 @@ app.post('/v1/privacy/export', async (c) => {
     lifeAdminItems: retainedLifeOs.lifeAdminItems,
   };
   const autopilot = await getAutopilotExportState(c.env, user.accessToken);
+  const dailyLoop = await getDailyLoopExportState(c.env, user.accessToken);
   const activity = await getAuditEvents(c.env, user.accessToken, user.id, 250);
   await supabaseRest(c.env, user.accessToken, `/rest/v1/data_rights_jobs?id=eq.${encodeURIComponent(job.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'complete', completed_at: new Date().toISOString() }) });
-  return c.json({ job: { ...job, status: 'complete' }, export: { generatedAt: new Date().toISOString(), lifeGraph, autopilot, activity } });
+  return c.json({ job: { ...job, status: 'complete' }, export: { generatedAt: new Date().toISOString(), lifeGraph, autopilot, dailyLoop, activity } });
 });
 app.post('/v1/privacy/delete', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);

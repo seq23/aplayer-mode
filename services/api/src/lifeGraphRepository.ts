@@ -368,6 +368,8 @@ export async function getLifeGraph(
     permissions: platform.permissions,
     actions: platform.actions,
     dayRecords: platform.dayRecords,
+    goalPlans: platform.goalPlans,
+    planCompletions: platform.planCompletions,
     entitlement: platform.entitlement,
   };
 }

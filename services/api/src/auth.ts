@@ -1,5 +1,6 @@
 import type { ApiEnv } from './env';
 import { requireSupabaseConfig } from './env';
+import { SERVICE_ROLE_TOKEN } from './db';
 
 export interface AuthenticatedUser {
   id: string;
@@ -23,7 +24,7 @@ export async function authenticateRequest(
   if (!header?.startsWith('Bearer ')) return null;
 
   const accessToken = header.slice('Bearer '.length).trim();
-  if (!accessToken) return null;
+  if (!accessToken || accessToken === SERVICE_ROLE_TOKEN) return null;
 
   const { url, publishableKey } = requireSupabaseConfig(env);
   const response = await fetch(`${url}/auth/v1/user`, {

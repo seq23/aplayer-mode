@@ -20,6 +20,7 @@ import type {
   ActiveTrackKey,
   WeeklyCadence,
 } from '@apm/domain';
+import type { DailyAgenda } from '@apm/planning';
 
 export interface ApiOnboardingInput {
   displayName: string;
@@ -71,7 +72,25 @@ export interface ModeStateView {
   canExit: boolean;
   todayEffect?: { mode: OperatingModeKey; summary: string; heldBlocks: Array<{ id: string; title: string }>; heldUntil?: string };
 }
-export interface TodayState { graph: LifeGraphSnapshot; plan: DailyPlan; mode?: ModeStateView }
+/** The BHPC daily loop for the user's local today (services/api/src/dailyLoop.ts). */
+export interface TodayLoopView {
+  date: string;
+  agenda: DailyAgenda;
+  dayState: { state: 'normal' | 'recovery' | 'missed_yesterday'; reason: string };
+  locked: boolean;
+  checkedIn: boolean;
+  closed: boolean;
+  dayStart: 'guided' | 'hard';
+  day?: { mood?: number; verdict?: 'full_day' | 'mvd' | 'miss'; replans: Array<{ reason: string; detail?: string; at: string }> };
+}
+export interface TodayState { graph: LifeGraphSnapshot; plan: DailyPlan; mode?: ModeStateView; today?: TodayLoopView }
+export type ReplanReason = 'external_change' | 'safety' | 'permission' | 'mood' | 'discomfort';
+export interface NewGoalInput { title: string; outcome?: string; pillar?: PillarName; targetDate?: string }
+export interface CreatedGoalState extends TodayState {
+  goalId: string;
+  arbitration: { winnerId?: string; ranked: Array<{ id: string; score: number }> } | null;
+  recommendedForegroundGoalId: string | null;
+}
 
 export type ModeChangeRequest =
   | { action: 'exit' }
@@ -225,6 +244,28 @@ export async function persistActionCompletion(actionId: string, accessToken: str
 }
 export async function closeDay(verdict: 'full_day' | 'mvd' | 'miss', note: string | undefined, accessToken: string): Promise<TodayState> {
   return request<TodayState>('/v1/methodology/day/close', accessToken, { method: 'POST', body: JSON.stringify({ verdict, note }) });
+}
+
+export async function checkInToday(mood: number, accessToken: string): Promise<TodayState> {
+  return request<TodayState>('/v1/today/check-in', accessToken, { method: 'POST', body: JSON.stringify({ mood }) });
+}
+export async function completeAgendaAction(input: { planId: string; actionKey: string; note?: string }, accessToken: string): Promise<TodayState> {
+  return request<TodayState>('/v1/today/actions/complete', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function replanToday(input: { reason: ReplanReason; detail?: string }, accessToken: string): Promise<TodayState & { message?: string }> {
+  return request<TodayState & { message?: string }>('/v1/today/replan', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function createGoal(input: NewGoalInput, accessToken: string): Promise<CreatedGoalState> {
+  return request<CreatedGoalState>('/v1/goals', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function setForegroundGoal(goalId: string, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/goals/${encodeURIComponent(goalId)}/foreground`, accessToken, { method: 'POST' });
+}
+export async function reviewPlanGate(planId: string, input: { gate: 'foundation' | 'build'; stillAligned: boolean }, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/goal-plans/${encodeURIComponent(planId)}/gate-review`, accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function decideGoalPlan(planId: string, input: { decision: 'promote' | 'maintain' | 'park'; reason: string }, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/goal-plans/${encodeURIComponent(planId)}/decision`, accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 
 export async function sendCoachMessage(input: { message?: string; choice?: CoachChoice; sessionId?: string }, accessToken: string): Promise<CoachReplyView> {
