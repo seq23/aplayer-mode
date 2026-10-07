@@ -2,11 +2,13 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, scoreAgendaDay, selectForeground } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
-import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
+import { AREA_KEYS, toAreaKey, type ActionRecord, type AutonomyLevel, type OperatingModeKey, type SubscriptionEntitlement } from '@apm/domain';
 import { autonomyLabels, BILLING_PRODUCTS, capabilitiesForPlan, formatUsdCents, PLAN_PRICES, REVENUECAT_CONFIG, type PaidPlan, forbiddenStandingActions, localMoment, maxAutonomyForPlan, planHasCapability, planPriceLabels, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
-import { authenticateRequest, devBypassMisconfigured } from './auth';
+import { authenticateRequest, devBypassMisconfigured, verifyAccessToken } from './auth';
+import { claimIntakeInstall, deleteAuthUser, finishIntakeInstall, getIntakeDraft, hasServiceCredential, mergeAnonymousDraft, saveIntakeDraft } from './intakeRepository';
+import { synthesizeIntake } from './intakeSynthesis';
 import type { ApiEnv } from './env';
-import { supabaseRest } from './db';
+import { SERVICE_ROLE_TOKEN, supabaseRest } from './db';
 import { billingOfferingFor, handleRevenueCatWebhook } from './billing';
 import {
   completeNextAction,
@@ -93,9 +95,76 @@ import {
 } from './dailyLoopRepository';
 
 type WorkerEnv = { Bindings: ApiEnv };
+
+/** First-run drop-off events (docs/34 §6.1). */
+export const INTAKE_ANALYTICS_EVENTS = [
+  'onboarding_started', 'intake_question_viewed', 'intake_question_answered', 'intake_question_skipped', 'intake_back',
+  'intake_finish_later', 'intake_resumed', 'intake_quick_start_shown', 'intake_quick_start_chosen', 'account_prompt_shown',
+  'account_prompt_result', 'os_build_ms', 'os_ai_fallback', 'paywall_viewed', 'paywall_result', 'push_prompt_result',
+] as const;
+const INTAKE_ANALYTICS_KEYS = new Set(['qid', 'index', 'pathLength', 'ms', 'changed', 'gap', 'mode', 'provider', 'result', 'errorCode', 'reason', 'games', 'screen']);
+/** Only whitelisted keys; strings must be ids (no spaces, no free text); the Q1 game ids are the only answer-derived value. */
+export function intakeAnalyticsProblem(properties: Record<string, unknown>): string | null {
+  for (const [key, value] of Object.entries(properties)) {
+    if (!INTAKE_ANALYTICS_KEYS.has(key)) return `property ${key} is not allowed`;
+    if (typeof value === 'string' && !/^[a-z0-9_,:.-]{0,80}$/.test(value)) return `property ${key} must be an id`;
+    if (key === 'games' && typeof value === 'string' && value.split(',').some((g) => g && !['wealth', 'weight', 'founder', 'operator', 'parent', 'athlete', 'student', 'creator', 'transition'].includes(g))) return 'games must be Q1 game ids';
+  }
+  return null;
+}
 const app = new Hono<WorkerEnv>();
 
-const pillarSchema = z.enum(['wealth', 'body', 'spirit', 'execution']);
+/**
+ * An AREA key (three pillars, areas inside them: 0060). Older clients may still send a
+ * legacy pillar key (execution, wealth, body, spirit, family): it is mapped to its area.
+ */
+const pillarSchema = z.preprocess((value) => (typeof value === 'string' ? toAreaKey(value) ?? value : value), z.enum(AREA_KEYS));
+/** Floors keyed by area (legacy keys mapped). */
+const areaFloorsSchema = z.preprocess(
+  (value) => (value && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, floor]) => [toAreaKey(key, typeof floor === 'string' ? floor : undefined) ?? key, floor]))
+    : value),
+  z.partialRecord(z.enum(AREA_KEYS), z.string().trim().max(300)),
+);
+const idList = (max = 20) => z.array(z.string().trim().regex(/^[A-Za-z0-9_]{1,40}$/)).max(max);
+const intakeProfileSchema = z.object({
+  bankVersion: z.number().int().min(1).max(1000),
+  games: idList(9),
+  foregroundGame: z.string().regex(/^[a-z_]{1,20}$/).optional(),
+  loadBaseline: z.number().int().min(1).max(10).optional(),
+  mentalLoadItems: idList(),
+  wakeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  sleepTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  fixedCommitments: idList(),
+  lineIds: idList(),
+  travelPattern: z.string().regex(/^[a-z_]{1,20}$/).optional(),
+  defaultMinutes: z.number().int().min(5).max(480).optional(),
+  missPattern: z.string().regex(/^[a-z_]{1,20}$/).optional(),
+  energyDip: z.string().regex(/^[a-z_]{1,20}$/).optional(),
+  deadlines: idList(),
+  deadlineWindow: z.string().regex(/^[a-z_]{1,20}$/).optional(),
+  realWork: idList(),
+  fakeWork: idList(),
+  wealthContext: idList(),
+  ownership: z.boolean().optional(),
+  careerLevers: idList(),
+  family: z.object({ dependents: idList(), protected: idList(), shared: z.string().regex(/^[a-z_]{1,20}$/).optional() }).strict().optional(),
+  mindPractices: idList(10),
+  learningTopic: z.string().regex(/^[a-z_]{1,20}$/).optional(),
+  learningModality: z.string().regex(/^[a-z_]{1,20}$/).optional(),
+  spiritPractices: idList(10),
+  faithLanguage: z.boolean(),
+  practiceCadence: z.enum(['daily', 'few', 'weekly']).optional(),
+  bedRoutine: z.object({ gentle: z.boolean() }).strict().optional(),
+  bodySafety: z.enum(['none', 'yes', 'skip']).optional(),
+  coachingHelps: idList(),
+  coachingAvoid: idList(),
+  morningTrigger: z.enum(['wake', 'wake15', 'wake30']).optional(),
+  systemName: z.enum(['My A Player Mode', 'My Roundtable', 'My Chief of Staff', 'Billionaire Executive Roundtable']).optional(),
+  quickStart: z.boolean(),
+  deferredQuestionIds: idList(80),
+  suggestedAreas: z.array(z.object({ label: z.string().trim().min(1).max(60), area: z.enum(AREA_KEYS) }).strict()).max(10),
+}).strict();
 const trackSchema = z.enum(ACTIVE_TRACK_KEYS);
 const modeSchema = z.enum(['standard','recovery','high_pressure','executive_review','sprint','deep_work']);
 const providerSchema = z.enum(['google','microsoft']);
@@ -202,6 +271,8 @@ function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: 
 }
 
 const methodologyIntakeSchema = onboardingSchema.extend({
+  // The first-run intake installs before (or without) an account name: empty is allowed.
+  displayName: z.string().trim().max(120).default(''),
   timezone: z.string().trim().max(120).optional(),
   goalOutcome: z.string().trim().max(800).optional(),
   goalTargetDate: dateOnlySchema.optional(),
@@ -225,8 +296,13 @@ const methodologyIntakeSchema = onboardingSchema.extend({
     avoidLanguage: z.string().trim().max(500).optional(),
   }),
   accountability: z.object({ dayStart: z.enum(['guided','hard']), coachingReminderAfterDays: z.number().int().min(1).max(60).optional() }),
-  criticalPillars: z.array(pillarSchema).max(4),
-  minimumFloors: z.object({ wealth: z.string().trim().max(300).optional(), body: z.string().trim().max(300).optional(), spirit: z.string().trim().max(300).optional(), execution: z.string().trim().max(300).optional() }),
+  criticalPillars: z.array(pillarSchema).max(AREA_KEYS.length),
+  minimumFloors: areaFloorsSchema,
+  activeAreas: z.array(pillarSchema).max(AREA_KEYS.length).optional(),
+  pillarsEnabled: z.array(z.enum(['mind', 'body', 'spirit'])).max(3).optional(),
+  intakeProfile: intakeProfileSchema.optional(),
+  /** Install idempotency (docs/34 §6 rule 7): a retry with the same key replays. */
+  idempotencyKey: z.string().regex(/^[A-Za-z0-9_.:-]{1,80}$/).optional(),
   trackKeys: z.array(trackSchema).max(ACTIVE_TRACK_KEYS.length),
   // Sprint and Deep Work need a declared duration, so they start only via POST /v1/methodology/mode.
   activeMode: z.enum(['standard','recovery','high_pressure','executive_review']).optional(),
@@ -544,8 +620,13 @@ app.post(REVENUECAT_CONFIG.webhookPath, async (c) => {
 app.get('/v1/billing/offering', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const offering = await billingOfferingFor(c.env, user.id);
+  // Live Founding 100 scarcity (0062): the server's number or null; the app never invents one.
+  const spotsLeft = hasServiceCredential(c.env)
+    ? await supabaseRest<number>(c.env, SERVICE_ROLE_TOKEN, '/rest/v1/rpc/apm_service_billing_founding_spots_left', { method: 'POST', body: '{}' }).then((n) => (typeof n === 'number' ? n : null)).catch(() => null)
+    : null;
   return c.json({
     ...offering,
+    spotsLeft,
     offeringId: offering.offering === 'founding' ? REVENUECAT_CONFIG.foundingOffering : REVENUECAT_CONFIG.defaultOffering,
     appUserId: user.id,
     products: BILLING_PRODUCTS.filter((item) => offering.offering === 'founding' || item.offer === 'standard').map(({ productId, store, plan, period, offer }) => ({ productId, store, plan, period, offer })),
@@ -661,19 +742,130 @@ app.put('/v1/methodology/intake', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = methodologyIntakeSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request', fields: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) }, 400);
-  const installed = await saveMethodologyIntake(c.env, user.accessToken, user.id, parsed.data);
-  await audit(c.env, user.accessToken, user.id, 'personal_os.installed', { roles: parsed.data.roles.length, trackCount: parsed.data.trackKeys.length }, 'personal_os', user.id);
-  // Goal → plan at intake: the primary goal gets its 30/60/90 plan now (a re-run intake replaces it).
-  const primary = installed.goals.find((goal) => goal.id === installed.personalOS?.foregroundGoalId)
-    ?? installed.goals.find((goal) => goal.status === 'active' && goal.priority === 1);
-  if (primary) {
+  // Install idempotency (docs/34 §6 rule 7, AT8): a retry or a double tap installs once.
+  const key = parsed.data.idempotencyKey;
+  if (key) {
+    const claim = await claimIntakeInstall(c.env, user.accessToken, key);
+    if (claim === 'replay') return c.json({ ...(await buildUserState(c.env, user.accessToken, user.id)), replayed: true });
+    if (claim === 'in_progress') return c.json({ error: 'install_in_progress', message: 'Your OS is already installing.' }, 409);
+  }
+  const version = key ? Number(key.match(/(\d+)$/)?.[1] ?? 0) || null : null;
+  try {
+    const installed = await saveMethodologyIntake(c.env, user.accessToken, user.id, parsed.data);
+    await audit(c.env, user.accessToken, user.id, 'personal_os.installed', { roles: parsed.data.roles.length, trackCount: parsed.data.trackKeys.length, areas: parsed.data.activeAreas?.length ?? 0 }, 'personal_os', user.id);
+    // Goal → plan at intake: the primary goal gets its 30/60/90 plan now (a re-run intake replaces it).
+    const primary = installed.goals.find((goal) => goal.id === installed.personalOS?.foregroundGoalId)
+      ?? installed.goals.find((goal) => goal.status === 'active' && goal.priority === 1);
     try {
-      await saveGoalPlan(c.env, user.id, primary.id, buildGoalPlan(installed, primary, new Date()), 'intake');
-      // A red flag in the intake's body context persists the pause until clinician clearance.
-      await pauseBodyCoachingIfFlagged(c.env, user.accessToken, user.id, [parsed.data.bodyContext], 'intake', new Date());
-    } catch (error) { return loopFailure(c, error); }
+      // Without access yet (no plan bought, not on the beta list: 0044) the OS is still
+      // installed; the plan is created by the Today backfill once access exists, after the
+      // plan choice that follows the summary (docs/34 §9).
+      if (primary) await saveGoalPlan(c.env, user.id, primary.id, buildGoalPlan(installed, primary, new Date()), 'intake')
+        .catch((error: unknown) => { if (!/loop_entitlement_required/.test(String((error as Error)?.message ?? error))) throw error; });
+      // A red flag in the body context, or the body safety question answered "Yes" or
+      // "Prefer not to say", persists the pause until clinician clearance.
+      const safety = parsed.data.intakeProfile?.bodySafety;
+      await pauseBodyCoachingIfFlagged(c.env, user.accessToken, user.id, [parsed.data.bodyContext], 'intake', new Date(), safety === 'yes' || safety === 'skip');
+    } catch (error) {
+      if (key) await finishIntakeInstall(c.env, user.accessToken, key, false, version).catch(() => undefined);
+      return loopFailure(c, error);
+    }
+    if (key) await finishIntakeInstall(c.env, user.accessToken, key, true, version);
+    // Drop-off analytics: ids and timings only; the Q1 game ids are the one answer-derived dimension.
+    await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'onboarding_completed', {
+      quickStart: parsed.data.intakeProfile?.quickStart ?? false,
+      games: (parsed.data.intakeProfile?.games ?? []).join(','),
+    }).catch(() => undefined);
+  } catch (error) {
+    if (key) await finishIntakeInstall(c.env, user.accessToken, key, false, version).catch(() => undefined);
+    throw error;
   }
   return c.json(await buildUserState(c.env, user.accessToken, user.id));
+});
+
+// ---------------------------------------------------------------------------
+// First-run intake draft (docs/34 §6): saved on every change, merged per question.
+// ---------------------------------------------------------------------------
+
+const intakeDraftSchema = z.object({
+  bankVersion: z.number().int().min(1).max(1000),
+  version: z.number().int().min(0),
+  answers: z.record(z.string().regex(/^[a-z_][a-z0-9_|]{0,59}$/), z.union([z.string().max(4000), z.number(), z.boolean(), z.array(z.string().max(120)).max(40)])),
+  answeredAt: z.record(z.string(), z.number()).default({}),
+  cursor: z.string().regex(/^[a-z0-9_]{1,40}$/),
+  updatedAt: z.number().optional(),
+}).strict();
+
+app.get('/v1/intake/draft', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  return c.json({ draft: await getIntakeDraft(c.env, user.accessToken) });
+});
+
+app.put('/v1/intake/draft', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const raw = await c.req.text();
+  if (raw.length > 80_000) return c.json({ error: 'invalid_request', message: 'Draft too large.' }, 413);
+  let body: unknown = null;
+  try { body = JSON.parse(raw); } catch { /* invalid */ }
+  const parsed = intakeDraftSchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  return c.json({ draft: await saveIntakeDraft(c.env, user.accessToken, parsed.data) });
+});
+
+// Signing in to an EXISTING account after answering anonymously (docs/34 §5 9c): the
+// server proves both sessions, merges the anonymous draft by rule and deletes the
+// anonymous user. Without the service credential the app re-saves its local copy instead.
+app.post('/v1/intake/draft/merge', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ anonymousAccessToken: z.string().min(20).max(4096) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (user.isAnonymous) return c.json({ error: 'account_required', message: 'Sign in to your account first.' }, 409);
+  if (!hasServiceCredential(c.env)) return c.json({ error: 'merge_unavailable' }, 503);
+  const anonymous = await verifyAccessToken(parsed.data.anonymousAccessToken, c.env);
+  if (!anonymous || !anonymous.isAnonymous || anonymous.id === user.id) return c.json({ error: 'invalid_anonymous_session' }, 403);
+  const result = await mergeAnonymousDraft(c.env, anonymous.id, user.id);
+  await deleteAuthUser(c.env, anonymous.id).catch((error: unknown) => console.error('APM anonymous user delete failed', { message: error instanceof Error ? error.message : String(error) }));
+  return c.json({ outcome: result.outcome, draft: await getIntakeDraft(c.env, user.accessToken) });
+});
+
+// Answers given after install ("2 quick taps", docs/34 §4.6): the body safety answer applies at
+// once; everything else updates the profile from Day 8 (Week-1 rules; the database refuses earlier).
+app.put('/v1/intake/profile', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ intakeProfile: intakeProfileSchema }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const safety = parsed.data.intakeProfile.bodySafety;
+  try {
+    if (safety === 'yes' || safety === 'skip') await pauseBodyCoachingIfFlagged(c.env, user.accessToken, user.id, [], 'intake', new Date(), true);
+  } catch (error) { return loopFailure(c, error); }
+  try {
+    await supabaseRest(c.env, user.accessToken, '/rest/v1/rpc/apm_update_intake_profile', { method: 'POST', body: JSON.stringify({ p_profile: parsed.data.intakeProfile }) });
+  } catch (error) {
+    const body = JSON.stringify((error as { body?: unknown })?.body ?? '');
+    if (/loop_week_one_lock/.test(body)) return c.json({ ...(await buildUserState(c.env, user.accessToken, user.id)), held: 'week_one' });
+    throw error;
+  }
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
+});
+
+// intake_profile_synthesis (docs/34 §7.2): candidate only, deterministic fallback, 8 s cap.
+app.post('/v1/intake/synthesis', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({
+    catchAll: z.string().max(4000).optional(),
+    games: idList(9),
+    ownership: z.boolean().optional(),
+    trackKeys: z.array(trackSchema).max(ACTIVE_TRACK_KEYS.length),
+    floors: areaFloorsSchema,
+    suggestedAreas: z.array(z.string().trim().min(1).max(60)).max(5).optional(),
+  }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const started = Date.now();
+  const result = await synthesizeIntake(c.env, user.accessToken, user.id, parsed.data);
+  await recordAnalyticsEvent(c.env, user.accessToken, user.id, result.source === 'model' ? 'os_build_ms' : 'os_ai_fallback', {
+    ms: Date.now() - started, ...(result.fallbackReason ? { reason: result.fallbackReason } : {}),
+  }).catch(() => undefined);
+  return c.json(result);
 });
 
 const modeRequestSchema = z.union([
@@ -783,7 +975,7 @@ app.post('/v1/today/replan', async (c) => {
 app.post('/v1/today/close', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({
-    pillarReview: z.array(z.object({ pillar: z.enum(['wealth', 'body', 'spirit', 'execution', 'family']), score: z.enum(['hit', 'partial', 'miss']), completed: z.string().trim().max(300).optional() })).min(1).max(5),
+    pillarReview: z.array(z.object({ pillar: pillarSchema, score: z.enum(['hit', 'partial', 'miss']), completed: z.string().trim().max(300).optional() })).min(1).max(AREA_KEYS.length),
     verdict: z.enum(['full_day', 'mvd', 'miss']).optional(),
     note: z.string().trim().max(1000).optional(),
     carryForward: z.string().trim().max(200).optional(),
@@ -1156,8 +1348,16 @@ app.put('/v1/permissions/:domain/:actionType', async (c) => {
     }, 403);
   }
 
-  const permission = await upsertPermission(c.env, user.accessToken, user.id, { domain: domain.data, actionType: c.req.param('actionType'), autonomyLevel: requestedLevel as AutonomyLevel, constraints: parsed.data.constraints, enabled: requestedLevel > 0 && parsed.data.enabled !== false });
-  await audit(c.env, user.accessToken, user.id, 'permission.changed', { domain: permission.domain, actionType: permission.actionType, autonomyLevel: permission.autonomyLevel, plan: entitlement?.plan ?? 'beta' }, 'permission', permission.id);
+  let permission;
+  try {
+    permission = await upsertPermission(c.env, user.accessToken, user.id, { domain: domain.data, actionType: c.req.param('actionType'), autonomyLevel: requestedLevel as AutonomyLevel, constraints: parsed.data.constraints, enabled: requestedLevel > 0 && parsed.data.enabled !== false });
+  } catch (error) {
+    const body = JSON.stringify((error as { body?: unknown })?.body ?? '');
+    if (/permission_above_plan_ceiling/.test(body)) return c.json({ error: 'plan_autonomy_ceiling', requestedLevel, maxAutonomyLevel: ceiling, maxAutonomyLabel: autonomyLabels[ceiling] }, 403);
+    if (/permission_invalid_request/.test(body)) return c.json({ error: 'invalid_request' }, 400);
+    throw error;
+  }
+  // Audited inside apm_set_permission (0064), in the same transaction as the write.
   return c.json({ permission });
 });
 
@@ -1465,10 +1665,17 @@ app.post('/v1/households/:id/items', async (c) => {
 
 app.post('/v1/analytics/event', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ eventName: z.enum(CLIENT_ANALYTICS_EVENT_NAMES), properties: z.record(z.string(), z.union([z.string(),z.number(),z.boolean(),z.null()])).optional() }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ eventName: z.enum([...CLIENT_ANALYTICS_EVENT_NAMES, ...INTAKE_ANALYTICS_EVENTS]), properties: z.record(z.string(), z.union([z.string(),z.number(),z.boolean(),z.null()])).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const eventName = parsed.data.eventName;
+  // First-run drop-off events carry ids and timings only, never answer content (docs/34 §6.1): refused, not trimmed.
+  if ((INTAKE_ANALYTICS_EVENTS as readonly string[]).includes(eventName)) {
+    if (intakeAnalyticsProblem(parsed.data.properties ?? {})) return c.json({ error: 'invalid_request', message: 'Intake analytics carry ids and timings only.' }, 400);
+    await recordAnalyticsEvent(c.env, user.accessToken, user.id, eventName, parsed.data.properties ?? {});
+    return c.json({ ok: true });
+  }
   // Per-event allow-list: no free text from the client ever reaches analytics_events.
-  await recordAnalyticsEvent(c.env, user.accessToken, user.id, parsed.data.eventName, sanitizeAnalyticsProperties(parsed.data.eventName, parsed.data.properties ?? {}));
+  await recordAnalyticsEvent(c.env, user.accessToken, user.id, eventName, sanitizeAnalyticsProperties(eventName as (typeof CLIENT_ANALYTICS_EVENT_NAMES)[number], parsed.data.properties ?? {}));
   return c.json({ ok: true });
 });
 

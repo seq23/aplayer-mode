@@ -78,7 +78,7 @@ let autoRefreshRegistered = false;
 
 export function getSupabaseClient(): SupabaseClient {
   if (!supabaseUrl || !supabasePublishableKey) {
-    throw new Error('Supabase mobile configuration is missing');
+    throw new Error('Account configuration is not configured on this build');
   }
 
   if (!client) {
@@ -88,6 +88,8 @@ export function getSupabaseClient(): SupabaseClient {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
+        // PKCE: Google sign-in returns a code the app exchanges itself (docs/34 §5).
+        flowType: 'pkce',
       },
     });
   }

@@ -128,7 +128,7 @@ test('weight loss: a body behaviour is on Today every day, in every state', () =
   for (let day = 0; day < 90; day += 1) {
     for (const state of ['normal', 'recovery', 'missed_yesterday']) {
       const supply = supplyDailyActions(plan, { date: addDays(START, day), state });
-      const body = suppliedActions(supply).filter((a) => a.pillar === 'body');
+      const body = suppliedActions(supply).filter((a) => a.pillar === 'movement');
       assert.ok(body.length >= 1, `day ${day + 1} ${state}`);
       const movement = suppliedActions(supply).some((a) => /walk|squats|strength/i.test(a.title));
       assert.ok(movement, `movement floor on day ${day + 1} ${state}`);
@@ -227,7 +227,7 @@ test('operator: promotion deliverable, visibility and manager 1:1s', () => {
 test('parent+: family floor protected every day while the second game keeps the foreground', () => {
   const plan = generateGoalPlan('Launch my business and reach $5k MRR', ctx({ roles: ['Parenting / caregiving'] }));
   assert.ok(plan.safety.reasonCodes.includes('home.floor_protected'));
-  assert.equal(plan.foreground.pillar, 'execution');
+  assert.equal(plan.foreground.pillar, 'work');
   for (let day = 0; day < 90; day += 1) {
     for (const state of ['normal', 'recovery', 'missed_yesterday']) {
       const supply = supplyDailyActions(plan, { date: addDays(START, day), state });
@@ -237,7 +237,7 @@ test('parent+: family floor protected every day while the second game keeps the 
     }
   }
   const wednesday = supplyDailyActions(plan, { date: addDays(START, 9), state: 'normal' });
-  assert.equal(wednesday.foreground.pillar, 'execution');
+  assert.equal(wednesday.foreground.pillar, 'work');
   assert.equal(wednesday.floors[0].actionKey, 'family_floor');
   assert.ok(wednesday.reasons.includes('floor_protected'));
   const recovery = supplyDailyActions(plan, { date: addDays(START, 9), state: 'recovery' });
@@ -347,10 +347,10 @@ test('availability caps durations (never below the MVD) and rest days run at MVD
 });
 
 test('user minimum floors become the MVD; a vague floor is flagged and the template floor kept', () => {
-  const plan = generateGoalPlan('Pass the CPA exam', ctx({ minimumFloors: { execution: 'Do 5 flashcards (5 minutes)' } }));
+  const plan = generateGoalPlan('Pass the CPA exam', ctx({ minimumFloors: { work: 'Do 5 flashcards (5 minutes)' } }));
   assert.equal(plan.actions.practice.mvd.title, 'Do 5 flashcards (5 minutes)');
   assert.equal(plan.actions.practice.mvd.durationMinutes, 5);
-  const vague = generateGoalPlan('Pass the CPA exam', ctx({ minimumFloors: { execution: 'work on it' } }));
+  const vague = generateGoalPlan('Pass the CPA exam', ctx({ minimumFloors: { work: 'work on it' } }));
   assert.ok(vague.safety.reasonCodes.includes('floor.needs_clarifying'));
   assert.match(vague.actions.practice.mvd.title, /practice questions/);
 });

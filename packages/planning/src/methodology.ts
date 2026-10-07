@@ -3,7 +3,7 @@ import type {
   LifeGraphSnapshot,
   NextAction,
   OperatingModeKey,
-  PillarName,
+  AreaKey,
   TrackKey,
 } from '@apm/domain';
 import { TRACK_DISPLAY_NAMES } from '@apm/domain';
@@ -130,7 +130,7 @@ export function recommendTrackKeys(roles: string[], failurePatterns: string[] = 
 }
 
 
-function actionPillar(graph: LifeGraphSnapshot, action: NextAction): PillarName | undefined {
+function actionPillar(graph: LifeGraphSnapshot, action: NextAction): AreaKey | undefined {
   if (!action.goalId) return undefined;
   return graph.goals.find((goal) => goal.id === action.goalId)?.pillar;
 }

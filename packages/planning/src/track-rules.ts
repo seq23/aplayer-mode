@@ -1,5 +1,4 @@
-import type { TrackKey, TrackSettings } from '@apm/domain';
-import { TRACK_DISPLAY_NAMES } from '@apm/domain';
+import { TRACK_DISPLAY_NAMES, lifePillarOf, type TrackKey, type TrackSettings } from '@apm/domain';
 import type { AgendaItem, DailyAgenda } from './daily-loop.js';
 
 /**
@@ -89,10 +88,10 @@ export function applyTrackRules(agenda: DailyAgenda, context: TrackRuleContext, 
   if (active.has('body_foundation')) {
     if (context.referral) {
       flags.push({ code: 'body.referral', track: 'body_foundation', message: 'Body coaching is paused until you record clinician clearance.' });
-    } else if (!items.some((item) => item.pillar === 'body')) {
+    } else if (!items.some((item) => item.pillar && lifePillarOf(item.pillar) === 'body')) {
       if (lowDay || !planId) flags.push({ code: 'body.floor_missing', track: 'body_foundation', message: 'No body behaviour today. The movement floor is never zero — take it if you can.' });
       else {
-        dailyStack.push(trackFloor(planId, goalId, BODY_FLOOR_ACTION_KEY, context.settings.movementFloor ?? DEFAULT_MOVEMENT_FLOOR, 'body', 'body.floor_missing'));
+        dailyStack.push(trackFloor(planId, goalId, BODY_FLOOR_ACTION_KEY, context.settings.movementFloor ?? DEFAULT_MOVEMENT_FLOOR, 'movement', 'body.floor_missing'));
         flags.push({ code: 'body.floor_missing', track: 'body_foundation', message: 'Body Foundation added your movement floor: a day is never zero for the body.' });
       }
     }
@@ -143,7 +142,7 @@ export function applyTrackRules(agenda: DailyAgenda, context: TrackRuleContext, 
   // activity is challenged for leverage. A filter, never a task: nothing is added.
   if (active.has('billionaire_mindset')) {
     const foreground = agenda.firstHour.priority;
-    if (foreground && (foreground.pillar === 'wealth' || foreground.pillar === 'execution')) {
+    if (foreground && (foreground.pillar === 'money' || foreground.pillar === 'work')) {
       flags.push({ code: 'billionaire.decision_frame', track: 'billionaire_mindset', message: `Frame “${foreground.title}” through the Billionaire filters: ${BILLIONAIRE_FILTERS}` });
     }
     for (const item of items) {

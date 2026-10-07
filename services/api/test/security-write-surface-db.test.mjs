@@ -29,7 +29,7 @@ test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: 
 const CLIENT_WRITABLE = [
   'ai_usage_events', 'analytics_events', 'calendar_events', 'coaching_sessions', 'coaching_turns', 'commitments', 'goals',
   'household_items', 'household_members', 'households', 'integration_connections', 'message_signals', 'milestones',
-  'notification_preferences', 'notifications', 'operating_modes', 'people', 'permissions', 'preferences', 'product_interests',
+  'notification_preferences', 'notifications', 'operating_modes', 'people', 'preferences', 'product_interests',
   'projects', 'push_subscriptions', 'roles', 'routines', 'rules', 'user_profiles',
 ];
 
@@ -41,7 +41,7 @@ test('the client write surface is exactly the allow-list; governed tables are no
                    and p.cmd in ('INSERT','UPDATE','DELETE','ALL') and ('authenticated' = any(p.roles) or 'public' = any(p.roles)))
     order by 1`)).rows.map((r) => r.t);
   assert.deepEqual(rows, CLIENT_WRITABLE);
-  for (const governed of ['audit_events', 'personal_os', 'tracks', 'pillar_settings', 'data_rights_jobs', 'actions', 'action_attempts']) {
+  for (const governed of ['audit_events', 'personal_os', 'tracks', 'pillar_settings', 'data_rights_jobs', 'actions', 'action_attempts', 'permissions', 'intake_drafts']) {
     assert.ok(!rows.includes(governed), `${governed} is governed`);
   }
 });

@@ -3,6 +3,7 @@ import type { ApiEnv } from './env';
 import { runMorningTrigger } from './morningTrigger';
 import { runBillingSweep } from './billing';
 import { runDataRightsErasures } from './dataRights';
+import { runIntakeMaintenance } from './intakeRepository';
 
 declare const __APM_BUILD_SHA__: string;
 declare const __APM_RUNTIME_ENVIRONMENT__: string;
@@ -39,6 +40,13 @@ export default {
       runDataRightsErasures(env).then(
         (result) => console.log('APM data-rights erasures', { cron: controller.cron, ...result }),
         (error: unknown) => console.error('APM data-rights erasures failed', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
+      ),
+    );
+    // First-run intake (docs/34 §5.1, docs/09), idempotent on every tick: installed drafts after 30 days; idle anonymous users.
+    ctx.waitUntil(
+      runIntakeMaintenance(env).then(
+        (result) => console.log('APM intake maintenance', { cron: controller.cron, ...result }),
+        (error: unknown) => console.error('APM intake maintenance failed', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
       ),
     );
   },

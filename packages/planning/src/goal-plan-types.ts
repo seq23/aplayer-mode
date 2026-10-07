@@ -5,7 +5,7 @@ import type { DayState, PlanPillar } from '@apm/domain';
  * Promote/Maintain/Park). Pure data; no persistence or LLM concerns here.
  */
 
-/** Plan-level pillar: the four life pillars plus the Home Front `family` floor (domain `PlanPillar`). */
+/** Plan-level AREA (domain `PlanPillar` = `AreaKey`); it rolls up to Mind, Body or Spirit. */
 export type { PlanPillar };
 
 export type PersonaKey =
@@ -66,9 +66,26 @@ export interface GoalPlanContext {
   targetDate?: string;
   availability?: GoalPlanAvailability;
   constraints?: string[];
-  /** The user's own minimum floors, e.g. { body: 'Walk 10 minutes' }. */
+  /** The user's own minimum floors per area, e.g. { movement: 'Walk 10 minutes' }. */
   minimumFloors?: Partial<Record<PlanPillar, string>>;
   body?: BodyContext;
+  /**
+   * Daily Mind / Spirit practices APM generated (practices.ts). Each becomes a plan action
+   * and a daily floor, so it reaches Today through the same governed supply as every floor.
+   */
+  practices?: PracticeFloorInput[];
+}
+
+export interface PracticeFloorInput {
+  key: string;
+  area: PlanPillar;
+  title: string;
+  output: string;
+  minutes: number;
+  floor: MvdAction;
+  /** Titles rotated by day (journaling prompts, breath scripts, gratitude prompts). */
+  rotation?: string[];
+  steps?: string[];
 }
 
 export interface MvdAction {
@@ -85,6 +102,10 @@ export interface PlanAction extends MvdAction {
   /** Floor keys this action already satisfies (so the floor is not stacked on top). */
   satisfiesFloors: string[];
   mvd: MvdAction;
+  /** Titles rotated by plan day at standard scope (generated practices). */
+  rotation?: string[];
+  /** Spelled-out steps shown with the action (scripts, counts, prompts). */
+  steps?: string[];
 }
 
 export type GateKey = 'foundation' | 'build' | 'establish';
@@ -213,6 +234,7 @@ export interface SuppliedAction {
   output: string;
   durationMinutes: number;
   status: 'open' | 'done';
+  steps?: string[];
 }
 
 export interface DailySupply {

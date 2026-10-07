@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { DailyPlan, LifeGraphSnapshot, OperatingModeKey, PillarName } from '@apm/domain';
+import type { DailyPlan, LifeGraphSnapshot } from '@apm/domain';
 import {
   completeLifeOsItem,
   createLifeOsItem,
@@ -7,12 +7,11 @@ import {
   fetchTodayState,
   isApmApiConfigured,
   persistActionCompletion,
-  persistMethodologyIntake,
-  persistOnboarding,
+  installIntake,
   persistOperatingMode,
   updateLifeOsItem,
   updateLifeRelationship,
-  type ApiMethodologyIntakeInput,
+  type ApiIntakeInstallInput,
   type LifeAdminInput,
   type LifeRelationshipInput,
   type ModeChangeRequest,
@@ -58,14 +57,6 @@ function emptyGraph(userId = 'unassigned'): LifeGraphSnapshot {
   };
 }
 
-export interface OnboardingInput {
-  displayName: string;
-  roles: string[];
-  currentSeason?: string;
-  becoming?: string;
-  primaryGoal: string;
-  pillar?: PillarName;
-}
 
 type SyncStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'error';
 
@@ -78,8 +69,8 @@ interface LifeGraphContextValue {
   syncError?: string;
   isDurable: boolean;
   refresh: () => Promise<void>;
-  completeOnboarding: (input: OnboardingInput) => Promise<void>;
-  completeMethodologyIntake: (input: ApiMethodologyIntakeInput) => Promise<void>;
+  /** The one install call of the first-run intake (idempotent by its key). */
+  completeMethodologyIntake: (input: ApiIntakeInstallInput) => Promise<void>;
   setOperatingMode: (request: ModeChangeRequest) => Promise<void>;
   applyTodayState: (state: TodayState) => void;
   /** Runs one authenticated API call that returns the rebuilt Today and applies it. */
@@ -155,14 +146,9 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
       try { const state = await call(token); applyServerState(state); return state; }
       catch (error) { setSyncStatus('ready'); throw error; }
     },
-    completeOnboarding: async (input) => {
-      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
-      try { applyServerState(await persistOnboarding(input, token)); }
-      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to save your APM'); throw error; }
-    },
     completeMethodologyIntake: async (input) => {
       const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
-      try { applyServerState(await persistMethodologyIntake(input, token)); }
+      try { applyServerState(await installIntake(input, token)); }
       catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to install your Personal OS'); throw error; }
     },
     setOperatingMode: async (modeRequest) => {

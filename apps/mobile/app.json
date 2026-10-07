@@ -20,15 +20,21 @@
         {
           "defaultChannel": "apm-attention"
         }
-      ]
+      ],
+      "expo-sqlite",
+      "expo-apple-authentication"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.aplayermode.app"
+      "bundleIdentifier": "com.aplayermode.app",
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "com.aplayermode.app",
-      "permissions": ["READ_CALENDAR"]
+      "permissions": [
+        "READ_CALENDAR"
+      ],
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "bundler": "metro"

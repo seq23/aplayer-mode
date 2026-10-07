@@ -234,9 +234,11 @@ export function redactForHardStart(state: TodayLoopState): TodayLoopState {
  */
 export async function pauseBodyCoachingIfFlagged(
   env: ApiEnv, accessToken: string, userId: string, texts: Array<string | undefined>, source: 'intake' | 'diary' | 'day_close' | 'goal', now: Date,
+  /** The intake's body safety question answered "Yes" or "Prefer not to say" (docs/34 Q26). */
+  forced = false,
 ): Promise<boolean> {
   const flags = bodyRedFlags(texts.filter((text): text is string => Boolean(text?.trim())));
-  if (!flags.length) return false;
+  if (!flags.length && !forced) return false;
   await flagBodyReferral(env, accessToken, source);
   await rebuildBodyPlans(env, accessToken, userId, 'referral', now);
   return true;

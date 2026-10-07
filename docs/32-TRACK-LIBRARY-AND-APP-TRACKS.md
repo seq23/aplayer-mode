@@ -1,5 +1,7 @@
 # A Player Mode — Track Library and App-Only Tracks
 
+> **Pillar model (owner decision, 7 Oct 2026; migration 0060).** There are three pillars, Mind, Body and Spirit, each made of areas. The app Tracks attach to areas: **Body Foundation → Body** (movement, food, sleep, weight, health routines; its movement floor is the `movement` area), **Wealth Foundation → Mind / money**, **Home Front → Spirit / family** (protected family time is the `family` area). BHPC Tracks are pillar-agnostic; the Billionaire High Performance Coach Track frames the `work` and `money` areas. See docs/34 §14.
+
 **Status:** OWNER-APPROVED SPECIFICATION
 **Date:** 2026-10-07
 **Implementation:** `packages/domain/src/index.ts` (`TRACK_DISPLAY_NAMES`), `packages/planning/src/methodology.ts` (`BUILTIN_TRACKS`, `recommendTrackKeys`), `packages/planning/src/track-rules.ts` (reason codes)
@@ -148,7 +150,7 @@ Whenever the user reports a red-flag symptom, this Track must **refer to a docto
 
 **Deterministic enforcement in app**
 1. **Rate ceiling at goal set.** If `(start − target) / weeks > min(1% bodyweight, 0.9 kg)` per week, reject the plan. Offer the safe-pace date instead, or require a "clinician-supervised" acknowledgement. Reason code `body.rate_ceiling`.
-2. **Daily body-behaviour presence.** A Today agenda with zero items tagged `pillar=body` fails validation. Insert the user's movement MVD automatically. Reason code `body.floor_missing`.
+2. **Daily body-behaviour presence.** A Today agenda with zero items in the **Body** pillar (any Body area: movement, food, sleep, weight, health routines) fails validation. Insert the user's movement MVD automatically. Reason code `body.floor_missing`.
 3. **Slip-recovery Radar.** If a logged slip is followed by a planned skip or compensation item within 24 h, replace it with the next normal planned item. Surface "Next planned meal is the recovery". Reason code `body.compensation_blocked`.
 4. **Red-flag keyword or answer stop.** Certain intake answers or check-in entries suppress body coaching and show a referral card. These are: pregnancy, eating-disorder history, a diagnosed condition, or the symptom list. The suppression lasts until the user confirms clinician clearance. Reason code `body.referral`.
 
@@ -198,7 +200,7 @@ When the Billionaire High Performance Coach Track is also active, Wealth Foundat
 - *Leak:* Is this recurring cost still earning its place?
 
 **Deterministic enforcement in app**
-1. **Automation presence check.** If `pillar=money` exists but no recurring `savings_transfer` or `debt_payment` item exists, the weekly review shows a single setup action ("Set the automatic transfer: amount, account, date"). Reason code `wealth.no_automation`.
+1. **Automation presence check.** If the **money** area (Mind pillar) is active but no recurring `savings_transfer` or `debt_payment` item exists, the weekly review shows a single setup action ("Set the automatic transfer: amount, account, date"). Reason code `wealth.no_automation`.
 2. **Buffer gate.** A goal, task or decision tagged `speculative` when the user-entered `buffer_months < buffer_target` or `high_interest_debt > 0` is flagged before it can be scheduled. The flag requires an explicit "declared exception". Reason code `wealth.buffer_gate`.
 3. **Debt-order lock.** A debt payment scheduled against any account other than the current #1 is flagged. Closing #1 generates a win entry and advances the order. Reason code `wealth.debt_order`.
 4. **Leak review cadence.** This uses the existing Radar `subscription` and `bill` kinds: a monthly "review recurring charges" item, with lead days as in `lifeAdminLeadDays`. A new `subscription` item triggers a 7-day review prompt. Reason code `wealth.leak_review`.

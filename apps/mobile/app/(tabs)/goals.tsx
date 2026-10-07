@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
+import { AREA_OPTIONS, areaDisplay } from '../../src/content/areas';
 import { useState } from 'react';
 import { View } from 'react-native';
-import type { PillarName, StoredGoalPlan } from '@apm/domain';
+import type { AreaKey, StoredGoalPlan } from '@apm/domain';
 import type { GoalPlan } from '@apm/planning';
 import {
   Body,
@@ -27,10 +28,7 @@ const healthTone = {
   unknown: 'neutral',
 } as const;
 
-const PILLARS: Array<{ id: PillarName; label: string }> = [
-  { id: 'body', label: 'Body' }, { id: 'wealth', label: 'Wealth' },
-  { id: 'spirit', label: 'Spirit' }, { id: 'execution', label: 'Execution' },
-];
+const PILLARS = [...AREA_OPTIONS];
 
 function dayIndex(startDate: string, today: string): number {
   return Math.floor((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / 86_400_000) + 1;
@@ -59,7 +57,7 @@ function PlanView({ stored, today }: { stored: StoredGoalPlan<GoalPlan>; today: 
 export default function GoalsScreen() {
   const { graph, todayLoop, perform } = useLifeGraph();
   const [title, setTitle] = useState('');
-  const [pillar, setPillar] = useState<PillarName>();
+  const [pillar, setPillar] = useState<AreaKey>();
   const [targetDate, setTargetDate] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -106,7 +104,7 @@ export default function GoalsScreen() {
                   <Pill>{goal.status}</Pill>
                 </View>
                 <CardTitle>{goal.title}</CardTitle>
-                <KeyValue label="Pillar" value={goal.pillar ?? 'Not set'} />
+                <KeyValue label="Area" value={areaDisplay(goal.pillar)} />
                 {goal.targetDate ? <KeyValue label="Target date" value={goal.targetDate} /> : null}
                 {stored ? <PlanView stored={stored} today={today} /> : <Body muted>The plan is being built; it appears on your next refresh.</Body>}
                 {!isForeground && goal.status === 'active' ? <Button label={busy ? 'Saving…' : 'Make this the foreground'} variant="secondary" onPress={() => void makeForeground(goal.id)} /> : null}
@@ -118,7 +116,7 @@ export default function GoalsScreen() {
         <Card tone="accent">
           <CardTitle>No goal in your Life Graph yet.</CardTitle>
           <Body muted>Start with one concrete 90-day outcome. APM turns it into a plan and a daily action.</Body>
-          <Button label="Build my APM" onPress={() => router.push('/onboarding')} />
+          <Button label="Build my APM" onPress={() => router.push('/intake')} />
         </Card>
       )}
 

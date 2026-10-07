@@ -6,7 +6,7 @@ export default function TabsLayout() {
   const { status } = useSession();
 
   if (status === 'loading') return null;
-  if (status !== 'signed_in') return <Redirect href="/sign-in" />;
+  if (status !== 'signed_in') return <Redirect href="/welcome" />;
 
   return (
     <Tabs

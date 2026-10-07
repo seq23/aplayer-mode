@@ -306,7 +306,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
     title: `Walk {m} minutes ${where}`,
     output: 'Walk logged with its minutes',
     minutes,
-    pillar: 'body',
+    pillar: 'movement',
     mvd: ['Walk 10 minutes', '10-minute walk logged', 10],
     satisfies: [floor],
   });
@@ -317,7 +317,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Call your doctor\'s office and book an appointment about your health goal',
       output: 'Appointment date and time written in your calendar',
       minutes: 10,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Write the clinic\'s phone number and the time you will call', 'Number and call time saved in one note', 3],
     };
     const confirm: ActionSpec = {
@@ -325,14 +325,14 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Confirm your doctor appointment is booked, or call to book it',
       output: 'Appointment date visible in your calendar',
       minutes: 5,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Check your calendar for the appointment date', 'Appointment date confirmed', 2],
     };
     const week = Array(7).fill(confirm.key) as GateSpec['week'];
     const gate = (outcome: string, day: number, title: string): GateSpec => ({ outcome, milestones: [[day, title]], week });
     return {
       key: 'weight_loss.referral',
-      pillar: 'body',
+      pillar: 'movement',
       label: 'See a clinician before body coaching',
       actions: [book, confirm],
       setup: [book.key],
@@ -354,7 +354,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Pick a fixed daily movement time, put it in your calendar as a repeating event, and walk 10 minutes now',
       output: 'Repeating calendar slot saved and first 10-minute walk logged',
       minutes: 15,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Walk 10 minutes', '10-minute walk logged', 10],
       satisfies: [floor],
     },
@@ -366,7 +366,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
           : 'Write your three tracked behaviours (movement, planned meals, sleep window) at the top of your log',
       output: weighIn === 'weekly' ? 'Start number logged and weekly reminder set' : 'Three behaviours written in your log',
       minutes: 5,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Write "movement, meals, sleep" at the top of your log', 'Behaviour list saved', 2],
     },
     {
@@ -374,7 +374,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Write your target sleep window and set a phone alarm 30 minutes before lights-out',
       output: 'Sleep window written and wind-down alarm set',
       minutes: 5,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Set tonight\'s wind-down alarm', 'Alarm set', 2],
     },
     walk('walk', 20),
@@ -384,7 +384,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Write the next 3 days of meals on one list and buy what is missing',
       output: 'Written 3-day meal list and groceries bought',
       minutes: 30,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Write tomorrow\'s meals on one note', 'Tomorrow\'s meals written', 5],
     },
     {
@@ -392,7 +392,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Start your wind-down at the alarm and be in bed by your lights-out time tonight',
       output: 'Bedtime logged against your sleep window',
       minutes: 10,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Set tonight\'s wind-down alarm', 'Alarm set', 2],
     },
     {
@@ -400,7 +400,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Move one trigger snack out of sight and put a filled water bottle where you work',
       output: 'One trigger item moved and water bottle in place',
       minutes: 10,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Fill a water bottle and put it where you work', 'Water bottle in place', 2],
     },
     {
@@ -411,7 +411,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
           : 'Log this week\'s movement days (x/7), planned-meal days and sleep-window nights',
       output: 'Weekly behaviour count logged',
       minutes: 5,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Log how many days you moved this week', 'Movement count logged', 2],
     },
     {
@@ -419,7 +419,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Do {m} minutes of bodyweight strength: squats to a chair, wall push-ups, step-ups',
       output: 'Strength session logged with its minutes',
       minutes: 15,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Do 10 squats to a chair and walk 10 minutes', 'Squats and walk logged', 12],
       satisfies: [floor],
     },
@@ -428,7 +428,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Cook two lunches ahead and portion them into containers',
       output: 'Two lunches in the fridge',
       minutes: 45,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Write tomorrow\'s meals on one note', 'Tomorrow\'s meals written', 5],
     },
     {
@@ -436,7 +436,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Write one default breakfast you can repeat on busy days and buy what it needs',
       output: 'Default breakfast written and ingredients in the kitchen',
       minutes: 20,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Write one default breakfast on your list', 'Default breakfast written', 3],
     },
     {
@@ -444,7 +444,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Write your if-then slip plan: "If I slip, my next planned meal or walk is the recovery"',
       output: 'If-then slip plan saved where you will see it',
       minutes: 10,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Write one if-then line for your most common slip', 'If-then line saved', 3],
     },
     {
@@ -452,7 +452,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Put one walk with a friend or family member in the calendar this week and send the invite',
       output: 'Invite sent for a shared walk',
       minutes: 10,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Send one message inviting someone on a walk', 'Invite sent', 3],
     },
     {
@@ -460,7 +460,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title: 'Walk {m} minutes (movement floor)',
       output: 'Movement floor logged',
       minutes: 10,
-      pillar: 'body',
+      pillar: 'movement',
       mvd: ['Walk 10 minutes', '10-minute walk logged', 10],
       satisfies: [floor],
     },
@@ -473,7 +473,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
     : '';
   return {
     key: 'weight_loss',
-    pillar: 'body',
+    pillar: 'movement',
     label: 'Body: become a person who takes care of their body',
     actions,
     setup: ['setup_slot', 'setup_cadence', 'setup_sleep'],
@@ -531,7 +531,7 @@ function wealthTemplate(goalText: string): TemplateSpec {
     safety.reasonCodes.push('wealth.buffer_gate');
     safety.notes.push('Speculative moves stay flagged until your emergency buffer target is met and high-interest debt is cleared.');
   }
-  const p: PlanPillar = 'wealth';
+  const p: PlanPillar = 'money';
   const actions: ActionSpec[] = [
     {
       key: 'setup_debts',
@@ -703,7 +703,7 @@ const DECISIVE_FOLLOW_UP: ActionSpec['mvd'] = [
 ];
 
 function founderTemplate(): TemplateSpec {
-  const p: PlanPillar = 'execution';
+  const p: PlanPillar = 'work';
   const a = (key: string, title: string, output: string, minutes: number): ActionSpec => ({
     key,
     title,
@@ -778,7 +778,7 @@ function founderTemplate(): TemplateSpec {
 // ---------------------------------------------------------------------------
 
 function operatorTemplate(): TemplateSpec {
-  const p: PlanPillar = 'execution';
+  const p: PlanPillar = 'work';
   const mvd: ActionSpec['mvd'] = [
     'Finish one concrete step of the promotion deliverable (one slide, one paragraph or one query) and save it',
     'One saved step in the deliverable file',
@@ -857,7 +857,7 @@ function operatorTemplate(): TemplateSpec {
 // ---------------------------------------------------------------------------
 
 function raceTemplate(): TemplateSpec {
-  const p: PlanPillar = 'body';
+  const p: PlanPillar = 'movement';
   const easy: ActionSpec['mvd'] = ['Walk or jog 10 minutes easy', '10 minutes logged', 10];
   const a = (key: string, title: string, output: string, minutes: number, m = easy): ActionSpec => ({ key, title, output, minutes, pillar: p, mvd: m });
   const safety = emptySafety();
@@ -903,7 +903,7 @@ function raceTemplate(): TemplateSpec {
 }
 
 function examTemplate(): TemplateSpec {
-  const p: PlanPillar = 'execution';
+  const p: PlanPillar = 'work';
   const mvd: ActionSpec['mvd'] = ['Do 10 practice questions on the next tested topic', '10 questions done and misses marked', 15];
   const a = (key: string, title: string, output: string, minutes: number): ActionSpec => ({ key, title, output, minutes, pillar: p, mvd });
   return {
@@ -945,7 +945,7 @@ function examTemplate(): TemplateSpec {
 }
 
 function creativeTemplate(): TemplateSpec {
-  const p: PlanPillar = 'execution';
+  const p: PlanPillar = 'work';
   const mvd: ActionSpec['mvd'] = ['Open the file and finish one defined line, bar or sentence', 'File saved with today\'s addition', 10];
   const a = (key: string, title: string, output: string, minutes: number): ActionSpec => ({ key, title, output, minutes, pillar: p, mvd });
   return {
@@ -986,7 +986,7 @@ function creativeTemplate(): TemplateSpec {
 }
 
 function otherTemplate(goalText: string): TemplateSpec {
-  const p: PlanPillar = 'execution';
+  const p: PlanPillar = 'work';
   const goal = shortGoal(goalText);
   const mvd: ActionSpec['mvd'] = ['Do the next 10-minute step on deliverable #1 and save it', 'One saved step on deliverable #1', 10];
   const a = (key: string, title: string, output: string, minutes: number): ActionSpec => ({ key, title, output, minutes, pillar: p, mvd });
