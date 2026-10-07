@@ -15,6 +15,9 @@ import {
   type ApiMethodologyIntakeInput,
   type LifeAdminInput,
   type LifeRelationshipInput,
+  type ModeChangeRequest,
+  type ModeStateView,
+  type TodayState,
 } from '../api/apmApi';
 import { useSession } from './session';
 
@@ -63,13 +66,15 @@ type SyncStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'error';
 interface LifeGraphContextValue {
   graph: LifeGraphSnapshot;
   todayPlan?: DailyPlan;
+  modeState?: ModeStateView;
   syncStatus: SyncStatus;
   syncError?: string;
   isDurable: boolean;
   refresh: () => Promise<void>;
   completeOnboarding: (input: OnboardingInput) => Promise<void>;
   completeMethodologyIntake: (input: ApiMethodologyIntakeInput) => Promise<void>;
-  setOperatingMode: (mode: OperatingModeKey) => Promise<void>;
+  setOperatingMode: (request: ModeChangeRequest) => Promise<void>;
+  applyModeState: (mode: ModeStateView) => void;
   completeNextAction: (actionId: string) => Promise<void>;
   createRelationship: (input: LifeRelationshipInput) => Promise<void>;
   updateRelationship: (relationshipId: string, input: Partial<LifeRelationshipInput>) => Promise<void>;
@@ -84,6 +89,7 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
   const { status: sessionStatus, user, accessToken } = useSession();
   const [graph, setGraph] = useState<LifeGraphSnapshot>(() => emptyGraph());
   const [todayPlan, setTodayPlan] = useState<DailyPlan>();
+  const [modeState, setModeState] = useState<ModeStateView>();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncError, setSyncError] = useState<string>();
 
@@ -95,9 +101,10 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
     return { userId: user.id, token: accessToken };
   };
 
-  const applyServerState = (state: { graph: LifeGraphSnapshot; plan: DailyPlan }) => {
+  const applyServerState = (state: TodayState) => {
     setGraph(state.graph);
     setTodayPlan(state.plan);
+    setModeState(state.mode);
     setSyncStatus('ready');
   };
 
@@ -124,13 +131,14 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
     let active = true;
     setSyncStatus('loading'); setSyncError(undefined);
     void fetchTodayState(accessToken)
-      .then((state) => { if (!active) return; setGraph(state.graph); setTodayPlan(state.plan); setSyncStatus('ready'); })
+      .then((state) => { if (!active) return; setGraph(state.graph); setTodayPlan(state.plan); setModeState(state.mode); setSyncStatus('ready'); })
       .catch((error: unknown) => { if (!active) return; setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to load your APM'); });
     return () => { active = false; };
   }, [accessToken, sessionStatus, user]);
 
   const value = useMemo<LifeGraphContextValue>(() => ({
-    graph, todayPlan, syncStatus, syncError, isDurable, refresh,
+    graph, todayPlan, modeState, syncStatus, syncError, isDurable, refresh,
+    applyModeState: (mode) => setModeState(mode),
     completeOnboarding: async (input) => {
       const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
       try { applyServerState(await persistOnboarding(input, token)); }
@@ -141,9 +149,9 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
       try { applyServerState(await persistMethodologyIntake(input, token)); }
       catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to install your Personal OS'); throw error; }
     },
-    setOperatingMode: async (mode) => {
+    setOperatingMode: async (modeRequest) => {
       const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
-      try { applyServerState(await persistOperatingMode(mode, token)); }
+      try { applyServerState(await persistOperatingMode(modeRequest, token)); }
       catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to change APM mode'); throw error; }
     },
     completeNextAction: async (actionId) => {
@@ -176,7 +184,7 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
       try { applyServerState(await completeLifeOsItem(itemId, token)); }
       catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to complete Life OS item'); throw error; }
     },
-  }), [accessToken, graph, isDurable, sessionStatus, syncError, syncStatus, todayPlan, user]);
+  }), [accessToken, graph, isDurable, modeState, sessionStatus, syncError, syncStatus, todayPlan, user]);
 
   return <LifeGraphContext.Provider value={value}>{children}</LifeGraphContext.Provider>;
 }

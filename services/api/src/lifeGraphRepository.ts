@@ -12,11 +12,12 @@ import type {
   PillarSetting,
   Role,
   Track,
-  TrackKey,
+  ActiveTrackKey,
   UserIdentity,
   WeeklyCadence,
 } from '@apm/domain';
 import type { ApiEnv } from './env';
+import { TRACK_LIBRARY } from './coach/tracks';
 import { supabaseRest } from './db';
 import { planHasCapability } from '@apm/policy';
 import { getPlatformState } from './platformRepository';
@@ -47,7 +48,7 @@ export interface MethodologyIntakePayload extends OnboardingPayload {
   accountability: AccountabilityPolicy;
   criticalPillars: PillarName[];
   minimumFloors: Partial<Record<PillarName, string>>;
-  trackKeys: TrackKey[];
+  trackKeys: ActiveTrackKey[];
   activeMode?: OperatingModeKey;
   morningSequence?: string[];
   schedulingPreference?: PersonalOS['schedulingPreference'];
@@ -147,7 +148,7 @@ interface PillarSettingRow {
 
 interface TrackRow {
   id: string;
-  key: TrackKey;
+  key: ActiveTrackKey;
   name: string;
   active: boolean;
   foreground: boolean;
@@ -391,12 +392,11 @@ export async function saveOnboarding(
   return getLifeGraph(env, accessToken, userId);
 }
 
-const legacyTrackKeys = new Set<TrackKey>([
+/** Track keys the 0004 intake RPC still inserts itself; every other Track is upserted after it (see below). */
+const intakeRpcTrackKeys = new Set<ActiveTrackKey>([
   'billionaire_mindset',
   'operator_discipline',
   'strategic_patience',
-  'manifestation_mastery',
-  'investor_ai_leverage',
 ]);
 const legacyModeKeys = new Set<OperatingModeKey>(['standard', 'recovery', 'high_pressure', 'executive_review']);
 
@@ -407,7 +407,7 @@ export async function saveMethodologyIntake(
   input: MethodologyIntakePayload,
 ): Promise<LifeGraphSnapshot> {
   const legacyMode = input.activeMode && legacyModeKeys.has(input.activeMode) ? input.activeMode : 'standard';
-  const legacyTracks = input.trackKeys.filter((key) => legacyTrackKeys.has(key));
+  const legacyTracks = input.trackKeys.filter((key) => intakeRpcTrackKeys.has(key));
 
   await supabaseRest<void>(env, accessToken, '/rest/v1/rpc/apm_save_methodology_intake', {
     method: 'POST',
@@ -454,11 +454,15 @@ export async function saveMethodologyIntake(
     }),
   });
 
-  if (input.trackKeys.includes('resilience')) {
+  // The intake RPC replaces the user's Track set and only knows the original
+  // three keys; Resilience and the app-only Tracks are upserted here so the
+  // final set is exactly what the user chose.
+  const upsertTracks = input.trackKeys.filter((key) => !intakeRpcTrackKeys.has(key));
+  if (upsertTracks.length) {
     await supabaseRest(env, accessToken, '/rest/v1/tracks?on_conflict=user_id,key', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify([{ user_id: userId, key: 'resilience', name: 'Resilience', active: true, foreground: false, provenance_kind: 'stated', source_type: 'manual', confidence: 1 }]),
+      body: JSON.stringify(upsertTracks.map((key) => ({ user_id: userId, key, name: TRACK_LIBRARY[key].name, active: true, foreground: false, provenance_kind: 'stated', source_type: 'manual', confidence: 1 }))),
     });
   }
 

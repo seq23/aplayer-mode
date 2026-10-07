@@ -1,5 +1,7 @@
 import {
   runOpenRouterInference,
+  selectModelRoute,
+  type RouteRequest,
   type InferenceTask,
   type ModelCapability,
   type ModelRoute,
@@ -56,6 +58,11 @@ async function modelRoutesForRuntime(env: ApiEnv, accessToken: string): Promise<
     lastPolicyReviewedAt: row.last_policy_reviewed_at,
     lastEvalRunAt: row.last_eval_run_at ?? undefined,
   }));
+}
+
+/** True only when an `approved`, privacy-eligible route exists for the request — candidates never count. */
+export async function hasEligibleRoute(env: ApiEnv, accessToken: string, request: RouteRequest): Promise<boolean> {
+  return selectModelRoute(await modelRoutesForRuntime(env, accessToken), request) !== null;
 }
 
 export async function runUserInference<T>(input: {
