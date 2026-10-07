@@ -6,6 +6,7 @@ import type {
   NextAction,
   PillarName,
   PlanActionCompletion,
+  PlanPillar,
   StoredGoalPlan,
 } from '@apm/domain';
 import {
@@ -202,7 +203,7 @@ export interface AgendaItem {
   title: string;
   output?: string;
   durationMinutes?: number;
-  pillar?: PillarName;
+  pillar?: PlanPillar;
   planId?: string;
   goalId?: string;
   actionKey?: string;
@@ -238,7 +239,7 @@ export interface DailyAgenda {
   mood?: number;
   dayIndex?: number;
   phase?: DailySupply['phase'];
-  foregroundPriority?: { planId: string; goalId: string; label: string; pillar: PillarName; source: ForegroundSelection['source'] };
+  foregroundPriority?: { planId: string; goalId: string; label: string; pillar: PlanPillar; source: ForegroundSelection['source'] };
   firstHour: { sequence: string[]; priority?: AgendaItem };
   dailyStack: AgendaItem[];
   /** Background plans that only get maintenance today. */
@@ -327,6 +328,8 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
   let referral = false;
   let doctorLine: string | undefined;
 
+  const lowDay = input.state !== 'normal' || (input.mood !== undefined && input.mood <= MOOD_MVD_THRESHOLD);
+
   if (selection.foreground) {
     const entry = selection.foreground;
     supply = supplyDailyActions(entry.plan, {
@@ -338,24 +341,32 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
     });
     for (const reason of supply.reasons) reasons.add(reason);
     priority = itemFromSupplied(entry, supply.foreground, 'plan_action', supply.reasons);
-    const coveredPillars = new Set<PillarName>([supply.foreground.pillar]);
+    const coveredPillars = new Set<PlanPillar>([supply.foreground.pillar]);
     for (const floor of supply.floors) {
       coveredPillars.add(floor.pillar);
       dailyStack.push(itemFromSupplied(entry, floor, 'plan_floor', ['floor_protected']));
     }
-    for (const background of selection.background) {
-      const backgroundSupply = supplyDailyActions(background.plan, {
-        date: input.date,
-        state: 'recovery',
-        completed: completionsFor(background, input.completions),
-        decision: background.record.decision,
-      });
-      for (const floor of backgroundSupply.floors) {
-        if (coveredPillars.has(floor.pillar)) continue;
-        coveredPillars.add(floor.pillar);
-        dailyStack.push(itemFromSupplied(background, floor, 'plan_floor', ['background_maintenance']));
+    // MVD (mood ≤ 2, missed yesterday, Recovery) is ONE meaningful action plus the foreground
+    // plan's own floors: background maintenance and the open backlog wait for a normal day.
+    if (!lowDay) {
+      for (const background of selection.background) {
+        const backgroundSupply = supplyDailyActions(background.plan, {
+          date: input.date,
+          state: 'recovery',
+          completed: completionsFor(background, input.completions),
+          decision: background.record.decision,
+        });
+        // Under recovery scope the supplier may substitute a floor for the foreground; keep it.
+        const maintenance = [backgroundSupply.foreground, ...backgroundSupply.floors].filter((action) => background.plan.floors.includes(action.actionKey));
+        for (const floor of maintenance) {
+          if (coveredPillars.has(floor.pillar)) continue;
+          coveredPillars.add(floor.pillar);
+          dailyStack.push(itemFromSupplied(background, floor, 'plan_floor', ['background_maintenance']));
+        }
+        reasons.add('background_maintenance');
       }
-      reasons.add('background_maintenance');
+    } else if (selection.background.length) {
+      reasons.add('background_held_mvd');
     }
     if (selection.arbitration) reasons.add('arbitration');
     gateReview = gateReviewDue(entry, input.date, input.completions);
@@ -374,7 +385,7 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
     safetyNotes.push(...entry.plan.safety.notes);
   }
 
-  for (const action of input.nextActions ?? []) {
+  for (const action of lowDay ? [] : input.nextActions ?? []) {
     if (action.status !== 'open') continue;
     if (!isExecutableActionTitle(action.title)) continue;
     dailyStack.push({
@@ -389,7 +400,8 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
     });
   }
 
-  const recovery = supply?.mode === 'recovery' || input.state !== 'normal' || (input.mood !== undefined && input.mood <= MOOD_MVD_THRESHOLD);
+  if (lowDay && (input.nextActions ?? []).some((action) => action.status === 'open')) reasons.add('backlog_held_mvd');
+  const recovery = supply?.mode === 'recovery' || lowDay;
   const agenda: DailyAgenda = {
     version: 1,
     date: input.date,
@@ -518,13 +530,13 @@ export function midDayReplanDecision(reason: ReplanReason): ReplanDecision {
  */
 export function scoreAgendaDay(
   agenda: DailyAgenda,
-  criticalPillars: PillarName[],
+  criticalPillars: PlanPillar[],
 ): { verdict: 'full_day' | 'mvd' | 'miss'; requiredCritical: number; completedCritical: number; mvdActionCompleted: boolean } {
   const items = agendaItems(agenda).filter((item) => item.kind !== 'next_action');
-  const critical = new Set(criticalPillars);
+  const critical = new Set<PlanPillar>(criticalPillars);
   const criticalItems = items.filter((item) => item.pillar && critical.has(item.pillar));
-  const requiredPillars = new Set(criticalItems.map((item) => item.pillar!));
-  const completedPillars = new Set(criticalItems.filter((item) => item.status === 'done').map((item) => item.pillar!));
+  const requiredPillars = new Set<PlanPillar>(criticalItems.map((item) => item.pillar!));
+  const completedPillars = new Set<PlanPillar>(criticalItems.filter((item) => item.status === 'done').map((item) => item.pillar!));
   const mvdActionCompleted = agenda.firstHour.priority?.status === 'done' || items.some((item) => item.status === 'done');
   const verdict = scoreDay({
     completedCritical: completedPillars.size,

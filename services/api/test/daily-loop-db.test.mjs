@@ -89,10 +89,12 @@ test.before(async () => {
 });
 test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
 
-test('the family pillar is first-class on goals, pillar settings and routines', async () => {
-  await as(USER_A, "insert into public.pillar_settings (user_id, name, active, critical, minimum_floor) values ($1, 'family', true, true, 'Read one bedtime story')", [USER_A]);
-  await rejects(as(USER_A, "insert into public.pillar_settings (user_id, name) values ($1, 'hobbies')", [USER_A]), /pillar_settings_name_check/);
-  await admin(`insert into public.routines (user_id, title, pillar) values ('${USER_A}', 'School run', 'family')`);
+test('the four life pillars stay LOCKED; family exists only as a plan pillar (0022 reverts 0021)', async () => {
+  await rejects(as(USER_A, "insert into public.pillar_settings (user_id, name) values ($1, 'family')", [USER_A]), /pillar_settings_name_check/);
+  await rejects(admin(`insert into public.routines (user_id, title, pillar) values ('${USER_A}', 'School run', 'family')`), /routines_pillar_check/);
+  await rejects(admin(`update public.goals set pillar = 'family' where id = '${GOAL_A}'`), /goals_pillar_check/);
+  const check = (await admin("select pg_get_constraintdef(oid) d from pg_constraint where conname = 'goal_plans_foreground_pillar_check'")).rows[0].d;
+  assert.match(check, /family/, 'a parent+ plan may still carry the Home Front family floor');
 });
 
 test('the local day follows the profile timezone and falls back to UTC for an unknown zone', async () => {
@@ -149,6 +151,12 @@ test('the opening step gates execution; only agenda items complete; completion i
   await rejects(rpc(USER_A, 'apm_day_check_in', [today, 11, 'normal', JSON.stringify(agenda)]), /loop_invalid_request/);
   await rejects(rpc(USER_A, 'apm_day_check_in', [today, 6, 'recovery', JSON.stringify(agenda)]), /loop_invalid_agenda/);
 
+  // The stored plan is the source of truth: a forged agenda item never gets in.
+  const forged = { ...agenda, dailyStack: [...agenda.dailyStack, { id: 'f', kind: 'plan_floor', title: 'Invented action', planId: stored.id, actionKey: 'invented', status: 'open', reasonCodes: [] }] };
+  await rejects(rpc(USER_A, 'apm_day_check_in', [today, 6, 'normal', JSON.stringify(forged)]), /loop_invalid_agenda/);
+  const foreignPlan = { ...agenda, dailyStack: [{ ...agenda.firstHour.priority, planId: '00000000-0000-4000-8000-00000000dead' }] };
+  await rejects(rpc(USER_A, 'apm_day_check_in', [today, 6, 'normal', JSON.stringify(foreignPlan)]), /loop_invalid_agenda/);
+
   const checkIn = await rpc(USER_A, 'apm_day_check_in', [today, 6, 'normal', JSON.stringify(agenda)]);
   assert.equal(checkIn.replayed, false);
   assert.equal(checkIn.day.agenda_status, 'locked');
@@ -157,6 +165,9 @@ test('the opening step gates execution; only agenda items complete; completion i
   assert.equal(again.day.mood, 6, 'the mood is recorded once; it is not renegotiated mid-day');
 
   await rejects(rpc(USER_A, 'apm_complete_plan_action', [stored.id, 'not_today', null]), /loop_not_on_agenda/);
+  const actionKeys = Object.keys(stored.plan.actions);
+  const offAgenda = actionKeys.find((k) => k !== key && !agenda.dailyStack.some((item) => item.actionKey === k));
+  await rejects(rpc(USER_A, 'apm_complete_plan_action', [stored.id, offAgenda, null]), /loop_not_on_agenda/, 'a real plan action that is not on today’s agenda');
   const done = await rpc(USER_A, 'apm_complete_plan_action', [stored.id, key, 'Walked before work']);
   assert.equal(done.replayed, false);
   assert.equal(done.completion.role, 'foreground');
@@ -182,7 +193,9 @@ test('No Mid-Day Negotiation holds in the database: only declared external/safet
   const replanned = await rpc(USER_A, 'apm_day_replan', [today, 'safety', 'Rolled an ankle', JSON.stringify(agenda)]);
   assert.equal(replanned.day_state, 'recovery');
   assert.equal(replanned.replans[0].reason, 'safety');
-  await rejects(rpc(USER_B, 'apm_day_replan', [await localToday(USER_B), 'external_change', null, JSON.stringify({ ...agenda, date: await localToday(USER_B) })]), /loop_day_not_locked/);
+  await rejects(rpc(USER_B, 'apm_day_replan', [await localToday(USER_B), 'external_change', null, JSON.stringify({ ...agenda, date: await localToday(USER_B) })]), /loop_invalid_agenda/, 'another user’s plan items are refused');
+  const emptyB = { ...agenda, date: await localToday(USER_B), firstHour: { sequence: [] }, dailyStack: [] };
+  await rejects(rpc(USER_B, 'apm_day_replan', [await localToday(USER_B), 'external_change', null, JSON.stringify(emptyB)]), /loop_day_not_locked/);
 });
 
 test('closing the day closes the LOCAL today, audits it, and then execution stops', async () => {
@@ -231,10 +244,25 @@ test('gate reviews and the day-90 decision open only on time and compute the ver
   assert.equal(decided.decision, 'park');
   assert.equal(decided.gate_reviews.establish.recommended, 'park');
   await rejects(rpc(USER_A, 'apm_decide_goal_plan', [old.id, 'promote', 'Changed my mind']), /loop_already_decided/);
+  assert.equal((await admin('select status from public.goals where id = $1', [oldGoal])).rows[0].status, 'paused', 'parking pauses the goal');
+  await admin('update public.goals set status = $1 where id = $2', ['active', oldGoal]);
+  await rejects(rpc(USER_A, 'apm_set_foreground_goal', [oldGoal]), /loop_goal_parked/, 'a parked plan never takes the foreground');
 
   for (const [completed, evidence, aligned, expected] of [[21, 21, true, 'promote'], [9, 9, true, 'maintain'], [0, 1, true, 'maintain'], [0, 0, true, 'park'], [30, 30, false, 'park']]) {
     const sql = (await admin('select private.apm_loop_gate_verdict($1, 30, $2, $3) as v', [completed, evidence, aligned])).rows[0].v;
     assert.equal(sql, planning.reviewGateVerdict({ progressScore: Math.round((completed / 30) * 100) / 10, evidenceCount: evidence, stillAligned: aligned }), 'SQL and engine agree');
     assert.equal(sql, expected);
   }
+});
+
+test('the legacy next-action completion honours the opening step once the daily loop runs', async () => {
+  const insert = (userId) => admin(`insert into public.next_actions (user_id, title, status) values ('${userId}', 'Email the landlord about the lease', 'open') returning id`).then((r) => r.rows[0].id);
+  const closedDayAction = await insert(USER_A);
+  await rejects(rpc(USER_A, 'apm_complete_next_action', [closedDayAction]), /loop_day_closed/, 'USER_A closed today');
+  const noLoopAction = await insert(USER_B);
+  const done = await rpc(USER_B, 'apm_complete_next_action', [noLoopAction]);
+  assert.equal(done.action.status, 'done', 'no live plan: legacy behaviour');
+  await admin(`update public.personal_os set stabilization_started_at = current_date - 10 where user_id = '${USER_B}'`);
+  await rpc(USER_B, 'apm_save_goal_plan', [GOAL_B, JSON.stringify(plan('Pass the CPA exam', await localToday(USER_B))), 'intake']);
+  await rejects(rpc(USER_B, 'apm_complete_next_action', [await insert(USER_B)]), /loop_opening_step_required/);
 });

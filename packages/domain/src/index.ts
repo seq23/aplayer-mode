@@ -30,14 +30,21 @@ export interface Role {
   provenance: Provenance;
 }
 
-/**
- * Life pillars. `family` (migration 0021) is the Home Front pillar: BHPC Part VII
- * names Family as a permanent pillar, and parent+ goal plans protect a daily
- * family floor, so it is a first-class pillar rather than a plan-only label.
- */
-export type PillarName = 'wealth' | 'body' | 'spirit' | 'execution' | 'family';
+/** The LOCKED four-pillar model (docs/20-APM-METHODOLOGY-ENGINE-V1.md). */
+export type PillarName = 'wealth' | 'body' | 'spirit' | 'execution';
 
-export const PILLAR_NAMES = ['wealth', 'body', 'spirit', 'execution', 'family'] as const satisfies readonly PillarName[];
+/**
+ * A plan-level pillar. `family` is the Home Front protected floor of a parent+ goal plan:
+ * BHPC names Family as something to protect, but APM v1 keeps four LIFE pillars, so
+ * `family` exists only on plans, plan actions and agendas (goal_plans.foreground_pillar),
+ * never in pillar_settings, goals or routines. `lifePillarOf` maps it back.
+ */
+export type PlanPillar = PillarName | 'family';
+
+/** The life pillar a plan pillar belongs to; the Home Front floor has none. */
+export function lifePillarOf(pillar: PlanPillar): PillarName | undefined {
+  return pillar === 'family' ? undefined : pillar;
+}
 
 export interface PillarSetting {
   userId: UUID;
@@ -595,7 +602,7 @@ export interface StoredGoalPlan<TPlan = Record<string, unknown>> {
   planKey: string;
   templateKey: string;
   persona: string;
-  foregroundPillar: PillarName;
+  foregroundPillar: PlanPillar;
   startDate: string;
   endDate: string;
   timezone?: string;

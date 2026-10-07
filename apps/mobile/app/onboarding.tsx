@@ -12,7 +12,7 @@ const games = [
   'Career / leadership','Creating / publishing','Health / rebuilding','Life transition','Something else',
 ] as const;
 const pillars: { id: PillarName; label: string }[] = [
-  { id: 'wealth', label: 'Wealth' }, { id: 'body', label: 'Body' }, { id: 'spirit', label: 'Spirit' }, { id: 'execution', label: 'Execution' }, { id: 'family', label: 'Family' },
+  { id: 'wealth', label: 'Wealth' }, { id: 'body', label: 'Body' }, { id: 'spirit', label: 'Spirit' }, { id: 'execution', label: 'Execution' },
 ];
 const tracks: { id: ActiveTrackKey; label: string; description: string }[] = [
   { id: 'operator_discipline', label: 'Operator Discipline', description: 'Follow through and renegotiate less.' },

@@ -95,6 +95,26 @@ test('Today never runs dry: every day of the plan and after it has a foreground 
   }
 });
 
+test('MVD stays minimal: no backlog and no background maintenance on a low day', () => {
+  const nextActions = [{ id: 'n1', title: 'Email the landlord about the lease', status: 'open' }, { id: 'n2', title: 'Book the dentist for Tuesday', status: 'open' }];
+  const normal = composeAgenda({ date: shift(START, 5), state: 'normal', plans: [body, money], goals, foregroundGoalId: 'g-body', completions: [], morningSequence: [], nextActions });
+  assert.equal(normal.dailyStack.filter((item) => item.kind === 'next_action').length, 2);
+  for (const low of [{ state: 'normal', mood: 2 }, { state: 'missed_yesterday' }, { state: 'recovery' }]) {
+    const agenda = composeAgenda({ date: shift(START, 5), ...low, plans: [body, money], goals, foregroundGoalId: 'g-body', completions: [], morningSequence: [], nextActions });
+    assert.equal(agenda.dailyStack.filter((item) => item.kind === 'next_action').length, 0, JSON.stringify(low));
+    assert.equal(agenda.dailyStack.filter((item) => item.planId === 'p-money').length, 0, JSON.stringify(low));
+    assert.ok(agenda.reasons.includes('backlog_held_mvd') && agenda.reasons.includes('background_held_mvd'));
+    assert.ok(agendaItems(agenda).every((item) => item.scope === 'mvd'));
+  }
+});
+
+test('a background weight-loss plan keeps its movement floor (the substituted floor is not lost)', () => {
+  const bodyBackground = composeAgenda({ date: shift(START, 5), state: 'normal', plans: [body, money], goals, foregroundGoalId: 'g-money', completions: [], morningSequence: [] });
+  const movement = bodyBackground.dailyStack.find((item) => item.planId === 'p-body');
+  assert.equal(movement?.actionKey, 'movement_floor');
+  assert.equal(movement.scope, 'mvd');
+});
+
 test('background plans get maintenance floors only, at MVD scope, one per pillar', () => {
   const agenda = composeAgenda({ date: shift(START, 5), state: 'normal', plans: [body, money], goals, foregroundGoalId: 'g-body', completions: [], morningSequence: [] });
   const fromMoney = agenda.dailyStack.filter((item) => item.planId === 'p-money');

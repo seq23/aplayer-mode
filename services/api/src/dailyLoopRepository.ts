@@ -38,11 +38,22 @@ const LOOP_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 409
   loop_replan_limit: { error: 'replan_limit', status: 409, message: 'Today has already been replanned three times.' },
   loop_gate_not_reached: { error: 'gate_not_reached', status: 409, message: 'This gate has not been reached yet.' },
   loop_decision_not_due: { error: 'decision_not_due', status: 409, message: 'The day-90 decision is not due yet.' },
+  loop_goal_parked: { error: 'goal_parked', status: 409, message: 'This goal was parked at its day-90 decision; parked goals stay in the background.' },
   loop_already_decided: { error: 'already_decided', status: 409, message: 'This plan already has its day-90 decision.' },
 };
 
 export function loopErrorResponse(error: unknown): { error: string; status: 400 | 403 | 404 | 409; message: string } | undefined {
   return error instanceof LoopError ? LOOP_ERRORS[error.code] ?? { error: error.code, status: 409, message: error.code } : undefined;
+}
+
+/** Maps a raw Supabase error whose message is a `loop_*` code (e.g. from a legacy RPC) to a LoopError. */
+export function asLoopError(error: unknown): unknown {
+  const message = error instanceof SupabaseRestError
+    && error.body && typeof error.body === 'object'
+    && typeof (error.body as { message?: unknown }).message === 'string'
+    ? (error.body as { message: string }).message
+    : undefined;
+  return message && /^loop_[a-z_]+$/.test(message) ? new LoopError(message) : error;
 }
 
 export async function loopRpc<T>(env: ApiEnv, accessToken: string, fn: string, args: Record<string, unknown>): Promise<T> {

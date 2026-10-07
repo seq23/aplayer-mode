@@ -59,6 +59,7 @@ import {
 import { notifyRadarItems } from './push';
 import { buildGoalPlan, ensureGoalPlans, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
+  asLoopError,
   checkInDay,
   completePlanAction,
   createGoalWithPlan,
@@ -74,7 +75,7 @@ import {
 type WorkerEnv = { Bindings: ApiEnv };
 const app = new Hono<WorkerEnv>();
 
-const pillarSchema = z.enum(['wealth', 'body', 'spirit', 'execution', 'family']);
+const pillarSchema = z.enum(['wealth', 'body', 'spirit', 'execution']);
 const trackSchema = z.enum(ACTIVE_TRACK_KEYS);
 const modeSchema = z.enum(['standard','recovery','high_pressure','executive_review','sprint','deep_work']);
 const providerSchema = z.enum(['google','microsoft']);
@@ -192,8 +193,8 @@ const methodologyIntakeSchema = onboardingSchema.extend({
     avoidLanguage: z.string().trim().max(500).optional(),
   }),
   accountability: z.object({ dayStart: z.enum(['guided','hard']), coachingReminderAfterDays: z.number().int().min(1).max(60).optional() }),
-  criticalPillars: z.array(pillarSchema).max(5),
-  minimumFloors: z.object({ wealth: z.string().trim().max(300).optional(), body: z.string().trim().max(300).optional(), spirit: z.string().trim().max(300).optional(), execution: z.string().trim().max(300).optional(), family: z.string().trim().max(300).optional() }),
+  criticalPillars: z.array(pillarSchema).max(4),
+  minimumFloors: z.object({ wealth: z.string().trim().max(300).optional(), body: z.string().trim().max(300).optional(), spirit: z.string().trim().max(300).optional(), execution: z.string().trim().max(300).optional() }),
   trackKeys: z.array(trackSchema).max(ACTIVE_TRACK_KEYS.length),
   // Sprint and Deep Work need a declared duration, so they start only via POST /v1/methodology/mode.
   activeMode: z.enum(['standard','recovery','high_pressure','executive_review']).optional(),
@@ -690,7 +691,9 @@ app.post('/v1/goal-plans/:id/decision', async (c) => {
 
 app.post('/v1/next-actions/:id/complete', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const result = await completeNextAction(c.env, user.accessToken, user.id, c.req.param('id'));
+  let result;
+  try { result = await completeNextAction(c.env, user.accessToken, user.id, c.req.param('id')); }
+  catch (error) { return loopFailure(c, asLoopError(error)); }
   if (!result) return c.json({ error: 'not_found' }, 404);
   await audit(c.env, user.accessToken, user.id, 'next_action.completed', {}, 'next_action', c.req.param('id'));
   return c.json({ ...result, ...(await buildUserState(c.env, user.accessToken, user.id)) });

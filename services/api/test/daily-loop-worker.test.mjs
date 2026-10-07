@@ -132,14 +132,14 @@ test('the intake creates the primary goal’s plan through the governed RPC', as
     const response = await request('/v1/methodology/intake', { method: 'PUT', body: JSON.stringify({
       displayName: 'Ana', roles: ['Health / rebuilding'], primaryGoal: 'lose 30 lbs', values: [], nonNegotiables: [], failurePatterns: [],
       weeklyCadence: { heavyDays: [], lightDays: [] }, coachingStyle: { firmness: 'direct' }, accountability: { dayStart: 'hard' },
-      criticalPillars: ['body', 'family'], minimumFloors: { body: 'Walk 10 minutes', family: 'Read one bedtime story' }, trackKeys: ['body_foundation'],
+      criticalPillars: ['body'], minimumFloors: { body: 'Walk 10 minutes' }, trackKeys: ['body_foundation'],
     }) });
     assert.equal(response.status, 200);
     const intake = h.calls.rpc.filter((c) => c.fn === 'apm_save_goal_plan');
     assert.equal(intake[0].args.p_source, 'intake');
     assert.equal(intake[0].args.p_plan.persona.key, 'weight_loss');
-    const family = h.calls.writes.find((w) => w.path.startsWith('/rest/v1/pillar_settings'));
-    assert.deepEqual(family.body, [{ user_id: USER, name: 'family', active: true, critical: true, minimum_floor: 'Read one bedtime story' }]);
+    assert.equal(intake[0].args.p_plan.minimumFloors, undefined);
+    assert.equal(intake[0].args.p_plan.actions.movement_floor.mvd.title, 'Walk 10 minutes', 'the user’s own body floor drives the MVD');
   } finally { h.restore(); }
 });
 
@@ -185,6 +185,24 @@ test('the opening step and agenda membership come back as 409s from the database
       assert.equal((await response.json()).error, error);
     } finally { h.restore(); }
   }
+});
+
+test('the four LOCKED pillars: family is refused as a life pillar at the API', async () => {
+  const h = harness();
+  try {
+    const goal = await request('/v1/goals', { method: 'POST', body: JSON.stringify({ title: 'Be home for dinner', pillar: 'family' }) });
+    assert.equal(goal.status, 400);
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_create_goal').length, 0);
+  } finally { h.restore(); }
+});
+
+test('the legacy next-action completion maps the opening step to a 409', async () => {
+  const h = harness({ rpcErrors: { apm_complete_next_action: 'loop_opening_step_required' } });
+  try {
+    const response = await request('/v1/next-actions/00000000-0000-4000-8000-0000000000c1/complete', { method: 'POST' });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, 'opening_step_required');
+  } finally { h.restore(); }
 });
 
 test('Goals: a new goal is planned, created through the governed RPC and run through arbitration; Week 1 is a 409', async () => {

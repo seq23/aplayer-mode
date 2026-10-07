@@ -147,16 +147,6 @@ export default function TodayScreen() {
 
       {recovery ? <Card tone="warning"><Label>Minimum Viable Day</Label><CardTitle>One useful thing. No catch-up debt.</CardTitle><Body muted>Continuity beats intensity today. Completing the smallest critical move is enough.</Body></Card> : null}
 
-      {(todayPlan?.morningSequence.length ?? 0) > 0 ? (
-        <>
-          <SectionTitle>First hour</SectionTitle>
-          <Card tone="accent">
-            <Label>Your launch sequence</Label>
-            {todayPlan!.morningSequence.map((step, index) => <KeyValue key={`${index}-${step}`} label={`${index + 1}`} value={step} />)}
-          </Card>
-        </>
-      ) : null}
-
       {!graph.personalOS ? (
         <Card tone="accent">
           <Label>Start here</Label>
@@ -204,7 +194,7 @@ export default function TodayScreen() {
             </>
           ) : null}
 
-          {agenda?.gateReview ? (
+          {agenda?.gateReview && !hideAgenda ? (
             <Card tone="warning">
               <Label>{agenda.gateReview.label}</Label>
               <CardTitle>{`Recommended: ${agenda.gateReview.recommended}. ${agenda.gateReview.completedDays} days with evidence.`}</CardTitle>
@@ -214,7 +204,7 @@ export default function TodayScreen() {
             </Card>
           ) : null}
 
-          {agenda?.decision ? (
+          {agenda?.decision && !hideAgenda ? (
             <Card tone="warning">
               <Label>Day 90 · forced decision</Label>
               <CardTitle>{`Promote, Maintain or Park? APM recommends ${agenda.decision.recommended}.`}</CardTitle>
@@ -239,6 +229,8 @@ export default function TodayScreen() {
 
       {actionError ? <Card tone="danger"><Body>{actionError}</Body></Card> : null}
 
+      {hideAgenda ? <Card tone="muted"><Body>Hard Start: Radar, your run of show, approvals and the close appear after the opening step.</Body></Card> : (
+        <>
       {completionEvidence ? <Card><Label>Evidence recorded</Label><CardTitle>{completionEvidence.summary}</CardTitle><KeyValue label="Source" value="You marked it complete" /><KeyValue label="Recorded" value={new Date(completionEvidence.createdAt).toLocaleString()} /></Card> : null}
 
       {!recovery ? (
@@ -282,6 +274,9 @@ export default function TodayScreen() {
         <Button label="Minimum Viable Day" variant="secondary" onPress={() => void closeToday('mvd')} />
         <Button label="Miss" variant="secondary" onPress={() => void closeToday('miss')} />
       </Card>
+
+        </>
+      )}
 
       <SectionTitle>Trust & control</SectionTitle>
       <Card><CardTitle>See exactly how APM works with your information.</CardTitle><Body muted>Inspect your data, AI processing, providers, connections, permissions and activity.</Body><Button label="Open Privacy & AI" variant="secondary" onPress={() => router.push('/settings/privacy')} /><Button label="Settings" variant="secondary" onPress={() => router.push('/settings')} /></Card>

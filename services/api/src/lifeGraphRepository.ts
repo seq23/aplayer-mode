@@ -456,16 +456,6 @@ export async function saveMethodologyIntake(
     }),
   });
 
-  // The 0004 intake RPC writes the four original pillars; the Family pillar (0021)
-  // is written here so a parent's family floor and critical flag are kept.
-  if (input.criticalPillars.includes('family') || input.minimumFloors.family?.trim()) {
-    await supabaseRest(env, accessToken, '/rest/v1/pillar_settings?on_conflict=user_id,name', {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify([{ user_id: userId, name: 'family', active: true, critical: input.criticalPillars.includes('family'), minimum_floor: input.minimumFloors.family?.trim() || null }]),
-    });
-  }
-
   // The intake RPC replaces the user's Track set and only knows the original
   // three keys; Resilience and the app-only Tracks are upserted here so the
   // final set is exactly what the user chose.

@@ -28,7 +28,7 @@ const healthTone = {
 } as const;
 
 const PILLARS: Array<{ id: PillarName; label: string }> = [
-  { id: 'body', label: 'Body' }, { id: 'wealth', label: 'Wealth' }, { id: 'family', label: 'Family' },
+  { id: 'body', label: 'Body' }, { id: 'wealth', label: 'Wealth' },
   { id: 'spirit', label: 'Spirit' }, { id: 'execution', label: 'Execution' },
 ];
 
