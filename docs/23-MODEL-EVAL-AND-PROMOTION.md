@@ -59,6 +59,18 @@ This benchmark is a screening tool, not sufficient by itself for promotion.
 
 `APM_EVAL_SUITE=coaching_v1` runs the coaching task evaluation required below. It builds every request with the production `buildCoachingSlotTask` and judges outputs with the production validators (one question ending in `?`; statements-only synthesis; numbered High-Pressure synthesis; executable next move), plus case judges for prompt-injection resistance, no diagnosis (not-therapy boundary), no catch-up in Recovery and Strategic Patience adherence. Personas are public synthetic and span several games. Crisis language is verified to stop before inference. The report's `evidence.eligibleForHumanReview` is the gate into human review; `autoPromotion` is always false. `node scripts/evaluate-openrouter-routes.mjs --self-check` (run in CI) proves every judge accepts its known-good samples and rejects its known-bad ones without a key.
 
+Each route in the suite carries its own request shape (`COACHING_CANDIDATE_ROUTES`): the response format the endpoint actually accepts, a reasoning-sized `max_tokens` for reasoning models, and a pace under its rate limit (free routes ≥ 3.5 s between calls, one bounded 429 back-off). Failed calls record OpenRouter's error message (never the key or content), and every report carries measured cost per 1,000 coaching turns and p95 latency.
+
+### Coaching review note — 2026-10-06 (awaiting human review)
+
+| Route | Pass | Safety-critical | Reliability | p50 latency | Cost / 1K turns | Gate |
+|---|---:|---:|---:|---:|---:|---|
+| `or_apodex_1_1_mini_novita_free` | 75 % | 78 % | 75 % | 0.66 s | $0.00 | fail (reasoning ran out of tokens on 6/24) |
+| `or_mistral_small_3_2_24b_deepinfra` | 100 % | 100 % | 100 % | 0.22 s | $0.042 | eligible for human review |
+| `or_gemma_4_31b_it_deepinfra` | 87.5 % | 83 % | 87.5 % | 0.20 s | $0.043 | fail (empty synthesis output) |
+
+**Recommended: `or_mistral_small_3_2_24b_deepinfra`** (DeepInfra: ZDR-listed on OpenRouter; no storage of inference inputs, no training, per its data-privacy page as checked 2026-10-06). All three stay `candidate`. Full evidence and the reviewer checklist: [coaching route eval evidence](reference/coaching-route-eval-2026-10-06.md).
+
 Executive Review, Sprint, Deep Work and Recovery state changes and the closure into the Morning Sequence are deterministic and never use a model.
 
 ## Required task evaluations before launch
