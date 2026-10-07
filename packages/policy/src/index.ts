@@ -213,7 +213,8 @@ export interface StandingActionClassPolicy {
 }
 
 /**
- * The whole allow-list (mirrors public.autopilot_action_classes, migration 0033).
+ * The whole allow-list (mirrors public.autopilot_action_classes, migration 0033;
+ * expanded from two classes by ADR-0003, the owner's ruling of 6 Oct 2026).
  * Anything not listed here can never be a standing rule.
  */
 export const standingActionClasses: Record<StandingActionClass, StandingActionClassPolicy> = {

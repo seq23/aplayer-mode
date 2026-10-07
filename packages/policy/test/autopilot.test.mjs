@@ -132,3 +132,13 @@ test('standing authority needs entitlement, level-5 permission, an active rule, 
   assert.equal(decideStandingAuthority({ ...ok, actionClass: 'appointment.book' }).allowed, false);
   assert.equal(decideStandingAuthority({ ...ok, actionClass: 'appointment.book', permission: { ...ok.permission, domain: 'appointment' } }).allowed, true);
 });
+
+test('ADR-0003 is the authority for the allow-list: every class and every by-name rejection is in it', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const adr = await readFile(new URL('../../../docs/adr/ADR-0003-AUTOPILOT-ACTION-CLASSES.md', import.meta.url), 'utf8');
+  assert.match(adr, /\*\*Status:\*\* ACCEPTED \/ LOCKED/);
+  for (const actionClass of Object.keys(standingActionClasses)) assert.ok(adr.includes(`\`${actionClass}\``), `${actionClass} must be authorised by ADR-0003`);
+  for (const named of ['purchase.*', 'payment.*', 'subscription.upgrade', 'subscription.signup', 'healthcare.*', 'financial.*']) {
+    assert.ok(adr.includes(`\`${named}\``), `ADR-0003 must keep ${named} rejected by name`);
+  }
+});

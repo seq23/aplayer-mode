@@ -142,4 +142,4 @@ export const ALL_WRITE_SCOPES = [
   'Calendars.ReadWrite', 'Mail.ReadWrite', 'Mail.Send',
 ];
 
-export const AUTOPILOT_MIGRATIONS = ['0018_autopilot_standing_rules.sql', '0019_autopilot_draft_header_hardening.sql', '0033_autopilot_action_classes.sql'];
+export const AUTOPILOT_MIGRATIONS = ['0018_autopilot_standing_rules.sql', '0019_autopilot_draft_header_hardening.sql', '0033_autopilot_action_classes.sql', '0034_autopilot_reschedule_shift_bound.sql'];

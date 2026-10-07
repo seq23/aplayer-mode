@@ -208,6 +208,9 @@ test('calendar.reschedule: only flexible or criteria-matching own meetings, neve
   await rejects(claim(A, rule.id, 'mv-own-00001', { eventId: theirs, ...slot(7, 14) }), /autopilot_outside_rule/);
   await rejects(claim(A, rule.id, 'mv-dur-00001', { eventId: plain, ...slot(4, 14, 90) }), /autopilot_outside_rule/);
   await rejects(claim(A, rule.id, 'mv-far-00001', { eventId: plain, ...slot(8, 10) }), /autopilot_outside_rule/);
+  // The shift bound is exact local days: maxShiftDays 2 allows day +6 but never day +7,
+  // even an hour earlier than the original (the 0033 seconds bound allowed it).
+  await rejects(claim(A, rule.id, 'mv-edge-0001', { eventId: plain, ...slot(7, 9) }), /autopilot_outside_rule/);
   await admin(`insert into public.calendar_events (user_id, starts_at, ends_at, availability) values ($1, $2, $3, 'busy')`, [A, moveTo.startsAt, moveTo.endsAt]);
   await rejects(claim(A, rule.id, 'mv-busy-0001', { eventId: plain, ...moveTo }), /autopilot_collision/);
 
@@ -217,6 +220,21 @@ test('calendar.reschedule: only flexible or criteria-matching own meetings, neve
   assert.equal(Date.parse(moved.execution.original_starts_at), Date.parse(original.startsAt));
   assert.equal(moved.action.payload.composed.externalEventId, 'ev-plain');
   assert.equal(moved.action.payload.composed.connectionId, conn.cal);
+  // maxShiftDays 0 = same local day only: 23:00 → 22:00 the next day is refused.
+  const sameDay = await grant(B, 'calendar.reschedule', {
+    ...ALL_DAY, maxPerDay: 3, horizonDays: 14, maxShiftDays: 0, collision: 'never_overlap_busy',
+    matchTitleKeywords: ['standup'], maxAttendees: 5, protectedTitleKeywords: [],
+  });
+  await setPermission(B, 'calendar', 'calendar.reschedule', 5);
+  const calB = (await admin(`insert into public.integration_connections (user_id, provider, kind, scopes) values ($1, 'google', 'calendar', $2) returning id`, [B, ALL_WRITE_SCOPES])).rows[0].id;
+  const late = slot(5, 23, 30);
+  const lateId = (await admin(
+    `insert into public.calendar_events (user_id, provider, external_event_id, connection_id, title, starts_at, ends_at, organizer, attendees)
+     values ($1, 'google', 'ev-b-late', $2, 'Team standup', $3, $4, '{"self":true}', '[]') returning id`, [B, calB, late.startsAt, late.endsAt])).rows[0].id;
+  await rejects(claim(B, sameDay.id, 'mv-zero-0001', { eventId: lateId, ...slot(6, 22, 30) }), /autopilot_outside_rule/);
+  assert.equal((await claim(B, sameDay.id, 'mv-zero-0002', { eventId: lateId, ...slot(5, 21, 30) })).execution.status, 'claimed');
+  await revoke(B, sameDay.id);
+
   // One live move per event.
   await rejects(claim(A, rule.id, 'mv-twice-001', { eventId: plain, ...slot(4, 18) }), /autopilot_collision/);
   await record(A, moved.execution.id, 'verified', 'ev-plain');
@@ -328,7 +346,9 @@ test('subscription.cancel: saves money only — fixed email to an allowed domain
   assert.equal(move.canUndo, true);
   assert.ok(done.some((item) => item.kind === 'stopped' && item.status === 'needs_you' && item.stoppedReason === 'needs_user'));
   assert.ok(done.some((item) => item.kind === 'stopped' && item.stoppedReason === 'payment_required'));
-  assert.deepEqual(await rpc(B, 'apm_autopilot_done_list', '$1::date', [today]), [], 'owner-only');
+  const theirs = await rpc(B, 'apm_autopilot_done_list', '$1::date', [today]);
+  assert.equal(theirs.some((item) => done.some((mine) => mine.executionId && mine.executionId === item.executionId)), false, 'owner-only');
+  assert.ok(theirs.every((item) => item.actionClass === 'calendar.reschedule'), 'B sees only B’s own run');
   await revoke(A, rule.id);
 });
 
