@@ -30,7 +30,14 @@ export interface Role {
   provenance: Provenance;
 }
 
-export type PillarName = 'wealth' | 'body' | 'spirit' | 'execution';
+/**
+ * Life pillars. `family` (migration 0021) is the Home Front pillar: BHPC Part VII
+ * names Family as a permanent pillar, and parent+ goal plans protect a daily
+ * family floor, so it is a first-class pillar rather than a plan-only label.
+ */
+export type PillarName = 'wealth' | 'body' | 'spirit' | 'execution' | 'family';
+
+export const PILLAR_NAMES = ['wealth', 'body', 'spirit', 'execution', 'family'] as const satisfies readonly PillarName[];
 
 export interface PillarSetting {
   userId: UUID;
@@ -63,6 +70,25 @@ export type RetiredTrackKey = 'manifestation_mastery' | 'investor_ai_leverage';
 
 /** @deprecated use ActiveTrackKey; this wider union exists only for packages/planning compatibility. */
 export type TrackKey = ActiveTrackKey | RetiredTrackKey;
+
+/**
+ * THE single Track display-name map, shared by mobile and API. The owner is still
+ * naming Tracks, so names live only here; keys are stable and stored names in the
+ * database are never shown.
+ */
+export const TRACK_DISPLAY_NAMES: Readonly<Record<ActiveTrackKey, string>> = {
+  billionaire_mindset: 'Billionaire High Performance Coach Track',
+  operator_discipline: 'Operator Discipline Track',
+  strategic_patience: 'Strategic Patience Track',
+  resilience: 'Resilience Track',
+  body_foundation: 'Body Foundation Track',
+  wealth_foundation: 'Wealth Foundation Track',
+  home_front: 'Home Front Track',
+};
+
+export function trackDisplayName(key: ActiveTrackKey): string {
+  return TRACK_DISPLAY_NAMES[key];
+}
 
 export interface Track {
   id: UUID;
@@ -508,15 +534,78 @@ export interface AuditEvent {
   createdAt: ISODateTime;
 }
 
+/** Day state that feeds the daily-action supplier (BHPC Laws 1, 3 and 6). */
+export type DayState = 'normal' | 'recovery' | 'missed_yesterday';
+
 export interface DayRecord {
   id: UUID;
   userId: UUID;
+  /** Local calendar day (YYYY-MM-DD) in the user's timezone. */
   day: string;
   mode: OperatingModeKey;
   verdict?: 'full_day' | 'mvd' | 'miss';
   completedActionIds: UUID[];
   note?: string;
   closedAt?: ISODateTime;
+  /** Morning check-in mood, 1–10 (BHPC Mood Gate: ≤ 2 runs a Minimum Viable Day). */
+  mood?: number;
+  dayState?: DayState;
+  /** The agenda snapshot printed for the day (frozen once the day is locked). */
+  agenda?: Record<string, unknown>;
+  agendaStatus?: 'printed' | 'locked';
+  checkedInAt?: ISODateTime;
+  /** Declared mid-day replans (external change, safety, permission only). */
+  replans: Array<{ reason: string; detail?: string; at: ISODateTime }>;
+}
+
+/** Evidence that one supplied goal-plan action was done on a local day. */
+export interface PlanActionCompletion {
+  id: UUID;
+  userId: UUID;
+  planId: UUID;
+  day: string;
+  actionKey: string;
+  instanceId: string;
+  scope: 'standard' | 'mvd';
+  role: 'foreground' | 'floor';
+  note?: string;
+  createdAt: ISODateTime;
+}
+
+export type GoalPlanStatus = 'active' | 'decided' | 'superseded';
+export type GoalPlanDecision = 'promote' | 'maintain' | 'park';
+
+export interface GoalPlanGateReview {
+  verdict: GoalPlanDecision;
+  stillAligned: boolean;
+  completedDays: number;
+  evidenceCount: number;
+  reviewedAt: ISODateTime;
+}
+
+/**
+ * A persisted goal → 30/60/90 plan (migration 0021). `plan` is the deterministic
+ * engine output from packages/planning (`GoalPlan`), stored verbatim; the row
+ * columns carry what the database itself enforces.
+ */
+export interface StoredGoalPlan<TPlan = Record<string, unknown>> {
+  id: UUID;
+  userId: UUID;
+  goalId: UUID;
+  planKey: string;
+  templateKey: string;
+  persona: string;
+  foregroundPillar: PillarName;
+  startDate: string;
+  endDate: string;
+  timezone?: string;
+  plan: TPlan;
+  status: GoalPlanStatus;
+  decision?: GoalPlanDecision;
+  decisionReason?: string;
+  decidedAt?: ISODateTime;
+  gateReviews: Partial<Record<'foundation' | 'build' | 'establish', GoalPlanGateReview>>;
+  createdAt: ISODateTime;
 }
 
 export type AutopilotActionClass = 'calendar.create' | 'email.draft';
@@ -649,5 +738,7 @@ export interface LifeGraphSnapshot {
   permissions: Permission[];
   actions: ActionRecord[];
   dayRecords: DayRecord[];
+  goalPlans: StoredGoalPlan[];
+  planCompletions: PlanActionCompletion[];
   entitlement?: SubscriptionEntitlement;
 }

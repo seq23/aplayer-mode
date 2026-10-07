@@ -13,14 +13,17 @@ import type {
   Milestone,
   Permission,
   Person,
+  PlanActionCompletion,
   Preference,
   Project,
   Routine,
   Rule,
+  StoredGoalPlan,
   SubscriptionEntitlement,
 } from '@apm/domain';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
+import { mapCompletion, mapDayRecord, mapGoalPlan, type CompletionRow, type DayRow, type GoalPlanRow } from './dailyLoopRepository';
 
 const qs = (value: string) => encodeURIComponent(value);
 
@@ -92,9 +95,7 @@ interface ActionRow {
   permission_id: string | null; idempotency_key: string; requires_approval: boolean; approved_at: string | null;
   executed_at: string | null; verified_at: string | null; failure_code: string | null; created_at: string; updated_at: string;
 }
-interface DayRow {
-  id: string; day: string; mode: DayRecord['mode']; verdict: DayRecord['verdict'] | null; completed_action_ids: string[]; note: string | null; closed_at: string | null;
-}
+
 interface EntitlementRow {
   user_id: string; plan: SubscriptionEntitlement['plan']; status: SubscriptionEntitlement['status']; provider: string | null; current_period_end: string | null;
 }
@@ -122,6 +123,8 @@ export interface PlatformState {
   permissions: Permission[];
   actions: ActionRecord[];
   dayRecords: DayRecord[];
+  goalPlans: StoredGoalPlan[];
+  planCompletions: PlanActionCompletion[];
   entitlement?: SubscriptionEntitlement;
 }
 
@@ -130,7 +133,8 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
   const now = new Date();
   const from = new Date(now.getTime() - 14 * 86_400_000).toISOString();
   const to = new Date(now.getTime() + 90 * 86_400_000).toISOString();
-  const [projects, milestones, commitments, routines, people, lifeRelationships, lifeAdminItems, preferences, rules, connections, calendar, signals, permissions, actions, days, entitlements] = await Promise.all([
+  const completionsSince = new Date(now.getTime() - 120 * 86_400_000).toISOString().slice(0, 10);
+  const [projects, milestones, commitments, routines, people, lifeRelationships, lifeAdminItems, preferences, rules, connections, calendar, signals, permissions, actions, days, entitlements, goalPlans, completions] = await Promise.all([
     supabaseRest<ProjectRow[]>(env, accessToken, `/rest/v1/projects?${filter}&select=*&order=foreground.desc,updated_at.desc`),
     supabaseRest<MilestoneRow[]>(env, accessToken, `/rest/v1/milestones?${filter}&select=*&order=due_at.asc.nullslast`),
     supabaseRest<CommitmentRow[]>(env, accessToken, `/rest/v1/commitments?${filter}&select=*&order=due_at.asc.nullslast,created_at.desc`),
@@ -147,6 +151,8 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
     supabaseRest<ActionRow[]>(env, accessToken, `/rest/v1/actions?${filter}&select=*&order=created_at.desc&limit=250`),
     supabaseRest<DayRow[]>(env, accessToken, `/rest/v1/day_records?${filter}&select=*&order=day.desc&limit=30`),
     supabaseRest<EntitlementRow[]>(env, accessToken, `/rest/v1/subscription_entitlements?${filter}&select=user_id,plan,status,provider,current_period_end&limit=1`),
+    supabaseRest<GoalPlanRow[]>(env, accessToken, `/rest/v1/goal_plans?${filter}&status=neq.superseded&select=*&order=created_at.asc`),
+    supabaseRest<CompletionRow[]>(env, accessToken, `/rest/v1/plan_action_completions?${filter}&day=gte.${qs(completionsSince)}&select=*&order=day.asc,created_at.asc`),
   ]);
 
   const provenance = <T extends { provenance_kind: any; source_type: any; source_ref: string | null; confidence?: number | null; created_at: string }>(row: T) => ({
@@ -180,7 +186,9 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
     messageSignals: signals.map((row) => ({ id: row.id, userId, connectionId: row.connection_id ?? undefined, provider: row.provider, externalMessageId: row.external_message_id, externalThreadId: row.external_thread_id ?? undefined, signalType: row.signal_type, summary: row.summary, dueAt: row.due_at ?? undefined, confidence: row.confidence, relatedCommitmentId: row.related_commitment_id ?? undefined, userCorrectedAt: row.user_corrected_at ?? undefined, observedAt: row.observed_at })),
     permissions: permissions.map((row) => ({ id: row.id, userId, domain: row.domain, actionType: row.action_type, autonomyLevel: row.autonomy_level, constraints: row.constraints ?? {}, enabled: row.enabled, grantedAt: row.granted_at ?? undefined, updatedAt: row.updated_at })),
     actions: actions.map((row) => ({ id: row.id, userId, domain: row.domain, actionType: row.action_type, status: row.status, payload: row.payload ?? {}, reason: row.reason, permissionId: row.permission_id ?? undefined, idempotencyKey: row.idempotency_key, requiresApproval: row.requires_approval, approvedAt: row.approved_at ?? undefined, executedAt: row.executed_at ?? undefined, verifiedAt: row.verified_at ?? undefined, failureCode: row.failure_code ?? undefined, createdAt: row.created_at, updatedAt: row.updated_at })),
-    dayRecords: days.map((row) => ({ id: row.id, userId, day: row.day, mode: row.mode, verdict: row.verdict ?? undefined, completedActionIds: row.completed_action_ids ?? [], note: row.note ?? undefined, closedAt: row.closed_at ?? undefined })),
+    dayRecords: days.map((row) => mapDayRecord(row, userId)),
+    goalPlans: goalPlans.map(mapGoalPlan) as unknown as StoredGoalPlan[],
+    planCompletions: completions.map(mapCompletion),
     entitlement: entitlements[0] ? { userId, plan: entitlements[0].plan, status: entitlements[0].status, provider: entitlements[0].provider ?? undefined, currentPeriodEnd: entitlements[0].current_period_end ?? undefined } : undefined,
   };
 }
@@ -282,6 +290,7 @@ export async function listModelRoutes(env: ApiEnv, accessToken: string) {
 }
 
 export async function closeDay(env: ApiEnv, accessToken: string, verdict: 'full_day' | 'mvd' | 'miss', note?: string) {
+  // Governed since 0021: the database closes the user's LOCAL today and audits it.
   return supabaseRest<DayRow>(env, accessToken, '/rest/v1/rpc/apm_close_day', { method: 'POST', body: JSON.stringify({ p_verdict: verdict, p_note: note ?? null }) });
 }
 

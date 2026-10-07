@@ -1,0 +1,541 @@
+import type {
+  DayRecord,
+  DayState,
+  Goal,
+  LifeGraphSnapshot,
+  NextAction,
+  PillarName,
+  PlanActionCompletion,
+  StoredGoalPlan,
+} from '@apm/domain';
+import {
+  arbitrateForeground,
+  canMiddayReplan,
+  isExecutableActionTitle,
+  scoreDay,
+  type ArbitrationCandidate,
+  type ArbitrationResult,
+} from './methodology.js';
+import { PLAN_LENGTH_DAYS, decideAtDay90, planDayIndex, reviewPlanGate, supplyDailyActions } from './goal-plan.js';
+import type { DailySupply, GateKey, GateVerdictKey, GoalPlan, GoalPlanContext, SuppliedAction, Weekday } from './goal-plan-types.js';
+import { addDays, daysBetween } from './goal-templates.js';
+
+/**
+ * The BHPC daily loop, deterministic and model-free:
+ *   day state (Never Miss Twice / Recovery / Mood Gate) → one foreground (Arbitration
+ *   Engine) → today's supplied actions (No Catch-Up) → the printed agenda (Foreground
+ *   Priority, First Hour, Daily Stack, Phase Bridge) → gate verdicts → day score.
+ * Persistence and timezones are the API's job; every function here is pure.
+ */
+
+export interface PlanEntry {
+  record: StoredGoalPlan<GoalPlan>;
+  plan: GoalPlan;
+}
+
+export const PHASE_BRIDGE_QUESTION = 'Do you need coaching to clear any friction, or are you ready to begin your First Hour?';
+export const MOOD_MVD_THRESHOLD = 2;
+
+// ---------------------------------------------------------------------------
+// Plan context from the Life Graph
+// ---------------------------------------------------------------------------
+
+const WEEKDAY_NAMES: Record<string, Weekday> = {
+  sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tues: 2, tuesday: 2, wed: 3, wednesday: 3,
+  thu: 4, thur: 4, thurs: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6,
+};
+
+export function weekdayFromName(name: string | undefined): Weekday | undefined {
+  if (!name) return undefined;
+  return WEEKDAY_NAMES[name.trim().toLowerCase()];
+}
+
+/** What the plan engine needs, read from the user's Personal OS (never from free text guesses). */
+export function planContextFromGraph(
+  graph: Pick<LifeGraphSnapshot, 'roles' | 'identity' | 'pillarSettings' | 'personalOS'>,
+  input: { startDate: string; goal: Pick<Goal, 'targetDate'>; clinicianCleared?: boolean; healthNotes?: string[] },
+): GoalPlanContext {
+  const minimumFloors: GoalPlanContext['minimumFloors'] = {};
+  for (const pillar of graph.pillarSettings) {
+    if (pillar.active && pillar.minimumFloor?.trim()) minimumFloors[pillar.name] = pillar.minimumFloor.trim();
+  }
+  const recoveryDay = weekdayFromName(graph.personalOS?.weeklyCadence.recoveryDay);
+  const healthNotes = [graph.personalOS?.bodyContext, ...(input.healthNotes ?? [])].filter((note): note is string => Boolean(note?.trim()));
+  return {
+    roles: graph.roles.filter((role) => role.active).map((role) => role.name),
+    ...(graph.identity.timezone ? { timezone: graph.identity.timezone } : {}),
+    startDate: input.startDate,
+    ...(input.goal.targetDate ? { targetDate: input.goal.targetDate.slice(0, 10) } : {}),
+    ...(recoveryDay !== undefined ? { availability: { restDays: [recoveryDay] } } : {}),
+    constraints: graph.personalOS?.hardBoundaries ?? [],
+    minimumFloors,
+    body: { healthNotes, ...(input.clinicianCleared ? { clinicianCleared: true } : {}) },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Day state
+// ---------------------------------------------------------------------------
+
+export interface DayStateInput {
+  date: string;
+  dayRecords: Pick<DayRecord, 'day' | 'verdict'>[];
+  completions: Pick<PlanActionCompletion, 'day'>[];
+  /** First local day the user had a plan running; days before it are never "missed". */
+  firstActiveDay?: string;
+  /** Recovery Mode declared (or the post-sprint recovery lock). */
+  recoveryMode?: boolean;
+}
+
+export interface DayStateResult {
+  state: DayState;
+  /** Why: `declared_recovery`, `missed_yesterday_closed`, `missed_yesterday_unclosed`, or `normal`. */
+  reason: 'declared_recovery' | 'missed_yesterday_closed' | 'missed_yesterday_unclosed' | 'normal';
+}
+
+/**
+ * Never Miss Twice: a day closed as Miss, or a past day with no close and no
+ * completion evidence, makes today a Recovery Day. A miss is data; the next day
+ * is reduced, never doubled (No Catch-Up).
+ */
+export function deriveDayState(input: DayStateInput): DayStateResult {
+  if (input.recoveryMode) return { state: 'recovery', reason: 'declared_recovery' };
+  const yesterday = addDays(input.date, -1);
+  if (input.firstActiveDay && yesterday < input.firstActiveDay) return { state: 'normal', reason: 'normal' };
+  const record = input.dayRecords.find((candidate) => candidate.day === yesterday);
+  if (record?.verdict === 'miss') return { state: 'missed_yesterday', reason: 'missed_yesterday_closed' };
+  if (record?.verdict) return { state: 'normal', reason: 'normal' };
+  const evidence = input.completions.some((completion) => completion.day === yesterday);
+  if (!evidence && input.firstActiveDay) return { state: 'missed_yesterday', reason: 'missed_yesterday_unclosed' };
+  return { state: 'normal', reason: 'normal' };
+}
+
+// ---------------------------------------------------------------------------
+// One foreground: the Arbitration Engine
+// ---------------------------------------------------------------------------
+
+const PERSONA_LEVERAGE: Record<string, number> = {
+  founder: 8, operator_promotion: 7, wealth_building: 7, weight_loss: 6, parent_plus: 7, generic: 5,
+};
+const PERSONA_COMPOUNDING: Record<string, number> = {
+  founder: 8, operator_promotion: 7, wealth_building: 9, weight_loss: 8, parent_plus: 7, generic: 6,
+};
+
+export function isPlanEligible(record: Pick<StoredGoalPlan, 'status' | 'decision'>): boolean {
+  return record.status !== 'superseded' && record.decision !== 'park';
+}
+
+function lastCompletionDay(planId: string, completions: PlanActionCompletion[]): string | undefined {
+  return completions.filter((completion) => completion.planId === planId).map((completion) => completion.day).sort().at(-1);
+}
+
+/** Deterministic scores for the five BHPC factors. Fake urgency (no external date) scores 0. */
+export function arbitrationCandidate(
+  entry: PlanEntry,
+  goal: Pick<Goal, 'targetDate' | 'priority'> | undefined,
+  context: { date: string; mood?: number; completions: PlanActionCompletion[] },
+): ArbitrationCandidate {
+  const persona = entry.plan.persona.key;
+  const daysToTarget = goal?.targetDate ? daysBetween(context.date, goal.targetDate.slice(0, 10)) : undefined;
+  const urgency = daysToTarget === undefined ? 0 : daysToTarget <= 14 ? 9 : daysToTarget <= 30 ? 7 : daysToTarget <= 60 ? 5 : 3;
+  const supply = supplyDailyActions(entry.plan, { date: context.date, state: 'normal' });
+  const minutes = supply.foreground.durationMinutes;
+  const energy = context.mood === undefined ? 6 : context.mood <= 4 ? (minutes <= 20 ? 8 : 3) : minutes >= 30 ? 8 : 6;
+  const last = lastCompletionDay(entry.record.id, context.completions);
+  const idleDays = last ? daysBetween(last, context.date) : planDayIndex(entry.plan, context.date);
+  return {
+    id: entry.record.id,
+    leverage: (PERSONA_LEVERAGE[persona] ?? 5) + (goal?.priority === 1 ? 1 : 0),
+    urgency,
+    energyMatch: energy,
+    compounding: PERSONA_COMPOUNDING[persona] ?? 6,
+    downside: idleDays >= 3 ? 8 : 4,
+  };
+}
+
+export interface ForegroundSelection {
+  foreground?: PlanEntry;
+  background: PlanEntry[];
+  arbitration?: ArbitrationResult;
+  /** `pinned` = the user's declared foreground goal; `arbitration` = the engine chose. */
+  source?: 'pinned' | 'arbitration' | 'only_plan';
+}
+
+/**
+ * Exactly ONE foreground. The user's declared foreground goal keeps it (Strategic
+ * Patience: no daily flip-flopping); otherwise the Arbitration Engine picks among the
+ * eligible plans. Parked and superseded plans are never foreground.
+ */
+export function selectForeground(input: {
+  plans: PlanEntry[];
+  goals: Pick<Goal, 'id' | 'targetDate' | 'priority' | 'status'>[];
+  foregroundGoalId?: string;
+  date: string;
+  mood?: number;
+  completions: PlanActionCompletion[];
+}): ForegroundSelection {
+  const eligible = input.plans.filter((entry) => {
+    if (!isPlanEligible(entry.record)) return false;
+    const goal = input.goals.find((candidate) => candidate.id === entry.record.goalId);
+    return !goal || goal.status === 'active';
+  });
+  if (eligible.length === 0) return { background: [] };
+  const pinned = input.foregroundGoalId ? eligible.find((entry) => entry.record.goalId === input.foregroundGoalId) : undefined;
+  if (pinned) return { foreground: pinned, background: eligible.filter((entry) => entry !== pinned), source: 'pinned' };
+  if (eligible.length === 1) return { foreground: eligible[0], background: [], source: 'only_plan' };
+  const arbitration = arbitrateForeground(
+    eligible.map((entry) => arbitrationCandidate(entry, input.goals.find((goal) => goal.id === entry.record.goalId), input)),
+  );
+  const winner = eligible.find((entry) => entry.record.id === arbitration.winnerId)!;
+  return { foreground: winner, background: eligible.filter((entry) => entry !== winner), arbitration, source: 'arbitration' };
+}
+
+// ---------------------------------------------------------------------------
+// The printed agenda
+// ---------------------------------------------------------------------------
+
+export type AgendaItemKind = 'plan_action' | 'plan_floor' | 'next_action' | 'track_floor' | 'carry_forward';
+
+export interface AgendaItem {
+  id: string;
+  kind: AgendaItemKind;
+  title: string;
+  output?: string;
+  durationMinutes?: number;
+  pillar?: PillarName;
+  planId?: string;
+  goalId?: string;
+  actionKey?: string;
+  nextActionId?: string;
+  scope?: 'standard' | 'mvd';
+  status: 'open' | 'done';
+  reasonCodes: string[];
+}
+
+export interface GateReviewDue {
+  planId: string;
+  gate: GateKey;
+  label: string;
+  recommended: GateVerdictKey;
+  completedDays: number;
+  evidenceCount: number;
+}
+
+export interface DecisionDue {
+  planId: string;
+  goalId: string;
+  recommended: GateVerdictKey;
+  completedDays: number;
+  evidenceCount: number;
+  criteria: string[];
+}
+
+export interface DailyAgenda {
+  version: 1;
+  date: string;
+  state: DayState;
+  mode: 'standard' | 'recovery';
+  mood?: number;
+  dayIndex?: number;
+  phase?: DailySupply['phase'];
+  foregroundPriority?: { planId: string; goalId: string; label: string; pillar: PillarName; source: ForegroundSelection['source'] };
+  firstHour: { sequence: string[]; priority?: AgendaItem };
+  dailyStack: AgendaItem[];
+  /** Background plans that only get maintenance today. */
+  background: Array<{ planId: string; goalId: string; label: string }>;
+  arbitration?: ArbitrationResult;
+  gateReview?: GateReviewDue;
+  decision?: DecisionDue;
+  reasons: string[];
+  bridge: string;
+  /** Agenda-quality problems (Invalid Agenda clause). Empty = valid. */
+  problems: string[];
+  safety: { referral: boolean; doctorLine?: string; notes: string[] };
+}
+
+export interface AgendaInput {
+  date: string;
+  state: DayState;
+  mood?: number;
+  plans: PlanEntry[];
+  goals: Pick<Goal, 'id' | 'targetDate' | 'priority' | 'status' | 'title'>[];
+  foregroundGoalId?: string;
+  completions: PlanActionCompletion[];
+  morningSequence: string[];
+  nextActions?: Pick<NextAction, 'id' | 'title' | 'goalId' | 'status' | 'estimatedMinutes'>[];
+}
+
+function completionsFor(entry: PlanEntry, completions: PlanActionCompletion[]) {
+  return completions
+    .filter((completion) => completion.planId === entry.record.id)
+    .map((completion) => ({ date: completion.day, actionKey: completion.actionKey }));
+}
+
+function itemFromSupplied(entry: PlanEntry, action: SuppliedAction, kind: AgendaItemKind, reasonCodes: string[]): AgendaItem {
+  return {
+    id: `plan:${entry.record.id}:${action.actionKey}`,
+    kind,
+    title: action.title,
+    output: action.output,
+    durationMinutes: action.durationMinutes,
+    pillar: action.pillar,
+    planId: entry.record.id,
+    goalId: entry.record.goalId,
+    actionKey: action.actionKey,
+    scope: action.scope,
+    status: action.status,
+    reasonCodes,
+  };
+}
+
+/** Distinct days with evidence and the evidence count for one plan inside [from, to]. */
+export function planEvidenceStats(planId: string, completions: PlanActionCompletion[], from: string, to: string) {
+  const inWindow = completions.filter((completion) => completion.planId === planId && completion.day >= from && completion.day <= to);
+  return { completedDays: new Set(inWindow.map((completion) => completion.day)).size, evidenceCount: inWindow.length };
+}
+
+function gateReviewDue(entry: PlanEntry, date: string, completions: PlanActionCompletion[]): GateReviewDue | undefined {
+  const dayIndex = planDayIndex(entry.plan, date);
+  for (const gate of entry.plan.gates.slice(0, 2)) {
+    if (dayIndex < gate.endDay || entry.record.gateReviews?.[gate.key]) continue;
+    const stats = planEvidenceStats(entry.record.id, completions, gate.startDate, gate.endDate);
+    return {
+      planId: entry.record.id,
+      gate: gate.key,
+      label: `${gate.endDay}-day gate (${gate.label})`,
+      recommended: reviewPlanGate(entry.plan, gate.key, { ...stats, stillAligned: true }),
+      ...stats,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * Build today's agenda. One foreground action from the foreground plan; background
+ * plans contribute only their floors at MVD scope; nothing from a missed day is ever
+ * re-supplied (No Catch-Up).
+ */
+export function composeAgenda(input: AgendaInput): DailyAgenda {
+  const selection = selectForeground(input);
+  const reasons = new Set<string>();
+  const dailyStack: AgendaItem[] = [];
+  let priority: AgendaItem | undefined;
+  let supply: DailySupply | undefined;
+  let gateReview: GateReviewDue | undefined;
+  let decision: DecisionDue | undefined;
+  const safetyNotes: string[] = [];
+  let referral = false;
+  let doctorLine: string | undefined;
+
+  if (selection.foreground) {
+    const entry = selection.foreground;
+    supply = supplyDailyActions(entry.plan, {
+      date: input.date,
+      state: input.state,
+      mood: input.mood,
+      completed: completionsFor(entry, input.completions),
+      decision: entry.record.decision,
+    });
+    for (const reason of supply.reasons) reasons.add(reason);
+    priority = itemFromSupplied(entry, supply.foreground, 'plan_action', supply.reasons);
+    const coveredPillars = new Set<PillarName>([supply.foreground.pillar]);
+    for (const floor of supply.floors) {
+      coveredPillars.add(floor.pillar);
+      dailyStack.push(itemFromSupplied(entry, floor, 'plan_floor', ['floor_protected']));
+    }
+    for (const background of selection.background) {
+      const backgroundSupply = supplyDailyActions(background.plan, {
+        date: input.date,
+        state: 'recovery',
+        completed: completionsFor(background, input.completions),
+        decision: background.record.decision,
+      });
+      for (const floor of backgroundSupply.floors) {
+        if (coveredPillars.has(floor.pillar)) continue;
+        coveredPillars.add(floor.pillar);
+        dailyStack.push(itemFromSupplied(background, floor, 'plan_floor', ['background_maintenance']));
+      }
+      reasons.add('background_maintenance');
+    }
+    if (selection.arbitration) reasons.add('arbitration');
+    gateReview = gateReviewDue(entry, input.date, input.completions);
+    if (supply.phase === 'decision') {
+      const stats = planEvidenceStats(entry.record.id, input.completions, entry.plan.startDate, entry.plan.endDate);
+      decision = {
+        planId: entry.record.id,
+        goalId: entry.record.goalId,
+        recommended: decideAtDay90(entry.plan, { ...stats, stillAligned: true }),
+        criteria: entry.plan.decision.criteria,
+        ...stats,
+      };
+    }
+    referral = entry.plan.safety.referral;
+    doctorLine = entry.plan.safety.doctorLine;
+    safetyNotes.push(...entry.plan.safety.notes);
+  }
+
+  for (const action of input.nextActions ?? []) {
+    if (action.status !== 'open') continue;
+    if (!isExecutableActionTitle(action.title)) continue;
+    dailyStack.push({
+      id: `next_action:${action.id}`,
+      kind: 'next_action',
+      title: action.title,
+      ...(action.estimatedMinutes ? { durationMinutes: action.estimatedMinutes } : {}),
+      goalId: action.goalId,
+      nextActionId: action.id,
+      status: 'open',
+      reasonCodes: ['user_next_action'],
+    });
+  }
+
+  const recovery = supply?.mode === 'recovery' || input.state !== 'normal' || (input.mood !== undefined && input.mood <= MOOD_MVD_THRESHOLD);
+  const agenda: DailyAgenda = {
+    version: 1,
+    date: input.date,
+    state: input.state,
+    mode: recovery ? 'recovery' : 'standard',
+    ...(input.mood !== undefined ? { mood: input.mood } : {}),
+    ...(supply ? { dayIndex: supply.dayIndex, phase: supply.phase } : {}),
+    ...(selection.foreground
+      ? {
+          foregroundPriority: {
+            planId: selection.foreground.record.id,
+            goalId: selection.foreground.record.goalId,
+            label: input.goals.find((goal) => goal.id === selection.foreground!.record.goalId)?.title ?? selection.foreground.plan.foreground.label,
+            pillar: selection.foreground.plan.foreground.pillar,
+            source: selection.source,
+          },
+        }
+      : {}),
+    firstHour: { sequence: input.morningSequence.slice(0, 5), ...(priority ? { priority } : {}) },
+    dailyStack,
+    background: selection.background.map((entry) => ({
+      planId: entry.record.id,
+      goalId: entry.record.goalId,
+      label: input.goals.find((goal) => goal.id === entry.record.goalId)?.title ?? entry.plan.foreground.label,
+    })),
+    ...(selection.arbitration ? { arbitration: selection.arbitration } : {}),
+    ...(gateReview ? { gateReview } : {}),
+    ...(decision ? { decision } : {}),
+    reasons: [...reasons],
+    bridge: PHASE_BRIDGE_QUESTION,
+    problems: [],
+    safety: { referral, ...(doctorLine ? { doctorLine } : {}), notes: safetyNotes },
+  };
+  agenda.problems = validateAgenda(agenda);
+  return agenda;
+}
+
+/** Every actionable item on the agenda, foreground first. */
+export function agendaItems(agenda: Pick<DailyAgenda, 'firstHour' | 'dailyStack'>): AgendaItem[] {
+  return [...(agenda.firstHour.priority ? [agenda.firstHour.priority] : []), ...agenda.dailyStack];
+}
+
+// ---------------------------------------------------------------------------
+// Invalid Agenda clause
+// ---------------------------------------------------------------------------
+
+/** Generic busywork an agenda must never print (BHPC Part VI §4: "Review goals" is a system failure). */
+export const GENERIC_AGENDA_PATTERNS = [
+  /^review (your |my )?(goals?|plan|priorities)\b/i,
+  /^(be|stay) (productive|focused|positive|motivated)\b/i,
+  /^(check|process) (email|inbox)$/i,
+  /^(plan|organi[sz]e) (the|your|my) (day|week)$/i,
+  /^(do|get) (some|more) (work|stuff|things)\b/i,
+  /^(keep|continue) going\b/i,
+  /^reflect\b/i,
+];
+
+export function isGenericAgendaTitle(title: string): boolean {
+  const normalized = title.trim();
+  return !isExecutableActionTitle(normalized) || GENERIC_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+export function agendaItemProblem(item: AgendaItem): string | null {
+  if (isGenericAgendaTitle(item.title)) return `"${item.title}" is not a physical action.`;
+  if (item.kind === 'plan_action' || item.kind === 'plan_floor' || item.kind === 'track_floor') {
+    if (!item.output || item.output.trim().length < 6) return `"${item.title}" has no observable output.`;
+    if (!item.durationMinutes || item.durationMinutes < 1) return `"${item.title}" has no time box.`;
+  }
+  return null;
+}
+
+/** An agenda that does not reduce cognitive load is invalid. Empty array = valid. */
+export function validateAgenda(agenda: Pick<DailyAgenda, 'firstHour' | 'dailyStack' | 'foregroundPriority'>): string[] {
+  const problems: string[] = [];
+  if (agenda.foregroundPriority && !agenda.firstHour.priority) problems.push('No foreground action: the First Hour has nothing to execute.');
+  for (const item of agendaItems(agenda)) {
+    const problem = agendaItemProblem(item);
+    if (problem) problems.push(problem);
+  }
+  return problems;
+}
+
+// ---------------------------------------------------------------------------
+// Completion status, No Mid-Day Negotiation, day score
+// ---------------------------------------------------------------------------
+
+/** Re-applies today's completion evidence to a (frozen) agenda snapshot. */
+export function withCompletionStatus(agenda: DailyAgenda, completions: PlanActionCompletion[], nextActions: Pick<NextAction, 'id' | 'status'>[] = []): DailyAgenda {
+  const done = (item: AgendaItem): AgendaItem['status'] => {
+    if (item.planId && item.actionKey) {
+      return completions.some((completion) => completion.planId === item.planId && completion.actionKey === item.actionKey && completion.day === agenda.date) ? 'done' : item.status;
+    }
+    if (item.nextActionId) return nextActions.find((action) => action.id === item.nextActionId)?.status === 'done' ? 'done' : item.status;
+    return item.status;
+  };
+  return {
+    ...agenda,
+    firstHour: { ...agenda.firstHour, ...(agenda.firstHour.priority ? { priority: { ...agenda.firstHour.priority, status: done(agenda.firstHour.priority) } } : {}) },
+    dailyStack: agenda.dailyStack.map((item) => ({ ...item, status: done(item) })),
+  };
+}
+
+export type ReplanReason = 'external_change' | 'safety' | 'permission' | 'mood' | 'discomfort';
+
+export interface ReplanDecision {
+  allowed: boolean;
+  code: 'replan_allowed' | 'no_midday_negotiation';
+  message: string;
+}
+
+/** Law 4: the morning plan stands. Only a real external change, safety or permission reopens it. */
+export function midDayReplanDecision(reason: ReplanReason): ReplanDecision {
+  if (canMiddayReplan(reason)) {
+    return { allowed: true, code: 'replan_allowed', message: 'Declared change accepted. Today is rebuilt from your plan; nothing from earlier is carried as debt.' };
+  }
+  return {
+    allowed: false,
+    code: 'no_midday_negotiation',
+    message: 'The plan was made this morning and it stands. If it feels heavy, do the smallest version of the next item and close the day. Tomorrow is rebuilt automatically.',
+  };
+}
+
+/**
+ * Score the day from evidence: critical pillars on the agenda must be done for a Full
+ * Day; on a recovery day the one MVD action is the win.
+ */
+export function scoreAgendaDay(
+  agenda: DailyAgenda,
+  criticalPillars: PillarName[],
+): { verdict: 'full_day' | 'mvd' | 'miss'; requiredCritical: number; completedCritical: number; mvdActionCompleted: boolean } {
+  const items = agendaItems(agenda).filter((item) => item.kind !== 'next_action');
+  const critical = new Set(criticalPillars);
+  const criticalItems = items.filter((item) => item.pillar && critical.has(item.pillar));
+  const requiredPillars = new Set(criticalItems.map((item) => item.pillar!));
+  const completedPillars = new Set(criticalItems.filter((item) => item.status === 'done').map((item) => item.pillar!));
+  const mvdActionCompleted = agenda.firstHour.priority?.status === 'done' || items.some((item) => item.status === 'done');
+  const verdict = scoreDay({
+    completedCritical: completedPillars.size,
+    requiredCritical: requiredPillars.size,
+    recoveryMode: agenda.mode === 'recovery',
+    mvdActionCompleted,
+  });
+  return { verdict, requiredCritical: requiredPillars.size, completedCritical: completedPillars.size, mvdActionCompleted };
+}
+
+/** Days since the plan started, clamped to the plan window (for display). */
+export function planProgress(plan: GoalPlan, date: string): { dayIndex: number; of: number } {
+  return { dayIndex: Math.max(0, Math.min(PLAN_LENGTH_DAYS, planDayIndex(plan, date))), of: PLAN_LENGTH_DAYS };
+}

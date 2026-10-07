@@ -150,6 +150,7 @@ export function generateGoalPlan(goalText: string, context: GoalPlanContext): Go
 
   const gates = GATE_WINDOWS.map((window, index): PlanGate => {
     const spec = template.gates[index];
+    if (!spec) throw new Error(`template ${template.key} has no ${window.key} gate`);
     return {
       key: window.key,
       label: window.label,
@@ -367,9 +368,10 @@ export function supplyDailyActions(plan: GoalPlan, input: DailySupplyInput): Dai
 
   const scope: SuppliedAction['scope'] = forcedScope ?? (recovery || restDay ? 'mvd' : 'standard');
   let foregroundAction = plan.actions[actionKey];
+  if (!foregroundAction) throw new Error(`plan ${plan.id} has no action ${actionKey}`);
   // Under MVD scope the pillar's floor IS the minimum (Body Foundation: the movement floor).
   if (scope === 'mvd' && actionKey !== plan.decision.actionKey) {
-    const pillarFloor = plan.floors.map((key) => plan.actions[key]).find((floor) => floor.pillar === foregroundAction.pillar);
+    const pillarFloor = plan.floors.map((key) => plan.actions[key]).find((floor): floor is PlanAction => floor?.pillar === foregroundAction!.pillar);
     if (pillarFloor) foregroundAction = pillarFloor;
   }
   const available = availableMinutes(plan, weekday);
@@ -378,9 +380,9 @@ export function supplyDailyActions(plan: GoalPlan, input: DailySupplyInput): Dai
 
   const covered = new Set([foregroundAction.key, ...foregroundAction.satisfiesFloors]);
   const floors = plan.floors
-    .filter((key) => !covered.has(key))
+    .filter((key) => !covered.has(key) && plan.actions[key] !== undefined)
     .map((key) =>
-      supplied(plan, plan.actions[key], { date: input.date, role: 'floor', scope: recovery ? 'mvd' : 'standard', completed, available: undefined }),
+      supplied(plan, plan.actions[key]!, { date: input.date, role: 'floor', scope: recovery ? 'mvd' : 'standard', completed, available: undefined }),
     );
   if (floors.length > 0 || foregroundAction.satisfiesFloors.length > 0) reasons.push('floor_protected');
 
@@ -470,7 +472,7 @@ export function applyPlanRefinement(plan: GoalPlan, refinement: PlanRefinement):
     if (edit.title !== undefined || edit.durationMinutes !== undefined) delete candidate.titleTemplate;
     const problems = actionProblems(candidate);
     if (problems.length > 0) {
-      rejected.push({ target: edit.key, reason: problems[0] });
+      rejected.push({ target: edit.key, reason: problems[0]! });
       continue;
     }
     next.actions[edit.key] = candidate;

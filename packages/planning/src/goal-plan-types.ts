@@ -1,12 +1,15 @@
-import type { PillarName } from '@apm/domain';
+import type { DayState, PillarName } from '@apm/domain';
 
 /**
  * Goal → plan engine types (BHPC Part VII: 30/60/90 gates, one foreground,
  * Promote/Maintain/Park). Pure data; no persistence or LLM concerns here.
  */
 
-/** Plan-level pillar. `family` is the Home Front floor used by parent+ plans. */
-export type PlanPillar = PillarName | 'family';
+/**
+ * Plan-level pillar. `family` (the Home Front floor used by parent+ plans) is a
+ * first-class domain pillar since migration 0021, so this is the domain type.
+ */
+export type PlanPillar = PillarName;
 
 export type PersonaKey =
   | 'weight_loss'
@@ -166,7 +169,7 @@ export interface GoalPlan {
   provenance: { source: 'deterministic_template'; templateKey: string; refinedBy?: string[] };
 }
 
-export type DayState = 'normal' | 'recovery' | 'missed_yesterday';
+export type { DayState };
 
 export interface CompletedEvidence {
   date: string;

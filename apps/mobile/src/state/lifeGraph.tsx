@@ -17,6 +17,7 @@ import {
   type LifeRelationshipInput,
   type ModeChangeRequest,
   type ModeStateView,
+  type TodayLoopView,
   type TodayState,
 } from '../api/apmApi';
 import { useSession } from './session';
@@ -48,6 +49,8 @@ function emptyGraph(userId = 'unassigned'): LifeGraphSnapshot {
     permissions: [],
     actions: [],
     dayRecords: [],
+    goalPlans: [],
+    planCompletions: [],
     entitlement: undefined,
   };
 }
@@ -67,6 +70,7 @@ interface LifeGraphContextValue {
   graph: LifeGraphSnapshot;
   todayPlan?: DailyPlan;
   modeState?: ModeStateView;
+  todayLoop?: TodayLoopView;
   syncStatus: SyncStatus;
   syncError?: string;
   isDurable: boolean;
@@ -75,6 +79,8 @@ interface LifeGraphContextValue {
   completeMethodologyIntake: (input: ApiMethodologyIntakeInput) => Promise<void>;
   setOperatingMode: (request: ModeChangeRequest) => Promise<void>;
   applyTodayState: (state: TodayState) => void;
+  /** Runs one authenticated API call that returns the rebuilt Today and applies it. */
+  perform: <T extends TodayState>(call: (token: string) => Promise<T>) => Promise<T>;
   completeNextAction: (actionId: string) => Promise<void>;
   createRelationship: (input: LifeRelationshipInput) => Promise<void>;
   updateRelationship: (relationshipId: string, input: Partial<LifeRelationshipInput>) => Promise<void>;
@@ -90,6 +96,7 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
   const [graph, setGraph] = useState<LifeGraphSnapshot>(() => emptyGraph());
   const [todayPlan, setTodayPlan] = useState<DailyPlan>();
   const [modeState, setModeState] = useState<ModeStateView>();
+  const [todayLoop, setTodayLoop] = useState<TodayLoopView>();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncError, setSyncError] = useState<string>();
 
@@ -105,6 +112,7 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
     setGraph(state.graph);
     setTodayPlan(state.plan);
     setModeState(state.mode);
+    setTodayLoop(state.today);
     setSyncStatus('ready');
   };
 
@@ -131,14 +139,19 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
     let active = true;
     setSyncStatus('loading'); setSyncError(undefined);
     void fetchTodayState(accessToken)
-      .then((state) => { if (!active) return; setGraph(state.graph); setTodayPlan(state.plan); setModeState(state.mode); setSyncStatus('ready'); })
+      .then((state) => { if (!active) return; setGraph(state.graph); setTodayPlan(state.plan); setModeState(state.mode); setTodayLoop(state.today); setSyncStatus('ready'); })
       .catch((error: unknown) => { if (!active) return; setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to load your APM'); });
     return () => { active = false; };
   }, [accessToken, sessionStatus, user]);
 
   const value = useMemo<LifeGraphContextValue>(() => ({
-    graph, todayPlan, modeState, syncStatus, syncError, isDurable, refresh,
+    graph, todayPlan, modeState, todayLoop, syncStatus, syncError, isDurable, refresh,
     applyTodayState: (state) => applyServerState(state),
+    perform: async (call) => {
+      const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
+      try { const state = await call(token); applyServerState(state); return state; }
+      catch (error) { setSyncStatus('ready'); throw error; }
+    },
     completeOnboarding: async (input) => {
       const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
       try { applyServerState(await persistOnboarding(input, token)); }
@@ -184,7 +197,7 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
       try { applyServerState(await completeLifeOsItem(itemId, token)); }
       catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to complete Life OS item'); throw error; }
     },
-  }), [accessToken, graph, isDurable, modeState, sessionStatus, syncError, syncStatus, todayPlan, user]);
+  }), [accessToken, graph, isDurable, modeState, todayLoop, sessionStatus, syncError, syncStatus, todayPlan, user]);
 
   return <LifeGraphContext.Provider value={value}>{children}</LifeGraphContext.Provider>;
 }
