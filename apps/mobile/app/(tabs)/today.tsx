@@ -202,7 +202,7 @@ export default function TodayScreen() {
             </>
           ) : null}
 
-          {gateDue && !hideAgenda ? (
+          {gateDue && !hideAgenda && todayLoop.checkedIn ? (
             <Card tone="warning">
               <Label>{`${gateDue.label} · ${goalTitleForPlan(gateDue.planId)}`}</Label>
               <CardTitle>{`Recommended: ${gateDue.recommended}. ${gateDue.completedDays} days with evidence.`}</CardTitle>
@@ -285,7 +285,7 @@ export default function TodayScreen() {
         <TextField value={closeNote} onChangeText={setCloseNote} placeholder="A note for today (optional)" />
         {todayLoop?.closed ? <Body>{`Closed: ${todayLoop.day?.verdict?.replace('_', ' ') ?? 'done'}. Prior days stay closed; tomorrow starts fresh.`}</Body> : todayLoop && (!todayLoop.checkedIn || doneCount === 0) ? <Body muted>A Full Day or MVD needs the check-in and at least one completed action. Otherwise today closes as a Miss — a miss is data.</Body> : (
           <>
-            {doneCount === planItemCount ? <Button label={closing ? 'Saving…' : 'Full Day'} onPress={() => void closeToday('full_day')} /> : <Body muted>{`Full Day needs every agenda item done (${doneCount} of ${planItemCount}).`}</Body>}
+            {doneCount === planItemCount && agenda?.mode !== 'recovery' ? <Button label={closing ? 'Saving…' : 'Full Day'} onPress={() => void closeToday('full_day')} /> : <Body muted>{agenda?.mode === 'recovery' ? 'A Minimum Viable Day closes as an MVD — and that counts as a win.' : `Full Day needs every agenda item done (${doneCount} of ${planItemCount}).`}</Body>}
             <Button label="Minimum Viable Day" variant="secondary" onPress={() => void closeToday('mvd')} />
           </>
         )}

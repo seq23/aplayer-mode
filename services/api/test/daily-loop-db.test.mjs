@@ -316,6 +316,8 @@ test('the database checks the day’s supply, the Mood Gate and Never Miss Twice
   await rejects(rpc(USER_C, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'no win without evidence');
   await rejects(rpc(USER_C, 'apm_complete_plan_action', [stored.id, 'day90_decision', null]), /loop_not_on_agenda/);
   await rpc(USER_C, 'apm_complete_plan_action', [stored.id, recovery.firstHour.priority.actionKey, null]);
+  await rejects(rpc(USER_C, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'a recovery day closes as an MVD at most');
+  assert.equal((await admin('select private.apm_loop_max_verdict($1, $2::date) v', [USER_C, today])).rows[0].v, 'mvd');
   assert.equal((await rpc(USER_C, 'apm_close_day', ['mvd', null])).verdict, 'mvd');
   await rejects(rpc(USER_C, 'apm_close_day', ['full_day', null]), /loop_day_closed/, 'a closed day stays closed');
   await rejects(rpc(USER_C, 'apm_close_day', ['miss', null]), /loop_day_closed/);
@@ -378,6 +380,7 @@ test('a locked agenda must carry the floors the supply requires; the day-90 deci
   const stored = await rpc(USER_E, 'apm_save_goal_plan', [GOAL_E, JSON.stringify(planning.generateGoalPlan('Launch my business', { roles: ['Parenting / caregiving', 'Building a business'], startDate: shift(today, -95) })), 'intake']);
   await admin(`insert into public.day_records (user_id, day, mode, verdict, closed_at) values ('${USER_E}', $1::date - 1, 'standard', 'full_day', now())`, [today]);
   await rejects(rpc(USER_E, 'apm_decide_goal_plan', [stored.id, 'promote', 'It worked']), /loop_opening_step_required/, 'no decision before the opening step');
+  await rejects(rpc(USER_E, 'apm_review_plan_gate', [stored.id, 'foundation', true]), /loop_opening_step_required/, 'no gate review before the opening step');
   const entry = { record: { id: stored.id, goalId: GOAL_E, status: 'active', gateReviews: {}, startDate: stored.start_date }, plan: stored.plan };
   const agenda = planning.composeAgenda({ date: today, state: 'normal', plans: [entry], goals: [{ id: GOAL_E, title: 'Launch my business', status: 'active', priority: 1 }], completions: [], morningSequence: [] });
   assert.ok(agenda.dailyStack.some((item) => item.actionKey === 'family_floor'));
@@ -385,6 +388,9 @@ test('a locked agenda must carry the floors the supply requires; the day-90 deci
   await rejects(rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(stripped)]), /loop_invalid_agenda/, 'the family floor cannot be dropped to fake a Full Day');
   const foreignPriority = { ...agenda, firstHour: { ...agenda.firstHour, priority: undefined } };
   await rejects(rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(foreignPriority)]), /loop_invalid_agenda/);
+  const planless = { ...agenda, foregroundPriority: undefined, firstHour: { sequence: [] }, dailyStack: [] };
+  await rejects(rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(planless)]), /loop_invalid_agenda/, 'a running plan cannot be left off the agenda');
   await rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(agenda)]);
+  assert.equal((await rpc(USER_E, 'apm_review_plan_gate', [stored.id, 'foundation', true])).gate_reviews.foundation.verdict, 'park');
   assert.equal((await rpc(USER_E, 'apm_decide_goal_plan', [stored.id, 'promote', 'It worked'])).decision, 'promote');
 });
