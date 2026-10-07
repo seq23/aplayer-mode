@@ -44,6 +44,17 @@ export default function SettingsScreen() {
         <Body muted>Identity, roles, goals, projects, routines, people, preferences, rules and current season are stored in your Life Graph and surfaced through Today, Goals and Privacy & AI.</Body>
       </Card>
       <Card>
+        <CardTitle>Drafting Room</CardTitle>
+        <Body muted>Change your morning sequence, Hard/Guided start, pillars, floors, Tracks or Track settings without redoing the intake. Draft, review, then apply.</Body>
+        <Button label="Open the Drafting Room" onPress={() => router.push('/settings/os')} />
+      </Card>
+      <Card>
+        <CardTitle>Diary and weekly debrief</CardTitle>
+        <Body muted>File entries without coaching; review the week every review day.</Body>
+        <Button label="Open the Diary" variant="secondary" onPress={() => router.push('/diary')} />
+        <Button label="Weekly debrief" variant="secondary" onPress={() => router.push('/review')} />
+      </Card>
+      <Card>
         <CardTitle>Life OS</CardTitle>
         <Body muted>Relationships, birthdays, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations—managed in the same private Life Graph.</Body>
         <Button label="Open Life OS" onPress={() => router.push('/settings/life')} />

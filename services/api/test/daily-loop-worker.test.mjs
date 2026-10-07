@@ -45,11 +45,12 @@ function personalOsRow() {
   };
 }
 
-function harness({ installed = true, rpcErrors = {} } = {}) {
+function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}) {
   const store = {
     user_profiles: [{ user_id: USER, display_name: 'Ana', timezone: TZ, current_season: null, becoming: null }],
     goals: [{ id: GOAL, title: 'lose 30 lbs', outcome: null, status: 'active', health: 'unknown', pillar: 'body', target_date: null, priority: 1, provenance_kind: 'stated', source_type: 'manual', source_ref: null, confidence: 1, created_at: '2026-09-01T00:00:00Z' }],
-    personal_os: installed ? [personalOsRow()] : [],
+    personal_os: installed ? [{ ...personalOsRow(), ...os }] : [],
+    tracks: tracks.map((key) => ({ id: `t-${key}`, user_id: USER, key, name: key, active: true, foreground: false, provenance_kind: 'stated', source_type: 'manual', source_ref: null, confidence: 1, created_at: '2026-09-01T00:00:00Z' })),
     subscription_entitlements: [{ user_id: USER, plan: 'beta', status: 'active', provider: null, current_period_end: null }],
     goal_plans: [],
     plan_action_completions: [],
@@ -80,6 +81,12 @@ function harness({ installed = true, rpcErrors = {} } = {}) {
         store.day_records = [row];
         return json({ day: row, replayed: false });
       }
+      if (rpc === 'apm_flag_body_referral') { store.personal_os[0].body_referral_at = new Date().toISOString(); store.personal_os[0].body_referral_source = body.p_source; return json({ bodyReferralAt: store.personal_os[0].body_referral_at }); }
+      if (rpc === 'apm_record_clinician_clearance') { store.personal_os[0].body_referral_at = null; store.personal_os[0].clinician_cleared_at = new Date().toISOString(); return json({}); }
+      if (rpc === 'apm_log_diary') return json({ entry: { id: 'e1' }, reply: 'Logged.' });
+      if (rpc === 'apm_draft_os_change') return json({ id: 'chg1', field: body.p_field, status: 'draft' });
+      if (rpc === 'apm_apply_os_change') return json({ id: body.p_id, field: 'day_start', status: 'applied', effective_from: '2099-01-01' });
+      if (rpc === 'apm_service_day_reprint') { store.day_records[0] = { ...store.day_records[0], agenda: body.p_agenda, reprint_count: 1 }; return json(store.day_records[0]); }
       if (rpc === 'apm_daily_loop_data_rights_export') return json({ goalPlans: store.goal_plans, planActionCompletions: [], dayRecords: store.day_records });
       if (rpc === 'apm_life_os_data_rights_export') return json({ lifeRelationships: [], lifeAdminItems: [] });
       if (rpc === 'apm_autopilot_data_rights_export') return json({ rules: [], executions: [], masterPaused: false });
@@ -289,5 +296,100 @@ test('end-of-day close: pillar review → computed verdict, user authority kept,
     await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'miss' }], verdict: 'mvd' }) });
     const override = h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').at(-1);
     assert.deepEqual([override.args.p_verdict, override.args.p_computed_verdict], ['mvd', 'miss'], 'the user decides; the computed verdict is kept beside it');
+  } finally { h.restore(); }
+});
+
+
+test('Diary: "Logged." with no coaching; a red flag pauses body coaching and rebuilds the body plan with the referral stop', async () => {
+  const h = harness();
+  try {
+    await request('/v1/me/today');
+    const quiet = await (await request('/v1/diary', { method: 'POST', body: JSON.stringify({ kind: 'diary', body: 'Good walk today' }) })).json();
+    assert.equal(quiet.reply, 'Logged.');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_flag_body_referral').length, 0);
+    const flagged = await (await request('/v1/diary', { method: 'POST', body: JSON.stringify({ kind: 'slip', body: 'I fainted at the gym this morning' }) })).json();
+    assert.equal(flagged.reply, 'Logged.');
+    assert.equal(h.calls.rpc.find((c) => c.fn === 'apm_flag_body_referral').args.p_source, 'diary');
+    const rebuilt = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').at(-1);
+    assert.equal(rebuilt.args.p_source, 'referral');
+    assert.equal(rebuilt.args.p_plan.safety.referral, true);
+    assert.equal(flagged.today.bodyReferral.source, 'diary');
+
+    assert.equal((await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({}) })).status, 400, 'clearance is an explicit confirmation');
+    await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+    const cleared = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').at(-1);
+    assert.equal(cleared.args.p_source, 'clearance');
+    assert.equal(cleared.args.p_plan.safety.referral, false);
+  } finally { h.restore(); }
+});
+
+test('the Drafting Room validates before drafting and applies explicitly', async () => {
+  const h = harness();
+  try {
+    assert.equal((await request('/v1/os/changes', { method: 'POST', body: JSON.stringify({ field: 'pillar', value: { name: 'family', critical: true } }) })).status, 400);
+    assert.equal((await request('/v1/os/changes', { method: 'POST', body: JSON.stringify({ field: 'track_settings', value: { salary: 1 } }) })).status, 400);
+    const drafted = await request('/v1/os/changes', { method: 'POST', body: JSON.stringify({ field: 'day_start', value: 'hard', reason: 'Mornings drift' }) });
+    assert.equal(drafted.status, 201);
+    assert.deepEqual(h.calls.rpc.find((c) => c.fn === 'apm_draft_os_change').args, { p_field: 'day_start', p_value: 'hard', p_reason: 'Mornings drift' });
+    const applied = await (await request('/v1/os/changes/chg1/apply', { method: 'POST' })).json();
+    assert.match(applied.message, /today's locked agenda is not rewritten/);
+  } finally { h.restore(); }
+});
+
+test('Hard Start: the server serves nothing but the opening step before the check-in', async () => {
+  const h = harness({ os: { accountability: { dayStart: 'hard' } } });
+  try {
+    const body = await (await request('/v1/me/today')).json();
+    assert.equal(body.today.redacted, true);
+    assert.equal(body.today.agenda.firstHour.priority, undefined);
+    assert.deepEqual(body.today.agenda.dailyStack, []);
+    assert.ok(body.today.agenda.foregroundPriority.label, 'the foreground is named, nothing else');
+  } finally { h.restore(); }
+});
+
+test('REPRINT needs a locked agenda and rewrites only the flagged item through the service path', async () => {
+  const h = harness();
+  try {
+    assert.equal((await request('/v1/today/reprint', { method: 'POST', body: JSON.stringify({}) })).status, 409);
+    const checkedIn = await (await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) })).json();
+    assert.equal((await request('/v1/today/reprint', { method: 'POST', body: JSON.stringify({}) })).status, 409, 'a valid agenda has nothing to reprint');
+    const priority = checkedIn.today.agenda.firstHour.priority;
+    const response = await (await request('/v1/today/reprint', { method: 'POST', body: JSON.stringify({ itemIds: [priority.id] }) })).json();
+    const call = h.calls.rpc.find((c) => c.fn === 'apm_service_day_reprint');
+    assert.equal(call.args.p_user_id, USER);
+    assert.notEqual(call.args.p_agenda.firstHour.priority.actionKey, priority.actionKey);
+    assert.equal(call.args.p_agenda.mode, checkedIn.today.agenda.mode);
+    assert.equal(response.replaced.length, 1);
+  } finally { h.restore(); }
+});
+
+test('Operator Discipline requires a declared reason to replan; Strategic Patience gates new projects', async () => {
+  const h = harness({ tracks: ['operator_discipline', 'strategic_patience'] });
+  try {
+    await request('/v1/me/today');
+    await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
+    const undeclared = await request('/v1/today/replan', { method: 'POST', body: JSON.stringify({ reason: 'external_change' }) });
+    assert.equal(undeclared.status, 409);
+    assert.equal((await undeclared.json()).error, 'declare_the_change');
+    const declared = await request('/v1/today/replan', { method: 'POST', body: JSON.stringify({ reason: 'external_change', detail: 'Client moved the meeting to 9am' }) });
+    assert.equal(declared.status, 200);
+    const pivot = await request('/v1/goals', { method: 'POST', body: JSON.stringify({ title: 'Run a 10k' }) });
+    assert.equal(pivot.status, 409);
+    assert.equal((await pivot.json()).reasonCode, 'patience.premature_pivot');
+    assert.equal((await request('/v1/goals', { method: 'POST', body: JSON.stringify({ title: 'Run a 10k', confirmPivot: true }) })).status, 201);
+  } finally { h.restore(); }
+});
+
+test('weekly debrief: Execution Score, Foreground Focus, Friction and one adjustment, recorded through the RPC', async () => {
+  const h = harness();
+  try {
+    await request('/v1/me/today');
+    const preview = await (await request('/v1/reviews/weekly')).json();
+    assert.equal(preview.debrief.executionScore.of, 7);
+    assert.equal(preview.debrief.diaryQuestion, 'Did you log any major breakthroughs in your Diary to review now?');
+    await request('/v1/reviews/weekly', { method: 'POST', body: JSON.stringify({ adjustment: 'Walk before work on Mondays' }) });
+    const saved = h.calls.rpc.find((c) => c.fn === 'apm_save_weekly_review');
+    assert.equal(saved.args.p_week_start, preview.debrief.weekStart);
+    assert.equal(saved.args.p_adjustment, 'Walk before work on Mondays');
   } finally { h.restore(); }
 });

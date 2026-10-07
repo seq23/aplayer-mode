@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { ActiveTrackKey, PillarName } from '@apm/domain';
+import { TRACK_DISPLAY_NAMES, type ActiveTrackKey, type PillarName } from '@apm/domain';
+import { BUILTIN_TRACKS, recommendTrackKeys } from '@apm/planning';
 import { Body, Button, Card, CardTitle, Label, Screen, uiStyles } from '../src/components/ui';
 import { colors, radius, spacing } from '../src/theme';
 import { useLifeGraph } from '../src/state/lifeGraph';
@@ -14,15 +15,8 @@ const games = [
 const pillars: { id: PillarName; label: string }[] = [
   { id: 'wealth', label: 'Wealth' }, { id: 'body', label: 'Body' }, { id: 'spirit', label: 'Spirit' }, { id: 'execution', label: 'Execution' },
 ];
-const tracks: { id: ActiveTrackKey; label: string; description: string }[] = [
-  { id: 'operator_discipline', label: 'Operator Discipline', description: 'Follow through and renegotiate less.' },
-  { id: 'strategic_patience', label: 'Strategic Patience', description: 'Do not pivot before evidence earns the pivot.' },
-  { id: 'resilience', label: 'Resilience', description: 'Treat recovery as execution and protect continuity during volatility.' },
-  { id: 'billionaire_mindset', label: 'Billionaire Mindset', description: 'Ownership, leverage, compounding and asymmetric upside.' },
-  { id: 'body_foundation', label: 'Body Foundation', description: 'Small tracked body behaviours at a safe pace. Never diet or medical advice.' },
-  { id: 'wealth_foundation', label: 'Wealth Foundation', description: 'Pay yourself first, one debt at a time, buffer before bets. Never product advice.' },
-  { id: 'home_front', label: 'Home Front', description: 'Family blocks are fixed commitments; conflicts are decided ahead of time.' },
-];
+// Labels come from the ONE shared display-name map (owner is still naming Tracks).
+const tracks: { id: ActiveTrackKey; label: string; description: string }[] = BUILTIN_TRACKS.map((track) => ({ id: track.key, label: TRACK_DISPLAY_NAMES[track.key], description: track.description }));
 
 const TOTAL_STEPS = 20;
 const splitList = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
@@ -74,15 +68,11 @@ export default function OnboardingScreen() {
   const [submitError, setSubmitError] = useState<string>();
 
   useEffect(() => { if (status === 'signed_out') router.replace('/sign-in'); }, [status]);
+  // Persona → Track defaults (packages/planning recommendTrackKeys): suggested, never forced.
   useEffect(() => {
-    const business = selectedGames.some((game) => /business|career|leadership/i.test(game));
-    if (business) setSelectedTracks((current) => Array.from(new Set<ActiveTrackKey>([...current, 'billionaire_mindset', 'strategic_patience'])));
-  }, [selectedGames]);
-  useEffect(() => {
-    if (/burnout|all.?or.?nothing|crash|overwhelm|recovery/i.test(failurePatternsText)) {
-      setSelectedTracks((current) => Array.from(new Set<ActiveTrackKey>([...current, 'resilience'])));
-    }
-  }, [failurePatternsText]);
+    const suggested = recommendTrackKeys([...selectedGames], splitList(failurePatternsText), goal);
+    setSelectedTracks((current) => Array.from(new Set<ActiveTrackKey>([...current, ...suggested])));
+  }, [selectedGames, failurePatternsText, goal]);
 
   const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, []);
   const toggleGame = (game: string) => setSelectedGames((current) => current.includes(game) ? current.filter((item) => item !== game) : [...current, game]);

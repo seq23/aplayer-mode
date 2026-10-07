@@ -41,6 +41,11 @@ const LOOP_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 409
   loop_decision_not_due: { error: 'decision_not_due', status: 409, message: 'The day-90 decision is not due yet.' },
   loop_goal_parked: { error: 'goal_parked', status: 409, message: 'This goal was parked at its day-90 decision; parked goals stay in the background.' },
   loop_verdict_needs_evidence: { error: 'verdict_needs_evidence', status: 409, message: 'A Full Day or MVD needs at least one completed action today. Otherwise close it as a Miss — a miss is data.' },
+  loop_body_referral_active: { error: 'body_referral_active', status: 409, message: 'Body coaching is paused until you record clinician clearance.' },
+  loop_no_referral: { error: 'no_referral', status: 409, message: 'There is no body red-flag pause to clear.' },
+  loop_change_not_found: { error: 'not_found', status: 404, message: 'Change not found.' },
+  loop_change_not_draft: { error: 'change_not_draft', status: 409, message: 'This change was already applied or discarded.' },
+  loop_reprint_limit: { error: 'reprint_limit', status: 409, message: 'Today has already been reprinted five times.' },
   loop_already_decided: { error: 'already_decided', status: 409, message: 'This plan already has its day-90 decision.' },
 };
 
@@ -90,6 +95,7 @@ export interface DayRow {
   note: string | null; closed_at: string | null; mood?: number | null; day_state?: DayRecord['dayState'] | null;
   agenda?: Record<string, unknown> | null; agenda_status?: DayRecord['agendaStatus'] | null; checked_in_at?: string | null;
   replans?: DayRecord['replans'] | null;
+  phase?: DayRecord['phase'] | null; returned_at?: string | null; reprint_count?: number | null;
   pillar_review?: DayRecord['pillarReview'] | null; computed_verdict?: DayRecord['computedVerdict'] | null;
   carry_forward?: string | null; insight?: string | null;
 }
@@ -151,6 +157,9 @@ export function mapDayRecord(row: DayRow, userId: string): DayRecord {
     ...(row.computed_verdict ? { computedVerdict: row.computed_verdict } : {}),
     ...(row.carry_forward ? { carryForward: row.carry_forward } : {}),
     ...(row.insight ? { insight: row.insight } : {}),
+    ...(row.phase ? { phase: row.phase } : {}),
+    ...(row.returned_at ? { returnedAt: row.returned_at } : {}),
+    ...(row.reprint_count ? { reprintCount: row.reprint_count } : {}),
   };
 }
 
@@ -177,7 +186,7 @@ function serviceToken(env: ApiEnv): string {
 }
 
 /** Plans are server-derived (0029): only the Worker, with the engine's output, writes them. */
-export function saveGoalPlan(env: ApiEnv, userId: string, goalId: string, plan: GoalPlan, source: 'intake' | 'goals' | 'backfill' | 'clearance') {
+export function saveGoalPlan(env: ApiEnv, userId: string, goalId: string, plan: GoalPlan, source: 'intake' | 'goals' | 'backfill' | 'clearance' | 'referral' | 'os_change') {
   return loopRpc<GoalPlanRow>(env, serviceToken(env), 'apm_service_save_goal_plan', { p_user_id: userId, p_goal_id: goalId, p_plan: plan, p_source: source });
 }
 
@@ -222,3 +231,18 @@ export function closeDayReview(env: ApiEnv, accessToken: string, input: {
 export function getDailyLoopExportState(env: ApiEnv, accessToken: string) {
   return loopRpc<{ goalPlans: GoalPlanRow[]; planActionCompletions: CompletionRow[]; dayRecords: DayRow[] }>(env, accessToken, 'apm_daily_loop_data_rights_export', {});
 }
+
+// ---------------------------------------------------------------- 0027
+export const logDiary = (env: ApiEnv, accessToken: string, input: { kind: 'diary' | 'breakthrough' | 'slip'; body: string }) =>
+  loopRpc<{ entry: Record<string, unknown>; reply: 'Logged.' }>(env, accessToken, 'apm_log_diary', { p_kind: input.kind, p_body: input.body });
+export const saveWeeklyReview = (env: ApiEnv, accessToken: string, input: { weekStart: string; summary: Record<string, unknown>; adjustment?: string }) =>
+  loopRpc<Record<string, unknown>>(env, accessToken, 'apm_save_weekly_review', { p_week_start: input.weekStart, p_summary: input.summary, p_adjustment: input.adjustment ?? null });
+export const draftOsChange = (env: ApiEnv, accessToken: string, input: { field: string; value: unknown; reason?: string }) =>
+  loopRpc<{ id: string }>(env, accessToken, 'apm_draft_os_change', { p_field: input.field, p_value: input.value, p_reason: input.reason ?? null });
+export const applyOsChange = (env: ApiEnv, accessToken: string, id: string) => loopRpc<{ id: string; field: string; effective_from: string }>(env, accessToken, 'apm_apply_os_change', { p_id: id });
+export const discardOsChange = (env: ApiEnv, accessToken: string, id: string) => loopRpc<{ id: string }>(env, accessToken, 'apm_discard_os_change', { p_id: id });
+export const setDayPhase = (env: ApiEnv, accessToken: string, phase: 'first_hour' | 'executing') => loopRpc<DayRow>(env, accessToken, 'apm_set_day_phase', { p_phase: phase });
+export const returnResetDay = (env: ApiEnv, accessToken: string) => loopRpc<DayRow>(env, accessToken, 'apm_day_return_reset', {});
+export const reprintDay = (env: ApiEnv, userId: string, input: { day: string; agenda: DailyAgenda }) => loopRpc<DayRow>(env, serviceToken(env), 'apm_service_day_reprint', { p_user_id: userId, p_day: input.day, p_agenda: input.agenda });
+export const flagBodyReferral = (env: ApiEnv, accessToken: string, source: 'intake' | 'diary' | 'day_close' | 'check_in' | 'os_change') => loopRpc<Record<string, unknown>>(env, accessToken, 'apm_flag_body_referral', { p_source: source });
+export const recordClinicianClearance = (env: ApiEnv, accessToken: string) => loopRpc<Record<string, unknown>>(env, accessToken, 'apm_record_clinician_clearance', {});

@@ -264,10 +264,12 @@ function weightLossSafety(goalText: string, context: GoalPlanContext): PlanSafet
   safety.reasonCodes.push('body.no_prescription');
   safety.notes.push('Behaviour only: no diet plans, calorie numbers, supplements or medication. Those belong to your clinician.');
   const flags = bodyRedFlags([goalText, ...(context.body?.healthNotes ?? []), ...(context.constraints ?? [])]);
-  if (flags.length > 0 && !context.body?.clinicianCleared) {
+  if ((flags.length > 0 || context.body?.referralActive) && !context.body?.clinicianCleared) {
     safety.referral = true;
     safety.reasonCodes.push('body.referral');
-    safety.notes.push(`Red flag noted (${flags.join(', ')}). Body coaching is paused until a clinician clears you.`);
+    safety.notes.push(flags.length
+      ? `Red flag noted (${flags.join(', ')}). Body coaching is paused until a clinician clears you.`
+      : 'A red flag was recorded earlier. Body coaching stays paused until you record clinician clearance.');
   }
   const target = parseWeightTarget(goalText);
   if (target) {

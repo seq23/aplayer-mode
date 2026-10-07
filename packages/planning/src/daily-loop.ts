@@ -20,6 +20,7 @@ import {
 import { PLAN_LENGTH_DAYS, decideAtDay90, planDayIndex, reviewPlanGate, supplyDailyActions } from './goal-plan.js';
 import type { DailySupply, GateKey, GateVerdictKey, GoalPlan, GoalPlanContext, SuppliedAction, Weekday } from './goal-plan-types.js';
 import { addDays, daysBetween } from './goal-templates.js';
+import { applyTrackRules, type TrackFlag, type TrackRuleContext } from './track-rules.js';
 
 /**
  * The BHPC daily loop, deterministic and model-free:
@@ -71,7 +72,11 @@ export function planContextFromGraph(
     ...(recoveryDay !== undefined ? { availability: { restDays: [recoveryDay] } } : {}),
     constraints: graph.personalOS?.hardBoundaries ?? [],
     minimumFloors,
-    body: { healthNotes, ...(input.clinicianCleared ? { clinicianCleared: true } : {}) },
+    body: {
+      healthNotes,
+      ...(graph.personalOS?.bodyReferral ? { referralActive: true } : {}),
+      ...(input.clinicianCleared || (graph.personalOS?.clinicianClearedAt && !graph.personalOS.bodyReferral) ? { clinicianCleared: true } : {}),
+    },
   };
 }
 
@@ -254,6 +259,8 @@ export interface DailyAgenda {
   bridge: string;
   /** Agenda-quality problems (Invalid Agenda clause). Empty = valid. */
   problems: string[];
+  /** What the active Tracks challenge today (reason codes body.* / home.* / wealth.* …). */
+  trackFlags: TrackFlag[];
   safety: { referral: boolean; doctorLine?: string; notes: string[] };
 }
 
@@ -269,6 +276,8 @@ export interface AgendaInput {
   nextActions?: Pick<NextAction, 'id' | 'title' | 'goalId' | 'status' | 'estimatedMinutes'>[];
   /** The one item yesterday's close carried forward. */
   carryForward?: { text: string; fromDay: string };
+  /** Active Tracks and what their rules need (track-rules.ts). */
+  tracks?: TrackRuleContext;
 }
 
 function completionsFor(entry: PlanEntry, completions: PlanActionCompletion[]) {
@@ -467,8 +476,16 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
     reasons: [...reasons],
     bridge: PHASE_BRIDGE_QUESTION,
     problems: [],
+    trackFlags: [],
     safety: { referral, ...(doctorLine ? { doctorLine } : {}), notes: safetyNotes },
   };
+  if (input.tracks) {
+    const shaped = applyTrackRules(agenda, input.tracks, lowDay);
+    shaped.agenda.trackFlags = shaped.flags;
+    for (const flag of shaped.flags) shaped.agenda.reasons.push(flag.code);
+    shaped.agenda.problems = validateAgenda(shaped.agenda);
+    return shaped.agenda;
+  }
   agenda.problems = validateAgenda(agenda);
   return agenda;
 }

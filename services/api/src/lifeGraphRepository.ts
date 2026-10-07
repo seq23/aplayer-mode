@@ -16,6 +16,7 @@ import type {
   UserIdentity,
   WeeklyCadence,
 } from '@apm/domain';
+import { TRACK_DISPLAY_NAMES } from '@apm/domain';
 import type { ApiEnv } from './env';
 import { TRACK_LIBRARY } from './coach/tracks';
 import { supabaseRest } from './db';
@@ -135,6 +136,10 @@ interface PersonalOSRow {
   hard_boundaries: string[];
   scoring_config: PersonalOS['scoringConfig'];
   stabilization_started_at: string | null;
+  track_settings?: PersonalOS['trackSettings'] | null;
+  body_referral_at?: string | null;
+  body_referral_source?: string | null;
+  clinician_cleared_at?: string | null;
   installed_at: string;
   updated_at: string;
 }
@@ -282,7 +287,8 @@ export async function getLifeGraph(
     id: row.id,
     userId,
     key: row.key,
-    name: row.name,
+    // Display names come from the ONE shared map; the stored name is never shown.
+    name: TRACK_DISPLAY_NAMES[row.key] ?? row.name,
     active: row.active,
     foreground: row.foreground,
     provenance: {
@@ -337,6 +343,9 @@ export async function getLifeGraph(
         hardBoundaries: osRow.hard_boundaries ?? [],
         scoringConfig: osRow.scoring_config ?? { enabled: true, showSevenDaySnapshot: true },
         stabilizationStartedAt: osRow.stabilization_started_at ?? undefined,
+        trackSettings: osRow.track_settings ?? {},
+        ...(osRow.body_referral_at ? { bodyReferral: { since: osRow.body_referral_at, ...(osRow.body_referral_source ? { source: osRow.body_referral_source } : {}) } } : {}),
+        ...(osRow.clinician_cleared_at ? { clinicianClearedAt: osRow.clinician_cleared_at } : {}),
         installedAt: new Date(osRow.installed_at).toISOString(),
         updatedAt: new Date(osRow.updated_at).toISOString(),
       }
@@ -370,6 +379,9 @@ export async function getLifeGraph(
     dayRecords: platform.dayRecords,
     goalPlans: platform.goalPlans,
     planCompletions: platform.planCompletions,
+    diaryEntries: platform.diaryEntries,
+    weeklyReviews: platform.weeklyReviews,
+    osChanges: platform.osChanges,
     entitlement: platform.entitlement,
   };
 }

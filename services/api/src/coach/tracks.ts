@@ -1,4 +1,5 @@
 import type { ActiveTrackKey, RetiredTrackKey, Track } from '@apm/domain';
+import { TRACK_DISPLAY_NAMES } from '@apm/domain';
 
 /**
  * Track library: the four BHPC v2.1 Tracks (Appendix A) and the three app-only
@@ -38,7 +39,7 @@ export const RETIRED_TRACK_KEYS = ['manifestation_mastery', 'investor_ai_leverag
 export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
   billionaire_mindset: {
     key: 'billionaire_mindset',
-    name: 'Billionaire Mindset',
+    name: TRACK_DISPLAY_NAMES.billionaire_mindset,
     origin: 'bhpc',
     purpose: 'Identity alignment with ownership, leverage, compounding and asymmetric decisions.',
     rules: [
@@ -62,7 +63,7 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
   },
   operator_discipline: {
     key: 'operator_discipline',
-    name: 'Operator Discipline',
+    name: TRACK_DISPLAY_NAMES.operator_discipline,
     origin: 'bhpc',
     purpose: 'Reduce renegotiation and increase follow-through when mood drops.',
     rules: [
@@ -80,7 +81,7 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
   },
   strategic_patience: {
     key: 'strategic_patience',
-    name: 'Strategic Patience',
+    name: TRACK_DISPLAY_NAMES.strategic_patience,
     origin: 'bhpc',
     purpose: 'Long-game positioning; tolerance for slow compounding.',
     rules: [
@@ -98,7 +99,7 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
   },
   resilience: {
     key: 'resilience',
-    name: 'Resilience',
+    name: TRACK_DISPLAY_NAMES.resilience,
     origin: 'bhpc',
     purpose: 'Protect recovery capacity so volatility does not damage continuity.',
     rules: [
@@ -116,7 +117,7 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
   },
   body_foundation: {
     key: 'body_foundation',
-    name: 'Body Foundation',
+    name: TRACK_DISPLAY_NAMES.body_foundation,
     origin: 'app',
     purpose: 'Build the identity of a person who takes care of their body through small, tracked behaviours at a safe pace.',
     rules: [
@@ -135,7 +136,7 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
   },
   wealth_foundation: {
     key: 'wealth_foundation',
-    name: 'Wealth Foundation',
+    name: TRACK_DISPLAY_NAMES.wealth_foundation,
     origin: 'app',
     purpose: 'Build personal wealth through behaviour rather than bets.',
     rules: [
@@ -155,7 +156,7 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
   },
   home_front: {
     key: 'home_front',
-    name: 'Home Front',
+    name: TRACK_DISPLAY_NAMES.home_front,
     origin: 'app',
     purpose: 'Protect presence and family time while playing a second game.',
     rules: [
