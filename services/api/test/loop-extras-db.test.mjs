@@ -113,14 +113,18 @@ test('the Drafting Room: draft → validate → apply from tomorrow; Week 1 bloc
   await rpc(USER, 'apm_apply_os_change', [pillar.id]);
   assert.deepEqual((await admin(`select critical, minimum_floor from public.pillar_settings where user_id = '${USER}' and name = 'body'`)).rows[0], { critical: true, minimum_floor: 'Walk 10 minutes' });
   // 0037: the plans pick the change up on its effective date, once, through the service path.
-  assert.deepEqual(await svc('apm_service_pending_pillar_rebuilds', [USER]), [], 'not before the effective date');
+  const pendingNow = await svc('apm_service_pending_pillar_rebuilds', [USER]);
+  assert.deepEqual(pendingNow.changes, [], 'not before the effective date');
+  assert.deepEqual(Object.keys(pendingNow.effective), ['body'], 'today still runs on the pre-change body pillar');
   await rejects(rpc(USER, 'apm_service_pending_pillar_rebuilds', [USER]), /permission denied/);
   await rejects(rpc(USER, 'apm_service_mark_pillar_rebuilt', [USER, pillar.id]), /permission denied/);
   assert.equal(await svc('apm_service_mark_pillar_rebuilt', [USER, pillar.id]), false, 'cannot be marked early');
   await admin(`update public.os_change_requests set effective_from = private.apm_local_today($1) where id = $2`, [USER, pillar.id]);
-  assert.deepEqual(await svc('apm_service_pending_pillar_rebuilds', [USER]), [{ id: pillar.id, pillar: 'body' }]);
+  const due = await svc('apm_service_pending_pillar_rebuilds', [USER]);
+  assert.deepEqual(due.changes, [{ id: pillar.id, pillar: 'body' }]);
+  assert.deepEqual(due.effective, {}, 'no later change: the current pillar row is the effective one');
   assert.equal(await svc('apm_service_mark_pillar_rebuilt', [USER, pillar.id]), true);
-  assert.deepEqual(await svc('apm_service_pending_pillar_rebuilds', [USER]), [], 'rebuilt once');
+  assert.deepEqual((await svc('apm_service_pending_pillar_rebuilds', [USER])).changes, [], 'rebuilt once');
 
   const early = await rpc(NEWBIE, 'apm_draft_os_change', ['day_start', JSON.stringify('hard'), null]);
   await rejects(rpc(NEWBIE, 'apm_apply_os_change', [early.id]), /loop_week_one_lock/, 'Week 1: do not customise');
@@ -185,8 +189,29 @@ test('Phase Bridge, Return/Reset and REPRINT on the day record', async () => {
   const rebuilt = await svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(stored.plan), 'os_change']);
   assert.equal(rebuilt.id, stored.id);
   const priority = agenda.firstHour.priority;
+  // 0038: if the plan changed BEFORE the lock, the stored plan governs; if it was rebuilt
+  // AFTER the lock, the locked agenda stands even when the plan no longer offers the item
+  // (the safety net under a failed body replan).
+  const lockedAt = `(select checked_in_at from public.day_records where user_id = $2 and day = private.apm_local_today($2))`;
+  await admin(`update public.goal_plans set plan = plan || '{"floors": [], "gates": [], "setup": []}'::jsonb, updated_at = ${lockedAt} - interval '1 minute' where id = $1`, [stored.id, USER]);
+  await rejects(rpc(USER, 'apm_complete_plan_action', [priority.planId, priority.actionKey, null]), /loop_not_on_agenda/, 'a plan changed before the lock governs');
+  await admin(`update public.goal_plans set updated_at = ${lockedAt} + interval '1 minute' where id = $1`, [stored.id, USER]);
   const completed = await rpc(USER, 'apm_complete_plan_action', [priority.planId, priority.actionKey, null]);
   assert.equal(completed.replayed, false, 'today’s locked agenda still completes after the rebuild');
+  await admin(`update public.goal_plans set plan = $2::jsonb, updated_at = now() where id = $1`, [stored.id, JSON.stringify(stored.plan)]);
+
+  // 0038: the body-safety replan is mandatory — never limited, never counted.
+  await svc('apm_service_day_replan', [USER, today, 'external_change', 'Meeting moved', JSON.stringify(agenda)]);
+  await svc('apm_service_day_replan', [USER, today, 'external_change', 'School closed', JSON.stringify(agenda)]);
+  await rejects(svc('apm_service_day_body_replan', [USER, today, 'referral', JSON.stringify(agenda)]), /loop_no_referral/, 'only a real referral may use it');
+  await rejects(rpc(USER, 'apm_service_day_body_replan', [USER, today, 'referral', JSON.stringify(agenda)]), /permission denied/);
+  await rpc(USER, 'apm_flag_body_referral', ['diary']);
+  const mandatory = await svc('apm_service_day_body_replan', [USER, today, 'referral', JSON.stringify(agenda)]);
+  assert.equal(mandatory.replans.at(-1).mandatory, true);
+  await svc('apm_service_day_replan', [USER, today, 'external_change', 'Third declared change', JSON.stringify(agenda)]);
+  await rejects(svc('apm_service_day_replan', [USER, today, 'external_change', 'Fourth', JSON.stringify(agenda)]), /loop_replan_limit/, 'three declared replans, the mandatory one not counted');
+  await rpc(USER, 'apm_record_clinician_clearance', []);
+  assert.equal((await svc('apm_service_day_body_replan', [USER, today, 'clearance', JSON.stringify(agenda)])).replans.length, 5, 'beyond the cap');
 
   await rejects(rpc(USER, 'apm_service_day_reprint', [USER, today, JSON.stringify(agenda)]), /permission denied/, 'REPRINT is server-derived too');
   await rejects(svc('apm_service_day_reprint', [USER, today, JSON.stringify({ ...agenda, mode: agenda.mode === 'recovery' ? 'standard' : 'recovery' })]), /loop_invalid_agenda/, 'a reprint never changes scope');

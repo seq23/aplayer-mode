@@ -87,7 +87,8 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
       if (rpc === 'apm_log_diary') return json({ entry: { id: 'e1' }, reply: 'Logged.' });
       if (rpc === 'apm_draft_os_change') return json({ id: 'chg1', field: body.p_field, status: 'draft' });
       if (rpc === 'apm_apply_os_change') return json(store.applyResult ?? { id: body.p_id, field: 'day_start', status: 'applied', effective_from: '2099-01-01' });
-      if (rpc === 'apm_service_pending_pillar_rebuilds') return json(store.pendingPillar ?? []);
+      if (rpc === 'apm_service_pending_pillar_rebuilds') return json({ changes: store.pendingPillar ?? [], effective: store.effectivePillars ?? {} });
+      if (rpc === 'apm_service_day_body_replan') { store.day_records[0] = { ...store.day_records[0], agenda: body.p_agenda }; return json(store.day_records[0]); }
       if (rpc === 'apm_service_mark_pillar_rebuilt') { store.pendingPillar = (store.pendingPillar ?? []).filter((change) => change.id !== body.p_id); return json(true); }
       if (rpc === 'apm_service_day_replan') { store.day_records[0] = { ...store.day_records[0], agenda: body.p_agenda }; return json(store.day_records[0]); }
       if (rpc === 'apm_service_day_reprint') { store.day_records[0] = { ...store.day_records[0], agenda: body.p_agenda, reprint_count: 1 }; return json(store.day_records[0]); }
@@ -443,13 +444,14 @@ test('a body red flag after check-in replans the rest of today as a declared saf
     await request('/v1/me/today');
     assert.equal((await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) })).status < 300, true);
     await request('/v1/diary', { method: 'POST', body: JSON.stringify({ kind: 'slip', body: 'I fainted at the gym this morning' }) });
-    const safety = h.calls.rpc.filter((c) => c.fn === 'apm_service_day_replan').at(-1);
-    assert.equal(safety.args.p_reason, 'safety');
+    const safety = h.calls.rpc.filter((c) => c.fn === 'apm_service_day_body_replan').at(-1);
+    assert.equal(safety.args.p_source, 'referral');
     assert.equal(safety.args.p_agenda.state, 'recovery');
     assert.equal(safety.args.p_agenda.safety.referral, true, 'the locked agenda now carries the referral stop');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_replan').length, 0, 'never through the capped declared-replan path');
     await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({ confirm: true }) });
-    const permission = h.calls.rpc.filter((c) => c.fn === 'apm_service_day_replan').at(-1);
-    assert.equal(permission.args.p_reason, 'permission');
+    const permission = h.calls.rpc.filter((c) => c.fn === 'apm_service_day_body_replan').at(-1);
+    assert.equal(permission.args.p_source, 'clearance');
     assert.equal(permission.args.p_agenda.safety.referral, false);
   } finally { h.restore(); }
 });
@@ -468,4 +470,29 @@ test('a decided plan still in execution (promote/maintain) gets the pillar rebui
       assert.ok(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').length >= before);
     } finally { h.restore(); }
   }
+});
+
+test('rebuilds use the pillar state in effect today, and a check-in waits while a due rebuild is pending', async () => {
+  const h = harness();
+  try {
+    await request('/v1/me/today');
+    backdate(h.store);
+    // The body change is due; a LATER body change (effective tomorrow) is already in pillar_settings.
+    h.store.pillar_settings = [{ name: 'body', active: true, critical: true, minimum_floor: 'Walk 25 minutes from tomorrow' }];
+    h.store.effectivePillars = { body: { name: 'body', active: true, critical: true, minimum_floor: 'Walk 15 minutes after lunch' } };
+    h.store.pendingPillar = [{ id: 'chg4', pillar: 'body' }];
+    await request('/v1/me/today');
+    const rebuilt = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan' && c.args.p_source === 'os_change').at(-1);
+    const actions = JSON.stringify(rebuilt.args.p_plan.actions);
+    assert.match(actions, /Walk 15 minutes after lunch/, 'today’s floor');
+    assert.doesNotMatch(actions, /Walk 25 minutes from tomorrow/, 'never tomorrow’s');
+
+    h.store.pendingPillar = [{ id: 'chg5', pillar: 'body' }];
+    h.store.rpcErrorOnce = { apm_service_save_goal_plan: 'loop_service_unavailable' };
+    const blocked = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
+    assert.equal(blocked.status, 503, 'no agenda is locked from a plan still missing an in-effect change');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 0);
+    const ok = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
+    assert.ok(ok.status < 300, 'once the retry lands, the check-in proceeds');
+  } finally { h.restore(); }
 });

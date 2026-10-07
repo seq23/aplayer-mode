@@ -60,7 +60,7 @@ import {
 } from './autopilotRepository';
 import { notifyRadarItems } from './push';
 import { workPushHold } from './morningTrigger';
-import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, rebuildBodyPlans, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
+import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, pillarRebuildsPending, rebuildBodyPlans, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
   applyOsChange,
   asLoopError,
@@ -683,6 +683,10 @@ app.post('/v1/today/check-in', async (c) => {
   const state = await buildUserState(c.env, user.accessToken, user.id);
   if (!state.graph.personalOS) return c.json({ error: 'personal_os_missing', message: 'Complete the Personal OS intake first.' }, 409);
   if (state.today.checkedIn) return c.json({ replayed: true, ...state });
+  // Never lock an agenda from a plan that has not received an in-effect pillar change yet.
+  if (await pillarRebuildsPending(c.env, user.id).catch(() => false)) {
+    return c.json({ error: 'plans_updating', message: 'Your Drafting Room change is still reaching your plans. Try the check-in again in a moment.' }, 503);
+  }
   // The Mood Gate runs here, in the morning: mood ≤ 2 prints a Minimum Viable Day.
   const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, mood: parsed.data.mood });
   try { await checkInDay(c.env, user.id, { day: state.today.date, mood: parsed.data.mood, agenda }); }

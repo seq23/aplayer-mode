@@ -25,7 +25,7 @@ import {
   type TrackRuleContext,
 } from '@apm/planning';
 import type { ApiEnv } from './env';
-import { flagBodyReferral, getGoalPlans, markPillarRebuilt, pendingPillarRebuilds, replanDay, saveGoalPlan } from './dailyLoopRepository';
+import { bodyReplanDay, flagBodyReferral, getGoalPlans, markPillarRebuilt, pendingPillarRebuilds, saveGoalPlan, type PendingPillarRebuilds } from './dailyLoopRepository';
 import { getLifeGraph } from './lifeGraphRepository';
 
 /**
@@ -68,7 +68,8 @@ function entitled(graph: LifeGraphSnapshot): boolean {
  */
 export async function ensureGoalPlans(env: ApiEnv, accessToken: string, graph: LifeGraphSnapshot, now: Date): Promise<LifeGraphSnapshot> {
   if (!graph.personalOS || !entitled(graph)) return graph;
-  if (await reconcilePillarRebuilds(env, accessToken, graph.identity.userId)) {
+  // Reload whenever reconciliation attempted writes, even partially failed ones.
+  if ((await reconcilePillarRebuilds(env, accessToken, graph.identity.userId)).attempted) {
     graph = { ...graph, goalPlans: await getGoalPlans(env, accessToken, graph.identity.userId) as unknown as StoredGoalPlan[] };
   }
   const planned = new Set(graph.goalPlans.map((plan) => plan.goalId));
@@ -258,8 +259,9 @@ export async function pauseBodyCoachingIfFlagged(
 async function rebuildPlans(
   env: ApiEnv, accessToken: string, userId: string, source: 'referral' | 'clearance' | 'os_change',
   affected: (entry: ReturnType<typeof planEntries>[number]) => boolean, extra: { clinicianCleared?: boolean } = {},
+  effective: PendingPillarRebuilds['effective'] = {},
 ): Promise<number> {
-  const graph = await getLifeGraph(env, accessToken, userId);
+  const graph = withEffectivePillars(await getLifeGraph(env, accessToken, userId), effective);
   let rebuilt = 0;
   for (const entry of planEntries(graph)) {
     // Every plan still in execution: active, or decided to promote/maintain (never parked).
@@ -271,6 +273,18 @@ async function rebuildPlans(
     rebuilt += 1;
   }
   return rebuilt;
+}
+
+/** The graph as of today's pillar state: a later, not-yet-effective change is undone (0038). */
+function withEffectivePillars(graph: LifeGraphSnapshot, effective: PendingPillarRebuilds['effective']): LifeGraphSnapshot {
+  const names = Object.keys(effective);
+  if (!names.length) return graph;
+  const kept = graph.pillarSettings.filter((pillar) => !names.includes(pillar.name));
+  const restored = names.flatMap((name) => {
+    const row = effective[name];
+    return row ? [{ userId: graph.identity.userId, name: row.name, active: row.active, critical: row.critical, ...(row.minimum_floor ? { minimumFloor: row.minimum_floor } : {}) }] : [];
+  });
+  return { ...graph, pillarSettings: [...kept, ...restored] as LifeGraphSnapshot['pillarSettings'] };
 }
 
 /**
@@ -289,12 +303,10 @@ export async function rebuildBodyPlans(env: ApiEnv, accessToken: string, userId:
   const day = graph.dayRecords.find((record) => record.day === date);
   if (!day?.checkedInAt || day.closedAt) return;
   const agenda = freshAgenda(graph, { date, state: source === 'referral' ? 'recovery' : day.dayState ?? 'normal', ...(day.mood !== undefined ? { mood: day.mood } : {}) });
-  await replanDay(env, userId, {
-    day: date,
-    reason: source === 'referral' ? 'safety' : 'permission',
-    detail: source === 'referral' ? 'Body red flag: body coaching paused until clinician clearance.' : 'Clinician clearance recorded: body coaching resumes.',
-    agenda,
-  });
+  // Mandatory (0038): not limited by the declared-replan cap. If it still fails, the
+  // locked agenda stays completable because the plan was rebuilt after the lock.
+  try { await bodyReplanDay(env, userId, { day: date, source, agenda }); }
+  catch (error) { console.error('APM body-safety replan failed; the locked agenda stays completable', { source, message: (error as Error)?.message }); }
 }
 
 /**
@@ -302,28 +314,35 @@ export async function rebuildBodyPlans(env: ApiEnv, accessToken: string, userId:
  * in place, then marked. A failure leaves the change pending and is retried on the next
  * read, so an applied change is never stranded half-done.
  */
-export async function reconcilePillarRebuilds(env: ApiEnv, accessToken: string, userId: string): Promise<number> {
-  if (!env.SUPABASE_SECRET_KEY) return 0;
-  let pending: Array<{ id: string; pillar: string }>;
-  try { pending = await pendingPillarRebuilds(env, userId) ?? []; }
-  catch (error) { console.error('APM pillar rebuild check failed', { message: (error as Error)?.message }); return 0; }
-  let rebuilt = 0;
-  for (const change of pending) {
+export async function reconcilePillarRebuilds(env: ApiEnv, accessToken: string, userId: string): Promise<{ attempted: number; failed: number }> {
+  if (!env.SUPABASE_SECRET_KEY) return { attempted: 0, failed: 0 };
+  let pending: PendingPillarRebuilds;
+  try { pending = await pendingPillarRebuilds(env, userId); }
+  catch (error) { console.error('APM pillar rebuild check failed', { message: (error as Error)?.message }); return { attempted: 0, failed: 0 }; }
+  let failed = 0;
+  for (const change of pending.changes) {
     try {
-      rebuilt += await rebuildPlansForPillar(env, accessToken, userId, change.pillar);
+      await rebuildPlansForPillar(env, accessToken, userId, change.pillar, pending.effective);
       await markPillarRebuilt(env, userId, change.id);
     } catch (error) {
+      failed += 1;
       console.error('APM pillar rebuild failed; retried on the next read', { changeId: change.id, message: (error as Error)?.message });
     }
   }
-  return rebuilt;
+  return { attempted: pending.changes.length, failed };
+}
+
+/** True while an in-effect pillar change has not reached its plans (a check-in must wait). */
+export async function pillarRebuildsPending(env: ApiEnv, userId: string): Promise<boolean> {
+  if (!env.SUPABASE_SECRET_KEY) return false;
+  return (await pendingPillarRebuilds(env, userId)).changes.length > 0;
 }
 
 /**
  * A Drafting Room pillar change (its minimum floor) regenerates the floors of every live
  * plan that has actions in that pillar, keeping each plan's 90 days.
  */
-export async function rebuildPlansForPillar(env: ApiEnv, accessToken: string, userId: string, pillar: string): Promise<number> {
+export async function rebuildPlansForPillar(env: ApiEnv, accessToken: string, userId: string, pillar: string, effective: PendingPillarRebuilds['effective'] = {}): Promise<number> {
   return rebuildPlans(env, accessToken, userId, 'os_change', (entry) =>
-    entry.plan.foreground.pillar === pillar || Object.values(entry.plan.actions).some((action) => action.pillar === pillar));
+    entry.plan.foreground.pillar === pillar || Object.values(entry.plan.actions).some((action) => action.pillar === pillar), {}, effective);
 }

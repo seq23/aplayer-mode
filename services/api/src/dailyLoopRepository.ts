@@ -242,9 +242,19 @@ export const saveWeeklyReview = (env: ApiEnv, accessToken: string, input: { week
   loopRpc<Record<string, unknown>>(env, accessToken, 'apm_save_weekly_review', { p_week_start: input.weekStart, p_summary: input.summary, p_adjustment: input.adjustment ?? null });
 export const draftOsChange = (env: ApiEnv, accessToken: string, input: { field: string; value: unknown; reason?: string }) =>
   loopRpc<{ id: string }>(env, accessToken, 'apm_draft_os_change', { p_field: input.field, p_value: input.value, p_reason: input.reason ?? null });
-/** Applied pillar changes whose effective date has arrived and whose plans are not rebuilt yet (0037). */
-export function pendingPillarRebuilds(env: ApiEnv, userId: string) {
-  return loopRpc<Array<{ id: string; pillar: string }>>(env, serviceToken(env), 'apm_service_pending_pillar_rebuilds', { p_user_id: userId });
+export interface PendingPillarRebuilds {
+  /** Applied pillar changes now in effect whose plans are not rebuilt yet (0037). */
+  changes: Array<{ id: string; pillar: string }>;
+  /** Pillar rows in effect TODAY for pillars that also have a later change (0038); null = no row. */
+  effective: Record<string, { name: string; active: boolean; critical: boolean; minimum_floor: string | null } | null>;
+}
+export async function pendingPillarRebuilds(env: ApiEnv, userId: string): Promise<PendingPillarRebuilds> {
+  const raw = await loopRpc<Partial<PendingPillarRebuilds> | null>(env, serviceToken(env), 'apm_service_pending_pillar_rebuilds', { p_user_id: userId });
+  return { changes: raw?.changes ?? [], effective: raw?.effective ?? {} };
+}
+/** Mandatory body-safety replan of a locked today (0038): never limited by the declared-replan cap. */
+export function bodyReplanDay(env: ApiEnv, userId: string, input: { day: string; source: 'referral' | 'clearance'; agenda: DailyAgenda }) {
+  return loopRpc<DayRow>(env, serviceToken(env), 'apm_service_day_body_replan', { p_user_id: userId, p_day: input.day, p_source: input.source, p_agenda: input.agenda });
 }
 export function markPillarRebuilt(env: ApiEnv, userId: string, id: string) {
   return loopRpc<boolean>(env, serviceToken(env), 'apm_service_mark_pillar_rebuilt', { p_user_id: userId, p_id: id });
