@@ -208,6 +208,10 @@ test('Phase Bridge, Return/Reset and REPRINT on the day record', async () => {
   await rpc(USER, 'apm_flag_body_referral', ['diary']);
   const mandatory = await svc('apm_service_day_body_replan', [USER, today, 'referral', JSON.stringify(agenda)]);
   assert.equal(mandatory.replans.at(-1).mandatory, true);
+  // 0039: once per transition — a repeated red flag on the same referral changes nothing.
+  await rpc(USER, 'apm_flag_body_referral', ['day_close']);
+  const repeat = await svc('apm_service_day_body_replan', [USER, today, 'referral', JSON.stringify(agenda)]);
+  assert.equal(repeat.replans.length, mandatory.replans.length, 'no second mandatory replan for the same referral');
   await svc('apm_service_day_replan', [USER, today, 'external_change', 'Third declared change', JSON.stringify(agenda)]);
   await rejects(svc('apm_service_day_replan', [USER, today, 'external_change', 'Fourth', JSON.stringify(agenda)]), /loop_replan_limit/, 'three declared replans, the mandatory one not counted');
   await rpc(USER, 'apm_record_clinician_clearance', []);

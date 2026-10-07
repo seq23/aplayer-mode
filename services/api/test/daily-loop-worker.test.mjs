@@ -87,7 +87,10 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
       if (rpc === 'apm_log_diary') return json({ entry: { id: 'e1' }, reply: 'Logged.' });
       if (rpc === 'apm_draft_os_change') return json({ id: 'chg1', field: body.p_field, status: 'draft' });
       if (rpc === 'apm_apply_os_change') return json(store.applyResult ?? { id: body.p_id, field: 'day_start', status: 'applied', effective_from: '2099-01-01' });
-      if (rpc === 'apm_service_pending_pillar_rebuilds') return json({ changes: store.pendingPillar ?? [], effective: store.effectivePillars ?? {} });
+      if (rpc === 'apm_service_pending_pillar_rebuilds') {
+        if (store.pendingFails > 0) { store.pendingFails -= 1; return json({ message: 'loop_service_unavailable' }, 503); }
+        return json({ changes: store.pendingPillar ?? [], effective: store.effectivePillars ?? {} });
+      }
       if (rpc === 'apm_service_day_body_replan') { store.day_records[0] = { ...store.day_records[0], agenda: body.p_agenda }; return json(store.day_records[0]); }
       if (rpc === 'apm_service_mark_pillar_rebuilt') { store.pendingPillar = (store.pendingPillar ?? []).filter((change) => change.id !== body.p_id); return json(true); }
       if (rpc === 'apm_service_day_replan') { store.day_records[0] = { ...store.day_records[0], agenda: body.p_agenda }; return json(store.day_records[0]); }
@@ -491,6 +494,10 @@ test('rebuilds use the pillar state in effect today, and a check-in waits while 
     h.store.rpcErrorOnce = { apm_service_save_goal_plan: 'loop_service_unavailable' };
     const blocked = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
     assert.equal(blocked.status, 503, 'no agenda is locked from a plan still missing an in-effect change');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 0);
+    // Fail closed: if the pending check itself errors, the check-in waits too.
+    h.store.pendingFails = 2;
+    assert.equal((await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) })).status, 503, 'an unknown rebuild state never locks');
     assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 0);
     const ok = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
     assert.ok(ok.status < 300, 'once the retry lands, the check-in proceeds');

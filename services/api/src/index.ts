@@ -684,7 +684,8 @@ app.post('/v1/today/check-in', async (c) => {
   if (!state.graph.personalOS) return c.json({ error: 'personal_os_missing', message: 'Complete the Personal OS intake first.' }, 409);
   if (state.today.checkedIn) return c.json({ replayed: true, ...state });
   // Never lock an agenda from a plan that has not received an in-effect pillar change yet.
-  if (await pillarRebuildsPending(c.env, user.id).catch(() => false)) {
+  // Fail closed: if the check itself fails, the plans' state is unknown, so do not lock.
+  if (await pillarRebuildsPending(c.env, user.id).catch(() => true)) {
     return c.json({ error: 'plans_updating', message: 'Your Drafting Room change is still reaching your plans. Try the check-in again in a moment.' }, 503);
   }
   // The Mood Gate runs here, in the morning: mood ≤ 2 prints a Minimum Viable Day.
