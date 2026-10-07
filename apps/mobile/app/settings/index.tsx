@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
-import { Body, Button, Card, CardTitle, KeyValue, Screen, SectionTitle } from '../../src/components/ui';
+import { Body, Button, Card, CardTitle, ChoiceRow, ErrorState, KeyValue, ListRow, Muted, Screen, SectionTitle, Toast } from '../../src/components/ui';
+import { useTheme, type SchemePreference } from '../../src/theme';
 import { useSession } from '../../src/state/session';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { PLAN_PRICES } from '@apm/policy';
@@ -18,6 +19,7 @@ export default function SettingsScreen() {
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const { preference, setPreference } = useTheme();
 
   const handleSignOut = async () => {
     if (busy) return;
@@ -56,8 +58,8 @@ export default function SettingsScreen() {
 
   return (
     <Screen eyebrow="Settings" title="Your A Player Mode." subtitle="Control how APM understands, connects and acts.">
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
-      {notice ? <Card tone="muted"><Body>{notice}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
+      <Toast message={notice} />
 
       <SectionTitle>Account</SectionTitle>
       <Card>
@@ -74,40 +76,23 @@ export default function SettingsScreen() {
         <Button label={busy === 'restore' ? 'Restoring…' : 'Restore purchases'} variant="secondary" onPress={() => void restore()} />
       </Card>
 
-      <SectionTitle>Trust & control</SectionTitle>
+      <SectionTitle>Appearance</SectionTitle>
       <Card>
-        <CardTitle>Privacy & AI</CardTitle>
-        <Body muted>See your data, AI processing, providers, connections, permissions, activity and export.</Body>
-        <Button label="Open Privacy & AI" onPress={() => router.push('/settings/privacy')} />
-      </Card>
-      <Card>
-        <CardTitle>Notifications</CardTitle>
-        <Body muted>Choose whether APM may reach this device. It stays rare: your morning agenda, real approvals and urgent Radar items.</Body>
-        <Button label="Notification settings" variant="secondary" onPress={() => router.push('/settings/notifications')} />
+        <CardTitle>Light or dark</CardTitle>
+        <Muted>System follows your phone's setting.</Muted>
+        <ChoiceRow<SchemePreference> options={[{ id: 'system', label: 'System' }, { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }]} value={preference} onChange={setPreference} />
       </Card>
 
+      <SectionTitle>Trust & control</SectionTitle>
+      <ListRow icon="shield" title="Privacy & AI" detail="See your data, AI processing, providers, connections, permissions, activity and export." onPress={() => router.push('/settings/privacy')} />
+      <ListRow icon="bell" title="Notifications" detail="Choose whether APM may reach this device. It stays rare: your morning agenda, real approvals and urgent Radar items." onPress={() => router.push('/settings/notifications')} />
+
       <SectionTitle>Life</SectionTitle>
-      <Card>
-        <CardTitle>Drafting Room</CardTitle>
-        <Body muted>Change your morning sequence, Hard/Guided start, pillars, floors, Tracks or Track settings without redoing the setup. Draft, review, then apply.</Body>
-        <Button label="Open the Drafting Room" onPress={() => router.push('/settings/os')} />
-      </Card>
-      <Card>
-        <CardTitle>Diary and weekly debrief</CardTitle>
-        <Body muted>File entries without coaching; review the week on your review day.</Body>
-        <Button label="Open the Diary" variant="secondary" onPress={() => router.push('/diary')} />
-        <Button label="Weekly debrief" variant="secondary" onPress={() => router.push('/review')} />
-      </Card>
-      <Card>
-        <CardTitle>Life areas</CardTitle>
-        <Body muted>Relationships, birthdays, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations.</Body>
-        <Button label="Open life areas" onPress={() => router.push('/settings/life')} />
-      </Card>
-      <Card>
-        <CardTitle>Autopilot</CardTitle>
-        <Body muted>Standing rules you set for safe, reversible work, like scheduling routine blocks or preparing drafts. Revocable any time; never purchases, healthcare or money.</Body>
-        <Button label="Open Autopilot" variant="secondary" onPress={() => router.push('/settings/autopilot')} />
-      </Card>
+      <ListRow icon="tool" title="Drafting Room" detail="Change your morning sequence, Hard/Guided start, pillars, floors, Tracks or Track settings without redoing the setup. Draft, review, then apply." onPress={() => router.push('/settings/os')} />
+      <ListRow icon="edit-3" title="Diary" detail="File entries without coaching." onPress={() => router.push('/diary')} />
+      <ListRow icon="bar-chart-2" title="Weekly debrief" detail="Review the week on your review day." onPress={() => router.push('/review')} />
+      <ListRow icon="home" title="Life areas" detail="Relationships, birthdays, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations." onPress={() => router.push('/settings/life')} />
+      <ListRow icon="zap" title="Autopilot" detail="Standing rules you set for safe, reversible work, like scheduling routine blocks or preparing drafts. Revocable any time; never purchases, healthcare or money." onPress={() => router.push('/settings/autopilot')} />
 
       {status === 'signed_in' ? (
         <>

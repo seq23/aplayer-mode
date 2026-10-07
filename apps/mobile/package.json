@@ -9,12 +9,17 @@
     "android": "expo start --android",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "lint:design": "node scripts/design-lint.mjs"
   },
   "dependencies": {
     "@apm/domain": "0.1.0",
     "@apm/planning": "0.1.0",
     "@apm/policy": "0.1.0",
+    "@expo-google-fonts/nunito-sans": "^0.4.2",
+    "@expo-google-fonts/outfit": "^0.4.3",
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-community/datetimepicker": "9.2.1",
     "@supabase/supabase-js": "^2.0.0",
     "expo": "^58.0.0",
     "expo-apple-authentication": "~58.0.2",
@@ -23,6 +28,7 @@
     "expo-constants": "~58.0.3",
     "expo-crypto": "~58.0.2",
     "expo-dev-client": "~58.0.11",
+    "expo-font": "~58.0.7",
     "expo-notifications": "~58.0.4",
     "expo-router": "~58.0.12",
     "expo-secure-store": "~58.0.2",
@@ -38,7 +44,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
-    "typescript": "~6.0.3",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "typescript": "~6.0.3"
   }
 }

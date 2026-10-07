@@ -32,7 +32,7 @@ export const BUILTIN_TRACKS: ReadonlyArray<{
   { key: 'operator_discipline', name: TRACK_DISPLAY_NAMES.operator_discipline, origin: 'bhpc', description: 'Follow-through: the morning plan is executed as written; changes are declared, not drifted into.' },
   { key: 'strategic_patience', name: TRACK_DISPLAY_NAMES.strategic_patience, origin: 'bhpc', description: 'No premature pivots before the evidence and the gates justify change.' },
   { key: 'resilience', name: TRACK_DISPLAY_NAMES.resilience, origin: 'bhpc', description: 'Protect recovery capacity and continuity during volatility.' },
-  { key: 'body_foundation', name: TRACK_DISPLAY_NAMES.body_foundation, origin: 'app', description: 'Small tracked body behaviours at a safe pace; never diet or medical advice.' },
+  { key: 'body_foundation', name: TRACK_DISPLAY_NAMES.body_foundation, origin: 'app', description: 'Small tracked body behaviors at a safe pace; never diet or medical advice.' },
   { key: 'wealth_foundation', name: TRACK_DISPLAY_NAMES.wealth_foundation, origin: 'app', description: 'Save by default, one debt at a time, buffer before bets; never product advice.' },
   { key: 'home_front', name: TRACK_DISPLAY_NAMES.home_front, origin: 'app', description: 'Family time is scheduled and defended like the most important meeting of the week.' },
 ];

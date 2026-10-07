@@ -29,7 +29,7 @@ const LOOP_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 409
   loop_goal_not_found: { error: 'not_found', status: 404, message: 'Goal not found.' },
   loop_plan_not_found: { error: 'not_found', status: 404, message: 'Plan not found.' },
   loop_personal_os_missing: { error: 'personal_os_missing', status: 409, message: 'Complete the Personal OS intake first.' },
-  loop_week_one_lock: { error: 'week_one_lock', status: 409, message: 'Week 1 is installation: no new projects and no customising until day 8. One foreground only.' },
+  loop_week_one_lock: { error: 'week_one_lock', status: 409, message: 'Week 1 is installation: no new projects and no customizing until day 8. One foreground only.' },
   loop_day_not_today: { error: 'day_closed', status: 409, message: 'Only today can be changed. Prior days are closed forever.' },
   loop_day_closed: { error: 'day_closed', status: 409, message: 'Today is already closed.' },
   loop_day_not_locked: { error: 'opening_step_required', status: 409, message: 'Check in first; the agenda is locked at check-in.' },

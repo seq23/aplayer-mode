@@ -9,7 +9,9 @@ import {
   Button,
   Card,
   CardTitle,
+  EmptyState,
   ChoiceRow,
+  ErrorState,
   KeyValue,
   Label,
   Pill,
@@ -97,7 +99,7 @@ export default function GoalsScreen() {
       title="Where APM is taking you."
       subtitle="Every goal becomes a 90-day plan: three gates, milestones, and one physical action each day. One goal is the foreground; the rest get maintenance only."
     >
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
       {graph.goals.length ? (
         <View style={uiStyles.stack}>
           {graph.goals.map((goal) => {
@@ -120,11 +122,7 @@ export default function GoalsScreen() {
           })}
         </View>
       ) : (
-        <Card tone="accent">
-          <CardTitle>No goal in your Life Graph yet.</CardTitle>
-          <Body muted>Start with one concrete 90-day outcome. APM turns it into a plan and a daily action.</Body>
-          <Button label="Build my APM" onPress={() => router.push('/intake')} />
-        </Card>
+        <EmptyState icon="target" title="No goal in your Life Graph yet." body="Start with one concrete 90-day outcome. APM turns it into a plan and a daily action." actionLabel="Build my APM" onAction={() => router.push('/intake')} />
       )}
 
       {created?.arbitration ? (
@@ -144,7 +142,7 @@ export default function GoalsScreen() {
         <>
           <SectionTitle>Add a goal</SectionTitle>
           <Card>
-            <Body muted>A new goal is run through the Arbitration Engine against your foreground. In Week 1 no new projects are added: the system stabilises first.</Body>
+            <Body muted>A new goal is run through the Arbitration Engine against your foreground. In Week 1 no new projects are added: the system stabilizes first.</Body>
             <TextField label="Goal" value={title} onChangeText={setTitle} placeholder="e.g. Build a 3-month emergency fund" />
             {area ? <Body muted>{`APM files this under ${areaDisplay(area)}.`}</Body> : null}
             {choosingArea ? <ChoiceRow options={PILLARS} value={area} onChange={(next) => { setPillar(next); setChoosingArea(false); }} />

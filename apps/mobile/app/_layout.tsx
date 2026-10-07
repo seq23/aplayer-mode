@@ -7,18 +7,36 @@ import * as WebBrowser from 'expo-web-browser';
 
 // Web: completes the Google sign-in popup (no-op on native).
 WebBrowser.maybeCompleteAuthSession();
-import { colors } from '../src/theme';
+import { ThemeProvider, useTheme } from '../src/theme';
 
 export default function RootLayout() {
   return (
-    <SessionProvider>
-      <LifeGraphProvider>
-        <IntakeProvider>
-        <StatusBar barStyle="dark-content" />
+    <ThemeProvider>
+      <SessionProvider>
+        <LifeGraphProvider>
+          <IntakeProvider>
+            <ThemedStack />
+          </IntakeProvider>
+        </LifeGraphProvider>
+      </SessionProvider>
+    </ThemeProvider>
+  );
+}
+
+/** The navigator in the current scheme: Stone header and content, Ink title in Outfit, no shadow. */
+function ThemedStack() {
+  const { colors, scheme, type } = useTheme();
+  const { maxFontSizeMultiplier: _scale, ...titleFont } = type.cardTitle;
+  return (
+    <>
+        <StatusBar barStyle={scheme === 'dark' ? 'light-content' : 'dark-content'} />
         <Stack
           screenOptions={{
             headerShadowVisible: false,
             headerTintColor: colors.ink,
+            headerStyle: { backgroundColor: colors.bg },
+            headerTitleStyle: { ...titleFont, color: colors.ink },
+            contentStyle: { backgroundColor: colors.bg },
             headerBackButtonDisplayMode: 'minimal',
           }}
         >
@@ -47,8 +65,6 @@ export default function RootLayout() {
           <Stack.Screen name="review" options={{ title: 'Weekly debrief' }} />
           <Stack.Screen name="settings/os" options={{ title: 'Drafting Room' }} />
         </Stack>
-        </IntakeProvider>
-      </LifeGraphProvider>
-    </SessionProvider>
+    </>
   );
 }

@@ -89,7 +89,7 @@ export function applyTrackRules(agenda: DailyAgenda, context: TrackRuleContext, 
     if (context.referral) {
       flags.push({ code: 'body.referral', track: 'body_foundation', message: 'Body coaching is paused until you record clinician clearance.' });
     } else if (!items.some((item) => item.pillar && lifePillarOf(item.pillar) === 'body')) {
-      if (lowDay || !planId) flags.push({ code: 'body.floor_missing', track: 'body_foundation', message: 'No body behaviour today. The movement floor is never zero — take it if you can.' });
+      if (lowDay || !planId) flags.push({ code: 'body.floor_missing', track: 'body_foundation', message: 'No body behavior today. The movement floor is never zero — take it if you can.' });
       else {
         dailyStack.push(trackFloor(planId, goalId, BODY_FLOOR_ACTION_KEY, context.settings.movementFloor ?? DEFAULT_MOVEMENT_FLOOR, 'movement', 'body.floor_missing'));
         flags.push({ code: 'body.floor_missing', track: 'body_foundation', message: 'Body Foundation added your movement floor: a day is never zero for the body.' });

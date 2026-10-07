@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   CardTitle,
+  ErrorState,
   KeyValue,
   Pill,
   Screen,
@@ -164,7 +165,7 @@ export default function ConnectionsScreen() {
         <Body muted>APM normalizes device, Google, Microsoft and iCloud-backed device calendars into one schedule model while preserving which account each event came from.</Body>
       </Card>
 
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
 
       <SectionTitle>This device</SectionTitle>
       <Card>

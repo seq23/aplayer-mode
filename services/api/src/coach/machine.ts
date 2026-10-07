@@ -118,7 +118,7 @@ export const QUESTION_BUDGET: Record<OperatingModeKey, number> = {
 };
 export const MAX_DEEPER_ROUNDS = 2;
 
-/** Scripted BHPC question flow: internal state → observable behaviour → meaning (Part V Phase 2). */
+/** Scripted BHPC question flow: internal state → observable behavior → meaning (Part V Phase 2). */
 export const QUESTION_BANK: Record<'standard' | 'high_pressure' | 'recovery' | 'sprint', { core: string[]; deeper: string[] }> = {
   standard: {
     core: [

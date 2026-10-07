@@ -107,7 +107,7 @@ export function hasAutopilotAccess(entitlement: SubscriptionEntitlement | undefi
 }
 
 /**
- * Ordinary reads: own-row AND Autopilot entitlement (RLS). The class catalogue
+ * Ordinary reads: own-row AND Autopilot entitlement (RLS). The class catalog
  * is product metadata and always readable.
  */
 export async function getAutopilotState(env: ApiEnv, accessToken: string, userId: string, entitled: boolean): Promise<AutopilotState> {

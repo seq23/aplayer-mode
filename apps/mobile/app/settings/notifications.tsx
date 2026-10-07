@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Body, Button, Card, CardTitle, ChoiceRow, KeyValue, Label, Screen, SectionTitle, TextField } from '../../src/components/ui';
+import { Body, Button, Card, CardTitle, ChoiceRow, ErrorState, KeyValue, Label, Screen, SectionTitle, Toast } from '../../src/components/ui';
+import { TimePicker } from '../../src/components/TimePickerField';
 import { fetchNotificationPreferences, saveNotificationPreferences, type NotificationPreferences } from '../../src/api/apmApi';
 import { enableApmPush } from '../../src/integrations/push';
 import { useSession } from '../../src/state/session';
@@ -42,19 +43,19 @@ export default function NotificationsScreen() {
     setMessage('Proactive APM notifications are registered for this device.');
   });
   const saveMorning = () => {
-    if (!HHMM.test(wakeTime)) { setError('Wake time is HH:MM on a 24-hour clock, e.g. 06:30.'); return; }
+    if (!HHMM.test(wakeTime)) { setError('Choose a wake time first.'); return; }
     void save({ wakeTime }, `Your agenda will be printed and delivered at ${wakeTime} your time.`);
   };
   const saveQuiet = () => {
     if (!quietStart && !quietEnd) { void save({ quietHours: {} }, 'Quiet hours removed.'); return; }
-    if (!HHMM.test(quietStart) || !HHMM.test(quietEnd)) { setError('Quiet hours are HH:MM to HH:MM.'); return; }
+    if (!HHMM.test(quietStart) || !HHMM.test(quietEnd)) { setError('Choose both a start and an end for quiet hours, or clear both.'); return; }
     void save({ quietHours: { start: quietStart, end: quietEnd } }, `Quiet ${quietStart}–${quietEnd} (your local time).`);
   };
 
   return (
     <Screen eyebrow="Notifications" title="APM should interrupt rarely—and usefully." subtitle="One morning trigger with your agenda, high-value Radar items and approvals. No motivational spam.">
-      {message ? <Card tone="accent"><Body>{message}</Body></Card> : null}
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      <Toast tone="success" message={message} />
+      {error ? <ErrorState message={error} /> : null}
 
       <SectionTitle>Device permission</SectionTitle>
       <Card>
@@ -69,7 +70,7 @@ export default function NotificationsScreen() {
         <Body muted>At your wake time APM prints today’s agenda and sends one notification. It never sends during a Deep Work block or a protected family block; it waits until the block ends.</Body>
         <KeyValue label="Status" value={prefs?.morning_push_enabled === false ? 'Off' : 'On'} />
         <ChoiceRow options={[{ id: 'on', label: 'On' }, { id: 'off', label: 'Off' }]} value={prefs?.morning_push_enabled === false ? 'off' : 'on'} onChange={(value) => void save({ morningPushEnabled: value === 'on' }, value === 'on' ? 'Morning Trigger on.' : 'Morning Trigger off.')} />
-        <TextField label="Wake time (24-hour, your local time)" value={wakeTime} onChangeText={setWakeTime} placeholder="06:30" />
+        <TimePicker label="Wake time (your local time)" value={wakeTime} onChange={setWakeTime} />
         <Button label={busy ? 'Saving…' : 'Save wake time'} onPress={saveMorning} />
       </Card>
 
@@ -77,8 +78,8 @@ export default function NotificationsScreen() {
       <Card>
         <Label>Lock-screen detail</Label>
         <ChoiceRow options={[{ id: 'minimal', label: 'Minimal' }, { id: 'normal', label: 'Show the foreground' }]} value={prefs?.lock_screen_detail ?? 'minimal'} onChange={(value) => void save({ lockScreenDetail: value }, value === 'minimal' ? 'Lock screen shows no private detail.' : 'Lock screen shows today’s foreground.')} />
-        <TextField label="Quiet from (HH:MM)" value={quietStart} onChangeText={setQuietStart} placeholder="22:00" />
-        <TextField label="Quiet until (HH:MM)" value={quietEnd} onChangeText={setQuietEnd} placeholder="06:00" />
+        <TimePicker label="Quiet from" value={quietStart} onChange={setQuietStart} placeholder="No quiet hours" allowClear />
+        <TimePicker label="Quiet until" value={quietEnd} onChange={setQuietEnd} placeholder="No quiet hours" allowClear />
         <Button label="Save quiet hours" variant="secondary" onPress={saveQuiet} />
         <Body muted>Quiet hours use your local clock. Critical Radar items can still come through.</Body>
       </Card>

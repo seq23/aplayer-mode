@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import type { BillingPeriod, PaidPlan } from '@apm/policy';
-import { Body, Button, Card, CardTitle, ChoiceRow, KeyValue, Pill, SectionTitle, uiStyles } from '../components/ui';
+import { Body, Button, Card, CardTitle, ChoiceRow, Figure, Heading, KeyValue, Label, Pill, Row, SectionTitle, Small, Stack, Tile, Toast, uiStyles } from '../components/ui';
 import { fetchBillingOffering, fetchProductPlan, type BillingOfferingResponse, type ProductPlanResponse } from '../api/apmApi';
 import { useSession } from '../state/session';
 import { APPLE_STANDARD_EULA_URL, PAID_PLANS, storeManageUrl, subscriptionDisclosure, tierOffers, type StorePrice } from './catalog';
 import { UNAVAILABLE_COPY, billingAvailability, buyPackage, identifyBillingUser, legalUrls, loadOffering, managementUrl, restoreStorePurchases } from './purchases';
 import { PLAN_SCREEN, TIER_GRID_WHAT, TIER_GRID_WHO, offerBanner, recommendedTier, type OfferBanner } from '../content/sell';
-import { colors, radius, spacing } from '../theme';
 import { openExternal } from '../links/external';
 import { plainError } from '../api/errors';
 import { AccountPanel } from '../components/intake/AccountPanel';
@@ -139,7 +138,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   return (
     <View style={uiStyles.stack}>
       {error ? <Card tone="danger"><Body>{error}</Body><Button label="Try again" variant="secondary" onPress={() => { setError(undefined); setReloadKey((n) => n + 1); }} /></Card> : null}
-      {notice ? <Card tone="muted"><Body>{notice}</Body></Card> : null}
+      <Toast message={notice} />
 
       <OfferBannerCard banner={banner} />
 
@@ -164,16 +163,16 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
         const action = PLAN_RANK[planKey]! > PLAN_RANK[currentPlan]! ? 'Upgrade to' : PLAN_RANK[planKey]! < PLAN_RANK[currentPlan]! ? 'Switch to' : billing ? 'Switch to' : 'Subscribe to';
         return (
           <Card key={planKey} tone={isCurrent || planKey === recommended ? 'accent' : 'default'}>
-            <View style={uiStyles.row}>
+            <Row justify="space-between" wrap gap="xs">
               <CardTitle>{offer.displayName}</CardTitle>
               {isCurrent ? <Pill tone="success">Current</Pill> : planKey === recommended ? <Pill tone="success">{games.includes('parent') ? 'Most parents start here' : 'Recommended'}</Pill> : <Pill>{offer.tagline}</Pill>}
-            </View>
+            </Row>
             {card ? <Body>{card.promise}</Body> : null}
             <KeyValue label="Price" value={offer.priceLabel} />
             {offer.note ? <Body muted>{offer.note}</Body> : null}
             {card ? <KeyValue label="Autonomy ceiling" value={`${card.maxAutonomyLevel} · ${card.maxAutonomyLabel}`} /> : null}
             {!isCurrent ? (
-              <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName} · ${offer.priceLabel}`} disabled={!purchasesEnabled || !pkg || Boolean(busy)} onPress={() => void purchase(planKey)} />
+              <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName} · ${offer.priceLabel}`} variant={planKey === recommended ? 'accent' : 'primary'} disabled={!purchasesEnabled || !pkg || Boolean(busy)} onPress={() => void purchase(planKey)} />
             ) : null}
           </Card>
         );
@@ -199,7 +198,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       <SectionTitle>Subscription terms</SectionTitle>
       <Card tone="muted">
         {subscriptionDisclosure(billing?.store ?? store ?? 'app_store', disclosureOffer).map((line) => <Body key={line} muted>{line}</Body>)}
-        <View style={uiStyles.row}>
+        <View style={uiStyles.stackSm}>
           {termsUrl ? <Button label="Terms of Use" variant="secondary" onPress={() => void openExternal({ kind: 'web', url: termsUrl })} /> : null}
           {privacyUrl ? <Button label="Privacy Policy" variant="secondary" onPress={() => void openExternal({ kind: 'web', url: privacyUrl })} /> : null}
         </View>
@@ -211,17 +210,19 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
 /** The introductory offer, styled as a promotion: ribbon, struck list price, saving, scarcity (server number only). */
 export function OfferBannerCard({ banner }: { banner: OfferBanner }) {
   return (
-    <View style={styles.offer} accessible accessibilityRole="summary" accessibilityLabel={`${banner.headline}. ${banner.now} instead of ${banner.was}. ${banner.saving}. ${banner.explain}${banner.scarcity ? ` ${banner.scarcity}.` : ''}`}>
-      <Text style={styles.ribbon}>{banner.ribbon}</Text>
-      <Text style={styles.offerHeadline}>{banner.headline}</Text>
-      <View style={styles.priceRow}>
-        <Text style={styles.now}>{banner.now}</Text>
-        <Text style={styles.instead}>instead of</Text>
-        <Text style={styles.was}>{banner.was}</Text>
-        <Text style={styles.save}>{banner.saving}</Text>
-      </View>
-      <Text style={styles.explain}>{banner.explain}</Text>
-      {banner.scarcity ? <Text style={styles.scarcity}>{banner.scarcity}</Text> : null}
+    <View accessible accessibilityRole="summary" accessibilityLabel={`${banner.headline}. ${banner.now} instead of ${banner.was}. ${banner.saving}. ${banner.explain}${banner.scarcity ? ` ${banner.scarcity}.` : ''}`}>
+      <Card tone="feature">
+        <Pill tone="solid">{banner.ribbon}</Pill>
+        <Heading>{banner.headline}</Heading>
+        <Row wrap gap="xs" align="baseline">
+          <Figure>{banner.now}</Figure>
+          <Small tone="inkMuted">instead of</Small>
+          <Small tone="inkMuted" strike>{banner.was}</Small>
+          <Pill tone="success">{banner.saving}</Pill>
+        </Row>
+        <Body>{banner.explain}</Body>
+        {banner.scarcity ? <Body strong tone="warning">{banner.scarcity}</Body> : null}
+      </Card>
     </View>
   );
 }
@@ -237,31 +238,16 @@ export function TierGrid({ title, note, columns, rows, highlight }: {
       {rows.map((row) => (
         <Card key={row.label}>
           <CardTitle>{row.label}</CardTitle>
-          {row.cells.map((cell, i) => (
-            <View key={`${row.label}-${columns[i]}`} style={[styles.cell, i === highlight && styles.cellHighlight]}>
-              <Text style={styles.cellHead}>{columns[i]}</Text>
-              <Text style={styles.cellBody}>{cell}</Text>
-            </View>
-          ))}
+          <Stack gap="xxs">
+            {row.cells.map((cell, i) => (
+              <Tile key={`${row.label}-${columns[i]}`} highlight={i === highlight}>
+                <Label tone={i === highlight ? 'accent' : 'inkMuted'}>{columns[i] ?? ''}</Label>
+                <Body>{cell}</Body>
+              </Tile>
+            ))}
+          </Stack>
         </Card>
       ))}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  offer: { backgroundColor: colors.warningSoft, borderColor: '#DFC49D', borderWidth: 1, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.xs },
-  ribbon: { alignSelf: 'flex-start', backgroundColor: colors.warning, color: '#FFFFFF', fontWeight: '900', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, overflow: 'hidden' },
-  offerHeadline: { color: colors.ink, fontSize: 20, lineHeight: 26, fontWeight: '800' },
-  priceRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: spacing.xs },
-  now: { color: colors.ink, fontSize: 28, fontWeight: '900' },
-  instead: { color: colors.inkMuted, fontSize: 14 },
-  was: { color: colors.inkMuted, fontSize: 18, textDecorationLine: 'line-through' },
-  save: { color: '#FFFFFF', backgroundColor: colors.success, fontWeight: '900', paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, overflow: 'hidden' },
-  explain: { color: colors.ink, fontSize: 15, lineHeight: 21 },
-  scarcity: { color: colors.warning, fontWeight: '800', fontSize: 15 },
-  cell: { paddingVertical: 6, paddingHorizontal: 8, borderRadius: radius.sm, gap: 2 },
-  cellHighlight: { backgroundColor: colors.accentSoft },
-  cellHead: { color: colors.inkMuted, fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
-  cellBody: { color: colors.ink, fontSize: 15, lineHeight: 21 },
-});

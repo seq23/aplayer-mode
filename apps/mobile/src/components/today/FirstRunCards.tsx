@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { router } from 'expo-router';
 import type { LifeGraphSnapshot, OperatingModeKey } from '@apm/domain';
 import {
@@ -18,7 +18,7 @@ import {
   type AnswerValue,
   type PillarReviewEntry,
 } from '@apm/planning';
-import { Body, Button, Card, CardTitle, Label } from '../ui';
+import { Body, Button, Card, CardTitle, Label, LinkButton, Reason } from '../ui';
 import { BedRoutineCard } from '../intake/Interstitials';
 import { QuestionView } from '../intake/QuestionView';
 import { Chip, Muted, intakeStyles } from '../intake/primitives';
@@ -89,6 +89,7 @@ export function PracticesToday({ graph }: { graph: LifeGraphSnapshot }) {
 export function CoachingModeChips({ graph, activeMode }: { graph: LifeGraphSnapshot; activeMode: OperatingModeKey }) {
   const { setOperatingMode } = useLifeGraph();
   const [error, setError] = useState<string>();
+  const [showWhen, setShowWhen] = useState(false);
   const profile = graph.personalOS?.intakeProfile;
   const chips = coachingModeChips({ games: profile?.games ?? graph.roles.map((r) => r.name.toLowerCase()), deadlines: profile?.deadlines ?? [] });
   const focus = graph.goals.find((goal) => goal.id === graph.personalOS?.foregroundGoalId)?.title ?? 'The foreground task';
@@ -109,8 +110,9 @@ export function CoachingModeChips({ graph, activeMode }: { graph: LifeGraphSnaps
       <View style={intakeStyles.chips}>
         {chips.map((chip) => <Chip key={chip.mode} label={chip.label} selected={activeMode === chip.mode} onPress={() => void pick(chip.mode)} />)}
       </View>
-      {chips.map((chip) => <Muted key={chip.mode}>{`${chip.label}: ${chip.when}`}</Muted>)}
-      {error ? <Text style={intakeStyles.why}>{error}</Text> : null}
+      {chips.filter((chip) => showWhen || chip.mode === activeMode).map((chip) => <Muted key={chip.mode}>{`${chip.label}: ${chip.when}`}</Muted>)}
+      <LinkButton label={showWhen ? 'Hide when to use each' : 'When to use each mode'} onPress={() => setShowWhen((v) => !v)} />
+      {error ? <Reason>{error}</Reason> : null}
     </Card>
   );
 }

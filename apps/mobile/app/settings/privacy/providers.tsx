@@ -4,6 +4,7 @@ import {
   Body,
   Card,
   CardTitle,
+  ErrorState,
   KeyValue,
   Pill,
   Screen,
@@ -58,7 +59,7 @@ export default function ProvidersScreen() {
         <Body muted>For private-life data, the privacy gateway also requires zero-data-retention eligibility and disables unauthorized provider fallback.</Body>
       </Card>
 
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
 
       <SectionTitle>Live model registry</SectionTitle>
       <View style={uiStyles.stack}>

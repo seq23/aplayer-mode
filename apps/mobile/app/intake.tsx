@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Alert, BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { AccessibilityInfo, Alert, BackHandler, Platform, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   SCREEN_PLATES,
@@ -32,10 +31,9 @@ import { QuestionView } from '../src/components/intake/QuestionView';
 import { Interstitial } from '../src/components/intake/Interstitials';
 import { AccountPanel } from '../src/components/intake/AccountPanel';
 import { BuildingScreen, DetailScreen, SummaryScreen } from '../src/components/intake/Reveal';
-import { Muted, OptionButton, PlateLine, ProgressBar, intakeStyles } from '../src/components/intake/primitives';
+import { OptionButton, intakeStyles } from '../src/components/intake/primitives';
 import { PlanChoice } from '../src/billing/PlanChoice';
-import { Body, Card, CardTitle } from '../src/components/ui';
-import { colors, radius, spacing } from '../src/theme';
+import { Body, Button, Card, CardTitle, Fill, Label, LinkButton, Muted, PlateLine, ProgressBar, QuestionTitle, Reason, Row, Screen, Toast } from '../src/components/ui';
 
 const DETAIL = new Set(['r1', 'r2', 'r3', 'r4', 'r5', 'r6']);
 
@@ -173,26 +171,23 @@ export default function IntakeScreenRoute() {
 
   if (paused) {
     return (
-      <Shell>
-        <Text accessibilityRole="header" style={intakeStyles.heading}>Saved. Go do your thing.</Text>
+      <Screen fullBleed>
+        <QuestionTitle>Saved. Go do your thing.</QuestionTitle>
         <Body muted>{`All ${p.answered} answers are safe ${sync === 'saved' ? 'on this phone and in your account' : 'on this phone'}. Open APM any time and you'll be right back on this question.`}</Body>
-        <OptionButton role="button" label="Back to my setup" selected={false} onPress={() => { track('intake_resumed', { qid: cursor, gap: 0 }); setPaused(false); }} />
-      </Shell>
+        <Button label="Back to my setup" onPress={() => { track('intake_resumed', { qid: cursor, gap: 0 }); setPaused(false); }} />
+      </Screen>
     );
   }
 
   const top = screen.kind === 'question' || screen.kind === 'interstitial' ? (
-    <View style={styles.top}>
-      <View style={styles.topRow}>
-        <Text style={styles.eyebrow} numberOfLines={1}>{screen.kind === 'question' ? `${screen.group} · ${p.index + 1} of ${p.total}` : screen.group}</Text>
-        <Text style={styles.eyebrow}>{`${p.answered}/${p.total}`}</Text>
-      </View>
-      <ProgressBar done={p.answered} total={p.total} />
-      <View style={styles.topRow}>
-        <Muted>{`${holdingCount(answers)} things APM is now holding for you · ${sync === 'saved' ? 'Saved' : 'Saved on this phone'}`}</Muted>
-        {screen.kind === 'question' ? <Pressable accessibilityRole="button" onPress={finishLater} style={styles.later}><Text style={styles.laterText}>Finish later</Text></Pressable> : null}
-      </View>
-    </View>
+    <>
+      <Row justify="space-between" gap="sm">
+        <Fill><Label tone="accent">{screen.kind === 'question' ? `${screen.group} · ${p.index + 1} of ${p.total}` : screen.group}</Label></Fill>
+        {screen.kind === 'question' ? <LinkButton label="Finish later" onPress={finishLater} /> : <Label>{`${p.answered}/${p.total}`}</Label>}
+      </Row>
+      <ProgressBar done={p.answered} total={p.total} label={`Setup progress: ${p.answered} of ${p.total} answered`} />
+      <Muted>{`${holdingCount(answers)} things APM is now holding for you · ${sync === 'saved' ? 'Saved' : 'Saved on this phone'}`}</Muted>
+    </>
   ) : null;
 
   let body: React.ReactNode = null;
@@ -230,7 +225,7 @@ export default function IntakeScreenRoute() {
     const rec = quickStartRecommended(answers);
     body = (
       <View style={intakeStyles.stack}>
-        <Text accessibilityRole="header" style={intakeStyles.heading}>That's enough for a working plan.</Text>
+        <QuestionTitle>That's enough for a working plan.</QuestionTitle>
         <Body muted>{`You've answered ${p.answered}. Pick how much more to do today. You can switch later.`}</Body>
         <OptionButton label="Build my plan now" recommended={rec} selected={answers.mode === 'quick'} detail={`${counts.quickLeft} more tap${counts.quickLeft === 1 ? '' : 's'}, under a minute. The other ${Math.max(0, counts.fullLeft - counts.quickLeft)} wait on Today, 2 a day from Day 2.`} onPress={() => { answer('mode', 'quick'); track('intake_quick_start_chosen', { mode: 'quick' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'quick'), 250); }} />
         <OptionButton label="Keep going" selected={answers.mode === 'full'} detail={`About ${counts.fullLeft} more, roughly ${Math.max(1, Math.round((counts.fullLeft * 7) / 60))} minutes. A sharper plan on Day 1.`} onPress={() => { answer('mode', 'full'); track('intake_quick_start_chosen', { mode: 'full' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'full'), 250); }} />
@@ -287,61 +282,32 @@ export default function IntakeScreenRoute() {
   } else if (screen.kind === 'plan') {
     body = (
       <View style={intakeStyles.stack}>
-        <Text accessibilityRole="header" style={intakeStyles.heading}>How much should APM carry?</Text>
-        {pendingInstall ? <Card tone="warning"><Body>We'll finish installing as soon as you're online. Your answers are safe.</Body></Card> : null}
+        <QuestionTitle>How much should APM carry?</QuestionTitle>
+        {pendingInstall ? <Toast tone="warning" message="We'll finish installing as soon as you're online. Your answers are safe." /> : null}
         <PlanChoice games={games} onboarding onFinished={(result) => { track('paywall_result', { result }); router.replace('/(tabs)/today'); }} />
       </View>
     );
   }
 
+  const showFooter = screen.kind !== 'plan' && screen.kind !== 'building';
   return (
-    <Shell top={top}>
+    <Screen
+      fullBleed
+      top={top}
+      footer={showFooter ? (
+        <>
+          {reason ? <Reason>{reason}</Reason> : null}
+          <Row gap="sm">
+            <Fill><Button label="Back" variant="secondary" large onPress={back} /></Fill>
+            <Fill weight={2}><Button label={nextLabel} large disabled={!canNext} onPress={onNext} /></Fill>
+          </Row>
+        </>
+      ) : undefined}
+    >
       {body}
-      {notice ? <Card tone="warning"><Body>{notice}</Body></Card> : null}
+      {notice ? <Toast tone="warning" message={notice} /> : null}
       {screen.kind === 'summary' && deferredQuestionIds(answers).length && mode === 'quick' ? <Muted>{`${deferredQuestionIds(answers).length} questions wait on Today: 2 quick taps a day from Day 2, never on a light day.`}</Muted> : null}
       <PlateLine text={plate} />
-      {reason ? <Text style={intakeStyles.why} accessibilityLiveRegion="polite">{reason}</Text> : null}
-      <View style={styles.footer}>
-        {screen.kind !== 'plan' && screen.kind !== 'building' ? (
-          <Pressable accessibilityRole="button" onPress={back} style={({ pressed }) => [styles.btn, styles.btnSecondary, pressed && styles.pressed]}>
-            <Text style={styles.btnSecondaryText}>Back</Text>
-          </Pressable>
-        ) : null}
-        {screen.kind !== 'plan' && screen.kind !== 'building' ? (
-          <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canNext }} disabled={!canNext} onPress={onNext} style={({ pressed }) => [styles.btn, !canNext && styles.disabled, pressed && styles.pressed]}>
-            <Text style={styles.btnText}>{nextLabel}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-    </Shell>
+    </Screen>
   );
 }
-
-function Shell({ children, top }: { children: React.ReactNode; top?: React.ReactNode }) {
-  return (
-    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
-        {top}
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">{children}</ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
-}
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
-  flex: { flex: 1 },
-  top: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, gap: 6 },
-  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
-  eyebrow: { color: colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', flexShrink: 1 },
-  later: { minHeight: 44, justifyContent: 'center' },
-  laterText: { color: colors.accent, fontWeight: '800' },
-  body: { padding: spacing.md, paddingBottom: spacing.xxl, gap: spacing.md },
-  footer: { flexDirection: 'row', gap: spacing.sm },
-  btn: { flex: 2, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
-  btnSecondary: { flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  btnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
-  btnSecondaryText: { color: colors.ink, fontWeight: '800', fontSize: 16 },
-  disabled: { opacity: 0.45 },
-  pressed: { opacity: 0.75 },
-});

@@ -134,7 +134,7 @@ const product = (productId: string, store: BillingChannel, plan: PaidPlan, perio
 });
 
 /**
- * THE store product catalogue (docs/33-BILLING-PHASE-D.md). The database seeds the
+ * THE store product catalog (docs/33-BILLING-PHASE-D.md). The database seeds the
  * same rows (migration 0040, private.billing_products) and the webhook maps a
  * product id to a plan ONLY through that table, never through anything the client
  * or the event's own entitlement list says. services/api/test/billing-db.test.mjs
@@ -370,7 +370,7 @@ export const standingActionClasses: Record<StandingActionClass, StandingActionCl
   'calendar.decline': {
     actionClass: 'calendar.decline', domain: 'calendar', connector: 'calendar', actionType: 'calendar.decline',
     label: 'Decline invitations that break your boundaries, with a polite note', reversible: true, undo: 'reaccept',
-    undoLabel: 'Undo re-accepts the invitation; the organiser has already seen the decline note.',
+    undoLabel: 'Undo re-accepts the invitation; the organizer has already seen the decline note.',
   },
   'appointment.book': {
     actionClass: 'appointment.book', domain: 'appointment', connector: 'email', actionType: 'appointment.book',

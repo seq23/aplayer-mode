@@ -470,3 +470,17 @@ test('the questionnaire is questions only: no screen that asks nothing sits betw
     }
   }
 });
+
+// Owner's choice (7 Oct 2026, the restyle brief): the express "Quick start or full setup" step
+// stays in the intake path, for the default (no mode yet) and the full mode alike.
+test('the express "Quick start or full setup" step stays on the intake path in default and full modes', () => {
+  const express = SECTIONS.find((section) => section.kind === 'express');
+  assert.ok(express, 'the bank has the express section');
+  assert.equal(express.name, 'Quick start or full setup');
+  for (const [label, answers, mode] of [['default (no mode chosen)', {}, undefined], ['full (chosen)', { mode: 'full' }, 'full'], ['full (from the answer)', { mode: 'full' }, undefined]]) {
+    const ids = path(answers, mode).map((screen) => screen.id);
+    assert.ok(ids.includes('express'), `${label}: express is on the path`);
+    assert.equal(path(answers, mode).find((screen) => screen.id === 'express').kind, 'express');
+    assert.ok(ids.indexOf('express') > 0 && ids.indexOf('express') < ids.indexOf('summary'), `${label}: after the first questions, before the reveal`);
+  }
+});

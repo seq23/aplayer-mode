@@ -216,10 +216,10 @@ const LEARNING_FOCUS: Readonly<Record<LearningTopic, { skill: string; weeks: rea
     ],
   },
   craft: {
-    skill: 'one core technique, practised daily',
+    skill: 'one core technique, practiced daily',
     weeks: [
       'Name the one technique to get better at and find one lesson on it',
-      'Practise it in short daily reps',
+      'Practice it in short daily reps',
       'Make one small piece that uses it',
       'Compare it with week 1 and write what improved',
     ],
@@ -251,7 +251,7 @@ function modalityStep(modality: LearningModality | undefined, topicSkill: string
     case 'video':
       return { title: `Watch one 15-minute lesson on ${topicSkill}`, minutes: 15, mvd: { title: 'Watch 2 minutes of the lesson', output: 'Two minutes watched', durationMinutes: 2 } };
     case 'doing':
-      return { title: `Practise ${topicSkill} for 15 minutes, hands on`, minutes: 15, mvd: { title: 'Practise for 2 minutes', output: 'Two minutes practised', durationMinutes: 2 } };
+      return { title: `Practice ${topicSkill} for 15 minutes, hands on`, minutes: 15, mvd: { title: 'Practice for 2 minutes', output: 'Two minutes practiced', durationMinutes: 2 } };
     case 'course':
       return { title: `Do one lesson of your course on ${topicSkill}`, minutes: 20, mvd: { title: 'Open the course and do 2 minutes', output: 'Course opened and two minutes done', durationMinutes: 2 } };
     default:

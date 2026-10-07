@@ -4,6 +4,7 @@ import {
   Body,
   Card,
   CardTitle,
+  ErrorState,
   KeyValue,
   Pill,
   Screen,
@@ -49,7 +50,7 @@ export default function ActivityScreen() {
         <Body muted>Private raw content is intentionally excluded from the activity timeline unless it is required for the event itself.</Body>
       </Card>
 
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
 
       <SectionTitle>Activity timeline</SectionTitle>
       <View style={uiStyles.stack}>

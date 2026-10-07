@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Body, Button, Card, CardTitle, ChoiceRow, Label, Screen, SectionTitle, TextField } from '../src/components/ui';
+import { Body, Button, Card, CardTitle, ChoiceRow, ErrorState, Label, Screen, SectionTitle, TextField, EmptyState, Toast } from '../src/components/ui';
 import { logDiaryEntry } from '../src/api/apmApi';
 import { useLifeGraph } from '../src/state/lifeGraph';
 
@@ -31,12 +31,12 @@ export default function DiaryScreen() {
         <Button label={busy ? 'Logging…' : 'Log it'} onPress={() => void save()} />
         {kind === 'slip' ? <Body muted>One slip is a data point. The next planned meal or session is the recovery — no compensation.</Body> : null}
       </Card>
-      {reply ? <Card tone="accent"><CardTitle>{reply}</CardTitle></Card> : null}
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      <Toast tone="success" message={reply} />
+      {error ? <ErrorState message={error} /> : null}
       <SectionTitle>Recent entries</SectionTitle>
       {graph.diaryEntries.length ? graph.diaryEntries.slice(0, 20).map((entry) => (
         <Card key={entry.id} tone="muted"><Label>{`${entry.localDay} · ${entry.kind}`}</Label><Body>{entry.body}</Body></Card>
-      )) : <Card tone="muted"><Body muted>No entries yet.</Body></Card>}
+      )) : <EmptyState icon="edit-3" title="No entries yet." body="Short bullet points are enough. Entries are filed, not coached." />}
     </Screen>
   );
 }

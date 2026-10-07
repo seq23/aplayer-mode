@@ -17,12 +17,12 @@ export default function Index() {
   const installedHere = draft.installedVersion !== undefined && draft.installedVersion !== null;
 
   if (status === 'loading' || (status === 'signed_in' && (syncStatus === 'idle' || syncStatus === 'loading'))) {
-    return <Screen eyebrow="A Player Mode" title="Opening your APM…">{null}</Screen>;
+    return <Screen fullBleed eyebrow="A Player Mode" title="Opening your APM…">{null}</Screen>;
   }
 
   if (status === 'signed_in' && syncStatus === 'error' && (!started || installedHere)) {
     return (
-      <Screen eyebrow="A Player Mode" title="We couldn't reach your APM yet.">
+      <Screen fullBleed eyebrow="A Player Mode" title="We couldn't reach your APM yet.">
         <Card tone="warning">
           <CardTitle>Everything on this phone is safe.</CardTitle>
           <Body muted>{syncError?.includes('configured') ? 'Setup isn\'t finished on this build.' : 'Check your connection and try again.'}</Body>

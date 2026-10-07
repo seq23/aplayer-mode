@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AccessibilityInfo, View } from 'react-native';
 import { AREA_LABELS, PILLAR_LABELS, type AreaKey, type PillarName } from '@apm/domain';
 import {
   CORE_LAWS,
@@ -16,8 +16,7 @@ import {
   type IntakeAnswers,
   type IntakeSynthesis,
 } from '@apm/planning';
-import { Body, Card, CardTitle, KeyValue, Label, Pill, uiStyles } from '../ui';
-import { colors, radius, spacing } from '../../theme';
+import { Body, Card, CardTitle, Fill, Icon, KeyValue, Label, LinkButton, Pill, QuestionTitle, Row, TextField, uiStyles } from '../ui';
 import { BedRoutineCard, MorningCard } from './Interstitials';
 import { Chip, Muted, OptionButton, intakeStyles } from './primitives';
 import { TRACKS } from '../../content/sell';
@@ -51,10 +50,17 @@ export function BuildingScreen({ work, onDone }: { work: () => Promise<void>; on
   }, []);
   return (
     <View style={intakeStyles.stack}>
-      <Text accessibilityRole="header" style={intakeStyles.heading}>Building your operating system</Text>
-      {lines.map((line, i) => (
-        <Text key={line} style={[styles.tick, i < ticked && styles.tickDone]} accessibilityLabel={`${line}${i < ticked ? ', done' : ''}`}>{`${i < ticked ? '✓' : '○'}  ${line}`}</Text>
-      ))}
+      <QuestionTitle>Building your operating system</QuestionTitle>
+      <Card>
+        {lines.map((line, i) => (
+          <View key={line} accessible accessibilityLabel={`${line}${i < ticked ? ', done' : ''}`}>
+            <Row gap="sm">
+              <Icon name={i < ticked ? 'check-circle' : 'circle'} size={22} tone={i < ticked ? 'success' : 'inkMuted'} />
+              <Fill><Body strong={i < ticked} muted={i >= ticked}>{line}</Body></Fill>
+            </Row>
+          </View>
+        ))}
+      </Card>
     </View>
   );
 }
@@ -62,10 +68,10 @@ export function BuildingScreen({ work, onDone }: { work: () => Promise<void>; on
 function ChangeCard({ title, body, onChange, children }: { title: string; body?: string; onChange?: () => void; children?: React.ReactNode }) {
   return (
     <Card>
-      <View style={styles.cardHead}>
-        <CardTitle>{title}</CardTitle>
-        {onChange ? <Pressable accessibilityRole="button" accessibilityLabel={`Change ${title}`} onPress={onChange} style={styles.change}><Text style={styles.changeText}>Change</Text></Pressable> : null}
-      </View>
+      <Row justify="space-between" gap="sm">
+        <Fill><CardTitle>{title}</CardTitle></Fill>
+        {onChange ? <LinkButton label="Change" accessibilityLabel={`Change ${title}`} onPress={onChange} /> : null}
+      </Row>
       {body ? <Body muted>{body}</Body> : null}
       {children}
     </Card>
@@ -78,20 +84,20 @@ export function PillarCards({ synthesis, onToggleCritical }: { synthesis: Intake
     <View style={uiStyles.stack}>
       {synthesis.pillars.pillars.map((pillar) => (
         <Card key={pillar.pillar} tone={pillar.enabled ? 'default' : 'muted'}>
-          <View style={uiStyles.row}>
-            <CardTitle>{pillar.label}</CardTitle>
+          <Row justify="space-between" gap="sm">
+            <Fill><CardTitle>{pillar.label}</CardTitle></Fill>
             <Pill tone={pillar.enabled ? 'success' : 'neutral'}>{pillar.enabled ? 'On' : 'Off'}</Pill>
-          </View>
+          </Row>
           {pillar.enabled ? pillar.areas.map((area) => (
-            <View key={area.area} style={styles.areaRow}>
-              <View style={styles.areaText}>
-                <Text style={styles.areaName}>{area.label}</Text>
+            <Row key={area.area} gap="sm">
+              <Fill>
+                <Body strong>{area.label}</Body>
                 {area.critical && area.floor ? <Muted>{`Floor on a hard day: ${area.floor}`}</Muted> : <Muted>Maintained in the background</Muted>}
-              </View>
+              </Fill>
               {onToggleCritical ? (
                 <Chip label={area.critical ? 'Critical' : 'Flexible'} selected={area.critical} onPress={() => onToggleCritical(area.area, !area.critical)} />
               ) : area.critical ? <Pill tone="warning">Critical</Pill> : null}
-            </View>
+            </Row>
           )) : <Muted>Switched off. Untick or tick it on the Pillars detail.</Muted>}
           {synthesis.pillars.keptForForeground === pillar.pillar ? <Muted>Your #1 goal lives here, so this area stays on.</Muted> : null}
         </Card>
@@ -126,7 +132,7 @@ export function SummaryScreen({ answers, onSet, onOpen, onPush, saveCard, nameCh
   };
   return (
     <View style={intakeStyles.stack}>
-      <Text accessibilityRole="header" style={intakeStyles.heading}>Your operating system</Text>
+      <QuestionTitle>Your operating system</QuestionTitle>
       <Body muted>Built from your answers. Every piece is already decided; tap Change on anything that's wrong.</Body>
       <ChangeCard title="Your one priority" body={`${goal?.label ?? 'Your goal'}${goalOutcome(answers) ? ` (${goalOutcome(answers)})` : ''} · first step: ${String(answers.first_step ?? '—')}`} onChange={() => onOpen('r2')} />
       <ChangeCard title="Your pillars" onChange={() => onOpen('r1')}>
@@ -135,7 +141,7 @@ export function SummaryScreen({ answers, onSet, onOpen, onPush, saveCard, nameCh
       <Card tone="muted">
         <Label>Suggest a pillar</Label>
         <Muted>Something that matters and isn't here yet? APM files it under Mind, Body or Spirit. Move it with one tap.</Muted>
-        <TextInput accessibilityLabel="Suggest a pillar" value={suggestion} onChangeText={setSuggestion} onSubmitEditing={addSuggestion} placeholder="e.g. my marriage, guitar, church" placeholderTextColor={colors.inkMuted} style={styles.input} maxLength={60} />
+        <TextField accessibilityLabel="Suggest a pillar" value={suggestion} onChangeText={setSuggestion} onSubmitEditing={addSuggestion} placeholder="e.g. my marriage, guitar, church" maxLength={60} returnKeyType="done" />
         <OptionButton role="button" label="Add it" selected={false} onPress={addSuggestion} />
         {suggested.map((entry) => {
           const [label, area] = entry.split('|') as [string, AreaKey];
@@ -161,7 +167,7 @@ export function SummaryScreen({ answers, onSet, onOpen, onPush, saveCard, nameCh
           <Chip label="Not now" selected={answers.push === false} onPress={() => onPush(false)} />
         </View>
       </Card>
-      <ChangeCard title="Your first 7 days" body="Day 1: do only the first item. Day 4: practise a miss." onChange={() => onOpen('r6')} />
+      <ChangeCard title="Your first 7 days" body="Day 1: do only the first item. Day 4: practice a miss." onChange={() => onOpen('r6')} />
       {saveCard}
       {nameChoices !== false ? (
         <Card tone="muted">
@@ -178,7 +184,7 @@ export function SummaryScreen({ answers, onSet, onOpen, onPush, saveCard, nameCh
 
 export function DetailScreen({ id, answers, onSet }: { id: 'r1' | 'r2' | 'r3' | 'r4' | 'r5' | 'r6'; answers: IntakeAnswers; onSet: (id: string, value: AnswerValue | undefined) => void }) {
   const s = useSynthesis(answers);
-  const heading = (text: string) => <Text accessibilityRole="header" style={intakeStyles.heading}>{text}</Text>;
+  const heading = (text: string) => <QuestionTitle>{text}</QuestionTitle>;
   if (id === 'r1') {
     const core = Array.isArray(answers.core_pillars) ? (answers.core_pillars as string[]) : ['mind', 'body', 'spirit'];
     return (
@@ -222,10 +228,10 @@ export function DetailScreen({ id, answers, onSet }: { id: 'r1' | 'r2' | 'r3' | 
         <Body muted>Background filters, not tasks. Kept minimal for the first install.</Body>
         {s.tracks.map((track) => (
           <Card key={track.key}>
-            <View style={styles.cardHead}>
-              <CardTitle>{track.name}</CardTitle>
+            <Row justify="space-between" gap="sm">
+              <Fill><CardTitle>{track.name}</CardTitle></Fill>
               <Chip label={track.on ? 'On' : 'Off'} selected={track.on} onPress={() => onSet(`trk_${track.key}`, !track.on)} />
-            </View>
+            </Row>
             <Muted>{`Because: ${track.reason}`}</Muted>
             {track.key === 'billionaire_mindset' ? <Muted>{TRACKS.spotlight.body}</Muted> : null}
           </Card>
@@ -276,19 +282,7 @@ export function DetailScreen({ id, answers, onSet }: { id: 'r1' | 'r2' | 'r3' | 
       {FIRST_SEVEN_DAYS.map((day) => (
         <Card key={day.day}><Label>{`Day ${day.day} · ${day.objective}`}</Label><Body>{day.day === 5 ? `${day.success} (load check: you said ${String(answers.load ?? 7)}/10 on Day 1)` : day.success}</Body></Card>
       ))}
-      <Muted>Week-1 rules: no optimising, no customising, no new projects. Any edit is saved as a draft for Day 8.</Muted>
+      <Muted>Week-1 rules: no optimizing, no customizing, no new projects. Any edit is saved as a draft for Day 8.</Muted>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  tick: { fontSize: 17, color: colors.inkMuted, paddingVertical: 6 },
-  tickDone: { color: colors.success, fontWeight: '700' },
-  cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
-  change: { minHeight: 44, minWidth: 64, alignItems: 'center', justifyContent: 'center' },
-  changeText: { color: colors.accent, fontWeight: '800' },
-  areaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 },
-  areaText: { flex: 1, gap: 2 },
-  areaName: { color: colors.ink, fontWeight: '700', fontSize: 16 },
-  input: { minHeight: 48, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 14, fontSize: 16, color: colors.ink },
-});
