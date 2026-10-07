@@ -29,7 +29,7 @@ test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: 
 
 const USER = '00000000-0000-4000-8000-00000000000a';
 const SESSION = '00000000-0000-4000-8000-0000000000c1';
-const baseEnv = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test' };
+const baseEnv = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', SUPABASE_SECRET_KEY: 'sb_secret_test' };
 const prov = { kind: 'stated', sourceType: 'manual' };
 
 const graph = {
@@ -88,7 +88,13 @@ function harness({ routeStatus = 'candidate', modelText, session } = {}) {
       return new Response(null, { status: 201 });
     }
     if (path.startsWith('/rest/v1/model_routes')) return json([routeRow(routeStatus)]);
-    if (path.startsWith('/rest/v1/audit_events')) { db.audits.push(...body); return new Response(null, { status: 201 }); }
+    if (path.startsWith('/rest/v1/audit_events')) throw new Error('0043: the Worker never writes audit_events directly');
+    if (path === '/rest/v1/rpc/apm_service_record_audit') {
+      // Audits go through the service-role allow-list, with the server-only key.
+      assert.equal(new Headers(init.headers).get('apikey'), baseEnv.SUPABASE_SECRET_KEY);
+      db.audits.push({ user_id: body.p_user_id, event_type: body.p_event_type, actor_type: body.p_actor_type, object_type: body.p_object_type, object_id: body.p_object_id, metadata: body.p_metadata });
+      return new Response(null, { status: 204 });
+    }
     if (path.startsWith('/rest/v1/ai_usage_events')) return new Response(null, { status: 201 });
     throw new Error(`unexpected ${method} ${path}`);
   };

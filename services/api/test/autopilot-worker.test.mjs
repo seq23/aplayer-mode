@@ -273,7 +273,13 @@ test('no Worker source writes Autopilot tables directly, re-audits governed tran
   const engine = await readFile(join(srcDir, 'actionEngine.ts'), 'utf8');
   assert.match(engine, /const requestedLevel: AutonomyLevel = 4;/);
   assert.doesNotMatch(engine, /requiresApproval \? 4 : 5/);
-  assert.match(engine, /requires_approval: true/);
+  // 0043: the Worker no longer writes the actions table; the service-role prepare
+  // function always inserts requires_approval = true and never resets an existing row.
+  assert.doesNotMatch(engine, /\/rest\/v1\/actions|\/rest\/v1\/action_attempts/, 'actions are written only through the 0043 service functions');
+  const ledger = await readFile(fileURLToPath(new URL('../migrations/0043_governed_write_surface.sql', import.meta.url)), 'utf8');
+  const prepare = ledger.slice(ledger.indexOf('function private.apm_service_action_prepare'), ledger.indexOf('function private.apm_service_action_claim'));
+  assert.match(prepare, /values \(p_user_id, p_domain, p_action_type, 'prepared', p_payload, p_reason, p_permission_id, p_idempotency_key, true, now\(\)\)/);
+  assert.match(prepare, /on conflict \(user_id, idempotency_key\) do nothing/);
   const index = await readFile(join(srcDir, 'index.ts'), 'utf8');
   const exportRoute = index.slice(index.indexOf("'/v1/privacy/export'"), index.indexOf("app.post('/v1/privacy/delete'"));
   assert.match(exportRoute, /getAutopilotExportState/);

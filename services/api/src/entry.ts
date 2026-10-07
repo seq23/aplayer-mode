@@ -2,6 +2,7 @@ import app from './index';
 import type { ApiEnv } from './env';
 import { runMorningTrigger } from './morningTrigger';
 import { runBillingSweep } from './billing';
+import { runDataRightsErasures } from './dataRights';
 
 declare const __APM_BUILD_SHA__: string;
 declare const __APM_RUNTIME_ENVIRONMENT__: string;
@@ -21,15 +22,23 @@ export default {
   /** Cloudflare Cron Trigger (wrangler.jsonc `triggers.crons`): the BHPC Morning Trigger. */
   async scheduled(controller: { scheduledTime: number; cron: string }, env: ApiEnv, ctx: { waitUntil(promise: Promise<unknown>): void }): Promise<void> {
     ctx.waitUntil(
-      runMorningTrigger(env, new Date(controller.scheduledTime)).then((result) => {
-        console.log('APM morning trigger', { cron: controller.cron, ...result });
-      }),
+      runMorningTrigger(env, new Date(controller.scheduledTime)).then(
+        (result) => console.log('APM morning trigger', { cron: controller.cron, ...result }),
+        (error: unknown) => console.error('APM morning trigger failed', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
+      ),
     );
     // Billing safety net (docs/33): expire store entitlements whose EXPIRATION webhook never came.
     ctx.waitUntil(
       runBillingSweep(env).then(
         (result) => console.log('APM billing sweep', { cron: controller.cron, ...result }),
         (error: unknown) => console.error('APM billing sweep failed', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
+      ),
+    );
+    // Right to deletion: the privileged erasure processor (dataRights.ts, migration 0043).
+    ctx.waitUntil(
+      runDataRightsErasures(env).then(
+        (result) => console.log('APM data-rights erasures', { cron: controller.cron, ...result }),
+        (error: unknown) => console.error('APM data-rights erasures failed', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
       ),
     );
   },

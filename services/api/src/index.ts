@@ -23,6 +23,8 @@ import {
   recordAnalyticsEvent,
   registerPushSubscription,
   requestDataRightsJob,
+  getDataRightsExport,
+  completeDataExportJob,
   setHouseholdInterest,
   upsertPermission,
 } from './platformRepository';
@@ -43,7 +45,7 @@ import { COACH_CHOICES } from './coach/machine';
 import { applyModeToPlan, modeView, reconcileModeState, transitionMode, type ModeEvent, type ModeRequest, type ModeState } from './coach/modes';
 import { ACTIVE_TRACK_KEYS } from './coach/tracks';
 import { getModeState, saveModeState } from './modeRepository';
-import { approveAndMaybeExecuteAction, prepareAction } from './actionEngine';
+import { actionErrorResponse, approveAndMaybeExecuteAction, prepareAction } from './actionEngine';
 import {
   autopilotErrorResponse,
   getAutopilotDoneList,
@@ -60,6 +62,7 @@ import {
   updateAutopilotRule,
 } from './autopilotRepository';
 import { notifyRadarItems } from './push';
+import { recordAudit, type SystemAuditEvent, type UserAuditEvent } from './audit';
 import { workPushHold } from './morningTrigger';
 import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, pillarRebuildsPending, rebuildBodyPlans, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
@@ -436,12 +439,14 @@ const deviceCalendarEventSchema = z.object({
   sourceVersion: z.string().max(500).optional(), deleted: z.boolean().optional(),
 });
 
-async function persistModeEvents(env: ApiEnv, accessToken: string, userId: string, events: ModeEvent[], state: ModeState, actor: 'user' | 'system') {
-  if (!events.length) return;
-  await supabaseRest(env, accessToken, '/rest/v1/audit_events', {
-    method: 'POST', headers: { Prefer: 'return=minimal' },
-    body: JSON.stringify(events.map((event) => ({ user_id: userId, event_type: event, actor_type: actor, object_type: 'personal_os', object_id: userId, metadata: { mode: state.mode, endsAt: state.endsAt ?? null, recoveryLockedUntil: state.recoveryLockedUntil ?? null } }))),
-  });
+async function persistModeEvents(env: ApiEnv, _accessToken: string, userId: string, events: ModeEvent[], state: ModeState, actor: 'user' | 'system') {
+  const metadata = { mode: state.mode, endsAt: state.endsAt ?? null, recoveryLockedUntil: state.recoveryLockedUntil ?? null };
+  for (const event of events) {
+    const typed = actor === 'user'
+      ? { actor, type: event as UserAuditEvent }
+      : { actor, type: event as SystemAuditEvent };
+    await recordAudit(env, userId, typed as Parameters<typeof recordAudit>[2], metadata, 'personal_os', userId);
+  }
 }
 
 /** Mode auto-exit (Deep Work block end, Sprint end → mandatory recovery, declared Recovery return) is applied on every read. */
@@ -485,11 +490,9 @@ async function requireUser(c: any) {
   return user;
 }
 
-async function audit(env: ApiEnv, accessToken: string, userId: string, eventType: string, metadata: Record<string, unknown> = {}, objectType?: string, objectId?: string) {
-  await supabaseRest(env, accessToken, '/rest/v1/audit_events', {
-    method: 'POST', headers: { Prefer: 'return=minimal' },
-    body: JSON.stringify([{ user_id: userId, event_type: eventType, actor_type: 'user', object_type: objectType ?? null, object_id: objectId ?? null, metadata }]),
-  });
+/** A user-actor audit row, written by the Worker through the service-role allow-list (0043). */
+async function audit(env: ApiEnv, _accessToken: string, userId: string, eventType: UserAuditEvent, metadata: Record<string, unknown> = {}, objectType?: string, objectId?: string) {
+  await recordAudit(env, userId, { actor: 'user', type: eventType }, metadata, objectType, objectId);
 }
 
 app.use('*', async (c, next) => {
@@ -1143,9 +1146,15 @@ app.post('/v1/actions/prepare', async (c) => {
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   const { graph } = await buildUserState(c.env, user.accessToken, user.id);
   const permission = graph.permissions.find((p) => p.domain === parsed.data.domain && p.actionType === parsed.data.actionType && p.enabled);
-  const action = await prepareAction({ env: c.env, accessToken: user.accessToken, userId: user.id, ...parsed.data, permission, entitlement: graph.entitlement });
-  await audit(c.env, user.accessToken, user.id, 'action.prepared', { domain: action.domain, actionType: action.actionType }, 'action', action.id);
-  return c.json({ action }, 201);
+  try {
+    // Idempotent on the key: a retry returns the stored action unchanged (and is never reset).
+    const { action, replayed } = await prepareAction({ env: c.env, accessToken: user.accessToken, userId: user.id, ...parsed.data, permission, entitlement: graph.entitlement });
+    return c.json({ action, replayed }, replayed ? 200 : 201);
+  } catch (error) {
+    const mapped = actionErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
+    throw error;
+  }
 });
 
 app.post('/v1/actions/:id/approve', async (c) => {
@@ -1157,9 +1166,15 @@ app.post('/v1/actions/:id/approve', async (c) => {
   // An Autopilot stop (payment asked / no emailed route) is the user's to finish; approval never executes it.
   if (action.payload && typeof action.payload === 'object' && 'stoppedReason' in action.payload) return c.json({ error: 'needs_user' }, 409);
   const permission = graph.permissions.find((p) => p.domain === action.domain && p.actionType === action.actionType && p.enabled);
-  const executed = await approveAndMaybeExecuteAction({ env: c.env, accessToken: user.accessToken, userId: user.id, action: action as ActionRecord, permission, entitlement: graph.entitlement });
-  await audit(c.env, user.accessToken, user.id, 'action.executed', { domain: executed.domain, actionType: executed.actionType, status: executed.status }, 'action', executed.id);
-  return c.json({ action: executed });
+  try {
+    // The claim is atomic in the database: of two concurrent approvals only one executes.
+    const executed = await approveAndMaybeExecuteAction({ env: c.env, accessToken: user.accessToken, userId: user.id, action: action as ActionRecord, permission, entitlement: graph.entitlement });
+    return c.json({ action: executed });
+  } catch (error) {
+    const mapped = actionErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
+    throw error;
+  }
 });
 
 async function autopilotContext(env: ApiEnv, accessToken: string, userId: string) {
@@ -1386,17 +1401,21 @@ app.post('/v1/privacy/export', async (c) => {
   };
   const autopilot = await getAutopilotExportState(c.env, user.accessToken);
   const dailyLoop = await getDailyLoopExportState(c.env, user.accessToken);
-  const activity = await getAuditEvents(c.env, user.accessToken, user.id, 250);
-  await supabaseRest(c.env, user.accessToken, `/rest/v1/data_rights_jobs?id=eq.${encodeURIComponent(job.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'complete', completed_at: new Date().toISOString() }) });
-  return c.json({ job: { ...job, status: 'complete' }, export: { generatedAt: new Date().toISOString(), lifeGraph, autopilot, dailyLoop, activity } });
+  // The complete record: every registered user-owned table, every row (coaching
+  // transcripts, notifications, attempts, usage…). The views above are convenience.
+  const tables = await getDataRightsExport(c.env, user.accessToken);
+  const activity = tables.audit_events ?? [];
+  await completeDataExportJob(c.env, user.id, job.id);
+  return c.json({ job: { ...job, status: 'complete' }, export: { generatedAt: new Date().toISOString(), tables, lifeGraph, autopilot, dailyLoop, activity } });
 });
 app.post('/v1/privacy/delete', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ confirmation: z.literal('DELETE') }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'confirmation_required' }, 400);
+  // Audited in the database (0043). The cron's erasure processor (dataRights.ts) revokes
+  // connectors, purges, deletes the auth identity and records the erasure receipt.
   const job = await requestDataRightsJob(c.env, user.accessToken, user.id, 'delete');
-  await audit(c.env, user.accessToken, user.id, 'deletion.requested', {}, 'data_rights_job', job.id);
-  return c.json({ job, status: 'requested', note: 'Account deletion requires the privileged deletion worker to revoke sessions/connectors and remove the auth identity. It is not falsely marked complete here.' }, 202);
+  return c.json({ job, status: job.status, note: 'Your account and data are deleted by the server within 24 hours; you will be signed out.' }, 202);
 });
 
 app.get('/v1/households', async (c) => {

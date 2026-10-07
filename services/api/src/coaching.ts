@@ -3,6 +3,7 @@ import type { InferenceTask } from '@apm/ai';
 import { isExecutableActionTitle } from '@apm/planning';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
+import { recordAudit } from './audit';
 import { hasEligibleRoute, runUserInference } from './aiGateway';
 import {
   assertCoachTurnContract,
@@ -278,10 +279,8 @@ export async function coach(input: {
   });
   if (turn.step === 'safety_stop' && turn.safety) {
     // Pattern ids only: the user's words never enter the audit log.
-    await supabaseRest(input.env, input.accessToken, '/rest/v1/audit_events', {
-      method: 'POST', headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify([{ user_id: input.userId, event_type: 'coaching.safety_stop', actor_type: 'system', object_type: 'coaching_session', object_id: session.id, metadata: { level: turn.safety.level, signals: turn.safety.signals } }]),
-    }).catch(() => undefined);
+    await recordAudit(input.env, input.userId, { actor: 'system', type: 'coaching.safety_stop' }, { level: turn.safety.level, signals: turn.safety.signals }, 'coaching_session', session.id)
+      .catch((error: unknown) => console.error('APM coaching safety-stop audit failed', { message: error instanceof Error ? error.message : String(error) }));
   }
 
   const { session: nextSession, modelSlot: _slot, closeSession: _close, ...visible } = turn;

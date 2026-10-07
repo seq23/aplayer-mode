@@ -65,3 +65,21 @@ export async function supabaseRest<T>(
   if (!text.trim()) return undefined as T;
   return JSON.parse(text) as T;
 }
+
+/** The `message` of a PostgREST error body (a raised SQL exception), if any. */
+export function restErrorMessage(error: unknown): string | undefined {
+  return error instanceof SupabaseRestError && error.body && typeof error.body === 'object'
+    && typeof (error.body as { message?: unknown }).message === 'string'
+    ? (error.body as { message: string }).message
+    : undefined;
+}
+
+/**
+ * Calls a service-role-only RPC (`public.apm_service_*`). Used for writes the
+ * client must never be able to make itself: audit rows, the action ledger,
+ * data-rights completion. The user id is the Worker-verified JWT subject.
+ */
+export async function serviceRpc<T>(env: ApiEnv, fn: string, args: Record<string, unknown>): Promise<T> {
+  if (!env.SUPABASE_SECRET_KEY) throw new Error('service_unavailable');
+  return supabaseRest<T>(env, SERVICE_ROLE_TOKEN, `/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) });
+}

@@ -25,7 +25,7 @@ import type {
   SubscriptionEntitlement,
 } from '@apm/domain';
 import type { ApiEnv } from './env';
-import { supabaseRest } from './db';
+import { serviceRpc, supabaseRest } from './db';
 import { mapCompletion, mapDayRecord, mapGoalPlan, type CompletionRow, type DayRow, type GoalPlanRow } from './dailyLoopRepository';
 
 const qs = (value: string) => encodeURIComponent(value);
@@ -298,12 +298,22 @@ export async function registerPushSubscription(env: ApiEnv, accessToken: string,
   });
 }
 
-export async function requestDataRightsJob(env: ApiEnv, accessToken: string, userId: string, jobType: 'export' | 'delete'): Promise<{ id: string; status: string }> {
-  const rows = await supabaseRest<Array<{ id: string; status: string }>>(env, accessToken, '/rest/v1/data_rights_jobs?select=id,status', {
-    method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify([{ user_id: userId, job_type: jobType }]),
+export async function requestDataRightsJob(env: ApiEnv, accessToken: string, _userId: string, jobType: 'export' | 'delete'): Promise<{ id: string; status: string }> {
+  // Governed and audited (0043); clients cannot write, complete or delete a job themselves.
+  const row = await supabaseRest<{ id: string; status: string } | null>(env, accessToken, '/rest/v1/rpc/apm_request_data_rights', {
+    method: 'POST', body: JSON.stringify({ p_job_type: jobType }),
   });
-  if (!rows[0]) throw new Error('data_rights_job_failed');
-  return rows[0];
+  if (!row?.id) throw new Error('data_rights_job_failed');
+  return { id: row.id, status: row.status };
+}
+
+/** Every row of every user-owned table (0043 registry), secrets redacted, no row cap. */
+export async function getDataRightsExport(env: ApiEnv, accessToken: string): Promise<Record<string, unknown[]>> {
+  return supabaseRest<Record<string, unknown[]>>(env, accessToken, '/rest/v1/rpc/apm_data_rights_export', { method: 'POST', body: '{}' });
+}
+
+export async function completeDataExportJob(env: ApiEnv, userId: string, jobId: string): Promise<void> {
+  await serviceRpc(env, 'apm_service_data_rights_complete_export', { p_user_id: userId, p_job_id: jobId });
 }
 
 export async function getAuditEvents(env: ApiEnv, accessToken: string, userId: string, limit = 100) {
