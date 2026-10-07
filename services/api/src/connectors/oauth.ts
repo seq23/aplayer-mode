@@ -19,15 +19,26 @@ interface ConnectionSecretRow {
   credential_iv: string | null;
 }
 
-export function oauthScopes(provider: 'google' | 'microsoft', kind: IntegrationKind): string[] {
+/**
+ * Read consent is the default. `act` is a separate, explicit consent (docs/22:
+ * connecting one capability never implies another) that adds the provider write
+ * scopes Autopilot classes check for in the database (migration 0033).
+ */
+export function oauthScopes(provider: 'google' | 'microsoft', kind: IntegrationKind, access: 'read' | 'act' = 'read'): string[] {
   if (provider === 'google') {
-    return kind === 'calendar'
+    const base = kind === 'calendar'
       ? ['openid', 'email', 'https://www.googleapis.com/auth/calendar.readonly']
       : ['openid', 'email', 'https://www.googleapis.com/auth/gmail.readonly'];
+    if (access !== 'act') return base;
+    return kind === 'calendar'
+      ? [...base, 'https://www.googleapis.com/auth/calendar.events']
+      : [...base, 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'];
   }
-  return kind === 'calendar'
+  const base = kind === 'calendar'
     ? ['openid', 'profile', 'email', 'offline_access', 'User.Read', 'Calendars.Read']
     : ['openid', 'profile', 'email', 'offline_access', 'User.Read', 'Mail.Read'];
+  if (access !== 'act') return base;
+  return kind === 'calendar' ? [...base, 'Calendars.ReadWrite'] : [...base, 'Mail.ReadWrite', 'Mail.Send'];
 }
 
 export function buildOAuthAuthorizationUrl(input: {
@@ -37,8 +48,9 @@ export function buildOAuthAuthorizationUrl(input: {
   codeChallenge: string;
   state: string;
   redirectUri?: string;
+  access?: 'read' | 'act';
 }): string {
-  const scopes = oauthScopes(input.provider, input.kind);
+  const scopes = oauthScopes(input.provider, input.kind, input.access ?? 'read');
   if (input.provider === 'google') {
     if (!input.env.GOOGLE_OAUTH_CLIENT_ID) throw new Error('Google OAuth is not configured');
     const redirectUri = input.redirectUri ?? input.env.GOOGLE_OAUTH_REDIRECT_URI;

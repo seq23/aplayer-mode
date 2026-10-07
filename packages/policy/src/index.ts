@@ -78,7 +78,9 @@ export type ActionDomain =
   | 'life_graph'
   | 'purchase'
   | 'notification'
-  | 'connector';
+  | 'connector'
+  | 'appointment'
+  | 'subscription';
 
 export function maxAutonomyForPlan(plan: ProductPlan, domain: ActionDomain): AutonomyLevel {
   if (plan === 'beta' || plan === 'chief_of_staff') return 3;
@@ -185,41 +187,86 @@ export const autonomyLabels: Record<AutonomyLevel, string> = {
 // a decision before it asks the server.
 // ---------------------------------------------------------------------------
 
-export type StandingActionClass = 'calendar.create' | 'email.draft';
+export type StandingActionClass =
+  | 'calendar.create'
+  | 'email.draft'
+  | 'email.send'
+  | 'calendar.reschedule'
+  | 'calendar.decline'
+  | 'appointment.book'
+  | 'subscription.cancel';
+
+export type StandingUndo = 'delete_event' | 'delete_draft' | 'restore_time' | 'reaccept' | 'none';
 
 export interface StandingActionClassPolicy {
   actionClass: StandingActionClass;
-  domain: Extract<ActionDomain, 'calendar' | 'email'>;
+  /** Permission/entitlement domain (permissions.domain). */
+  domain: Extract<ActionDomain, 'calendar' | 'email' | 'appointment' | 'subscription'>;
+  /** The provider connector that executes it — and whose kill switch governs it. */
+  connector: 'calendar' | 'email';
   actionType: StandingActionClass;
   label: string;
-  reversible: true;
-  undo: 'delete_event' | 'delete_draft';
+  reversible: boolean;
+  undo: StandingUndo;
+  /** Shown on the done-list: what Undo does, or a clear "Can't undo". */
+  undoLabel: string;
 }
 
-/** The whole allow-list. Anything not listed here can never be a standing rule. */
+/**
+ * The whole allow-list (mirrors public.autopilot_action_classes, migration 0033;
+ * expanded from two classes by ADR-0003, the owner's ruling of 6 Oct 2026).
+ * Anything not listed here can never be a standing rule.
+ */
 export const standingActionClasses: Record<StandingActionClass, StandingActionClassPolicy> = {
   'calendar.create': {
-    actionClass: 'calendar.create', domain: 'calendar', actionType: 'calendar.create',
+    actionClass: 'calendar.create', domain: 'calendar', connector: 'calendar', actionType: 'calendar.create',
     label: 'Schedule a new calendar block (e.g. a routine)', reversible: true, undo: 'delete_event',
+    undoLabel: 'Undo removes the event APM created.',
   },
   'email.draft': {
-    actionClass: 'email.draft', domain: 'email', actionType: 'email.draft',
-    label: 'Prepare an email draft (never sends)', reversible: true, undo: 'delete_draft',
+    actionClass: 'email.draft', domain: 'email', connector: 'email', actionType: 'email.draft',
+    label: 'Prepare an email draft', reversible: true, undo: 'delete_draft',
+    undoLabel: 'Undo deletes the draft APM prepared.',
+  },
+  'email.send': {
+    actionClass: 'email.send', domain: 'email', connector: 'email', actionType: 'email.send',
+    label: 'Send scheduling replies, follow-ups, confirmations and your templates', reversible: false, undo: 'none',
+    undoLabel: "Can't undo: a sent message cannot be recalled.",
+  },
+  'calendar.reschedule': {
+    actionClass: 'calendar.reschedule', domain: 'calendar', connector: 'calendar', actionType: 'calendar.reschedule',
+    label: 'Move flexible meetings (never Deep Work or foreground blocks)', reversible: true, undo: 'restore_time',
+    undoLabel: 'Undo moves the meeting back to its original time (attendees are notified again).',
+  },
+  'calendar.decline': {
+    actionClass: 'calendar.decline', domain: 'calendar', connector: 'calendar', actionType: 'calendar.decline',
+    label: 'Decline invitations that break your boundaries, with a polite note', reversible: true, undo: 'reaccept',
+    undoLabel: 'Undo re-accepts the invitation; the organiser has already seen the decline note.',
+  },
+  'appointment.book': {
+    actionClass: 'appointment.book', domain: 'appointment', connector: 'email', actionType: 'appointment.book',
+    label: 'Request FREE appointments from providers you list', reversible: false, undo: 'none',
+    undoLabel: "Can't undo: the request was emailed. Reply to the provider to cancel.",
+  },
+  'subscription.cancel': {
+    actionClass: 'subscription.cancel', domain: 'subscription', connector: 'email', actionType: 'subscription.cancel',
+    label: 'Cancel subscriptions by email (saves money, never spends it)', reversible: false, undo: 'none',
+    undoLabel: "Can't undo: the cancellation was emailed. Re-subscribing would spend money, so APM never does it.",
   },
 };
 
 /**
- * Explicitly excluded from standing authority. Purchasing, healthcare and
- * financial execution are excluded by the constitution; sending email and
- * editing existing events are excluded because they are not reliably
- * reversible or can override someone else's commitments.
+ * Rejected by name, in the database and in the app. Autopilot may save money
+ * but never spend it, and never makes clinical choices.
  */
 export const forbiddenStandingActions: ReadonlyArray<{ match: string; reason: string }> = [
   { match: 'purchase.*', reason: 'No autonomous purchasing.' },
-  { match: 'healthcare.*', reason: 'No healthcare transactions.' },
-  { match: 'financial.*', reason: 'No banking, bill payment or other financial execution.' },
-  { match: 'email.send', reason: 'Sending is irreversible; Autopilot only prepares drafts.' },
-  { match: 'calendar.update', reason: 'Editing existing events can override commitments.' },
+  { match: 'payment.*', reason: 'No payments and no entering card or payment details.' },
+  { match: 'subscription.upgrade', reason: 'Never upgrades a plan: Autopilot may save money, never spend it.' },
+  { match: 'subscription.signup', reason: 'Never signs up for anything that can charge you.' },
+  { match: 'healthcare.*', reason: 'No clinical or healthcare decisions; appointments are scheduling logistics only.' },
+  { match: 'financial.*', reason: 'No banking, bill payment, transfers or any other money movement.' },
+  { match: 'calendar.update', reason: 'Generic event edits can override commitments; only rule-bound moves and declines.' },
   { match: 'connector.*', reason: 'Connector administration always needs the user.' },
 ];
 
@@ -254,10 +301,60 @@ export interface EmailDraftStandingConstraints extends StandingWindow {
   allowedRecipientDomains: string[];
 }
 
-export type StandingConstraints = CalendarStandingConstraints | EmailDraftStandingConstraints;
+export type EmailSendKind = 'scheduling_reply' | 'follow_up' | 'confirmation' | 'template';
+export interface EmailTemplate { id: string; label: string; subject: string; body: string }
+export interface EmailSendStandingConstraints extends StandingWindow {
+  maxPerRecipientPerDay: number;
+  allowedKinds: EmailSendKind[];
+  allowedRecipients: string[];
+  allowedRecipientDomains: string[];
+  templates: EmailTemplate[];
+}
+
+export interface EventCriteria { matchTitleKeywords: string[]; maxAttendees: number; protectedTitleKeywords: string[] }
+export interface RescheduleStandingConstraints extends StandingWindow, EventCriteria {
+  horizonDays: number;
+  maxShiftDays: number;
+  collision: 'never_overlap_busy';
+}
+export interface Boundary { weekdays: number[]; start: string; end: string }
+export interface DeclineStandingConstraints extends EventCriteria {
+  timezone: string;
+  maxPerDay: number;
+  horizonDays: number;
+  boundaries: Boundary[];
+  declineNote?: string;
+}
+export type ProviderCategory = 'medical' | 'dental' | 'vision' | 'therapy' | 'vet' | 'personal_care' | 'auto' | 'home' | 'other';
+export interface BookingProvider { email: string; label: string; category: ProviderCategory; appointmentTypes: string[] }
+export interface AppointmentStandingConstraints extends StandingWindow {
+  horizonDays: number;
+  providers: BookingProvider[];
+}
+export interface SubscriptionCancelStandingConstraints {
+  timezone: string;
+  maxPerDay: number;
+  allowedProviderDomains: string[];
+}
+
+export type StandingConstraints =
+  | CalendarStandingConstraints
+  | EmailDraftStandingConstraints
+  | EmailSendStandingConstraints
+  | RescheduleStandingConstraints
+  | DeclineStandingConstraints
+  | AppointmentStandingConstraints
+  | SubscriptionCancelStandingConstraints;
 
 const HHMM = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const ADDRESS = /^[^@\s,;<>"()]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f]/;
+/** A card-number-shaped run of 13+ digits: outgoing Autopilot text never carries it. */
+export const PAYMENT_DATA = /([0-9][ -]?){13,}/;
+const EMAIL_SEND_KINDS: EmailSendKind[] = ['scheduling_reply', 'follow_up', 'confirmation', 'template'];
+const CATEGORIES: ProviderCategory[] = ['medical', 'dental', 'vision', 'therapy', 'vet', 'personal_care', 'auto', 'home', 'other'];
 
 function minutesOf(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
@@ -274,37 +371,123 @@ function validTimezone(timezone: string): boolean {
 }
 
 const intIn = (value: unknown, min: number, max: number) => Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
+const validWeekdays = (value: unknown) => Array.isArray(value) && value.length >= 1 && value.length <= 7
+  && value.every((day) => intIn(day, 1, 7)) && new Set(value).size === value.length;
+const textList = (value: unknown, min: number, max: number, maxLen: number) => Array.isArray(value) && value.length >= min && value.length <= max
+  && value.every((item) => typeof item === 'string' && item.trim().length >= 1 && item.trim().length <= maxLen && !CONTROL.test(item));
+const domainList = (value: unknown, min: number, max: number) => Array.isArray(value) && value.length >= min && value.length <= max
+  && value.every((d) => typeof d === 'string' && d.length <= 253 && DOMAIN.test(d));
+const isAddress = (value: unknown) => typeof value === 'string' && value.length <= 320 && !CONTROL.test(value) && ADDRESS.test(value.trim().toLowerCase());
 
-/** Mirrors private.apm_autopilot_check_constraints; returns the problems found. */
+const CONSTRAINT_KEYS: Record<StandingActionClass, { allowed: string[]; optional?: string[] }> = {
+  'calendar.create': { allowed: ['timezone','weekdays','windowStart','windowEnd','maxDurationMinutes','maxPerDay','horizonDays','collision'] },
+  'email.draft': { allowed: ['timezone','weekdays','windowStart','windowEnd','maxPerDay','allowedRecipientDomains'] },
+  'email.send': { allowed: ['timezone','weekdays','windowStart','windowEnd','maxPerDay','maxPerRecipientPerDay','allowedKinds','allowedRecipients','allowedRecipientDomains','templates'] },
+  'calendar.reschedule': { allowed: ['timezone','weekdays','windowStart','windowEnd','maxPerDay','horizonDays','maxShiftDays','collision','matchTitleKeywords','maxAttendees','protectedTitleKeywords'] },
+  'calendar.decline': { allowed: ['timezone','maxPerDay','horizonDays','boundaries','matchTitleKeywords','maxAttendees','protectedTitleKeywords','declineNote'], optional: ['declineNote'] },
+  'appointment.book': { allowed: ['timezone','weekdays','windowStart','windowEnd','maxPerDay','horizonDays','providers'] },
+  'subscription.cancel': { allowed: ['timezone','maxPerDay','allowedProviderDomains'] },
+};
+
+/** Mirrors private.apm_autopilot_check_constraints (0033); returns the problems found. */
 export function validateStandingConstraints(actionClass: StandingActionClass, input: Record<string, unknown>): string[] {
   const errors: string[] = [];
-  const allowed = actionClass === 'calendar.create'
-    ? ['timezone','weekdays','windowStart','windowEnd','maxDurationMinutes','maxPerDay','horizonDays','collision']
-    : ['timezone','weekdays','windowStart','windowEnd','maxPerDay','allowedRecipientDomains'];
-  for (const key of Object.keys(input)) if (!allowed.includes(key)) errors.push(`unknown:${key}`);
-  for (const key of allowed) if (input[key] === undefined || input[key] === null) errors.push(`missing:${key}`);
+  const keys = CONSTRAINT_KEYS[actionClass];
+  if (!keys) return ['unsupported_action_class'];
+  for (const key of Object.keys(input)) if (!keys.allowed.includes(key)) errors.push(`unknown:${key}`);
+  for (const key of keys.allowed) if (!keys.optional?.includes(key) && (input[key] === undefined || input[key] === null)) errors.push(`missing:${key}`);
   if (errors.length) return errors;
 
   if (typeof input.timezone !== 'string' || !validTimezone(input.timezone)) errors.push('timezone');
-  const weekdays = input.weekdays;
-  if (!Array.isArray(weekdays) || weekdays.length < 1 || weekdays.length > 7
-    || !weekdays.every((day) => intIn(day, 1, 7)) || new Set(weekdays).size !== weekdays.length) errors.push('weekdays');
+  const windowed = keys.allowed.includes('windowStart');
   const start = input.windowStart;
   const end = input.windowEnd;
-  if (typeof start !== 'string' || typeof end !== 'string' || !HHMM.test(start) || !HHMM.test(end) || minutesOf(end) <= minutesOf(start)) {
-    errors.push('window');
+  if (windowed) {
+    if (!validWeekdays(input.weekdays)) errors.push('weekdays');
+    if (typeof start !== 'string' || typeof end !== 'string' || !HHMM.test(start) || !HHMM.test(end) || minutesOf(end) <= minutesOf(start)) errors.push('window');
   }
-  if (actionClass === 'calendar.create') {
-    if (!intIn(input.maxDurationMinutes, 15, 240)) errors.push('maxDurationMinutes');
-    else if (!errors.includes('window') && (input.maxDurationMinutes as number) > minutesOf(end as string) - minutesOf(start as string)) errors.push('maxDurationMinutes');
-    if (!intIn(input.maxPerDay, 1, 10)) errors.push('maxPerDay');
-    if (!intIn(input.horizonDays, 1, 30)) errors.push('horizonDays');
-    if (input.collision !== 'never_overlap_busy') errors.push('collision');
-  } else {
-    if (!intIn(input.maxPerDay, 1, 20)) errors.push('maxPerDay');
-    const domains = input.allowedRecipientDomains;
-    if (!Array.isArray(domains) || domains.length < 1 || domains.length > 10
-      || !domains.every((d) => typeof d === 'string' && d.length <= 253 && DOMAIN.test(d))) errors.push('allowedRecipientDomains');
+  const criteria = () => {
+    if (!textList(input.matchTitleKeywords, 0, 10, 60)) errors.push('matchTitleKeywords');
+    if (!intIn(input.maxAttendees, 0, 50)) errors.push('maxAttendees');
+    if (!textList(input.protectedTitleKeywords, 0, 10, 60)) errors.push('protectedTitleKeywords');
+  };
+
+  switch (actionClass) {
+    case 'calendar.create':
+      if (!intIn(input.maxDurationMinutes, 15, 240)) errors.push('maxDurationMinutes');
+      else if (!errors.includes('window') && (input.maxDurationMinutes as number) > minutesOf(end as string) - minutesOf(start as string)) errors.push('maxDurationMinutes');
+      if (!intIn(input.maxPerDay, 1, 10)) errors.push('maxPerDay');
+      if (!intIn(input.horizonDays, 1, 30)) errors.push('horizonDays');
+      if (input.collision !== 'never_overlap_busy') errors.push('collision');
+      break;
+    case 'email.draft':
+      if (!intIn(input.maxPerDay, 1, 20)) errors.push('maxPerDay');
+      if (!domainList(input.allowedRecipientDomains, 1, 10)) errors.push('allowedRecipientDomains');
+      break;
+    case 'email.send': {
+      if (!intIn(input.maxPerDay, 1, 20)) errors.push('maxPerDay');
+      if (!intIn(input.maxPerRecipientPerDay, 1, 3)) errors.push('maxPerRecipientPerDay');
+      const kinds = input.allowedKinds;
+      if (!Array.isArray(kinds) || kinds.length < 1 || kinds.length > 4 || !kinds.every((k) => EMAIL_SEND_KINDS.includes(k as EmailSendKind))) errors.push('allowedKinds');
+      const recipients = input.allowedRecipients;
+      if (!Array.isArray(recipients) || recipients.length > 25 || !recipients.every(isAddress)) errors.push('allowedRecipients');
+      if (!domainList(input.allowedRecipientDomains, 0, 10)) errors.push('allowedRecipientDomains');
+      if (Array.isArray(recipients) && Array.isArray(input.allowedRecipientDomains) && recipients.length + input.allowedRecipientDomains.length === 0) errors.push('recipients_required');
+      const templates = input.templates;
+      const ids = new Set<string>();
+      if (!Array.isArray(templates) || templates.length > 10 || !templates.every((t) => {
+        if (!t || typeof t !== 'object') return false;
+        const { id, label, subject, body, ...rest } = t as Record<string, unknown>;
+        const ok = Object.keys(rest).length === 0 && typeof id === 'string' && /^[a-z0-9_-]{1,40}$/.test(id) && !ids.has(id)
+          && typeof label === 'string' && label.trim().length >= 1 && label.trim().length <= 80 && !CONTROL.test(label)
+          && typeof subject === 'string' && subject.trim().length >= 1 && subject.trim().length <= 300 && !CONTROL.test(subject)
+          && typeof body === 'string' && body.length >= 1 && body.length <= 5000;
+        if (typeof id === 'string') ids.add(id);
+        return ok;
+      })) errors.push('templates');
+      else if (templates.some((t) => PAYMENT_DATA.test(`${(t as EmailTemplate).subject} ${(t as EmailTemplate).body}`))) errors.push('payment_data');
+      if (Array.isArray(kinds) && Array.isArray(templates) && kinds.includes('template') !== templates.length > 0) errors.push('templates');
+      break;
+    }
+    case 'calendar.reschedule':
+      if (!intIn(input.maxPerDay, 1, 10)) errors.push('maxPerDay');
+      if (!intIn(input.horizonDays, 1, 30)) errors.push('horizonDays');
+      if (!intIn(input.maxShiftDays, 0, 7)) errors.push('maxShiftDays');
+      if (input.collision !== 'never_overlap_busy') errors.push('collision');
+      criteria();
+      break;
+    case 'calendar.decline': {
+      if (!intIn(input.maxPerDay, 1, 10)) errors.push('maxPerDay');
+      if (!intIn(input.horizonDays, 1, 30)) errors.push('horizonDays');
+      criteria();
+      const boundaries = input.boundaries;
+      if (!Array.isArray(boundaries) || boundaries.length < 1 || boundaries.length > 10 || !boundaries.every((b) => {
+        if (!b || typeof b !== 'object') return false;
+        const { weekdays, start: s, end: e, ...rest } = b as Record<string, unknown>;
+        return Object.keys(rest).length === 0 && validWeekdays(weekdays) && typeof s === 'string' && typeof e === 'string'
+          && HHMM.test(s) && HHMM.test(e) && minutesOf(e) > minutesOf(s);
+      })) errors.push('boundaries');
+      const note = input.declineNote;
+      if (note !== undefined && (typeof note !== 'string' || note.trim().length < 10 || note.trim().length > 500 || CONTROL.test(note))) errors.push('declineNote');
+      break;
+    }
+    case 'appointment.book': {
+      if (!intIn(input.maxPerDay, 1, 3)) errors.push('maxPerDay');
+      if (!intIn(input.horizonDays, 1, 60)) errors.push('horizonDays');
+      const providers = input.providers;
+      if (!Array.isArray(providers) || providers.length < 1 || providers.length > 10 || !providers.every((p) => {
+        if (!p || typeof p !== 'object') return false;
+        const { email, label, category, appointmentTypes, ...rest } = p as Record<string, unknown>;
+        return Object.keys(rest).length === 0 && isAddress(email)
+          && typeof label === 'string' && label.trim().length >= 1 && label.trim().length <= 80 && !CONTROL.test(label)
+          && CATEGORIES.includes(category as ProviderCategory) && textList(appointmentTypes, 1, 5, 80);
+      }) || new Set(providers.map((p) => String((p as BookingProvider).email).trim().toLowerCase())).size !== providers.length) errors.push('providers');
+      break;
+    }
+    case 'subscription.cancel':
+      if (!intIn(input.maxPerDay, 1, 5)) errors.push('maxPerDay');
+      if (!domainList(input.allowedProviderDomains, 1, 10)) errors.push('allowedProviderDomains');
+      break;
   }
   return errors;
 }
@@ -369,7 +552,8 @@ export type StandingAuthorityReason =
   | 'class_not_activated'
   | 'autopilot_paused'
   | 'rule_inactive'
-  | 'rule_expired';
+  | 'rule_expired'
+  | 'class_switch_off';
 
 /**
  * Level-5 standing authority =
@@ -389,10 +573,13 @@ export function decideStandingAuthority(input: {
   globalExecutionEnabled: boolean;
   domainExecutionEnabled: boolean;
   autopilotExecutionEnabled: boolean;
+  /** Per-class Worker switch (AUTOPILOT_ENABLED_CLASSES). Off unless listed. */
+  classSwitchEnabled: boolean;
   now: Date;
 }): { allowed: boolean; reason: StandingAuthorityReason } {
   if (!isStandingActionClass(input.actionClass)) return { allowed: false, reason: 'unsupported_action_class' };
   if (!input.autopilotExecutionEnabled) return { allowed: false, reason: 'autopilot_execution_disabled' };
+  if (!input.classSwitchEnabled) return { allowed: false, reason: 'class_switch_off' };
   const domain = standingActionClasses[input.actionClass].domain;
   const base = decideAuthority({
     userId: input.userId,

@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { AutopilotActionClass, AutopilotRule, AutopilotRuleConstraints } from '@apm/domain';
+import type { AutopilotActionClass, AutopilotDoneItem, AutopilotRule, AutopilotRuleConstraints } from '@apm/domain';
 import { Body, Button, Card, CardTitle, KeyValue, ListItem, Pill, Screen, SectionTitle, uiStyles } from '../../src/components/ui';
 import { colors, radius, spacing } from '../../src/theme';
 import {
   fetchAutopilot,
+  fetchAutopilotDone,
   grantAutopilotRule,
   revokeAutopilotRule,
   setAutopilotPaused,
@@ -34,24 +35,117 @@ interface Draft {
   horizonDays: string;
   domains: string;
   expiresInDays: string;
+  // email.send
+  kinds: string[];
+  recipients: string;
+  maxPerRecipientPerDay: string;
+  templateLabel: string;
+  templateSubject: string;
+  templateBody: string;
+  // reschedule / decline
+  keywords: string;
+  protectedKeywords: string;
+  maxAttendees: string;
+  maxShiftDays: string;
+  declineNote: string;
+  // appointment.book
+  providerEmail: string;
+  providerLabel: string;
+  providerCategory: string;
+  appointmentTypes: string;
 }
 
-const defaultDraft = (actionClass: AutopilotActionClass): Draft => actionClass === 'calendar.create'
-  ? { weekdays: [1, 2, 3, 4, 5], windowStart: '06:00', windowEnd: '09:00', maxPerDay: '1', maxDurationMinutes: '60', horizonDays: '7', domains: '', expiresInDays: '30' }
-  : { weekdays: [1, 2, 3, 4, 5], windowStart: '08:00', windowEnd: '18:00', maxPerDay: '3', maxDurationMinutes: '', horizonDays: '', domains: '', expiresInDays: '30' };
+const SEND_KINDS: Array<{ id: string; label: string }> = [
+  { id: 'scheduling_reply', label: 'Scheduling replies' },
+  { id: 'follow_up', label: 'Follow-ups on what others owe you' },
+  { id: 'confirmation', label: 'Confirmations' },
+  { id: 'template', label: 'Your templates' },
+];
+
+const WINDOWED: AutopilotActionClass[] = ['calendar.create', 'email.draft', 'email.send', 'calendar.reschedule', 'appointment.book'];
+
+const defaultDraft = (actionClass: AutopilotActionClass): Draft => ({
+  weekdays: [1, 2, 3, 4, 5],
+  windowStart: actionClass === 'calendar.create' ? '06:00' : actionClass === 'calendar.decline' ? '18:00' : '08:00',
+  windowEnd: actionClass === 'calendar.create' ? '09:00' : actionClass === 'calendar.decline' ? '23:00' : '18:00',
+  maxPerDay: actionClass === 'calendar.create' || actionClass === 'appointment.book' || actionClass === 'subscription.cancel' ? '1' : '3',
+  maxDurationMinutes: '60',
+  horizonDays: actionClass === 'appointment.book' ? '30' : '7',
+  domains: '',
+  expiresInDays: '30',
+  kinds: ['scheduling_reply', 'follow_up', 'confirmation'],
+  recipients: '',
+  maxPerRecipientPerDay: '1',
+  templateLabel: '',
+  templateSubject: '',
+  templateBody: '',
+  keywords: '',
+  protectedKeywords: '',
+  maxAttendees: '3',
+  maxShiftDays: '2',
+  declineNote: '',
+  providerEmail: '',
+  providerLabel: '',
+  providerCategory: 'other',
+  appointmentTypes: '',
+});
+
+const list = (value: string, lower = true) => value.split(/[,\n]+/).map((item) => (lower ? item.trim().toLowerCase() : item.trim())).filter(Boolean);
+const num = (value: string) => Number(value);
 
 function constraintsFrom(actionClass: AutopilotActionClass, draft: Draft, timezone: string): AutopilotRuleConstraints {
-  if (!draft.weekdays.length) throw new Error('Choose at least one day.');
-  if (!HHMM.test(draft.windowStart) || !HHMM.test(draft.windowEnd) || draft.windowEnd <= draft.windowStart) {
-    throw new Error('Enter a window like 06:00 – 09:00 that ends after it starts.');
+  if (WINDOWED.includes(actionClass) || actionClass === 'calendar.decline') {
+    if (!draft.weekdays.length) throw new Error('Choose at least one day.');
+    if (!HHMM.test(draft.windowStart) || !HHMM.test(draft.windowEnd) || draft.windowEnd <= draft.windowStart) {
+      throw new Error('Enter a window like 06:00 – 09:00 that ends after it starts.');
+    }
   }
-  const base = { timezone, weekdays: [...draft.weekdays].sort(), windowStart: draft.windowStart, windowEnd: draft.windowEnd, maxPerDay: Number(draft.maxPerDay) };
-  if (actionClass === 'calendar.create') {
-    return { ...base, maxDurationMinutes: Number(draft.maxDurationMinutes), horizonDays: Number(draft.horizonDays), collision: 'never_overlap_busy' };
+  const windowed = { timezone, weekdays: [...draft.weekdays].sort(), windowStart: draft.windowStart, windowEnd: draft.windowEnd, maxPerDay: num(draft.maxPerDay) };
+  const criteria = { matchTitleKeywords: list(draft.keywords), maxAttendees: num(draft.maxAttendees), protectedTitleKeywords: list(draft.protectedKeywords) };
+  switch (actionClass) {
+    case 'calendar.create':
+      return { ...windowed, maxDurationMinutes: num(draft.maxDurationMinutes), horizonDays: num(draft.horizonDays), collision: 'never_overlap_busy' };
+    case 'email.draft': {
+      const domains = list(draft.domains);
+      if (!domains.length) throw new Error('List at least one recipient domain, e.g. school.example.org.');
+      return { ...windowed, allowedRecipientDomains: domains };
+    }
+    case 'email.send': {
+      const recipients = list(draft.recipients);
+      const domains = list(draft.domains);
+      if (!recipients.length && !domains.length) throw new Error('List who Autopilot may write to: addresses and/or domains.');
+      if (!draft.kinds.length) throw new Error('Choose at least one kind of message.');
+      const hasTemplate = draft.templateSubject.trim() && draft.templateBody.trim();
+      const kinds = draft.kinds.filter((kind) => kind !== 'template' || hasTemplate) as NonNullable<AutopilotRuleConstraints['allowedKinds']>;
+      return {
+        ...windowed, maxPerRecipientPerDay: num(draft.maxPerRecipientPerDay), allowedKinds: kinds, allowedRecipients: recipients, allowedRecipientDomains: domains,
+        templates: hasTemplate && kinds.includes('template')
+          ? [{ id: 'template-1', label: draft.templateLabel.trim() || 'My template', subject: draft.templateSubject.trim(), body: draft.templateBody }]
+          : [],
+      };
+    }
+    case 'calendar.reschedule':
+      return { ...windowed, ...criteria, horizonDays: num(draft.horizonDays), maxShiftDays: num(draft.maxShiftDays), collision: 'never_overlap_busy' };
+    case 'calendar.decline':
+      return {
+        timezone, maxPerDay: num(draft.maxPerDay), horizonDays: num(draft.horizonDays), ...criteria,
+        boundaries: [{ weekdays: [...draft.weekdays].sort(), start: draft.windowStart, end: draft.windowEnd }],
+        ...(draft.declineNote.trim() ? { declineNote: draft.declineNote.trim() } : {}),
+      };
+    case 'appointment.book': {
+      const types = list(draft.appointmentTypes, false);
+      if (!draft.providerEmail.trim() || !draft.providerLabel.trim() || !types.length) throw new Error('Name the provider, their booking email and the appointment types you allow.');
+      return {
+        ...windowed, horizonDays: num(draft.horizonDays),
+        providers: [{ email: draft.providerEmail.trim().toLowerCase(), label: draft.providerLabel.trim(), category: draft.providerCategory, appointmentTypes: types }],
+      };
+    }
+    case 'subscription.cancel': {
+      const domains = list(draft.domains);
+      if (!domains.length) throw new Error('List the provider domains whose cancellation address Autopilot may write to.');
+      return { timezone, maxPerDay: num(draft.maxPerDay), allowedProviderDomains: domains };
+    }
   }
-  const domains = draft.domains.split(/[\s,]+/).map((d) => d.trim().toLowerCase()).filter(Boolean);
-  if (!domains.length) throw new Error('List at least one recipient domain, e.g. school.example.org.');
-  return { ...base, allowedRecipientDomains: domains };
 }
 
 function expiryFrom(days: string): string {
@@ -62,11 +156,24 @@ function expiryFrom(days: string): string {
 
 function describe(rule: AutopilotRule): string {
   const c = rule.constraints;
-  const days = WEEKDAYS.filter((d) => c.weekdays.includes(d.id)).map((d) => d.label).join(' ');
-  const scope = rule.actionClass === 'calendar.create'
-    ? `≤${c.maxDurationMinutes} min · up to ${c.maxPerDay}/day · next ${c.horizonDays} days · never over busy time`
-    : `up to ${c.maxPerDay}/day · only to ${(c.allowedRecipientDomains ?? []).join(', ')} · drafts only, never sent`;
-  return `${days} · ${c.windowStart}–${c.windowEnd} (${c.timezone}) · ${scope}`;
+  const days = WEEKDAYS.filter((d) => (c.weekdays ?? []).includes(d.id)).map((d) => d.label).join(' ');
+  const when = c.windowStart ? `${days} · ${c.windowStart}–${c.windowEnd} (${c.timezone})` : `(${c.timezone})`;
+  switch (rule.actionClass) {
+    case 'calendar.create':
+      return `${when} · ≤${c.maxDurationMinutes} min · up to ${c.maxPerDay}/day · next ${c.horizonDays} days · never over busy time`;
+    case 'email.draft':
+      return `${when} · up to ${c.maxPerDay}/day · only to ${(c.allowedRecipientDomains ?? []).join(', ')} · drafts only`;
+    case 'email.send':
+      return `${when} · ${(c.allowedKinds ?? []).join(', ')} · only to ${[...(c.allowedRecipients ?? []), ...(c.allowedRecipientDomains ?? [])].join(', ')} · up to ${c.maxPerDay}/day, ${c.maxPerRecipientPerDay}/person`;
+    case 'calendar.reschedule':
+      return `${when} · flexible or matching "${(c.matchTitleKeywords ?? []).join(', ')}" · within ${c.maxShiftDays} days · never Deep Work or foreground blocks`;
+    case 'calendar.decline':
+      return `Declines invitations in ${(c.boundaries ?? []).map((b) => `${b.start}–${b.end}`).join(', ')} · with a polite note · never your own meetings or protected blocks`;
+    case 'appointment.book':
+      return `${when} · ${(c.providers ?? []).map((p) => `${p.label}: ${p.appointmentTypes.join(', ')}`).join(' · ')} · FREE bookings only`;
+    case 'subscription.cancel':
+      return `Cancels by email at ${(c.allowedProviderDomains ?? []).join(', ')} · up to ${c.maxPerDay}/day · never signs up, upgrades or pays`;
+  }
 }
 
 export default function AutopilotScreen() {
@@ -74,16 +181,26 @@ export default function AutopilotScreen() {
   const { graph } = useLifeGraph();
   const timezone = graph.identity.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const [overview, setOverview] = useState<AutopilotOverview>();
-  const [drafts, setDrafts] = useState<Record<AutopilotActionClass, Draft>>({
+  const [drafts, setDrafts] = useState<Record<AutopilotActionClass, Draft>>(() => ({
     'calendar.create': defaultDraft('calendar.create'),
     'email.draft': defaultDraft('email.draft'),
-  });
+    'email.send': defaultDraft('email.send'),
+    'calendar.reschedule': defaultDraft('calendar.reschedule'),
+    'calendar.decline': defaultDraft('calendar.decline'),
+    'appointment.book': defaultDraft('appointment.book'),
+    'subscription.cancel': defaultDraft('subscription.cancel'),
+  }));
+  const [done, setDone] = useState<AutopilotDoneItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
   const load = useCallback(async () => {
     if (!accessToken) return;
-    try { setOverview(await fetchAutopilot(accessToken)); }
+    try {
+      const [next, today] = await Promise.all([fetchAutopilot(accessToken), fetchAutopilotDone(accessToken).catch(() => ({ items: [] as AutopilotDoneItem[] }))]);
+      setOverview(next);
+      setDone(today.items);
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to load Autopilot.'); }
   }, [accessToken]);
 
@@ -127,7 +244,7 @@ export default function AutopilotScreen() {
   }
 
   return (
-    <Screen eyebrow="Autopilot" title="Standing authority, inside your rules." subtitle="APM acts without asking each time only where you have written a rule. Everything is reversible, audited and revocable.">
+    <Screen eyebrow="Autopilot" title="Standing authority, inside your rules." subtitle="APM acts without asking each time only where you have written a rule. Every run is audited and revocable; each one tells you whether it can be undone.">
       {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
 
       <Card tone={autopilot.masterPaused ? 'warning' : 'accent'}>
@@ -143,6 +260,33 @@ export default function AutopilotScreen() {
         />
       </Card>
 
+      <SectionTitle>Done today</SectionTitle>
+      {done.length ? done.map((item) => (
+        <Card key={item.executionId ?? item.actionId} tone={item.kind === 'stopped' ? 'warning' : item.status === 'failed' ? 'danger' : 'default'}>
+          <View style={uiStyles.row}>
+            <CardTitle>{item.summary}</CardTitle>
+            <Pill tone={item.kind === 'stopped' || item.status === 'failed' ? 'warning' : undefined}>{item.kind === 'stopped' ? 'needs you' : item.status}</Pill>
+          </View>
+          <KeyValue label="When" value={new Date(item.at).toLocaleTimeString()} />
+          {item.stoppedReason === 'payment_required' ? <Body muted>It asked for a card or deposit, so APM stopped. It is waiting in Life OS for your decision.</Body> : null}
+          {item.stoppedReason === 'needs_user' ? <Body muted>This provider has no emailed cancellation route. APM prepared it; finishing it is yours.</Body> : null}
+          {item.failureCode ? <KeyValue label="Failure" value={item.failureCode} /> : null}
+          {item.canUndo && item.executionId
+            ? <Button label="Undo" variant="secondary" onPress={() => void act(() => undoAutopilotExecution(item.executionId!, accessToken!))} />
+            : null}
+          <Body muted>{item.undoLabel}</Body>
+        </Card>
+      )) : <Card><Body muted>Nothing on Autopilot yet today. Every run lands here with Undo, or a clear "can't undo".</Body></Card>}
+
+      <SectionTitle>Kill switches</SectionTitle>
+      <Card>
+        <Body muted>Three switches stop Autopilot, and stopping never needs your plan: the master pause above, each rule's own pause or revoke below, and a per-class switch the APM server holds. A class stays off until it passes security and runtime proof.</Body>
+        {overview.supported.map((policy) => {
+          const cls = autopilot.classes.find((c) => c.actionClass === policy.actionClass);
+          return <KeyValue key={policy.actionClass} label={policy.label} value={cls?.activationStatus === 'active' ? 'Class on' : 'Class off · awaiting proof'} />;
+        })}
+      </Card>
+
       {overview.supported.map((policy) => {
         const cls = autopilot.classes.find((c) => c.actionClass === policy.actionClass);
         const rule = autopilot.rules.find((r) => r.actionClass === policy.actionClass && r.status !== 'revoked');
@@ -155,7 +299,8 @@ export default function AutopilotScreen() {
             <Card>
               <KeyValue label="Activation" value={cls?.activationStatus === 'active' ? 'Active' : 'Built · waiting on runtime proof'} />
               <KeyValue label="Your permission" value={permissionLevel === 5 ? 'Level 5 · Autopilot' : `Level ${permissionLevel}`} />
-              <KeyValue label="Undo" value={policy.undo === 'delete_event' ? 'Removes the event APM created' : 'Deletes the draft APM prepared'} />
+              <KeyValue label="Undo" value={policy.reversible ? 'Available' : "Can't undo"} />
+              <Body muted>{policy.undoLabel}</Body>
               {cls?.activationStatus !== 'active' ? (
                 <Body muted>You can set the rule now. APM will not act on it until this action class passes security and runtime proof.</Body>
               ) : null}
@@ -190,8 +335,13 @@ export default function AutopilotScreen() {
                     );
                   })}
                 </View>
-                <TextInput value={draft.windowStart} onChangeText={(v) => patchDraft(policy.actionClass, { windowStart: v })} placeholder="Window start · HH:MM" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                <TextInput value={draft.windowEnd} onChangeText={(v) => patchDraft(policy.actionClass, { windowEnd: v })} placeholder="Window end · HH:MM" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                <Body muted>{policy.actionClass === 'calendar.decline' ? 'Your boundary: invitations in this window on these days are declined' : 'When APM may act'}</Body>
+                {(WINDOWED.includes(policy.actionClass) || policy.actionClass === 'calendar.decline') ? (
+                  <>
+                    <TextInput value={draft.windowStart} onChangeText={(v) => patchDraft(policy.actionClass, { windowStart: v })} placeholder="Window start · HH:MM" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextInput value={draft.windowEnd} onChangeText={(v) => patchDraft(policy.actionClass, { windowEnd: v })} placeholder="Window end · HH:MM" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                  </>
+                ) : null}
                 <TextInput value={draft.maxPerDay} onChangeText={(v) => patchDraft(policy.actionClass, { maxPerDay: v })} placeholder="Most per day" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
                 {policy.actionClass === 'calendar.create' ? (
                   <>
@@ -199,12 +349,65 @@ export default function AutopilotScreen() {
                     <TextInput value={draft.horizonDays} onChangeText={(v) => patchDraft(policy.actionClass, { horizonDays: v })} placeholder="How far ahead · days" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
                     <Body muted>APM will never place a block over busy, tentative or out-of-office time.</Body>
                   </>
-                ) : (
+                ) : null}
+                {policy.actionClass === 'email.draft' ? (
                   <>
                     <TextInput value={draft.domains} onChangeText={(v) => patchDraft(policy.actionClass, { domains: v })} autoCapitalize="none" placeholder="Allowed recipient domains · comma separated" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <Body muted>Drafts only. Autopilot never sends email.</Body>
+                    <Body muted>Drafts only: they wait in your mailbox for you.</Body>
                   </>
-                )}
+                ) : null}
+                {policy.actionClass === 'email.send' ? (
+                  <>
+                    <View style={styles.choiceGrid}>
+                      {SEND_KINDS.map((kind) => {
+                        const on = draft.kinds.includes(kind.id);
+                        return (
+                          <Pressable key={kind.id} onPress={() => patchDraft(policy.actionClass, { kinds: on ? draft.kinds.filter((k) => k !== kind.id) : [...draft.kinds, kind.id] })} style={[styles.choice, on && styles.choiceActive]}>
+                            <Text style={[styles.choiceText, on && styles.choiceTextActive]}>{kind.label}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    <TextInput value={draft.recipients} onChangeText={(v) => patchDraft(policy.actionClass, { recipients: v })} autoCapitalize="none" placeholder="Allowed people · email addresses, comma separated" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextInput value={draft.domains} onChangeText={(v) => patchDraft(policy.actionClass, { domains: v })} autoCapitalize="none" placeholder="Allowed domains · comma separated (optional)" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextInput value={draft.maxPerRecipientPerDay} onChangeText={(v) => patchDraft(policy.actionClass, { maxPerRecipientPerDay: v })} placeholder="Most per person per day (1–3)" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    {draft.kinds.includes('template') ? (
+                      <>
+                        <TextInput value={draft.templateLabel} onChangeText={(v) => patchDraft(policy.actionClass, { templateLabel: v })} placeholder="Template name · e.g. Birthday" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                        <TextInput value={draft.templateSubject} onChangeText={(v) => patchDraft(policy.actionClass, { templateSubject: v })} placeholder="Template subject" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                        <TextInput value={draft.templateBody} onChangeText={(v) => patchDraft(policy.actionClass, { templateBody: v })} placeholder="Template message · sent exactly as written" multiline placeholderTextColor={colors.inkMuted} style={styles.input} />
+                      </>
+                    ) : null}
+                    <Body muted>Only these kinds, only to these people. Follow-ups chase only what someone else owes you. A sent message can't be undone.</Body>
+                  </>
+                ) : null}
+                {policy.actionClass === 'calendar.reschedule' || policy.actionClass === 'calendar.decline' ? (
+                  <>
+                    <TextInput value={draft.keywords} onChangeText={(v) => patchDraft(policy.actionClass, { keywords: v })} autoCapitalize="none" placeholder="Also match titles containing · e.g. 1:1, sync" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextInput value={draft.maxAttendees} onChangeText={(v) => patchDraft(policy.actionClass, { maxAttendees: v })} placeholder="Only meetings with at most N attendees" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextInput value={draft.protectedKeywords} onChangeText={(v) => patchDraft(policy.actionClass, { protectedKeywords: v })} autoCapitalize="none" placeholder="Never touch titles containing · e.g. board, interview" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextInput value={draft.horizonDays} onChangeText={(v) => patchDraft(policy.actionClass, { horizonDays: v })} placeholder="How far ahead · days" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    {policy.actionClass === 'calendar.reschedule'
+                      ? <TextInput value={draft.maxShiftDays} onChangeText={(v) => patchDraft(policy.actionClass, { maxShiftDays: v })} placeholder="Move at most N days" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                      : <TextInput value={draft.declineNote} onChangeText={(v) => patchDraft(policy.actionClass, { declineNote: v })} placeholder="Your polite note (optional; a kind default is used)" multiline placeholderTextColor={colors.inkMuted} style={styles.input} />}
+                    <Body muted>Only events you mark flexible or that match these words. Deep Work, focus and foreground blocks are never moved or declined.</Body>
+                  </>
+                ) : null}
+                {policy.actionClass === 'appointment.book' ? (
+                  <>
+                    <TextInput value={draft.providerLabel} onChangeText={(v) => patchDraft(policy.actionClass, { providerLabel: v })} placeholder="Provider · e.g. Riverside Clinic" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextInput value={draft.providerEmail} onChangeText={(v) => patchDraft(policy.actionClass, { providerEmail: v })} autoCapitalize="none" placeholder="Their booking email" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextInput value={draft.appointmentTypes} onChangeText={(v) => patchDraft(policy.actionClass, { appointmentTypes: v })} placeholder="Appointment types you allow · e.g. annual check-up" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextInput value={draft.horizonDays} onChangeText={(v) => patchDraft(policy.actionClass, { horizonDays: v })} placeholder="How far ahead · days" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <Body muted>FREE bookings only. Anything asking for a card or deposit stops and waits for you. Medical visits are scheduling only — APM never makes a clinical choice.</Body>
+                  </>
+                ) : null}
+                {policy.actionClass === 'subscription.cancel' ? (
+                  <>
+                    <TextInput value={draft.domains} onChangeText={(v) => patchDraft(policy.actionClass, { domains: v })} autoCapitalize="none" placeholder="Provider domains · e.g. streamco.com" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <Body muted>Saves money, never spends it: a fixed cancellation email, or a prepared request when the provider has no emailed route. Never signs up, upgrades or enters payment details.</Body>
+                  </>
+                ) : null}
                 <TextInput value={draft.expiresInDays} onChangeText={(v) => patchDraft(policy.actionClass, { expiresInDays: v })} placeholder="Rule lasts · days (max 90)" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
                 <Body muted>Granting sets this permission to level 5 and creates the rule. Your plan alone never does this.</Body>
                 <Button
@@ -222,17 +425,19 @@ export default function AutopilotScreen() {
         );
       })}
 
-      <SectionTitle>Recent Autopilot runs</SectionTitle>
+      <SectionTitle>Earlier Autopilot runs</SectionTitle>
       {autopilot.executions.length ? autopilot.executions.slice(0, 20).map((run) => (
         <Card key={run.id}>
           <View style={uiStyles.row}>
-            <CardTitle>{run.actionClass === 'calendar.create' ? 'Calendar block' : 'Email draft'}</CardTitle>
+            <CardTitle>{overview.supported.find((p) => p.actionClass === run.actionClass)?.label ?? run.actionClass}</CardTitle>
             <Pill tone={run.status === 'failed' ? 'warning' : undefined}>{run.status}</Pill>
           </View>
           {run.proposedStartsAt ? <KeyValue label="When" value={new Date(run.proposedStartsAt).toLocaleString()} /> : null}
           <KeyValue label="Ran" value={new Date(run.claimedAt).toLocaleString()} />
           {run.failureCode ? <KeyValue label="Failure" value={run.failureCode} /> : null}
-          {run.status === 'verified' ? <Button label="Undo" variant="secondary" onPress={() => void act(() => undoAutopilotExecution(run.id, accessToken!))} /> : null}
+          {run.status === 'verified' && overview.supported.find((p) => p.actionClass === run.actionClass)?.reversible
+            ? <Button label="Undo" variant="secondary" onPress={() => void act(() => undoAutopilotExecution(run.id, accessToken!))} />
+            : run.status === 'verified' ? <Body muted>Can't undo.</Body> : null}
         </Card>
       )) : <Card><Body muted>No Autopilot runs yet. Every run is recorded in Activity.</Body></Card>}
 

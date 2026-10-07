@@ -53,6 +53,8 @@ current kill switches
 
 Every new action type needs schema, permission, constraints, idempotency, connector, verification, audit and kill-switch behavior before merge.
 
+Autopilot (level 5) classes, by the owner's ruling of 6 Oct 2026, are listed with their guardrails in docs/31: calendar blocks, drafts, rule-bound sending (scheduling replies, follow-ups, confirmations, templates), moving/declining flexible meetings inside declared boundaries, FREE appointment requests, and subscription cancellations. Each has a daily done-list entry with Undo, or a clear "can't undo". Purchases, payments, upgrades, clinical/healthcare decisions and money movement are never on Autopilot.
+
 ## Life OS expansion
 
 ADR-0002 authorizes Life OS as the next source implementation phase. It is still not "add every life-admin feature": build the agreed high-value domains on the same Life Graph/Today/Radar/action primitives, then refine breadth from beta evidence.

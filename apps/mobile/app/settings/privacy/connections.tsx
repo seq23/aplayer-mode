@@ -19,19 +19,26 @@ import { useSession } from '../../../src/state/session';
 
 type BusyKey = 'device' | `${OAuthProvider}:${OAuthKind}`;
 
+// The provider write scopes the Autopilot claim checks (migration 0033 required_scopes).
+const WRITE_SCOPES: Record<OAuthKind, string[]> = {
+  calendar: ['https://www.googleapis.com/auth/calendar.events', 'Calendars.ReadWrite'],
+  email: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.compose', 'Mail.Send', 'Mail.ReadWrite'],
+};
+const hasWriteScope = (kind: OAuthKind, scopes: string[]) => scopes.some((scope) => WRITE_SCOPES[kind].includes(scope));
+
 export default function ConnectionsScreen() {
   const { graph, refresh } = useLifeGraph();
   const { accessToken } = useSession();
   const [busy, setBusy] = useState<BusyKey>();
   const [error, setError] = useState<string>();
 
-  const connect = async (provider: OAuthProvider, kind: OAuthKind) => {
+  const connect = async (provider: OAuthProvider, kind: OAuthKind, access: 'read' | 'act' = 'read') => {
     if (!accessToken || busy) return;
     const key: BusyKey = `${provider}:${kind}`;
     setBusy(key);
     setError(undefined);
     try {
-      const connection = await connectOAuthProvider({ provider, kind, accessToken });
+      const connection = await connectOAuthProvider({ provider, kind, accessToken, access });
       if (kind === 'calendar') await syncCloudCalendar(connection.connectionId, accessToken);
       else await syncEmailConnection(connection.connectionId, accessToken);
       await refresh();
@@ -80,7 +87,7 @@ export default function ConnectionsScreen() {
     <Screen
       eyebrow="Connections"
       title="You choose what APM can see."
-      subtitle="Every account is connected separately. Calendar access never silently grants email access, and email access never grants send authority."
+      subtitle="Every account is connected separately. Calendar access never silently grants email access, and reading never grants write or send authority: that is a separate consent you give per account."
     >
       <Card tone="accent">
         <CardTitle>Provider-neutral Calendar Fabric</CardTitle>
@@ -114,6 +121,19 @@ export default function ConnectionsScreen() {
                 variant="secondary"
                 onPress={() => card.device ? void syncDevice() : void connect(card.provider!, card.kind!)}
               />
+              {!card.device && existing ? (
+                <>
+                  <KeyValue label="Autopilot can act" value={hasWriteScope(card.kind!, existing.scopes) ? 'Yes · write consent given' : 'No · read only'} />
+                  <Body muted>{card.kind === 'calendar'
+                    ? 'Autopilot rules that create, move or decline events need a separate write consent. Reading never implies it.'
+                    : 'Autopilot rules that draft or send email need a separate send consent. Reading never implies it.'}</Body>
+                  <Button
+                    label={busy === card.key ? 'Connecting…' : hasWriteScope(card.kind!, existing.scopes) ? 'Refresh Autopilot write consent' : 'Allow Autopilot to act on this account'}
+                    variant="secondary"
+                    onPress={() => void connect(card.provider!, card.kind!, 'act')}
+                  />
+                </>
+              ) : null}
             </Card>
           );
         })}

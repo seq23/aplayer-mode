@@ -21,6 +21,8 @@ export async function connectOAuthProvider(input: {
   provider: OAuthProvider;
   kind: OAuthKind;
   accessToken: string;
+  /** 'act' = the separate write consent Autopilot classes require (docs/22). */
+  access?: 'read' | 'act';
 }) {
   const redirectUri = makeRedirectUri({ scheme: 'aplayermode', path: 'oauth' });
   const codeVerifier = randomVerifier();
@@ -34,6 +36,7 @@ export async function connectOAuthProvider(input: {
     kind: input.kind,
     codeChallenge,
     redirectUri,
+    access: input.access ?? 'read',
   }, input.accessToken);
 
   const result = await WebBrowser.openAuthSessionAsync(started.authorizationUrl, redirectUri);

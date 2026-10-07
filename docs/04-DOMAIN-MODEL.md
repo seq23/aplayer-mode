@@ -217,11 +217,11 @@ Both entities retain provenance and remain inside the same Life Graph / Today / 
 
 ## ADR-0002 / Phase C Autopilot extension
 
-Phase C adds the standing-authority primitives (migration 0018, docs/31):
+Phase C adds the standing-authority primitives (migrations 0018, 0033–0034, docs/31, ADR-0003):
 
 | Entity | Purpose |
 |---|---|
-| AutopilotActionClass | catalogue of the only classes that can ever hold standing authority (`calendar.create`, `email.draft`), with activation status and evidence reference |
+| AutopilotActionClass | catalogue of the only classes that can ever hold standing authority, with activation status and evidence reference: `calendar.create`, `email.draft` (0018) and, by ADR-0003, `email.send`, `calendar.reschedule`, `calendar.decline`, `appointment.book`, `subscription.cancel` (0033); purchases, payments, upgrades, clinical decisions and money movement are never classes |
 | AutopilotRule | one user's explicit, versioned, expiring (≤ 90 days), revocable rule for one class, with its constraints |
 | AutopilotExecution | the authority ledger: one claimed standing run, linked to the rule version and the canonical `Action` |
 | AutopilotSettings | the user's master pause |

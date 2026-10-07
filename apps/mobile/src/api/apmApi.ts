@@ -2,6 +2,7 @@ import type {
   AccountabilityPolicy,
   ActionRecord,
   AutopilotActionClass,
+  AutopilotDoneItem,
   AutopilotExecution,
   AutopilotRule,
   AutopilotRuleConstraints,
@@ -358,7 +359,8 @@ export async function closeCoachSession(sessionId: string, accessToken: string) 
   return request<{ ok: boolean }>(`/v1/apm/coach/${encodeURIComponent(sessionId)}/close`, accessToken, { method: 'POST' });
 }
 
-export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; codeChallenge: string; redirectUri: string }, accessToken: string) {
+/** `access: 'act'` asks the provider for write scopes as a separate, explicit consent (Autopilot); the default is read-only. */
+export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; codeChallenge: string; redirectUri: string; access?: 'read' | 'act' }, accessToken: string) {
   return request<{ state: string; authorizationUrl: string }>('/v1/connections/oauth/start', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 export async function exchangeOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; code: string; codeVerifier: string; state: string; redirectUri: string }, accessToken: string) {
@@ -413,10 +415,11 @@ export async function createHousehold(name: string, accessToken: string) {
 
 // Phase C — Autopilot standing rules. The server and database decide; these
 // calls only express the user's explicit grants, pauses and revocations.
+export type AutopilotDomain = 'calendar' | 'email' | 'appointment' | 'subscription';
 export interface AutopilotOverview {
   autopilot: AutopilotState;
-  permissions: Array<{ actionClass: AutopilotActionClass; domain: 'calendar' | 'email'; autonomyLevel: AutonomyLevel }>;
-  supported: Array<{ actionClass: AutopilotActionClass; domain: 'calendar' | 'email'; label: string; reversible: boolean; undo: string }>;
+  permissions: Array<{ actionClass: AutopilotActionClass; domain: AutopilotDomain; autonomyLevel: AutonomyLevel }>;
+  supported: Array<{ actionClass: AutopilotActionClass; domain: AutopilotDomain; connector: 'calendar' | 'email'; label: string; reversible: boolean; undo: string; undoLabel: string }>;
   neverStanding: Array<{ match: string; reason: string }>;
 }
 export async function fetchAutopilot(accessToken: string): Promise<AutopilotOverview> {
@@ -437,11 +440,18 @@ export async function revokeAutopilotRule(ruleId: string, accessToken: string, r
 export async function setAutopilotPaused(paused: boolean, accessToken: string): Promise<{ paused: boolean }> {
   return request<{ paused: boolean }>('/v1/autopilot/pause', accessToken, { method: 'PUT', body: JSON.stringify({ paused }) });
 }
-export async function runAutopilotRule(ruleId: string, input: { idempotencyKey: string; reason: string; payload: Record<string, unknown> }, accessToken: string): Promise<{ replayed: boolean; execution: AutopilotExecution; action: ActionRecord }> {
+export async function runAutopilotRule(ruleId: string, input: { idempotencyKey: string; reason: string; payload: Record<string, unknown> }, accessToken: string): Promise<{ replayed: boolean; stopped?: 'payment_required' | 'needs_user'; execution?: AutopilotExecution; action: ActionRecord }> {
   return request(`/v1/autopilot/rules/${encodeURIComponent(ruleId)}/run`, accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 export async function undoAutopilotExecution(executionId: string, accessToken: string): Promise<AutopilotExecution> {
   return (await request<{ execution: AutopilotExecution }>(`/v1/autopilot/executions/${encodeURIComponent(executionId)}/undo`, accessToken, { method: 'POST' })).execution;
+}
+/** Today's done-list: each run with Undo or a clear "can't undo"; stops show as "needs you". */
+export async function fetchAutopilotDone(accessToken: string, day?: string): Promise<{ day: string; items: AutopilotDoneItem[] }> {
+  return request(`/v1/autopilot/done${day ? `?day=${encodeURIComponent(day)}` : ''}`, accessToken);
+}
+export async function setAutopilotEventFlexible(eventId: string, flexible: boolean, accessToken: string): Promise<{ eventId: string; flexible: boolean }> {
+  return request(`/v1/autopilot/flexible-events/${encodeURIComponent(eventId)}`, accessToken, { method: 'PUT', body: JSON.stringify({ flexible }) });
 }
 export async function fetchRetainedAutopilotState(accessToken: string): Promise<{ rules: AutopilotRule[]; executions: AutopilotExecution[]; masterPaused: boolean }> {
   return request('/v1/privacy/autopilot', accessToken);
