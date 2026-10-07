@@ -60,7 +60,7 @@ import {
 } from './autopilotRepository';
 import { notifyRadarItems } from './push';
 import { workPushHold } from './morningTrigger';
-import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, rebuildBodyPlans, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
+import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, pillarRebuildsPending, rebuildBodyPlans, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
   applyOsChange,
   asLoopError,
@@ -683,6 +683,11 @@ app.post('/v1/today/check-in', async (c) => {
   const state = await buildUserState(c.env, user.accessToken, user.id);
   if (!state.graph.personalOS) return c.json({ error: 'personal_os_missing', message: 'Complete the Personal OS intake first.' }, 409);
   if (state.today.checkedIn) return c.json({ replayed: true, ...state });
+  // Never lock an agenda from a plan that has not received an in-effect pillar change yet.
+  // Fail closed: if the check itself fails, the plans' state is unknown, so do not lock.
+  if (await pillarRebuildsPending(c.env, user.id).catch(() => true)) {
+    return c.json({ error: 'plans_updating', message: 'Your Drafting Room change is still reaching your plans. Try the check-in again in a moment.' }, 503);
+  }
   // The Mood Gate runs here, in the morning: mood ≤ 2 prints a Minimum Viable Day.
   const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, mood: parsed.data.mood });
   try { await checkInDay(c.env, user.id, { day: state.today.date, mood: parsed.data.mood, agenda }); }
@@ -886,6 +891,8 @@ app.post('/v1/os/changes', async (c) => {
 app.post('/v1/os/changes/:id/apply', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   let applied;
+  // A pillar-floor change regenerates the affected plans on its effective date, when the
+  // next read reconciles it (ensureGoalPlans → reconcilePillarRebuilds, 0037).
   try { applied = await applyOsChange(c.env, user.accessToken, c.req.param('id')); }
   catch (error) { return loopFailure(c, error); }
   return c.json({ change: applied, message: `Applied. It takes effect from ${applied.effective_from}: today's locked agenda is not rewritten.`, ...(await buildUserState(c.env, user.accessToken, user.id)) });
@@ -942,6 +949,8 @@ app.post('/v1/goals', async (c) => {
     goals: state.graph.goals,
     date: localToday(state.graph, now),
     completions: state.graph.planCompletions,
+    // Track rules shape arbitration, not only new-goal filters (Billionaire Mindset).
+    trackKeys: [...activeTracks],
   });
   return c.json({
     goalId: created.goal.id,

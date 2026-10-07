@@ -12,7 +12,7 @@ import {
   type SafetyLevel,
   type SafetyResource,
 } from './safety';
-import { trackChallenges } from './tracks';
+import { trackChallenges, trackGuidance } from './tracks';
 
 /**
  * The BHPC coaching state machine (Part I "like tennis", Part V Phase 2,
@@ -209,7 +209,10 @@ export function scriptedSynthesis(mode: OperatingModeKey, userMessages: string[]
   const offset = Math.max(0, Math.min(1, userMessages.length - questionsAsked));
   const opener = offset ? quote(userMessages[0]) : '';
   const [a0, a1, a2] = [quote(userMessages[offset]), quote(userMessages[offset + 1]), quote(userMessages[offset + 2])];
-  const challenges = trackChallenges(tracks, userMessages.join(' ')).map((entry) => entry.line);
+  const challenged = trackChallenges(tracks, userMessages.join(' '));
+  // Track 1's filters apply to ALL guidance (BHPC Appendix A), so they ride with every
+  // answer as a challenge line when no trigger fired.
+  const challenges = [...challenged.map((entry) => entry.line), ...trackGuidance(tracks, challenged.map((entry) => entry.key))];
   let body: string;
   switch (mode) {
     case 'high_pressure':

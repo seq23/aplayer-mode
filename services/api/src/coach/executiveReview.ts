@@ -1,5 +1,5 @@
 import type { DailyPlan, LifeGraphSnapshot } from '@apm/domain';
-import { activeTrackDefinitions } from './tracks';
+import { activeTrackDefinitions, trackGuidance } from './tracks';
 
 /**
  * Executive Review Mode (BHPC Appendix B, Mode 2), generated deterministically
@@ -47,6 +47,10 @@ export function buildExecutiveReview(graph: LifeGraphSnapshot, plan: DailyPlan, 
   } else if (activeGoals[0]) {
     items.push({ area: 'priorities', text: `Your top goal is ${clean(activeGoals[0].title, 100)}. One foreground gets aggressive advancement; the rest is maintenance.` });
   }
+
+  // Track filters that apply to ALL guidance (Billionaire Mindset, Appendix A Track 1)
+  // frame the review's opportunity evaluation too; placed early so the bound keeps them.
+  for (const line of trackGuidance(graph.tracks, [])) items.push({ area: 'opportunity', text: line });
 
   // Opportunity quality
   if (activeGoals.length) {

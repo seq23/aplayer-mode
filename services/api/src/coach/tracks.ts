@@ -22,6 +22,11 @@ export interface TrackDefinition {
   triggers: RegExp[];
   challenge: string;
   precedence?: string;
+  /**
+   * A Track whose filters apply to ALL guidance (BHPC Appendix A Track 1: "Coaching
+   * Filters (Applied to All Guidance)"), not only when a trigger word appears.
+   */
+  guidance?: string;
 }
 
 export const ACTIVE_TRACK_KEYS = [
@@ -59,6 +64,8 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
     ],
     triggers: [/\b(opportunit(y|ies)|offer|deal|equity|invest(ing|ment)?|salary|raise money|side hustle)\b/i],
     challenge: 'Billionaire Mindset filters apply: it must still be right in 10 years, the worst case must be survivable, and it should scale without you.',
+    // Declarative on purpose: a coach turn carries at most one question (assertCoachTurnContract).
+    guidance: 'Billionaire filter on this move: favour leverage over activity and ownership over income; it should still be right in 10 years, its worst case must be survivable, and it should scale without you.',
     precedence: 'Wealth Foundation’s buffer gate governs personal money; Billionaire Mindset governs venture and business decisions.',
   },
   operator_discipline: {
@@ -194,6 +201,16 @@ export function trackRulesForCoaching(tracks: Track[]) {
     filters: track.filters,
     ...(track.precedence ? { precedence: track.precedence } : {}),
   }));
+}
+
+/**
+ * Filters that apply to all guidance (Track 1), for every active Track that declares
+ * them and whose challenge did not already fire in this answer.
+ */
+export function trackGuidance(tracks: Track[], alreadyChallenged: ActiveTrackKey[]): string[] {
+  return activeTrackDefinitions(tracks)
+    .filter((track) => track.guidance && !alreadyChallenged.includes(track.key))
+    .map((track) => track.guidance!);
 }
 
 /** Deterministic "must challenge" enforcement: at most two Track challenges, in library order. */

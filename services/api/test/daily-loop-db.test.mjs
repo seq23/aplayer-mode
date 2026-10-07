@@ -62,6 +62,8 @@ async function svc(fn, args) {
 }
 const rpc = async (userId, fn, args) => (await as(userId, `select public.${fn}(${args.map((_, i) => `$${i + 1}`).join(', ')}) as r`, args)).rows[0].r;
 const localToday = async (userId) => (await admin('select private.apm_local_today($1)::text as d', [userId])).rows[0].d;
+/** Phase Bridge (0035): the First Hour begins, then the Daily Stack opens. */
+const beginDay = async (userId) => { await rpc(userId, 'apm_set_day_phase', ['first_hour']); await rpc(userId, 'apm_set_day_phase', ['executing']); };
 const shift = (date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
 function plan(goal, startDate) {
@@ -191,6 +193,13 @@ test('the opening step gates execution; only agenda items complete; completion i
   assert.equal(again.replayed, true);
   assert.equal(again.day.mood, 6, 'the mood is recorded once; it is not renegotiated mid-day');
 
+  // Phase Bridge pacing is enforced in the database (0035), not only in the app.
+  await rejects(rpc(USER_A, 'apm_complete_plan_action', [stored.id, key, null]), /loop_first_hour_not_started/, 'the First Hour starts on the user’s word');
+  await rejects(rpc(USER_A, 'apm_set_day_phase', ['executing']), /loop_first_hour_not_started/, 'the stack cannot open before the First Hour');
+  await rpc(USER_A, 'apm_set_day_phase', ['first_hour']);
+  const stackItem = agenda.dailyStack.find((item) => item.planId && item.actionKey);
+  if (stackItem) await rejects(rpc(USER_A, 'apm_complete_plan_action', [stackItem.planId, stackItem.actionKey, null]), /loop_stack_not_open/, 'the Daily Stack opens after the First Hour');
+  await rpc(USER_A, 'apm_set_day_phase', ['executing']);
   await rejects(rpc(USER_A, 'apm_complete_plan_action', [stored.id, 'not_today', null]), /loop_not_on_agenda/);
   const actionKeys = Object.keys(stored.plan.actions);
   const offAgenda = actionKeys.find((k) => k !== key && !agenda.dailyStack.some((item) => item.actionKey === k));
@@ -310,6 +319,11 @@ test('evidence before verdict, and the legacy path only completes what today’s
     completions: [], morningSequence: [], nextActions: [{ id: onAgenda, title: 'Book the CPA exam seat for March', status: 'open' }],
   });
   await svc('apm_service_day_check_in', [USER_B, today, 7, 'normal', JSON.stringify(agenda)]);
+  const onAgendaIsPriority = agenda.firstHour.priority?.nextActionId === onAgenda;
+  await rejects(rpc(USER_B, 'apm_complete_next_action', [onAgenda]), /loop_first_hour_not_started/, 'the legacy path honours Phase Bridge too');
+  await rpc(USER_B, 'apm_set_day_phase', ['first_hour']);
+  if (!onAgendaIsPriority) await rejects(rpc(USER_B, 'apm_complete_next_action', [onAgenda]), /loop_stack_not_open/);
+  await rpc(USER_B, 'apm_set_day_phase', ['executing']);
   assert.equal((await rpc(USER_B, 'apm_complete_next_action', [onAgenda])).action.status, 'done');
   await rejects(rpc(USER_B, 'apm_complete_next_action', [offAgenda]), /loop_not_on_agenda/);
   await rejects(rpc(USER_B, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'the plan action is still open');
@@ -338,6 +352,7 @@ test('the database checks the day’s supply, the Mood Gate and Never Miss Twice
   const offSchedule = { ...recovery, dailyStack: [{ id: 'x', kind: 'plan_floor', title: 'Make the day-90 call', planId: stored.id, actionKey: 'day90_decision', status: 'open', reasonCodes: [] }] };
   await rejects(svc('apm_service_day_check_in', [USER_C, today, 6, 'missed_yesterday', JSON.stringify(offSchedule)]), /loop_invalid_agenda/);
   await svc('apm_service_day_check_in', [USER_C, today, 6, 'missed_yesterday', JSON.stringify(recovery)]);
+  await beginDay(USER_C);
 
   await rejects(rpc(USER_C, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'no win without evidence');
   await rejects(rpc(USER_C, 'apm_complete_plan_action', [stored.id, 'day90_decision', null]), /loop_not_on_agenda/);
@@ -377,6 +392,7 @@ test('a Full Day needs the whole locked agenda done; setup days supply only setu
   const agenda = planning.composeAgenda({ date: today, state: 'normal', plans: [entry], goals: [{ id: GOAL_D, title: 'Launch my business', status: 'active', priority: 1 }], completions: [], morningSequence: [] });
   assert.ok(agenda.dailyStack.length >= 1, 'a foreground action plus the family floor');
   await svc('apm_service_day_check_in', [USER_D, today, 7, 'normal', JSON.stringify(agenda)]);
+  await beginDay(USER_D);
   await rpc(USER_D, 'apm_complete_plan_action', [stored.id, agenda.firstHour.priority.actionKey, null]);
   await rejects(rpc(USER_D, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'one of two done is not a Full Day');
   assert.equal((await admin('select private.apm_loop_max_verdict($1, $2::date) v', [USER_D, today])).rows[0].v, 'mvd');
@@ -417,6 +433,35 @@ test('a locked agenda must carry the floors the supply requires; the day-90 deci
   const planless = { ...agenda, foregroundPriority: undefined, firstHour: { sequence: [] }, dailyStack: [] };
   await rejects(svc('apm_service_day_check_in', [USER_E, today, 7, 'normal', JSON.stringify(planless)]), /loop_invalid_agenda/, 'a running plan cannot be left off the agenda');
   await svc('apm_service_day_check_in', [USER_E, today, 7, 'normal', JSON.stringify(agenda)]);
+  await beginDay(USER_E);
   assert.equal((await rpc(USER_E, 'apm_review_plan_gate', [stored.id, 'foundation', true])).gate_reviews.foundation.verdict, 'park');
   assert.equal((await rpc(USER_E, 'apm_decide_goal_plan', [stored.id, 'promote', 'It worked'])).decision, 'promote');
+});
+
+test('next_actions are RPC-only (0035): no direct owner writes, intake still seeds, completion stays governed', async () => {
+  const USER_F = '00000000-0000-4000-8000-0000000000f1';
+  await admin(`insert into auth.users (id) values ('${USER_F}')`);
+  await admin(`insert into public.subscription_entitlements (user_id, plan, status) values ('${USER_F}', 'beta', 'active') on conflict (user_id) do nothing`);
+  // Onboarding (SECURITY INVOKER) seeds its first action through the governed writer.
+  await rpc(USER_F, 'apm_save_onboarding', ['Ana', ['parent'], 'Run a 10k in spring', null, null, 'body']);
+  const seeded = (await admin(`select id, status, goal_id from public.next_actions where user_id = $1`, [USER_F])).rows;
+  assert.equal(seeded.length, 1);
+  assert.equal(seeded[0].status, 'open');
+
+  // Every direct write is refused — the forgery the P2 named: marking your own action done.
+  await rejects(as(USER_F, `update public.next_actions set status = 'done' where id = $1`, [seeded[0].id]), /permission denied/);
+  await rejects(as(USER_F, `insert into public.next_actions (user_id, goal_id, title, status) values ($1, $2, 'Forged', 'done')`, [USER_F, seeded[0].goal_id]), /permission denied/);
+  await rejects(as(USER_F, `delete from public.next_actions where id = $1`, [seeded[0].id]), /permission denied/);
+  const policies = (await admin(`select cmd from pg_policies where tablename = 'next_actions' order by cmd`)).rows.map((row) => row.cmd);
+  assert.deepEqual(policies, ['SELECT']);
+  assert.equal((await as(USER_F, 'select count(*)::int n from public.next_actions')).rows[0].n, 1, 'the owner can still read');
+
+  // The intake replaces the open action through the same writer.
+  await rpc(USER_F, 'apm_save_methodology_intake', [JSON.stringify({ primary_goal: 'Run a 10k in spring', first_next_action: 'Jog 15 minutes after work', roles: ['parent'] })]);
+  const after = (await admin(`select title, status from public.next_actions where user_id = $1 order by created_at, title`, [USER_F])).rows;
+  assert.ok(after.some((row) => row.title === 'Jog 15 minutes after work' && row.status === 'open'));
+  assert.ok(after.every((row) => row.status !== 'done'), 'a seed is never a completion');
+  // The governed completion (no daily loop yet for this user) still works.
+  const done = await rpc(USER_F, 'apm_complete_next_action', [seeded[0].id]);
+  assert.equal(done.action.status, 'done');
 });

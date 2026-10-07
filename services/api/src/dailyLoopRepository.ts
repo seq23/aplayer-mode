@@ -47,6 +47,9 @@ const LOOP_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 409
   loop_change_not_draft: { error: 'change_not_draft', status: 409, message: 'This change was already applied or discarded.' },
   loop_reprint_limit: { error: 'reprint_limit', status: 409, message: 'Today has already been reprinted five times.' },
   loop_already_decided: { error: 'already_decided', status: 409, message: 'This plan already has its day-90 decision.' },
+  loop_first_hour_not_started: { error: 'first_hour_not_started', status: 409, message: 'Begin your First Hour first: it starts on your word.' },
+  loop_stack_not_open: { error: 'stack_not_open', status: 409, message: 'The Daily Stack opens after the First Hour. Finish or close your First Hour first.' },
+  loop_plan_restart_refused: { error: 'plan_restart_refused', status: 409, message: 'A rebuild keeps the plan’s 90 days; it never restarts them.' },
 };
 
 export function loopErrorResponse(error: unknown): { error: string; status: 400 | 403 | 404 | 409 | 503; message: string } | undefined {
@@ -239,7 +242,25 @@ export const saveWeeklyReview = (env: ApiEnv, accessToken: string, input: { week
   loopRpc<Record<string, unknown>>(env, accessToken, 'apm_save_weekly_review', { p_week_start: input.weekStart, p_summary: input.summary, p_adjustment: input.adjustment ?? null });
 export const draftOsChange = (env: ApiEnv, accessToken: string, input: { field: string; value: unknown; reason?: string }) =>
   loopRpc<{ id: string }>(env, accessToken, 'apm_draft_os_change', { p_field: input.field, p_value: input.value, p_reason: input.reason ?? null });
-export const applyOsChange = (env: ApiEnv, accessToken: string, id: string) => loopRpc<{ id: string; field: string; effective_from: string }>(env, accessToken, 'apm_apply_os_change', { p_id: id });
+export interface PendingPillarRebuilds {
+  /** Applied pillar changes now in effect whose plans are not rebuilt yet (0037). */
+  changes: Array<{ id: string; pillar: string }>;
+  /** Pillar rows in effect TODAY for pillars that also have a later change (0038); null = no row. */
+  effective: Record<string, { name: string; active: boolean; critical: boolean; minimum_floor: string | null } | null>;
+}
+export async function pendingPillarRebuilds(env: ApiEnv, userId: string): Promise<PendingPillarRebuilds> {
+  const raw = await loopRpc<Partial<PendingPillarRebuilds> | null>(env, serviceToken(env), 'apm_service_pending_pillar_rebuilds', { p_user_id: userId });
+  return { changes: raw?.changes ?? [], effective: raw?.effective ?? {} };
+}
+/** Mandatory body-safety replan of a locked today (0038): never limited by the declared-replan cap. */
+export function bodyReplanDay(env: ApiEnv, userId: string, input: { day: string; source: 'referral' | 'clearance'; agenda: DailyAgenda }) {
+  return loopRpc<DayRow>(env, serviceToken(env), 'apm_service_day_body_replan', { p_user_id: userId, p_day: input.day, p_source: input.source, p_agenda: input.agenda });
+}
+export function markPillarRebuilt(env: ApiEnv, userId: string, id: string) {
+  return loopRpc<boolean>(env, serviceToken(env), 'apm_service_mark_pillar_rebuilt', { p_user_id: userId, p_id: id });
+}
+
+export const applyOsChange = (env: ApiEnv, accessToken: string, id: string) => loopRpc<{ id: string; field: string; effective_from: string; proposed?: unknown }>(env, accessToken, 'apm_apply_os_change', { p_id: id });
 export const discardOsChange = (env: ApiEnv, accessToken: string, id: string) => loopRpc<{ id: string }>(env, accessToken, 'apm_discard_os_change', { p_id: id });
 export const setDayPhase = (env: ApiEnv, accessToken: string, phase: 'first_hour' | 'executing') => loopRpc<DayRow>(env, accessToken, 'apm_set_day_phase', { p_phase: phase });
 export const returnResetDay = (env: ApiEnv, accessToken: string) => loopRpc<DayRow>(env, accessToken, 'apm_day_return_reset', {});

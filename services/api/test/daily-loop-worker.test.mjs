@@ -67,6 +67,7 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
     if (rpc) {
       calls.rpc.push({ fn: rpc, args: body });
       if (rpcErrors[rpc]) return json({ message: rpcErrors[rpc] }, 400);
+      if (store.rpcErrorOnce?.[rpc]) { const message = store.rpcErrorOnce[rpc]; delete store.rpcErrorOnce[rpc]; return json({ message }, 400); }
       if (rpc === 'apm_service_save_goal_plan' || rpc === 'apm_service_create_goal') {
         const plan = body.p_plan;
         const goalId = rpc === 'apm_service_save_goal_plan' ? body.p_goal_id : '00000000-0000-4000-8000-0000000000a2';
@@ -85,7 +86,14 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
       if (rpc === 'apm_record_clinician_clearance') { store.personal_os[0].body_referral_at = null; store.personal_os[0].clinician_cleared_at = new Date().toISOString(); return json({}); }
       if (rpc === 'apm_log_diary') return json({ entry: { id: 'e1' }, reply: 'Logged.' });
       if (rpc === 'apm_draft_os_change') return json({ id: 'chg1', field: body.p_field, status: 'draft' });
-      if (rpc === 'apm_apply_os_change') return json({ id: body.p_id, field: 'day_start', status: 'applied', effective_from: '2099-01-01' });
+      if (rpc === 'apm_apply_os_change') return json(store.applyResult ?? { id: body.p_id, field: 'day_start', status: 'applied', effective_from: '2099-01-01' });
+      if (rpc === 'apm_service_pending_pillar_rebuilds') {
+        if (store.pendingFails > 0) { store.pendingFails -= 1; return json({ message: 'loop_service_unavailable' }, 503); }
+        return json({ changes: store.pendingPillar ?? [], effective: store.effectivePillars ?? {} });
+      }
+      if (rpc === 'apm_service_day_body_replan') { store.day_records[0] = { ...store.day_records[0], agenda: body.p_agenda }; return json(store.day_records[0]); }
+      if (rpc === 'apm_service_mark_pillar_rebuilt') { store.pendingPillar = (store.pendingPillar ?? []).filter((change) => change.id !== body.p_id); return json(true); }
+      if (rpc === 'apm_service_day_replan') { store.day_records[0] = { ...store.day_records[0], agenda: body.p_agenda }; return json(store.day_records[0]); }
       if (rpc === 'apm_service_day_reprint') { store.day_records[0] = { ...store.day_records[0], agenda: body.p_agenda, reprint_count: 1 }; return json(store.day_records[0]); }
       if (rpc === 'apm_daily_loop_data_rights_export') return json({ goalPlans: store.goal_plans, planActionCompletions: [], dayRecords: store.day_records });
       if (rpc === 'apm_life_os_data_rights_export') return json({ lifeRelationships: [], lifeAdminItems: [] });
@@ -300,10 +308,17 @@ test('end-of-day close: pillar review → computed verdict, user authority kept,
 });
 
 
+const STARTED = '2026-09-20';
+/** The backfilled plan is moved to an earlier start, as a plan already running would be. */
+function backdate(store) {
+  for (const row of store.goal_plans) { row.start_date = STARTED; row.plan = { ...row.plan, startDate: STARTED, endDate: new Date(Date.parse(`${STARTED}T00:00:00Z`) + 89 * 86_400_000).toISOString().slice(0, 10) }; }
+}
+
 test('Diary: "Logged." with no coaching; a red flag pauses body coaching and rebuilds the body plan with the referral stop', async () => {
   const h = harness();
   try {
     await request('/v1/me/today');
+    backdate(h.store);
     const quiet = await (await request('/v1/diary', { method: 'POST', body: JSON.stringify({ kind: 'diary', body: 'Good walk today' }) })).json();
     assert.equal(quiet.reply, 'Logged.');
     assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_flag_body_referral').length, 0);
@@ -313,6 +328,9 @@ test('Diary: "Logged." with no coaching; a red flag pauses body coaching and reb
     const rebuilt = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').at(-1);
     assert.equal(rebuilt.args.p_source, 'referral');
     assert.equal(rebuilt.args.p_plan.safety.referral, true);
+    // The rebuild keeps the live plan's 90 days (0035): same start, same end.
+    assert.equal(rebuilt.args.p_plan.startDate, STARTED, 'a referral never restarts the 90 days');
+    assert.equal(rebuilt.args.p_plan.endDate, new Date(Date.parse(`${STARTED}T00:00:00Z`) + 89 * 86_400_000).toISOString().slice(0, 10));
     assert.equal(flagged.today.bodyReferral.source, 'diary');
 
     assert.equal((await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({}) })).status, 400, 'clearance is an explicit confirmation');
@@ -320,6 +338,7 @@ test('Diary: "Logged." with no coaching; a red flag pauses body coaching and reb
     const cleared = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').at(-1);
     assert.equal(cleared.args.p_source, 'clearance');
     assert.equal(cleared.args.p_plan.safety.referral, false);
+    assert.equal(cleared.args.p_plan.startDate, STARTED, 'clearance never restarts the 90 days either');
   } finally { h.restore(); }
 });
 
@@ -391,5 +410,96 @@ test('weekly debrief: Execution Score, Foreground Focus, Friction and one adjust
     const saved = h.calls.rpc.find((c) => c.fn === 'apm_save_weekly_review');
     assert.equal(saved.args.p_week_start, preview.debrief.weekStart);
     assert.equal(saved.args.p_adjustment, 'Walk before work on Mondays');
+  } finally { h.restore(); }
+});
+
+test('a Drafting Room pillar-floor change reaches its plans on the effective date, once, keeping their 90 days', async () => {
+  const h = harness();
+  try {
+    await request('/v1/me/today');
+    backdate(h.store);
+    const saves = () => h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan');
+    const before = saves().length;
+    h.store.pillar_settings = [{ name: 'body', active: true, critical: true, minimum_floor: 'Walk 15 minutes after lunch' }];
+    h.store.applyResult = { id: 'chg2', field: 'pillar', status: 'applied', effective_from: '2099-01-01', proposed: { name: 'body', critical: true, minimumFloor: 'Walk 15 minutes after lunch' } };
+    assert.equal((await request('/v1/os/changes/chg2/apply', { method: 'POST' })).status, 200);
+    assert.equal(saves().length, before, 'applying never rewrites today: nothing rebuilds before the effective date');
+
+    // The effective date arrives: the next read rebuilds the affected plan in place, once.
+    h.store.pendingPillar = [{ id: 'chg2', pillar: 'body' }];
+    h.store.rpcErrorOnce = { apm_service_save_goal_plan: 'loop_service_unavailable' };
+    await request('/v1/me/today');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_mark_pillar_rebuilt').length, 0, 'a failed rebuild stays pending');
+    await request('/v1/me/today');
+    const rebuilt = saves().slice(before).filter((c) => c.args.p_source === 'os_change');
+    assert.equal(rebuilt.length, 2, 'the failed attempt, then the retry on the next read');
+    assert.equal(rebuilt.at(-1).args.p_plan.startDate, STARTED, 'its 90 days continue');
+    assert.match(JSON.stringify(rebuilt.at(-1).args.p_plan.actions), /Walk 15 minutes after lunch/, 'the new floor is in the plan');
+    assert.deepEqual(h.calls.rpc.filter((c) => c.fn === 'apm_service_mark_pillar_rebuilt').map((c) => c.args), [{ p_user_id: USER, p_id: 'chg2' }]);
+    await request('/v1/me/today');
+    assert.equal(saves().slice(before).filter((c) => c.args.p_source === 'os_change').length, 2, 'marked: never rebuilt again');
+  } finally { h.restore(); }
+});
+
+test('a body red flag after check-in replans the rest of today as a declared safety change; clearance as a permission change', async () => {
+  const h = harness();
+  try {
+    await request('/v1/me/today');
+    assert.equal((await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) })).status < 300, true);
+    await request('/v1/diary', { method: 'POST', body: JSON.stringify({ kind: 'slip', body: 'I fainted at the gym this morning' }) });
+    const safety = h.calls.rpc.filter((c) => c.fn === 'apm_service_day_body_replan').at(-1);
+    assert.equal(safety.args.p_source, 'referral');
+    assert.equal(safety.args.p_agenda.state, 'recovery');
+    assert.equal(safety.args.p_agenda.safety.referral, true, 'the locked agenda now carries the referral stop');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_replan').length, 0, 'never through the capped declared-replan path');
+    await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+    const permission = h.calls.rpc.filter((c) => c.fn === 'apm_service_day_body_replan').at(-1);
+    assert.equal(permission.args.p_source, 'clearance');
+    assert.equal(permission.args.p_agenda.safety.referral, false);
+  } finally { h.restore(); }
+});
+
+test('a decided plan still in execution (promote/maintain) gets the pillar rebuild; a parked one does not', async () => {
+  for (const [decision, expected] of [['maintain', 1], ['park', 0]]) {
+    const h = harness();
+    try {
+      await request('/v1/me/today');
+      backdate(h.store);
+      for (const row of h.store.goal_plans) Object.assign(row, { status: 'decided', decision, decision_reason: 'Day 90', decided_at: '2026-10-01T00:00:00Z' });
+      const before = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').length;
+      h.store.pendingPillar = [{ id: 'chg9', pillar: 'body' }];
+      await request('/v1/me/today');
+      assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan' && c.args.p_source === 'os_change').length - 0, expected, decision);
+      assert.ok(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').length >= before);
+    } finally { h.restore(); }
+  }
+});
+
+test('rebuilds use the pillar state in effect today, and a check-in waits while a due rebuild is pending', async () => {
+  const h = harness();
+  try {
+    await request('/v1/me/today');
+    backdate(h.store);
+    // The body change is due; a LATER body change (effective tomorrow) is already in pillar_settings.
+    h.store.pillar_settings = [{ name: 'body', active: true, critical: true, minimum_floor: 'Walk 25 minutes from tomorrow' }];
+    h.store.effectivePillars = { body: { name: 'body', active: true, critical: true, minimum_floor: 'Walk 15 minutes after lunch' } };
+    h.store.pendingPillar = [{ id: 'chg4', pillar: 'body' }];
+    await request('/v1/me/today');
+    const rebuilt = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan' && c.args.p_source === 'os_change').at(-1);
+    const actions = JSON.stringify(rebuilt.args.p_plan.actions);
+    assert.match(actions, /Walk 15 minutes after lunch/, 'today’s floor');
+    assert.doesNotMatch(actions, /Walk 25 minutes from tomorrow/, 'never tomorrow’s');
+
+    h.store.pendingPillar = [{ id: 'chg5', pillar: 'body' }];
+    h.store.rpcErrorOnce = { apm_service_save_goal_plan: 'loop_service_unavailable' };
+    const blocked = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
+    assert.equal(blocked.status, 503, 'no agenda is locked from a plan still missing an in-effect change');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 0);
+    // Fail closed: if the pending check itself errors, the check-in waits too.
+    h.store.pendingFails = 2;
+    assert.equal((await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) })).status, 503, 'an unknown rebuild state never locks');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 0);
+    const ok = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
+    assert.ok(ok.status < 300, 'once the retry lands, the check-in proceeds');
   } finally { h.restore(); }
 });

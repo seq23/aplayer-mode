@@ -554,3 +554,31 @@ test('Active Track RULES reach coaching and are enforced in the scripted flow; i
   assert.doesNotMatch(synthesis.reply, /Home Front/, 'inactive Track has no effect');
   assert.equal(qm(synthesis.reply), 0);
 });
+
+test('Billionaire Mindset (Track 1) filters apply to ALL guidance, not only trigger words, and never twice', () => {
+  const tracksOn = [track('billionaire_mindset')];
+  const plain = machine.scriptedSynthesis('standard', ['I keep putting off the hiring plan', 'it shows up as busywork', 'that I am not ready'], 'Write the first role description', tracksOn);
+  assert.match(plain.text, /Billionaire filter on this move: favour leverage over activity and ownership over income/);
+  assert.ok(plain.challenges.some((line) => /Billionaire filter/.test(line)));
+  const triggered = machine.scriptedSynthesis('standard', ['Should I take this investment offer?', 'x', 'y'], 'List the downside cases', tracksOn);
+  assert.match(triggered.text, /Billionaire Mindset filters apply/);
+  assert.doesNotMatch(triggered.text, /Billionaire filter on this move/, 'the guidance line never repeats a fired challenge');
+  const off = machine.scriptedSynthesis('standard', ['I keep putting off the hiring plan', 'x', 'y'], 'Write the first role description', [track('billionaire_mindset', false)]);
+  assert.doesNotMatch(off.text, /Billionaire/);
+  for (const mode of ['standard', 'high_pressure', 'recovery', 'sprint']) {
+    const synthesis = machine.scriptedSynthesis(mode, ['stuck', 'x', 'y'], 'Do the next step', tracksOn);
+    assert.match(synthesis.text, /Billionaire filter on this move/, mode);
+    // The one-question contract still holds with the closure prompt (Codex P1 on #24).
+    assert.doesNotThrow(() => machine.assertCoachTurnContract({ reply: synthesis.text, prompt: { kind: 'choice', text: machine.CLOSURE_QUESTION, options: ['close', 'deeper'] } }), mode);
+  }
+  assert.doesNotMatch(tracks.TRACK_LIBRARY.billionaire_mindset.guidance, /\?/, 'guidance is declarative');
+});
+
+test('Billionaire Mindset filters also frame Executive Review, early enough to survive the bound', () => {
+  const g = graph({ tracks: [track('billionaire_mindset')] });
+  const reviewed = review.buildExecutiveReview(g, plan(), NOW);
+  assert.ok(reviewed.items.some((item) => /Billionaire filter on this move/.test(item.text)));
+  assert.equal(reviewed.text.includes('?'), false, 'no extra questions in the review');
+  const without = review.buildExecutiveReview(graph({ tracks: [] }), plan(), NOW);
+  assert.equal(without.items.some((item) => /Billionaire filter/.test(item.text)), false);
+});

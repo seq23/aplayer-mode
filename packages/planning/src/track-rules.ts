@@ -34,6 +34,9 @@ export const DEFAULT_MOVEMENT_FLOOR = 'Walk 10 minutes (movement floor)';
 export const DEFAULT_HOME_TOUCHPOINT = 'Protected family touchpoint for 20 minutes: dinner, bedtime or the school run, phone in another room';
 export const SPECULATIVE_PATTERN = /\b(crypto|bitcoin|ethereum|options? trad\w*|day[- ]?trad\w*|meme stocks?|forex|leveraged? (trade|bet|position)|bet on|gambl\w*)\b/i;
 const PARENT_ROLE = /(parent|caregiv|family)/i;
+/** Linear effort / activity-over-leverage work that Billionaire Mindset challenges. */
+export const LINEAR_EFFORT_PATTERN = /\b(overtime|extra shifts?|hourly|per hour|side gigs?|gig work|busy ?work|odd jobs?|freelance gigs?|grind(ing)? (out|through))\b/i;
+export const BILLIONAIRE_FILTERS = 'still right in 10 years? upside vs downside? worst case survivable? scales without you?';
 
 function localMinutes(iso: string, timezone?: string): number {
   const date = new Date(iso);
@@ -130,6 +133,25 @@ export function applyTrackRules(agenda: DailyAgenda, context: TrackRuleContext, 
     const [last, previous] = context.recentVerdicts;
     if (last && previous && last !== 'full_day' && previous !== 'full_day') {
       flags.push({ code: 'resilience.capacity', track: 'resilience', message: 'Two lighter days in a row. Protect recovery capacity: Recovery Mode is one tap away, and it counts.' });
+    }
+  }
+
+  // Billionaire High Performance Coach Track (Appendix A, Track 1): "must influence
+  // opportunity evaluation, project prioritization and strategic decision framing".
+  // Today: the foreground's strategic work is framed by the four filters, and linear
+  // activity is challenged for leverage. A filter, never a task: nothing is added.
+  if (active.has('billionaire_mindset')) {
+    const foreground = agenda.firstHour.priority;
+    if (foreground && (foreground.pillar === 'wealth' || foreground.pillar === 'execution')) {
+      flags.push({ code: 'billionaire.decision_frame', track: 'billionaire_mindset', message: `Frame “${foreground.title}” through the Billionaire filters: ${BILLIONAIRE_FILTERS}` });
+    }
+    for (const item of items) {
+      if (LINEAR_EFFORT_PATTERN.test(item.title)) {
+        flags.push({ code: 'billionaire.leverage_check', track: 'billionaire_mindset', message: `“${item.title}” is linear effort. Billionaire Mindset: prefer ownership to income and leverage to activity — does this scale without you?` });
+      }
+    }
+    if (agenda.arbitration) {
+      flags.push({ code: 'billionaire.prioritised', track: 'billionaire_mindset', message: 'Foreground chosen with Billionaire Mindset weighting: ownership and compounding outrank linear income.' });
     }
   }
 

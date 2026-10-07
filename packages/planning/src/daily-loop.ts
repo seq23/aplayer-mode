@@ -128,6 +128,21 @@ const PERSONA_COMPOUNDING: Record<string, number> = {
   founder: 8, operator_promotion: 7, wealth_building: 9, weight_loss: 8, parent_plus: 7, generic: 6,
 };
 
+/**
+ * Billionaire High Performance Coach Track (BHPC v2.1 Appendix A, Track 1) shapes
+ * project prioritisation: "prefer ownership to income", "favor asymmetric upside over
+ * linear effort", "default to long-term compounding". Ownership plans gain leverage and
+ * compounding; a linear-income plan loses leverage. The user's pinned foreground still wins.
+ */
+export const BILLIONAIRE_OWNERSHIP_PERSONAS = ['founder', 'wealth_building'] as const;
+export const BILLIONAIRE_LINEAR_INCOME_PERSONAS = ['operator_promotion'] as const;
+function billionaireAdjustment(persona: string, tracks: readonly string[] | undefined): { leverage: number; compounding: number } {
+  if (!tracks?.includes('billionaire_mindset')) return { leverage: 0, compounding: 0 };
+  if ((BILLIONAIRE_OWNERSHIP_PERSONAS as readonly string[]).includes(persona)) return { leverage: 2, compounding: 1 };
+  if ((BILLIONAIRE_LINEAR_INCOME_PERSONAS as readonly string[]).includes(persona)) return { leverage: -1, compounding: 0 };
+  return { leverage: 0, compounding: 0 };
+}
+
 export function isPlanEligible(record: Pick<StoredGoalPlan, 'status' | 'decision'>): boolean {
   return record.status !== 'superseded' && record.decision !== 'park';
 }
@@ -140,9 +155,11 @@ function lastCompletionDay(planId: string, completions: PlanActionCompletion[]):
 export function arbitrationCandidate(
   entry: PlanEntry,
   goal: Pick<Goal, 'targetDate' | 'priority'> | undefined,
-  context: { date: string; mood?: number; completions: PlanActionCompletion[] },
+  context: { date: string; mood?: number; completions: PlanActionCompletion[]; trackKeys?: readonly string[] },
 ): ArbitrationCandidate {
   const persona = entry.plan.persona.key;
+  // A parent/caregiver wrapper (parent_plus) keeps the real goal persona in foregroundPersona.
+  const track = billionaireAdjustment(entry.plan.persona.foregroundPersona ?? persona, context.trackKeys);
   const daysToTarget = goal?.targetDate ? daysBetween(context.date, goal.targetDate.slice(0, 10)) : undefined;
   const urgency = daysToTarget === undefined ? 0 : daysToTarget <= 14 ? 9 : daysToTarget <= 30 ? 7 : daysToTarget <= 60 ? 5 : 3;
   const supply = supplyDailyActions(entry.plan, { date: context.date, state: 'normal' });
@@ -152,10 +169,10 @@ export function arbitrationCandidate(
   const idleDays = last ? daysBetween(last, context.date) : planDayIndex(entry.plan, context.date);
   return {
     id: entry.record.id,
-    leverage: (PERSONA_LEVERAGE[persona] ?? 5) + (goal?.priority === 1 ? 1 : 0),
+    leverage: (PERSONA_LEVERAGE[persona] ?? 5) + (goal?.priority === 1 ? 1 : 0) + track.leverage,
     urgency,
     energyMatch: energy,
-    compounding: PERSONA_COMPOUNDING[persona] ?? 6,
+    compounding: (PERSONA_COMPOUNDING[persona] ?? 6) + track.compounding,
     downside: idleDays >= 3 ? 8 : 4,
   };
 }
@@ -180,6 +197,8 @@ export function selectForeground(input: {
   date: string;
   mood?: number;
   completions: PlanActionCompletion[];
+  /** Active Track keys: Track rules shape arbitration (Billionaire Mindset). */
+  trackKeys?: readonly string[];
 }): ForegroundSelection {
   const eligible = input.plans.filter((entry) => {
     if (!isPlanEligible(entry.record)) return false;
@@ -331,8 +350,9 @@ function gateReviewDue(entry: PlanEntry, date: string, completions: PlanActionCo
  * re-supplied (No Catch-Up).
  */
 export function composeAgenda(input: AgendaInput): DailyAgenda {
-  const selection = selectForeground(input);
+  const selection = selectForeground({ ...input, ...(input.tracks ? { trackKeys: input.tracks.active } : {}) });
   const reasons = new Set<string>();
+  if (selection.source === 'arbitration' && input.tracks?.active.includes('billionaire_mindset')) reasons.add('track.billionaire.arbitration');
   const dailyStack: AgendaItem[] = [];
   let priority: AgendaItem | undefined;
   let supply: DailySupply | undefined;
