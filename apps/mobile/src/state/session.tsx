@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { getSupabaseClient, isSupabaseConfigured } from '../auth/supabase';
+import { forgetBillingUser, identifyBillingUser } from '../billing/purchases';
 
 type SessionStatus = 'loading' | 'signed_out' | 'signed_in' | 'unconfigured';
 
@@ -57,6 +58,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  // RevenueCat app user id = Supabase user id (docs/33); forgotten on sign-out.
+  const userId = session?.user?.id;
+  useEffect(() => {
+    if (userId) void identifyBillingUser(userId).catch(() => undefined);
+    else void forgetBillingUser();
+  }, [userId]);
 
   const value = useMemo<SessionContextValue>(
     () => ({

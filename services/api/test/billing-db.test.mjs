@@ -324,8 +324,23 @@ test('Founding 100: decided atomically by the server — 99 gives one, 100 gives
   assert.equal((await admin('select max(slot_no)::int as m, count(*)::int as n from private.billing_founding_slots')).rows[0].m, 100);
   await rejects(admin("insert into private.billing_founding_slots (slot_no, status) values (101, 'claimed')"), /check constraint/);
 
-  // A client cannot claim eligibility: a former subscriber is never offered founding.
+  // A client cannot claim eligibility: a former subscriber is never offered founding,
+  // and buying the founding product directly (a tampered client) never takes a slot,
+  // even while slots are free (0042).
   assert.equal((await offering(A)).offering, 'default');
+  await admin("delete from private.billing_founding_slots where slot_no = 100");
+  const former = await newUser();
+  await apply(ev('INITIAL_PURCHASE', former, 'apm_cos_annual'));
+  await apply(ev('PRODUCT_CHANGE', former, 'apm_cos_annual', { new_product_id: 'apm_cos_monthly_founding' }));
+  await apply(ev('RENEWAL', former, 'apm_cos_monthly_founding'));
+  assert.equal(await slot(former), undefined, 'former subscriber took no slot');
+  assert.equal((await ent(former)).offer, 'standard');
+  await apply(ev('INITIAL_PURCHASE', A, 'apm_cos_monthly_founding'));
+  assert.equal(await slot(A), undefined);
+  assert.equal((await admin('select count(*)::int as n from private.billing_founding_slots')).rows[0].n, 99, 'slot 100 is still free');
+  const firstTimer = await newUser();
+  await apply(ev('INITIAL_PURCHASE', firstTimer, 'apm_cos:founding-monthly'));
+  assert.equal((await slot(firstTimer)).status, 'claimed', 'a first-time subscriber may still claim a free slot without a reservation');
 
   // Lapse loses the lock for good, and the slot stays consumed.
   await apply(ev('EXPIRATION', holder, 'apm_cos_monthly_founding'));

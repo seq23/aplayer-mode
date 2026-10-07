@@ -8,17 +8,20 @@
     "ios": "expo start --ios",
     "android": "expo start --android",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@apm/domain": "0.1.0",
     "@apm/planning": "0.1.0",
+    "@apm/policy": "0.1.0",
     "@supabase/supabase-js": "^2.0.0",
     "expo": "^58.0.0",
     "expo-auth-session": "~58.0.2",
     "expo-calendar": "~58.0.2",
     "expo-constants": "~58.0.3",
     "expo-crypto": "~58.0.2",
+    "expo-dev-client": "~58.0.11",
     "expo-notifications": "~58.0.4",
     "expo-router": "~58.0.12",
     "expo-secure-store": "~58.0.2",
@@ -26,12 +29,14 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.0-rc.3",
+    "react-native-purchases": "^10.11.0",
     "react-native-safe-area-context": "~5.9.1",
     "react-native-screens": "~4.28.0",
     "react-native-web": "~0.21.0"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "esbuild": "^0.28.1"
   }
 }

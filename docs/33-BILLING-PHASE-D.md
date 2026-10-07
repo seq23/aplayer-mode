@@ -1,8 +1,8 @@
 # A Player Mode — Phase D: In-App Subscription Billing (RevenueCat)
 
-**Status:** `SOURCE_COMPLETE` + `DB_PROVISIONED` (migrations 0040–0041, applied to Supabase; security advisor 0 lints). Store products, the RevenueCat project and the secrets below are **Phase E** — nothing is runtime-proven and no store transaction is live.
+**Status:** `SOURCE_COMPLETE` + `DB_PROVISIONED` (migrations 0040–0042, applied to Supabase; security advisor 0 lints). Store products, the RevenueCat project and the secrets below are **Phase E** — nothing is runtime-proven and no store transaction is live.
 **Decisions:** owner, 7 Oct 2026 (final). Prices: ADR-0004 (monthly), ADR-0005 (annual).
-**Code:** `packages/policy/src/index.ts` (`PLAN_PRICES`, `CHIEF_OF_STAFF_INTRO_OFFERS`, `BILLING_PRODUCTS`, `REVENUECAT_CONFIG`), `services/api/src/billing.ts`, `services/api/migrations/0040_billing_revenuecat.sql` + `0041_billing_explicit_deny_all.sql`, `apps/mobile/app/settings/plan.tsx`, `apps/mobile/src/billing/`.
+**Code:** `packages/policy/src/index.ts` (`PLAN_PRICES`, `CHIEF_OF_STAFF_INTRO_OFFERS`, `BILLING_PRODUCTS`, `REVENUECAT_CONFIG`), `services/api/src/billing.ts`, `services/api/migrations/0040_billing_revenuecat.sql` + `0041_billing_explicit_deny_all.sql` + `0042_billing_founding_claim_eligibility.sql`, `apps/mobile/app/settings/plan.tsx`, `apps/mobile/src/billing/`.
 
 ## 1. What was decided
 
@@ -126,13 +126,14 @@ Cancellation, billing issue, expiration, refund and product-change events about 
 
 - `private.billing_founding_slots` has slot numbers 1–100 as its primary key (a 101st slot cannot exist). Status `reserved` (offered, 60-minute hold), `claimed` (verified founding purchase), `lapsed` (lock lost). Claimed and lapsed slots stay consumed: "the first 100 subscribers".
 - `GET /v1/billing/offering` → `apm_service_billing_offering(user)` takes one advisory lock and decides: an existing claim or live reservation → `founding`; a lapsed founder or anyone who has already held a store subscription → `default`; otherwise reserve a free slot (or reuse an expired reservation) → `founding`; none free → `default`. The app only ever *shows* the offering the server named.
-- The founding purchase webhook turns the reservation into a claim. If the user has no slot and one is still free, it claims one. If none is free (e.g. a purchase made outside the app after the reservation lapsed), **access is honoured** — the store already charged — but the lock is not granted (`offer = standard`) and `billing.founding_without_slot` is audited for review.
+- The founding purchase webhook turns the reservation into a claim. If the user has no slot, one is still free AND they have never held a store subscription (the same rule the offering applies; 0042), it claims one — so a tampered client that loads the `founding` offering itself cannot hand a former subscriber the lock. If none is free (e.g. a purchase made outside the app after the reservation lapsed), **access is honoured** — the store already charged — but the lock is not granted (`offer = standard`) and `billing.founding_without_slot` is audited for review.
 - Moving off the founding product (upgrade, period change), expiry or refund lapses the lock; re-subscribing is at the then-current price.
 - Known limit: Apple lets a lapsed subscriber resubscribe to an expired product from iOS Settings. That purchase is credited (they paid) but never restores the lock; it is audited.
 
 ## 7. App
 
 - `apps/mobile/app/settings/plan.tsx` is the paywall/Plan screen: monthly/annual toggle, the three tiers with prices from the store (fallback to `PLAN_PRICES`), the server-chosen offering, restore purchases, a manage-subscription link (the store's subscription settings), and the store-required disclosure: auto-renewal terms, price and period, cancel-anytime, intro terms, and links to Terms of Use and the Privacy Policy.
+- **Builds:** `react-native-purchases` is a native module (autolinked; no config plugin needed). `expo-dev-client` + the EAS `development` profile (`developmentClient: true`) give a dev build that can purchase in sandbox; the `preview` and `production` profiles include the module. Expo Go and web show "purchases unavailable".
 - `react-native-purchases` is configured once the user is signed in, with `appUserID` = the Supabase user id; it is logged out on sign-out. Without the public SDK keys (or in Expo Go / web) the screen explains that purchases are unavailable in this build — it never fakes a plan.
 - After a purchase or restore the app re-reads `/v1/product/plan` (polling briefly while the webhook lands). The SDK's own `customerInfo` is display-only.
 
