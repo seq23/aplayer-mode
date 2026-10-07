@@ -171,3 +171,4 @@ export function buildDailyPlan(
   };
 }
 export * from './recurrence.js';
+export * from './goal-plan.js';
