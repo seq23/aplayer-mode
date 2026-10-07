@@ -580,14 +580,15 @@ app.post('/v1/apm/coach', async (c) => {
     env: c.env, accessToken: user.accessToken, userId: user.id, graph: state.graph, plan: state.plan, modeState,
     message: parsed.data.message, choice: parsed.data.choice as never, sessionId: parsed.data.sessionId,
   });
-  let mode = state.mode;
+  let today: Awaited<ReturnType<typeof buildUserState>> | undefined;
   if (turn.modeRequest) {
-    // Deep Work ended early / Executive Review closed: the same deterministic transition rules apply.
+    // Deep Work ended early / Executive Review closed: the same deterministic
+    // transition rules apply, and the client gets the rebuilt Today with it.
     const changed = await changeMode(c.env, user.accessToken, user.id, turn.modeRequest);
-    if (changed.ok) mode = (await buildUserState(c.env, user.accessToken, user.id)).mode;
+    if (changed.ok) today = await buildUserState(c.env, user.accessToken, user.id);
   }
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'coaching_turn', { mode: reply.mode, phase: reply.phase, engine: reply.engine, step: reply.step });
-  return c.json({ ...reply, modeState: mode });
+  return c.json({ ...reply, modeState: today?.mode ?? state.mode, ...(today ? { today } : {}) });
 });
 app.post('/v1/apm/coach/:sessionId/close', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);

@@ -305,6 +305,25 @@ test('Standard coaching: one question per turn, then synthesis + next move + the
   assert.deepEqual(synthesis.prompt.options.map((o) => o.id), ['close_and_launch', 'go_deeper']);
 });
 
+test('UI-started session: the opening question counts, so it is never asked twice and answers line up', () => {
+  const turns = run('standard', [{}, { message: 'Confidence.' }, { message: 'Sending the chapter to my advisor.' }, { message: 'That it is not good enough.' }]);
+  assert.deepEqual(turns.map((t) => t.step), ['opening', 'ask', 'ask', 'synthesize']);
+  const asked = turns.slice(0, 3).map((t) => t.prompt.text);
+  assert.deepEqual(asked, machine.QUESTION_BANK.standard.core, 'each core question exactly once, in order');
+  assert.match(turns[3].reply, /Where it’s stuck: “Confidence\.”/);
+  assert.match(turns[3].reply, /What it’s showing up as: “Sending the chapter to my advisor\.”/);
+  assert.match(turns[3].reply, /What you’re making it mean: “That it is not good enough\.”/);
+  // Re-sending an empty request after the opening re-asks the SAME question, never advances silently.
+  const reprompt = machine.decideTurn(turns[0].session, {}, cctx());
+  assert.equal(reprompt.prompt.text, machine.QUESTION_BANK.standard.core[0]);
+  assert.equal(reprompt.session.questionsAsked, 1);
+  for (const mode of ['high_pressure', 'recovery', 'sprint']) {
+    const flow = run(mode, [{}, ...Array.from({ length: machine.QUESTION_BUDGET[mode] }, (_, i) => ({ message: `answer ${i}` }))]);
+    assert.equal(flow.at(-1).step, 'synthesize', mode);
+    assert.equal(new Set(flow.slice(0, -1).map((t) => t.prompt.text)).size, machine.QUESTION_BUDGET[mode], `${mode}: no repeated question`);
+  }
+});
+
 test('Closure: the Morning Sequence launches, chatting is redirected, "done" closes back into execution', () => {
   const turns = run('standard', [
     { message: 'I feel off.' }, { message: 'Energy.' }, { message: 'The email to my advisor.' }, { message: 'That I am late.' },
@@ -411,6 +430,19 @@ test('Safety boundary: crisis language stops coaching and shows resources, in ev
     assert.equal(turn.session.phase, 'safety_stop');
     assert.equal(turn.modelSlot, undefined);
   }
+});
+
+test('Safety resources are localized: one-tap 988/911 only where they route', () => {
+  assert.ok(safety.crisisResources('America/Chicago').some((r) => r.action?.kind === 'call' && r.action.value === '988'));
+  assert.ok(safety.crisisResources('Pacific/Honolulu').some((r) => r.action?.value === '911'));
+  for (const tz of ['Europe/London', 'Europe/Berlin', 'Australia/Sydney', 'America/Sao_Paulo', 'Asia/Kolkata', undefined, 'Not/AZone']) {
+    const crisis = safety.crisisResources(tz);
+    const medical = safety.medicalResources(tz);
+    assert.ok([...crisis, ...medical].every((r) => r.action?.kind !== 'call'), `${tz}: no dial action that may not route`);
+    assert.ok(crisis.some((r) => r.action?.kind === 'url'), `${tz}: a local-line directory is offered`);
+  }
+  const london = machine.decideTurn(fresh(), { message: 'I want to kill myself' }, cctx('standard', [], { graph: graph({ identity: { userId: USER, displayName: 'Ari', timezone: 'Europe/London' } }) }));
+  assert.ok(london.safety.resources.every((r) => r.action?.kind !== 'call'));
 });
 
 test('Safety boundary: medical red flags refer out; therapy-scope gets a boundary note; idioms are not crises', () => {

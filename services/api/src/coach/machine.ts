@@ -5,9 +5,9 @@ import { MODE_LIBRARY, type ModeRequest, type ModeState } from './modes';
 import {
   assessSafety,
   CRISIS_MESSAGE,
-  CRISIS_RESOURCES,
+  crisisResources,
   MEDICAL_MESSAGE,
-  MEDICAL_RESOURCES,
+  medicalResources,
   THERAPY_SCOPE_NOTE,
   type SafetyLevel,
   type SafetyResource,
@@ -200,8 +200,15 @@ function questionAt(mode: OperatingModeKey, index: number): string {
   return bank.deeper[Math.min(deeperIndex, bank.deeper.length - 1)]!;
 }
 
-export function scriptedSynthesis(mode: OperatingModeKey, userMessages: string[], nextMove: string, tracks: Track[]): { text: string; challenges: string[] } {
-  const [opener, a0, a1, a2] = [quote(userMessages[0]), quote(userMessages[1]), quote(userMessages[2]), quote(userMessages[3])];
+/**
+ * `questionsAsked` aligns answers with questions: a session started with a
+ * message has one extra (opener) message; a session started from the opening
+ * prompt (empty first request) does not.
+ */
+export function scriptedSynthesis(mode: OperatingModeKey, userMessages: string[], nextMove: string, tracks: Track[], questionsAsked = Math.max(0, userMessages.length - 1)): { text: string; challenges: string[] } {
+  const offset = Math.max(0, Math.min(1, userMessages.length - questionsAsked));
+  const opener = offset ? quote(userMessages[0]) : '';
+  const [a0, a1, a2] = [quote(userMessages[offset]), quote(userMessages[offset + 1]), quote(userMessages[offset + 2])];
   const challenges = trackChallenges(tracks, userMessages.join(' ')).map((entry) => entry.line);
   let body: string;
   switch (mode) {
@@ -278,7 +285,7 @@ export function decideTurn(current: CoachSessionState, input: CoachInput, contex
         ? 'Please call or text 988 now (US), or your local emergency number if you are in immediate danger. If you are outside the US, findahelpline.com lists a free line near you.'
         : CRISIS_MESSAGE,
       prompt: safetyPrompt,
-      safety: { level: 'crisis', signals: [], resources: CRISIS_RESOURCES },
+      safety: { level: 'crisis', signals: [], resources: crisisResources(graph.identity.timezone) },
       closeSession: true,
     });
   }
@@ -291,7 +298,7 @@ export function decideTurn(current: CoachSessionState, input: CoachInput, contex
       step: 'safety_stop',
       reply: crisis ? CRISIS_MESSAGE : MEDICAL_MESSAGE,
       prompt: safetyPrompt,
-      safety: { level: safety.level, signals: safety.signals, resources: crisis ? CRISIS_RESOURCES : MEDICAL_RESOURCES },
+      safety: { level: safety.level, signals: safety.signals, resources: crisis ? crisisResources(graph.identity.timezone) : medicalResources(graph.identity.timezone) },
       closeSession: true,
     });
   }
@@ -376,7 +383,8 @@ export function decideTurn(current: CoachSessionState, input: CoachInput, contex
     });
   }
   if (!text && session.questionsAsked === 0) {
-    return base(session, { step: 'opening', reply: '', prompt: question(questionAt(mode, 0)) });
+    // The opening question counts: the next message is its answer.
+    return base({ ...session, questionsAsked: 1 }, { step: 'opening', reply: '', prompt: question(questionAt(mode, 0)) });
   }
   if (!text) {
     return base(session, { step: 'ask', reply: '', prompt: question(questionAt(mode, Math.max(0, session.questionsAsked - 1))) });
@@ -389,7 +397,7 @@ export function decideTurn(current: CoachSessionState, input: CoachInput, contex
     });
   }
 
-  const synthesis = scriptedSynthesis(mode, [...context.priorUserMessages, text], nextMove, graph.tracks);
+  const synthesis = scriptedSynthesis(mode, [...context.priorUserMessages, text], nextMove, graph.tracks, session.questionsAsked);
   return base({ ...session, phase: 'closure_offered' }, {
     step: 'synthesize',
     reply: boundaryNote ? `${boundaryNote}\n${synthesis.text}` : synthesis.text,

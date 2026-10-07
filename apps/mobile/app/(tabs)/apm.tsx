@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { router } from 'expo-router';
 import { Linking, TextInput, View } from 'react-native';
 import type { OperatingModeKey } from '@apm/domain';
 import {
@@ -35,7 +36,7 @@ function formatWhen(value?: string): string {
 }
 
 export default function ApmScreen() {
-  const { graph, todayPlan, modeState, setOperatingMode, applyModeState, isDurable } = useLifeGraph();
+  const { graph, todayPlan, modeState, setOperatingMode, applyTodayState, isDurable } = useLifeGraph();
   const { accessToken } = useSession();
   const [busyMode, setBusyMode] = useState<string>();
   const [error, setError] = useState<string>();
@@ -66,7 +67,7 @@ export default function ApmScreen() {
 
   const send = async (input: { message?: string; choice?: CoachChoice }, label?: string) => {
     if (!accessToken || coachingBusy) return;
-    if (input.choice === 'open_today') { resetCoach(); return; }
+    if (input.choice === 'open_today') { resetCoach(); router.navigate('/(tabs)/today'); return; }
     setCoachingBusy(true); setError(undefined);
     const shown = input.message ?? label;
     if (shown) setTurns((current) => [...current, { role: 'user', text: shown }]);
@@ -75,7 +76,7 @@ export default function ApmScreen() {
       setSessionId(result.sessionId);
       setLast(result);
       setTurns((current) => [...current, { role: 'apm', text: [result.reply, result.prompt.kind === 'question' && !result.prompt.options.length ? result.prompt.text : ''].filter(Boolean).join('\n') }]);
-      if (result.modeState) applyModeState(result.modeState);
+      if (result.today) applyTodayState(result.today);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'APM coaching is unavailable right now.');
     } finally { setCoachingBusy(false); }

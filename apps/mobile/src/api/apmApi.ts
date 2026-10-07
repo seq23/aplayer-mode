@@ -96,6 +96,8 @@ export interface CoachReplyView {
   boundaryNote?: string;
   trackChallenges: string[];
   modeState?: ModeStateView;
+  /** Present when the turn changed the mode: the rebuilt server Today state. */
+  today?: TodayState;
 }
 
 export interface ProductPlanCard {

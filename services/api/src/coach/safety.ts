@@ -63,16 +63,42 @@ export function assessSafety(raw: string): SafetyAssessment {
   return { level: 'none', signals: [] };
 }
 
-export const CRISIS_RESOURCES: SafetyResource[] = [
-  { label: '988 Suicide & Crisis Lifeline (US)', detail: 'Call or text 988, any time, free and confidential.', action: { kind: 'call', value: '988' } },
-  { label: 'Emergency services', detail: 'If you are in immediate danger, call your local emergency number (911 in the US).', action: { kind: 'call', value: '911' } },
-  { label: 'Outside the US', detail: 'Find a free local helpline at findahelpline.com.', action: { kind: 'url', value: 'https://findahelpline.com' } },
-];
+/**
+ * One-tap dialing is offered only where the number is known to route: 988 and
+ * 911 for US timezones. Everywhere else (or when the timezone is unknown) the
+ * card names the local emergency number in text and links to a directory of
+ * local lines, so a tap can never dial a number that does not work there.
+ */
+const US_TIMEZONE = /^(America\/(New_York|Chicago|Denver|Los_Angeles|Phoenix|Anchorage|Juneau|Sitka|Nome|Yakutat|Metlakatla|Adak|Boise|Detroit|Menominee|Indiana\/.+|Kentucky\/.+|North_Dakota\/.+)|Pacific\/Honolulu|US\/.+)$/;
 
-export const MEDICAL_RESOURCES: SafetyResource[] = [
-  { label: 'Emergency services', detail: 'Chest pain, fainting or feeling unsafe in your body: call your local emergency number (911 in the US) now.', action: { kind: 'call', value: '911' } },
-  { label: 'Your clinician', detail: 'For eating or health red flags, talk to a doctor before any body goal continues. APM will not coach body goals until a clinician clears it.' },
-];
+export function isUsTimezone(timezone?: string): boolean {
+  return Boolean(timezone && US_TIMEZONE.test(timezone));
+}
+
+const HELPLINE_DIRECTORY: SafetyResource = { label: 'Find a local crisis line', detail: 'findahelpline.com lists free, confidential lines in your country.', action: { kind: 'url', value: 'https://findahelpline.com' } };
+
+export function crisisResources(timezone?: string): SafetyResource[] {
+  if (isUsTimezone(timezone)) {
+    return [
+      { label: '988 Suicide & Crisis Lifeline (US)', detail: 'Call or text 988, any time, free and confidential.', action: { kind: 'call', value: '988' } },
+      { label: 'Emergency services', detail: 'If you are in immediate danger, call 911.', action: { kind: 'call', value: '911' } },
+      HELPLINE_DIRECTORY,
+    ];
+  }
+  return [
+    HELPLINE_DIRECTORY,
+    { label: 'Emergency services', detail: 'If you are in immediate danger, call your local emergency number now (for example 112 in the EU, 999 in the UK, 911 in North America, 000 in Australia).' },
+    { label: 'In the US', detail: 'Call or text 988 (Suicide & Crisis Lifeline).' },
+  ];
+}
+
+export function medicalResources(timezone?: string): SafetyResource[] {
+  const clinician: SafetyResource = { label: 'Your clinician', detail: 'For eating or health red flags, talk to a doctor before any body goal continues. APM will not coach body goals until a clinician clears it.' };
+  if (isUsTimezone(timezone)) {
+    return [{ label: 'Emergency services', detail: 'Chest pain, fainting or feeling unsafe in your body: call 911 now.', action: { kind: 'call', value: '911' } }, clinician];
+  }
+  return [{ label: 'Emergency services', detail: 'Chest pain, fainting or feeling unsafe in your body: call your local emergency number now (for example 112 in the EU, 999 in the UK).' }, clinician];
+}
 
 export const CRISIS_MESSAGE = 'I’m stopping coaching here, because what you just shared matters more than any plan. You don’t have to handle this alone. If you might act on these thoughts or you are in danger, reach a crisis line or emergency services now — the resources are below. A licensed professional or someone you trust is the right support for this, not a coaching session.';
 

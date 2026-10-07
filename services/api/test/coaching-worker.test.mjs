@@ -165,7 +165,10 @@ test('crisis text: no model call even with an approved route, session stopped, a
     const { reply } = await call(env, { message: 'honestly I want to end my life' });
     assert.equal(reply.step, 'safety_stop');
     assert.equal(reply.phase, 'safety_stop');
-    assert.ok(reply.safety.resources.some((r) => r.action?.value === '988'));
+    // Europe/London user: no one-tap 911/988 (they would not route); a local-line directory instead.
+    assert.ok(reply.safety.resources.every((r) => r.action?.kind !== 'call'), 'never offers a dial action that may not route');
+    assert.ok(reply.safety.resources.some((r) => r.action?.value === 'https://findahelpline.com'));
+    assert.ok(reply.safety.resources.some((r) => /112 in the EU, 999 in the UK/.test(r.detail)));
     assert.equal(h.db.openrouterCalls.length, 0);
     assert.equal(h.db.session.status, 'closed');
     assert.equal(h.db.session.phase, 'safety_stop');

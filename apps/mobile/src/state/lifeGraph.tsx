@@ -74,7 +74,7 @@ interface LifeGraphContextValue {
   completeOnboarding: (input: OnboardingInput) => Promise<void>;
   completeMethodologyIntake: (input: ApiMethodologyIntakeInput) => Promise<void>;
   setOperatingMode: (request: ModeChangeRequest) => Promise<void>;
-  applyModeState: (mode: ModeStateView) => void;
+  applyTodayState: (state: TodayState) => void;
   completeNextAction: (actionId: string) => Promise<void>;
   createRelationship: (input: LifeRelationshipInput) => Promise<void>;
   updateRelationship: (relationshipId: string, input: Partial<LifeRelationshipInput>) => Promise<void>;
@@ -138,7 +138,7 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<LifeGraphContextValue>(() => ({
     graph, todayPlan, modeState, syncStatus, syncError, isDurable, refresh,
-    applyModeState: (mode) => setModeState(mode),
+    applyTodayState: (state) => applyServerState(state),
     completeOnboarding: async (input) => {
       const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
       try { applyServerState(await persistOnboarding(input, token)); }
