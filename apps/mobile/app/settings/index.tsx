@@ -48,6 +48,11 @@ export default function SettingsScreen() {
         <Body muted>Relationships, birthdays, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations—managed in the same private Life Graph.</Body>
         <Button label="Open Life OS" onPress={() => router.push('/settings/life')} />
       </Card>
+      <Card>
+        <CardTitle>Autopilot</CardTitle>
+        <Body muted>Standing rules you set for safe, reversible work—like scheduling routine blocks or preparing drafts. Revocable any time; never purchases, healthcare or money.</Body>
+        <Button label="Open Autopilot" variant="secondary" onPress={() => router.push('/settings/autopilot')} />
+      </Card>
     </Screen>
   );
 }

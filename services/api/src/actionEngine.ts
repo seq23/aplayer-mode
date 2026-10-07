@@ -71,7 +71,10 @@ export async function prepareAction(input: {
     body: JSON.stringify([{
       user_id: input.userId, domain: input.domain, action_type: input.actionType, status: 'prepared', payload: input.payload,
       reason: input.reason, permission_id: input.permission?.id ?? null, idempotency_key: input.idempotencyKey,
-      requires_approval: (input.permission?.autonomyLevel ?? 0) < 5, updated_at: new Date().toISOString(),
+      // Level 5 is reachable only through an Autopilot standing rule (migration
+      // 0018 / autopilotRepository). A prepared action always needs its own
+      // explicit approval, whatever the permission level.
+      requires_approval: true, updated_at: new Date().toISOString(),
     }]),
   });
   if (!rows[0]) throw new Error('action_prepare_failed');
@@ -159,11 +162,48 @@ async function executeEmail(action: ActionRecord, input: { env: ApiEnv; accessTo
   return data.id ?? '';
 }
 
+/** Executes one authorised action at its provider and returns the provider reference. */
+export async function executeConnectorAction(action: ActionRecord, input: { env: ApiEnv; accessToken: string; userId: string }): Promise<string> {
+  if (action.domain === 'calendar' && ['calendar.create','calendar.update'].includes(action.actionType)) return executeCalendar(action, input);
+  if (action.domain === 'email' && ['email.draft','email.send'].includes(action.actionType)) return executeEmail(action, input);
+  throw new Error('unsupported_action_type');
+}
+
+/**
+ * Reverses a reversible Autopilot write: deletes the created calendar event or
+ * the prepared draft. A provider 404/410 means it is already gone.
+ */
+export async function revertConnectorAction(
+  target: { undoMethod: 'delete_event' | 'delete_draft'; connectionId: string; externalRef: string },
+  input: { env: ApiEnv; accessToken: string; userId: string },
+): Promise<void> {
+  if (!target.connectionId || !target.externalRef) throw new Error('undo_target_invalid');
+  const auth = await getValidConnectorToken({ ...input, connectionId: target.connectionId });
+  const ref = encodeURIComponent(target.externalRef);
+  let url: string;
+  if (target.undoMethod === 'delete_event') {
+    if (auth.kind !== 'calendar') throw new Error('action_connection_kind_mismatch');
+    url = auth.provider === 'google'
+      ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${ref}`
+      : `https://graph.microsoft.com/v1.0/me/events/${ref}`;
+  } else {
+    if (auth.kind !== 'email') throw new Error('action_connection_kind_mismatch');
+    url = auth.provider === 'google'
+      ? `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${ref}`
+      : `https://graph.microsoft.com/v1.0/me/messages/${ref}`;
+  }
+  const response = await fetch(url, { method: 'DELETE', headers: { authorization: `Bearer ${auth.accessToken}` } });
+  if (!response.ok && response.status !== 404 && response.status !== 410) throw new Error(`undo_failed:${response.status}`);
+}
+
 export async function approveAndMaybeExecuteAction(input: {
   env: ApiEnv; accessToken: string; userId: string; action: ActionRecord; permission?: Permission; entitlement?: SubscriptionEntitlement;
 }): Promise<ActionRecord> {
   const domain = input.action.domain as ActionDomain;
-  const requestedLevel: AutonomyLevel = input.action.requiresApproval ? 4 : 5;
+  // This route is a per-action approval, so it is always level 4. A row's
+  // requires_approval flag is client-writable and never escalates to level 5;
+  // standing authority goes through the Autopilot claim path instead.
+  const requestedLevel: AutonomyLevel = 4;
   const decision = authorizeAction({ ...input, domain, requestedLevel, forExecution: true });
   if (!decision.allowed) throw new Error(`action_not_authorized:${decision.reason}`);
 
@@ -174,13 +214,7 @@ export async function approveAndMaybeExecuteAction(input: {
 
   let externalRef = '';
   try {
-    if (domain === 'calendar' && ['calendar.create','calendar.update'].includes(input.action.actionType)) {
-      externalRef = await executeCalendar(input.action, input);
-    } else if (domain === 'email' && ['email.draft','email.send'].includes(input.action.actionType)) {
-      externalRef = await executeEmail(input.action, input);
-    } else {
-      throw new Error('unsupported_action_type');
-    }
+    externalRef = await executeConnectorAction(input.action, input);
     await supabaseRest(input.env, input.accessToken, `/rest/v1/actions?id=eq.${encodeURIComponent(input.action.id)}&select=*`, {
       method: 'PATCH', headers: { Prefer: 'return=representation' },
       body: JSON.stringify({ status: 'verified', executed_at: now, verified_at: new Date().toISOString(), updated_at: new Date().toISOString() }),

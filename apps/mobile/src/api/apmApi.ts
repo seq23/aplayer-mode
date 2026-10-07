@@ -1,5 +1,11 @@
 import type {
   AccountabilityPolicy,
+  ActionRecord,
+  AutopilotActionClass,
+  AutopilotExecution,
+  AutopilotRule,
+  AutopilotRuleConstraints,
+  AutopilotState,
   AutonomyLevel,
   CoachingStyle,
   DailyPlan,
@@ -239,4 +245,40 @@ export async function fetchHouseholds(accessToken: string) {
 }
 export async function createHousehold(name: string, accessToken: string) {
   return request<{ householdId: string }>('/v1/households', accessToken, { method: 'POST', body: JSON.stringify({ name }) });
+}
+
+// Phase C — Autopilot standing rules. The server and database decide; these
+// calls only express the user's explicit grants, pauses and revocations.
+export interface AutopilotOverview {
+  autopilot: AutopilotState;
+  permissions: Array<{ actionClass: AutopilotActionClass; domain: 'calendar' | 'email'; autonomyLevel: AutonomyLevel }>;
+  supported: Array<{ actionClass: AutopilotActionClass; domain: 'calendar' | 'email'; label: string; reversible: boolean; undo: string }>;
+  neverStanding: Array<{ match: string; reason: string }>;
+}
+export async function fetchAutopilot(accessToken: string): Promise<AutopilotOverview> {
+  return request<AutopilotOverview>('/v1/autopilot', accessToken);
+}
+export async function grantAutopilotRule(input: { actionClass: AutopilotActionClass; constraints: AutopilotRuleConstraints; expiresAt: string }, accessToken: string): Promise<AutopilotRule> {
+  return (await request<{ rule: AutopilotRule }>('/v1/autopilot/rules', accessToken, { method: 'POST', body: JSON.stringify(input) })).rule;
+}
+export async function updateAutopilotRule(ruleId: string, input: { expectedVersion: number; constraints?: AutopilotRuleConstraints; expiresAt?: string }, accessToken: string): Promise<AutopilotRule> {
+  return (await request<{ rule: AutopilotRule }>(`/v1/autopilot/rules/${encodeURIComponent(ruleId)}`, accessToken, { method: 'PATCH', body: JSON.stringify(input) })).rule;
+}
+export async function setAutopilotRuleStatus(ruleId: string, next: 'pause' | 'resume', expectedVersion: number, accessToken: string): Promise<AutopilotRule> {
+  return (await request<{ rule: AutopilotRule }>(`/v1/autopilot/rules/${encodeURIComponent(ruleId)}/${next}`, accessToken, { method: 'POST', body: JSON.stringify({ expectedVersion }) })).rule;
+}
+export async function revokeAutopilotRule(ruleId: string, accessToken: string, reason?: string): Promise<AutopilotRule> {
+  return (await request<{ rule: AutopilotRule }>(`/v1/autopilot/rules/${encodeURIComponent(ruleId)}/revoke`, accessToken, { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) })).rule;
+}
+export async function setAutopilotPaused(paused: boolean, accessToken: string): Promise<{ paused: boolean }> {
+  return request<{ paused: boolean }>('/v1/autopilot/pause', accessToken, { method: 'PUT', body: JSON.stringify({ paused }) });
+}
+export async function runAutopilotRule(ruleId: string, input: { idempotencyKey: string; reason: string; payload: Record<string, unknown> }, accessToken: string): Promise<{ replayed: boolean; execution: AutopilotExecution; action: ActionRecord }> {
+  return request(`/v1/autopilot/rules/${encodeURIComponent(ruleId)}/run`, accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function undoAutopilotExecution(executionId: string, accessToken: string): Promise<AutopilotExecution> {
+  return (await request<{ execution: AutopilotExecution }>(`/v1/autopilot/executions/${encodeURIComponent(executionId)}/undo`, accessToken, { method: 'POST' })).execution;
+}
+export async function fetchRetainedAutopilotState(accessToken: string): Promise<{ rules: AutopilotRule[]; executions: AutopilotExecution[]; masterPaused: boolean }> {
+  return request('/v1/privacy/autopilot', accessToken);
 }

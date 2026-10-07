@@ -38,6 +38,7 @@ These secrets should be scoped to the minimum access required by their workflow.
 | `GLOBAL_ACTION_EXECUTION` | config / kill switch | Must be `true` before any provider action execution |
 | `ACTION_CALENDAR_EXECUTION` | config / kill switch | Calendar action execution |
 | `ACTION_EMAIL_EXECUTION` | config / kill switch | Email action execution |
+| `AUTOPILOT_EXECUTION` | config / kill switch | Standing (level-5) Autopilot execution; also requires the action class to be activated in `autopilot_action_classes` (docs/31) |
 | `ACTION_ROUTINE_EXECUTION` | config / kill switch | Routine action execution |
 | `ACTION_LIFE_GRAPH_EXECUTION` | config / kill switch | Life Graph action execution |
 | `ACTION_NOTIFICATION_EXECUTION` | config / kill switch | Notification action execution |

@@ -18,6 +18,8 @@ export interface ApiEnv {
   GLOBAL_ACTION_EXECUTION?: string;
   ACTION_CALENDAR_EXECUTION?: string;
   ACTION_EMAIL_EXECUTION?: string;
+  /** Phase C kill switch for standing (level-5) execution. Off unless exactly 'true'. */
+  AUTOPILOT_EXECUTION?: string;
 }
 
 export function requireSupabaseConfig(env: ApiEnv): { url: string; publishableKey: string } {
@@ -40,4 +42,8 @@ export function actionDomainEnabled(env: ApiEnv, domain: string): boolean {
   if (domain === 'calendar') return env.ACTION_CALENDAR_EXECUTION === 'true';
   if (domain === 'email') return env.ACTION_EMAIL_EXECUTION === 'true';
   return false;
+}
+
+export function autopilotExecutionEnabled(env: ApiEnv): boolean {
+  return env.AUTOPILOT_EXECUTION === 'true';
 }

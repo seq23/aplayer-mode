@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { buildDailyPlan } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
-import { autonomyLabels, capabilitiesForPlan, maxAutonomyForPlan, planHasCapability, productPlanPolicies, type ActionDomain, type ProductPlan } from '@apm/policy';
+import { autonomyLabels, capabilitiesForPlan, forbiddenStandingActions, maxAutonomyForPlan, planHasCapability, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
 import { authenticateRequest } from './auth';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
@@ -40,6 +40,19 @@ import { syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
 import { approveAndMaybeExecuteAction, prepareAction } from './actionEngine';
+import {
+  autopilotErrorResponse,
+  getAutopilotExportState,
+  getAutopilotState,
+  grantAutopilotRule,
+  hasAutopilotAccess,
+  revokeAutopilotRule,
+  runStandingRule,
+  setAutopilotMasterPause,
+  setAutopilotRuleStatus,
+  undoStandingExecution,
+  updateAutopilotRule,
+} from './autopilotRepository';
 import { notifyRadarItems } from './push';
 
 type WorkerEnv = { Bindings: ApiEnv };
@@ -247,6 +260,57 @@ const lifeAdminPatchSchema = z.object({
   currency: z.union([z.string().regex(/^[A-Z]{3}$/), z.literal('')]).optional(),
   details: z.record(z.string(), z.unknown()).optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: 'at least one field is required' });
+
+// Phase C — Autopilot standing rules. Shapes mirror migration 0018; the
+// database stays authoritative and re-validates everything.
+const standingWindowSchema = {
+  timezone: z.string().trim().min(1).max(120),
+  weekdays: z.array(z.number().int().min(1).max(7)).min(1).max(7),
+  windowStart: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/),
+  windowEnd: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/),
+};
+const calendarConstraintsSchema = z.object({
+  ...standingWindowSchema,
+  maxDurationMinutes: z.number().int().min(15).max(240),
+  maxPerDay: z.number().int().min(1).max(10),
+  horizonDays: z.number().int().min(1).max(30),
+  collision: z.literal('never_overlap_busy'),
+}).strict();
+const emailDraftConstraintsSchema = z.object({
+  ...standingWindowSchema,
+  maxPerDay: z.number().int().min(1).max(20),
+  allowedRecipientDomains: z.array(z.string().trim().toLowerCase().min(3).max(253)).min(1).max(10),
+}).strict();
+const expiresAtSchema = z.string().datetime().refine((value) => {
+  const ms = Date.parse(value) - Date.now();
+  return ms > 3_600_000 && ms <= STANDING_RULE_MAX_DAYS * 86_400_000;
+}, { message: `expiresAt must be between 1 hour and ${STANDING_RULE_MAX_DAYS} days ahead` });
+const autopilotGrantSchema = z.discriminatedUnion('actionClass', [
+  z.object({ actionClass: z.literal('calendar.create'), constraints: calendarConstraintsSchema, expiresAt: expiresAtSchema }),
+  z.object({ actionClass: z.literal('email.draft'), constraints: emailDraftConstraintsSchema, expiresAt: expiresAtSchema }),
+]);
+const autopilotUpdateSchema = z.object({
+  expectedVersion: z.number().int().min(1),
+  constraints: z.record(z.string(), z.unknown()).optional(),
+  expiresAt: expiresAtSchema.optional(),
+}).refine((value) => value.constraints !== undefined || value.expiresAt !== undefined, { message: 'constraints or expiresAt is required' });
+const autopilotVersionSchema = z.object({ expectedVersion: z.number().int().min(1) });
+const autopilotRunBaseSchema = { idempotencyKey: z.string().min(8).max(200), reason: z.string().trim().min(3).max(1000) };
+const autopilotRunPayloadSchemas = {
+  'calendar.create': z.object({
+    connectionId: z.string().uuid(),
+    title: z.string().trim().min(1).max(200),
+    startsAt: z.string().datetime(),
+    endsAt: z.string().datetime(),
+    location: z.string().max(300).optional(),
+  }).strict(),
+  'email.draft': z.object({
+    connectionId: z.string().uuid(),
+    to: z.string().email().max(320),
+    subject: z.string().trim().min(1).max(300),
+    body: z.string().max(10000),
+  }).strict(),
+} as const;
 
 const deviceCalendarEventSchema = z.object({
   provider: z.string().default('device'), externalEventId: z.string().min(1).max(500), calendarExternalId: z.string().max(500).optional(),
@@ -560,6 +624,135 @@ app.post('/v1/actions/:id/approve', async (c) => {
   return c.json({ action: executed });
 });
 
+async function autopilotContext(env: ApiEnv, accessToken: string, userId: string) {
+  const graph = await getLifeGraph(env, accessToken, userId);
+  const entitled = hasAutopilotAccess(graph.entitlement);
+  const state = await getAutopilotState(env, accessToken, userId, entitled);
+  return { graph, entitled, state };
+}
+
+function autopilotResponse(state: Awaited<ReturnType<typeof getAutopilotState>>, graph: Awaited<ReturnType<typeof getLifeGraph>>) {
+  return {
+    autopilot: state,
+    permissions: Object.values(standingActionClasses).map((policy) => {
+      const permission = graph.permissions.find((p) => p.domain === policy.domain && p.actionType === policy.actionType);
+      return { actionClass: policy.actionClass, domain: policy.domain, autonomyLevel: permission?.enabled ? permission.autonomyLevel : 0 };
+    }),
+    supported: Object.values(standingActionClasses),
+    neverStanding: forbiddenStandingActions,
+  };
+}
+
+function autopilotFailure(c: any, error: unknown) {
+  const mapped = autopilotErrorResponse(error);
+  if (!mapped) throw error;
+  return c.json(mapped.reason ? { error: mapped.error, reason: mapped.reason } : { error: mapped.error }, mapped.status);
+}
+
+app.get('/v1/autopilot', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const { graph, state } = await autopilotContext(c.env, user.accessToken, user.id);
+  return c.json(autopilotResponse(state, graph));
+});
+
+app.post('/v1/autopilot/rules', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = autopilotGrantSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const problems = validateStandingConstraints(parsed.data.actionClass, parsed.data.constraints as Record<string, unknown>);
+  if (problems.length) return c.json({ error: 'invalid_constraints', problems }, 400);
+  const graph = await getLifeGraph(c.env, user.accessToken, user.id);
+  if (!hasAutopilotAccess(graph.entitlement)) return c.json({ error: 'autopilot_required' }, 403);
+  try {
+    const rule = await grantAutopilotRule(c.env, user.accessToken, parsed.data);
+    await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'autopilot_rule_granted', { actionClass: rule.actionClass });
+    return c.json({ rule }, 201);
+  } catch (error) { return autopilotFailure(c, error); }
+});
+
+app.patch('/v1/autopilot/rules/:id', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = autopilotUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const { entitled, state } = await autopilotContext(c.env, user.accessToken, user.id);
+  if (!entitled) return c.json({ error: 'autopilot_required' }, 403);
+  const rule = state.rules.find((candidate) => candidate.id === c.req.param('id'));
+  if (!rule) return c.json({ error: 'not_found' }, 404);
+  if (parsed.data.constraints) {
+    const problems = validateStandingConstraints(rule.actionClass, parsed.data.constraints);
+    if (problems.length) return c.json({ error: 'invalid_constraints', problems }, 400);
+  }
+  try {
+    return c.json({ rule: await updateAutopilotRule(c.env, user.accessToken, rule.id, parsed.data as { expectedVersion: number; constraints?: any; expiresAt?: string }) });
+  } catch (error) { return autopilotFailure(c, error); }
+});
+
+for (const [path, status] of [['pause', 'paused'], ['resume', 'active']] as const) {
+  app.post(`/v1/autopilot/rules/:id/${path}`, async (c) => {
+    const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+    const parsed = autopilotVersionSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+    // Pausing is owner-only in the database and never needs the entitlement.
+    try {
+      return c.json({ rule: await setAutopilotRuleStatus(c.env, user.accessToken, c.req.param('id'), status, parsed.data.expectedVersion) });
+    } catch (error) { return autopilotFailure(c, error); }
+  });
+}
+
+app.post('/v1/autopilot/rules/:id/revoke', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ reason: z.string().trim().max(300).optional() }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  try {
+    return c.json({ rule: await revokeAutopilotRule(c.env, user.accessToken, c.req.param('id'), parsed.data.reason) });
+  } catch (error) { return autopilotFailure(c, error); }
+});
+
+app.put('/v1/autopilot/pause', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ paused: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  try {
+    return c.json(await setAutopilotMasterPause(c.env, user.accessToken, parsed.data.paused));
+  } catch (error) { return autopilotFailure(c, error); }
+});
+
+app.post('/v1/autopilot/rules/:id/run', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const body = await c.req.json().catch(() => null);
+  const base = z.object({ ...autopilotRunBaseSchema, payload: z.record(z.string(), z.unknown()) }).safeParse(body);
+  if (!base.success) return c.json({ error: 'invalid_request' }, 400);
+  const { graph, entitled, state } = await autopilotContext(c.env, user.accessToken, user.id);
+  if (!entitled) return c.json({ error: 'autopilot_required' }, 403);
+  const rule = state.rules.find((candidate) => candidate.id === c.req.param('id'));
+  if (!rule) return c.json({ error: 'not_found' }, 404);
+  const payload = autopilotRunPayloadSchemas[rule.actionClass].safeParse(base.data.payload);
+  if (!payload.success) return c.json({ error: 'invalid_request' }, 400);
+  const policy = standingActionClasses[rule.actionClass];
+  const permission = graph.permissions.find((p) => p.domain === policy.domain && p.actionType === policy.actionType && p.enabled);
+  try {
+    const result = await runStandingRule({
+      env: c.env, accessToken: user.accessToken, userId: user.id, rule, state, permission, entitlement: graph.entitlement,
+      idempotencyKey: base.data.idempotencyKey, reason: base.data.reason, payload: payload.data,
+    });
+    if (!result.replayed) await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'autopilot_executed', { actionClass: rule.actionClass });
+    return c.json(result, result.replayed ? 200 : 201);
+  } catch (error) { return autopilotFailure(c, error); }
+});
+
+app.post('/v1/autopilot/executions/:id/undo', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  try {
+    const execution = await undoStandingExecution({ env: c.env, accessToken: user.accessToken, userId: user.id, executionId: c.req.param('id') });
+    return c.json({ execution });
+  } catch (error) { return autopilotFailure(c, error); }
+});
+
+app.get('/v1/privacy/autopilot', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  return c.json(await getAutopilotExportState(c.env, user.accessToken));
+});
+
 app.post('/v1/push/register', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ expoPushToken: z.string().min(10).max(500), deviceId: z.string().max(300).optional(), platform: z.enum(['ios','android','web']).optional() }).safeParse(await c.req.json().catch(() => null));
@@ -598,9 +791,10 @@ app.post('/v1/privacy/export', async (c) => {
     lifeRelationships: retainedLifeOs.lifeRelationships,
     lifeAdminItems: retainedLifeOs.lifeAdminItems,
   };
+  const autopilot = await getAutopilotExportState(c.env, user.accessToken);
   const activity = await getAuditEvents(c.env, user.accessToken, user.id, 250);
   await supabaseRest(c.env, user.accessToken, `/rest/v1/data_rights_jobs?id=eq.${encodeURIComponent(job.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'complete', completed_at: new Date().toISOString() }) });
-  return c.json({ job: { ...job, status: 'complete' }, export: { generatedAt: new Date().toISOString(), lifeGraph, activity } });
+  return c.json({ job: { ...job, status: 'complete' }, export: { generatedAt: new Date().toISOString(), lifeGraph, autopilot, activity } });
 });
 app.post('/v1/privacy/delete', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);

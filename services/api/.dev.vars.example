@@ -40,3 +40,5 @@ EXPO_ACCESS_TOKEN=
 GLOBAL_ACTION_EXECUTION=false
 ACTION_CALENDAR_EXECUTION=false
 ACTION_EMAIL_EXECUTION=false
+# Phase C standing (level-5) execution; stays false until a class is activated with runtime evidence.
+AUTOPILOT_EXECUTION=false

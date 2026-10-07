@@ -176,3 +176,239 @@ export const autonomyLabels: Record<AutonomyLevel, string> = {
   4: 'Approve & execute',
   5: 'Autopilot',
 };
+
+// ---------------------------------------------------------------------------
+// Phase C — Autopilot standing rules (docs/31-AUTOPILOT-PHASE-C.md)
+//
+// The database (migration 0018) is the authority boundary; these deterministic
+// helpers mirror it so the Worker can fail closed early and the app can explain
+// a decision before it asks the server.
+// ---------------------------------------------------------------------------
+
+export type StandingActionClass = 'calendar.create' | 'email.draft';
+
+export interface StandingActionClassPolicy {
+  actionClass: StandingActionClass;
+  domain: Extract<ActionDomain, 'calendar' | 'email'>;
+  actionType: StandingActionClass;
+  label: string;
+  reversible: true;
+  undo: 'delete_event' | 'delete_draft';
+}
+
+/** The whole allow-list. Anything not listed here can never be a standing rule. */
+export const standingActionClasses: Record<StandingActionClass, StandingActionClassPolicy> = {
+  'calendar.create': {
+    actionClass: 'calendar.create', domain: 'calendar', actionType: 'calendar.create',
+    label: 'Schedule a new calendar block (e.g. a routine)', reversible: true, undo: 'delete_event',
+  },
+  'email.draft': {
+    actionClass: 'email.draft', domain: 'email', actionType: 'email.draft',
+    label: 'Prepare an email draft (never sends)', reversible: true, undo: 'delete_draft',
+  },
+};
+
+/**
+ * Explicitly excluded from standing authority. Purchasing, healthcare and
+ * financial execution are excluded by the constitution; sending email and
+ * editing existing events are excluded because they are not reliably
+ * reversible or can override someone else's commitments.
+ */
+export const forbiddenStandingActions: ReadonlyArray<{ match: string; reason: string }> = [
+  { match: 'purchase.*', reason: 'No autonomous purchasing.' },
+  { match: 'healthcare.*', reason: 'No healthcare transactions.' },
+  { match: 'financial.*', reason: 'No banking, bill payment or other financial execution.' },
+  { match: 'email.send', reason: 'Sending is irreversible; Autopilot only prepares drafts.' },
+  { match: 'calendar.update', reason: 'Editing existing events can override commitments.' },
+  { match: 'connector.*', reason: 'Connector administration always needs the user.' },
+];
+
+export function isStandingActionClass(value: string): value is StandingActionClass {
+  return Object.prototype.hasOwnProperty.call(standingActionClasses, value);
+}
+
+export function standingForbiddenReason(actionClass: string): string | undefined {
+  for (const rule of forbiddenStandingActions) {
+    const prefix = rule.match.endsWith('.*') ? rule.match.slice(0, -1) : undefined;
+    if (prefix ? actionClass.startsWith(prefix) : actionClass === rule.match) return rule.reason;
+  }
+  return isStandingActionClass(actionClass) ? undefined : 'Not a supported Autopilot action class.';
+}
+
+export interface StandingWindow {
+  timezone: string;
+  /** ISO weekdays, Monday = 1 … Sunday = 7. */
+  weekdays: number[];
+  windowStart: string;
+  windowEnd: string;
+  maxPerDay: number;
+}
+
+export interface CalendarStandingConstraints extends StandingWindow {
+  maxDurationMinutes: number;
+  horizonDays: number;
+  collision: 'never_overlap_busy';
+}
+
+export interface EmailDraftStandingConstraints extends StandingWindow {
+  allowedRecipientDomains: string[];
+}
+
+export type StandingConstraints = CalendarStandingConstraints | EmailDraftStandingConstraints;
+
+const HHMM = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h! * 60 + m!;
+}
+
+function validTimezone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    return timezone.length > 0 && timezone.length <= 120;
+  } catch {
+    return false;
+  }
+}
+
+const intIn = (value: unknown, min: number, max: number) => Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
+
+/** Mirrors private.apm_autopilot_check_constraints; returns the problems found. */
+export function validateStandingConstraints(actionClass: StandingActionClass, input: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+  const allowed = actionClass === 'calendar.create'
+    ? ['timezone','weekdays','windowStart','windowEnd','maxDurationMinutes','maxPerDay','horizonDays','collision']
+    : ['timezone','weekdays','windowStart','windowEnd','maxPerDay','allowedRecipientDomains'];
+  for (const key of Object.keys(input)) if (!allowed.includes(key)) errors.push(`unknown:${key}`);
+  for (const key of allowed) if (input[key] === undefined || input[key] === null) errors.push(`missing:${key}`);
+  if (errors.length) return errors;
+
+  if (typeof input.timezone !== 'string' || !validTimezone(input.timezone)) errors.push('timezone');
+  const weekdays = input.weekdays;
+  if (!Array.isArray(weekdays) || weekdays.length < 1 || weekdays.length > 7
+    || !weekdays.every((day) => intIn(day, 1, 7)) || new Set(weekdays).size !== weekdays.length) errors.push('weekdays');
+  const start = input.windowStart;
+  const end = input.windowEnd;
+  if (typeof start !== 'string' || typeof end !== 'string' || !HHMM.test(start) || !HHMM.test(end) || minutesOf(end) <= minutesOf(start)) {
+    errors.push('window');
+  }
+  if (actionClass === 'calendar.create') {
+    if (!intIn(input.maxDurationMinutes, 15, 240)) errors.push('maxDurationMinutes');
+    else if (!errors.includes('window') && (input.maxDurationMinutes as number) > minutesOf(end as string) - minutesOf(start as string)) errors.push('maxDurationMinutes');
+    if (!intIn(input.maxPerDay, 1, 10)) errors.push('maxPerDay');
+    if (!intIn(input.horizonDays, 1, 30)) errors.push('horizonDays');
+    if (input.collision !== 'never_overlap_busy') errors.push('collision');
+  } else {
+    if (!intIn(input.maxPerDay, 1, 20)) errors.push('maxPerDay');
+    const domains = input.allowedRecipientDomains;
+    if (!Array.isArray(domains) || domains.length < 1 || domains.length > 10
+      || !domains.every((d) => typeof d === 'string' && d.length <= 253 && DOMAIN.test(d))) errors.push('allowedRecipientDomains');
+  }
+  return errors;
+}
+
+/** Maximum standing-rule lifetime; renewal is an explicit re-grant. */
+export const STANDING_RULE_MAX_DAYS = 90;
+
+export interface LocalMoment { date: string; isoWeekday: number; minutes: number }
+
+/** Wall-clock view of an instant in an IANA timezone. */
+export function localMoment(instant: Date, timezone: string): LocalMoment {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23',
+  }).formatToParts(instant);
+  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  const weekday = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].indexOf(read('weekday')) + 1;
+  return { date: `${read('year')}-${read('month')}-${read('day')}`, isoWeekday: weekday, minutes: Number(read('hour')) * 60 + Number(read('minute')) };
+}
+
+export type StandingProposalVerdict =
+  | 'allowed'
+  | 'invalid_payload'
+  | 'outside_rule'
+  | 'collision'
+  | 'rate_limited';
+
+export interface BusyInterval { startsAt: string; endsAt: string }
+
+/**
+ * Deterministic preview of private.apm_autopilot_claim's calendar checks
+ * (duration, horizon, single local day, weekday, window, collision, daily cap).
+ */
+export function evaluateCalendarStandingProposal(input: {
+  constraints: CalendarStandingConstraints;
+  startsAt: string;
+  endsAt: string;
+  now: Date;
+  busy: BusyInterval[];
+  claimedOnLocalDay: number;
+}): StandingProposalVerdict {
+  const starts = Date.parse(input.startsAt);
+  const ends = Date.parse(input.endsAt);
+  if (!Number.isFinite(starts) || !Number.isFinite(ends) || ends <= starts) return 'invalid_payload';
+  const c = input.constraints;
+  if ((ends - starts) / 60_000 > c.maxDurationMinutes) return 'outside_rule';
+  if (starts <= input.now.getTime() || starts > input.now.getTime() + c.horizonDays * 86_400_000) return 'outside_rule';
+  const localStart = localMoment(new Date(starts), c.timezone);
+  const localEnd = localMoment(new Date(ends), c.timezone);
+  if (localStart.date !== localEnd.date) return 'outside_rule';
+  if (!c.weekdays.includes(localStart.isoWeekday)) return 'outside_rule';
+  if (localStart.minutes < minutesOf(c.windowStart) || localEnd.minutes > minutesOf(c.windowEnd)) return 'outside_rule';
+  if (input.busy.some((event) => Date.parse(event.startsAt) < ends && Date.parse(event.endsAt) > starts)) return 'collision';
+  if (input.claimedOnLocalDay >= c.maxPerDay) return 'rate_limited';
+  return 'allowed';
+}
+
+export type StandingAuthorityReason =
+  | AuthorityDecision['reason']
+  | 'autopilot_execution_disabled'
+  | 'unsupported_action_class'
+  | 'class_not_activated'
+  | 'autopilot_paused'
+  | 'rule_inactive'
+  | 'rule_expired';
+
+/**
+ * Level-5 standing authority =
+ * entitlement AND permission(5) AND active unexpired rule AND activated class
+ * AND master pause off AND all kill switches on. Paying for Autopilot alone is
+ * never sufficient.
+ */
+export function decideStandingAuthority(input: {
+  userId: string;
+  actionClass: string;
+  plan?: ProductPlan;
+  planUsable: boolean;
+  permission?: PermissionGrant;
+  rule?: { status: 'active' | 'paused' | 'revoked'; expiresAt: string };
+  classActivated: boolean;
+  masterPaused: boolean;
+  globalExecutionEnabled: boolean;
+  domainExecutionEnabled: boolean;
+  autopilotExecutionEnabled: boolean;
+  now: Date;
+}): { allowed: boolean; reason: StandingAuthorityReason } {
+  if (!isStandingActionClass(input.actionClass)) return { allowed: false, reason: 'unsupported_action_class' };
+  if (!input.autopilotExecutionEnabled) return { allowed: false, reason: 'autopilot_execution_disabled' };
+  const domain = standingActionClasses[input.actionClass].domain;
+  const base = decideAuthority({
+    userId: input.userId,
+    domain,
+    requestedLevel: 5,
+    permission: input.permission,
+    entitlement: input.plan && input.planUsable
+      ? { domain, maxAvailableLevel: maxAutonomyForPlan(input.plan, domain), enabled: true }
+      : undefined,
+    globalExecutionEnabled: input.globalExecutionEnabled,
+    domainExecutionEnabled: input.domainExecutionEnabled,
+  });
+  if (!base.allowed) return { allowed: false, reason: base.reason };
+  if (input.masterPaused) return { allowed: false, reason: 'autopilot_paused' };
+  if (!input.rule || input.rule.status !== 'active') return { allowed: false, reason: 'rule_inactive' };
+  if (Date.parse(input.rule.expiresAt) <= input.now.getTime()) return { allowed: false, reason: 'rule_expired' };
+  if (!input.classActivated) return { allowed: false, reason: 'class_not_activated' };
+  return { allowed: true, reason: 'allowed' };
+}

@@ -503,6 +503,75 @@ export interface DayRecord {
   closedAt?: ISODateTime;
 }
 
+export type AutopilotActionClass = 'calendar.create' | 'email.draft';
+
+/** Standing-rule constraints (Phase C, migration 0018). ISO weekdays: Monday = 1. */
+export interface AutopilotRuleConstraints {
+  timezone: string;
+  weekdays: number[];
+  windowStart: string;
+  windowEnd: string;
+  maxPerDay: number;
+  maxDurationMinutes?: number;
+  horizonDays?: number;
+  collision?: 'never_overlap_busy';
+  allowedRecipientDomains?: string[];
+}
+
+export interface AutopilotActionClassState {
+  actionClass: AutopilotActionClass;
+  domain: 'calendar' | 'email';
+  actionType: string;
+  reversible: boolean;
+  undoMethod: 'delete_event' | 'delete_draft';
+  activationStatus: 'inactive' | 'active';
+  activatedAt?: ISODateTime;
+}
+
+export interface AutopilotRule {
+  id: UUID;
+  userId: UUID;
+  actionClass: AutopilotActionClass;
+  status: 'active' | 'paused' | 'revoked';
+  constraints: AutopilotRuleConstraints;
+  version: number;
+  grantedAt: ISODateTime;
+  expiresAt: ISODateTime;
+  pausedAt?: ISODateTime;
+  revokedAt?: ISODateTime;
+  revokeReason?: string;
+  lastExecutedAt?: ISODateTime;
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
+export interface AutopilotExecution {
+  id: UUID;
+  userId: UUID;
+  ruleId: UUID;
+  ruleVersion: number;
+  actionClass: AutopilotActionClass;
+  actionId?: UUID;
+  status: 'claimed' | 'verified' | 'failed' | 'reverted';
+  idempotencyKey: string;
+  proposedStartsAt?: ISODateTime;
+  proposedEndsAt?: ISODateTime;
+  localDay: string;
+  externalRef?: string;
+  failureCode?: string;
+  claimedAt: ISODateTime;
+  completedAt?: ISODateTime;
+  revertedAt?: ISODateTime;
+}
+
+export interface AutopilotState {
+  entitled: boolean;
+  masterPaused: boolean;
+  classes: AutopilotActionClassState[];
+  rules: AutopilotRule[];
+  executions: AutopilotExecution[];
+}
+
 export interface SubscriptionEntitlement {
   userId: UUID;
   plan: 'beta' | 'chief_of_staff' | 'life_os' | 'autopilot' | 'household';
