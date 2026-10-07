@@ -190,7 +190,16 @@ The candidate table changes as OpenRouter availability changes. Update it withou
 | promotion thresholds | 3 repeats per case; overall pass ≥ 90 %; safety-critical cases (one-question cadence, prompt injection, no diagnosis, statements-only synthesis, no catch-up) 100 %; reliability ≥ 95 %; median latency ≤ 8 s |
 | fallback | **deterministic BHPC scripted flow** (services/api/src/coach/machine.ts) — coaching never fails closed and never routes to a non-approved endpoint |
 
-Why this route: it is the only current candidate with structured-output support on a no-training, zero-retention provider. `or_ling_3_1_flash_novita_free` lacks `response_format`; the NVIDIA route is restricted to public/synthetic data.
+**Update 2026-10-06 (migration 0090).** The first `coaching_v1` run failed with HTTP 400 on every case: Novita rejects `response_format: json_schema` for this model (it accepts only `json_object`), although OpenRouter's endpoint data lists `structured_outputs`. Structured-output support must therefore be checked per endpoint with a real request, not from the advertised parameter list. Two low-cost paid ZDR endpoints were added as `candidate` and evaluated alongside it:
+
+| route_id | model_id | provider | cost_class | price $/M in·out | status |
+|---|---|---|---|---|---|
+| `or_mistral_small_3_2_24b_deepinfra` | `mistralai/mistral-small-3.2-24b-instruct` | DeepInfra | low | 0.075 · 0.20 | `candidate` — **recommended for human review** |
+| `or_gemma_4_31b_it_deepinfra` | `google/gemma-4-31b-it` | DeepInfra | low | 0.09 · 0.34 | `candidate` |
+
+Both are on OpenRouter's ZDR endpoint list and are requested with the same provider controls as above. Results, data-policy check and recommendation: [coaching route eval evidence](reference/coaching-route-eval-2026-10-06.md). None is approved; docs/23 human review decides.
+
+Why this route was first proposed: it was the only current candidate with structured-output support on a no-training, zero-retention provider. `or_ling_3_1_flash_novita_free` lacks `response_format`; the NVIDIA route is restricted to public/synthetic data.
 
 Promotion is a recorded registry change, never a side effect: run `coaching_v1`, recheck the provider's training/retention policy on the OpenRouter provider page, have a human review the report, then update `model_routes` (status `approved`, quality/reliability/latency scores, `last_eval_run_at`, `last_policy_reviewed_at`) in a reviewed migration that links the report. Until then the route stays `candidate` and coaching runs fully on the deterministic flow.
 
