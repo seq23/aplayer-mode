@@ -19,7 +19,8 @@ This document maps the full intended A Player Mode system to what is implemented
 | BHPC core — coaching state machine, five Modes, daily loop, Tracks | **DONE** (`SOURCE_COMPLETE` + `DB_PROVISIONED`) | rows 3 and 26; docs/32 Track library |
 | Autopilot action classes (ADR-0003) and daily-loop hardening | **DONE** (`SOURCE_COMPLETE` + `DB_PROVISIONED`; classes ship inactive) | PRs #23, #24; migrations 0033–0039 |
 | Final pricing | **DECIDED** (owner, final) | ADR-0004: Chief of Staff $24.99, Life OS $39.99, Autopilot $79.99; Founding 100 and 3-month intro at $9.99 |
-| **Phase D — billing / entitlement reconciliation** | **NEXT — pending owner discussion** | App Store + Google Play in-app subscriptions; not built |
+| Annual plans | **DECIDED** (owner, final) | ADR-0005: $249.99 / $399.99 / $799.99 per year (2 months free); no intro offer on annual |
+| **Phase D — billing / entitlement reconciliation** | **DONE** (`SOURCE_COMPLETE` + `DB_PROVISIONED`; store/RevenueCat configuration is Phase E) | docs/33-BILLING-PHASE-D.md; migrations 0040–0041; RevenueCat webhook + Founding 100 counter + paywall |
 
 "DONE" here means source (and, where stated, database) complete. None of it is runtime-proven until the external gates in §6 have receipts.
 
@@ -102,7 +103,7 @@ flowchart TD
 | 16 | Legal/privacy launch readiness | docs/policy foundation | `EXTERNAL_GATE` | qualified legal review cannot be simulated |
 | 17 | Closed beta | runbook required | `EXTERNAL_GATE` | requires 25–50 real users and evidence |
 | 18 | Three-tier product contract | `SOURCE_COMPLETE` in Phase A | DB/runtime validation required | Chief of Staff / Life OS / Autopilot boundaries + Household waitlist |
-| 18A | Commercial entitlement activation (Phase D) | foundation; **next, pending owner discussion** | `EXTERNAL_GATE` | App Store + Google Play in-app subscriptions at the ADR-0004 prices; store billing transactions/entitlement reconciliation not built or live |
+| 18A | Commercial entitlement activation (Phase D) | `SOURCE_COMPLETE` + `DB_PROVISIONED` (migrations 0040–0041) | `EXTERNAL_GATE` | RevenueCat webhook -> service-role entitlement writer; App Store / Play products, RevenueCat project and secrets are Phase E (docs/33 checklist); no store transaction is live |
 | 19 | Distribution engine | product contract | other-repo / market gate | audit/acquisition belongs primarily to marketing web stack |
 | 20 | Action Engine | `SOURCE_COMPLETE` foundation | provider/runtime required | permissioned calendar/email actions with approval lifecycle |
 | 21 | Life OS | `SOURCE_COMPLETE` + `DB_PROVISIONED` (Phase B, migrations 0015–0017) | runtime evidence still required | relationships + personal administration domains; governed RPC writes; see docs/30-LIFE-OS-PHASE-B.md |
@@ -172,7 +173,7 @@ CI GREEN ON PROGRAM BRANCH
   -> Phase B Life OS domains            (source + DB done)
   -> Phase C Autopilot standing rules   (source + DB done; classes inactive)
   -> Autopilot action classes, ADR-0003 (PRs #23, #24 done; classes inactive)
-  -> Phase D billing (App Store + Google Play IAP)  <- NEXT, pending owner discussion
+  -> Phase D billing (App Store + Google Play IAP via RevenueCat)  <- source + DB done (docs/33)
   -> Phase E runtime evidence (incl. Autopilot class activation receipts)
   -> three-tier closed beta
   -> three-tier paid launch

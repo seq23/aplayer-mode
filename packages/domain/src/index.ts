@@ -801,6 +801,13 @@ export interface SubscriptionEntitlement {
   status: 'active' | 'trialing' | 'past_due' | 'cancelled' | 'expired';
   provider?: string;
   currentPeriodEnd?: ISODateTime;
+  /** Phase D (migration 0040): written only by the verified RevenueCat webhook. */
+  billingPeriod?: 'monthly' | 'annual';
+  storeProductId?: string;
+  offer?: 'standard' | 'founding';
+  cancelAtPeriodEnd?: boolean;
+  billingIssueAt?: ISODateTime;
+  pendingPlan?: 'chief_of_staff' | 'life_os' | 'autopilot';
 }
 
 export interface Household {

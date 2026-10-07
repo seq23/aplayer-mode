@@ -182,7 +182,7 @@ Before 0033 the Worker recorded outcomes with the user's own JWT, so a user coul
 
 - activating any action class (needs runtime/security receipts — Phase E);
 - a scheduled/cron trigger that proposes routine blocks (runtime — Phase E);
-- billing receipt reconciliation (Phase D);
+- billing receipt reconciliation (Phase D, now docs/33);
 - shared Household authority;
 - purchases, payments, upgrades/sign-ups, clinical/healthcare decisions, money movement, generic event edits;
 - booking flows that need a provider API or a web form (scheduling links): today only emailed requests;

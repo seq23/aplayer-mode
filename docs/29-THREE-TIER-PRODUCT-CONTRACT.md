@@ -1,7 +1,7 @@
 # A Player Mode — Three-Tier Product Contract
 
 **Status: LOCKED IMPLEMENTATION CONTRACT**  
-**Decision authority:** ADR-0002; pricing ADR-0004  
+**Decision authority:** ADR-0002; pricing ADR-0004, ADR-0005  
 **Updated:** 2026-10-07
 
 > **Whatever game you're in, get into A Player Mode.**
@@ -25,9 +25,17 @@ flowchart LR
 | Life OS | remembers and prepares | $39.99 | everything in Chief of Staff |
 | Autopilot | does | $79.99 | everything in Life OS |
 
+- **Annual plans (ADR-0005, 2 months free):**
+
+| Tier | Monthly | Annual |
+|---|---:|---:|
+| Chief of Staff | $24.99 | $249.99 |
+| Life OS | $39.99 | $399.99 |
+| Autopilot | $79.99 | $799.99 |
+
 - **Chief of Staff intro offers:** Founding 100 (the first 100 subscribers) pay $9.99/mo, locked while continuously subscribed; everyone else pays $9.99/mo for the first 3 months, then $24.99/mo.
 - **Every tier reduces cognitive load; upper tiers reduce more.**
-- **Billing:** App Store + Google Play in-app subscriptions (Phase D, not built).
+- **Billing:** App Store + Google Play in-app subscriptions via RevenueCat (Phase D, docs/33). No free trial.
 - **Buying a tier never grants autonomy.** Prices come from `PLAN_PRICES` in `packages/policy/src/index.ts`; `packages/policy/test/pricing.test.mjs` pins this table to it.
 
 ## Capability grid
@@ -83,14 +91,14 @@ The API is the authority boundary. Client UI may explain a plan but cannot grant
 - permission writes above the current plan ceiling fail;
 - action preparation/execution remains independently policy-checked;
 - Household read and mutation routes stay unavailable; authenticated Supabase RLS exposes no Household customer read/write policy while the product is waitlist-only;
-- billing (Phase D) will reconcile verified App Store / Google Play receipts into server-side entitlements.
+- billing (Phase D, migration 0040) writes entitlements only from the verified RevenueCat webhook; CANCELLATION keeps access to period end, BILLING_ISSUE keeps it through store grace, EXPIRATION and refunds end it.
 
 ## Phase ledger after this contract
 
 1. **Phase A — three-tier contract / gating / plan UX / Household waitlist**.
 2. **Phase B — Life OS domain modules**.
 3. **Phase C — Autopilot standing-rule engine + UX**.
-4. **Phase D — billing / entitlement reconciliation** (App Store + Google Play in-app subscriptions; next, pending owner discussion).
+4. **Phase D — billing / entitlement reconciliation** (App Store + Google Play in-app subscriptions via RevenueCat; `SOURCE_COMPLETE` + `DB_PROVISIONED`, docs/33).
 5. **Phase E — external runtime/provider evidence**.
 6. **Phase F — three-tier beta/release evidence**.
 7. **Household — later, separate approval.**

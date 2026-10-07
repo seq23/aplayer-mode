@@ -104,6 +104,8 @@ interface ActionRow {
 
 interface EntitlementRow {
   user_id: string; plan: SubscriptionEntitlement['plan']; status: SubscriptionEntitlement['status']; provider: string | null; current_period_end: string | null;
+  billing_period?: 'monthly' | 'annual' | null; store_product_id?: string | null; offer?: 'standard' | 'founding' | null;
+  cancel_at_period_end?: boolean | null; billing_issue_at?: string | null; pending_plan?: SubscriptionEntitlement['pendingPlan'] | null;
 }
 interface ProductInterestRow { interest: 'household'; status: 'interested' | 'withdrawn'; source: string; created_at: string; updated_at: string; }
 interface HouseholdRow { id: string; created_by: string; name: string; created_at: string; }
@@ -137,6 +139,14 @@ export interface PlatformState {
   entitlement?: SubscriptionEntitlement;
 }
 
+export function entitlementFromRow(userId: string, row: EntitlementRow): SubscriptionEntitlement {
+  return {
+    userId, plan: row.plan, status: row.status, provider: row.provider ?? undefined, currentPeriodEnd: row.current_period_end ?? undefined,
+    billingPeriod: row.billing_period ?? undefined, storeProductId: row.store_product_id ?? undefined, offer: row.offer ?? undefined,
+    cancelAtPeriodEnd: row.cancel_at_period_end ?? undefined, billingIssueAt: row.billing_issue_at ?? undefined, pendingPlan: row.pending_plan ?? undefined,
+  };
+}
+
 export async function getPlatformState(env: ApiEnv, accessToken: string, userId: string): Promise<PlatformState> {
   const filter = `user_id=eq.${qs(userId)}`;
   const now = new Date();
@@ -159,7 +169,7 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
     supabaseRest<PermissionRow[]>(env, accessToken, `/rest/v1/permissions?${filter}&select=*&order=domain.asc,action_type.asc`),
     supabaseRest<ActionRow[]>(env, accessToken, `/rest/v1/actions?${filter}&select=*&order=created_at.desc&limit=250`),
     supabaseRest<DayRow[]>(env, accessToken, `/rest/v1/day_records?${filter}&select=*&order=day.desc&limit=30`),
-    supabaseRest<EntitlementRow[]>(env, accessToken, `/rest/v1/subscription_entitlements?${filter}&select=user_id,plan,status,provider,current_period_end&limit=1`),
+    supabaseRest<EntitlementRow[]>(env, accessToken, `/rest/v1/subscription_entitlements?${filter}&select=user_id,plan,status,provider,current_period_end,billing_period,store_product_id,offer,cancel_at_period_end,billing_issue_at,pending_plan&limit=1`),
     supabaseRest<GoalPlanRow[]>(env, accessToken, `/rest/v1/goal_plans?${filter}&status=neq.superseded&select=*&order=created_at.asc`),
     supabaseRest<CompletionRow[]>(env, accessToken, `/rest/v1/plan_action_completions?${filter}&day=gte.${qs(completionsSince)}&select=*&order=day.asc,created_at.asc`),
     supabaseRest<DiaryRow[]>(env, accessToken, `/rest/v1/diary_entries?${filter}&select=*&order=created_at.desc&limit=60`),
@@ -204,7 +214,7 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
     diaryEntries: diary.map((row) => ({ id: row.id, userId, kind: row.kind, body: row.body, localDay: row.local_day, createdAt: row.created_at })),
     weeklyReviews: reviews.map((row) => ({ id: row.id, userId, weekStart: row.week_start, summary: row.summary ?? {}, ...(row.adjustment ? { adjustment: row.adjustment } : {}), completedAt: row.completed_at })),
     osChanges: changes.map((row) => ({ id: row.id, userId, field: row.field, proposed: row.proposed, ...(row.previous != null ? { previous: row.previous } : {}), ...(row.reason ? { reason: row.reason } : {}), status: row.status, createdAt: row.created_at, ...(row.applied_at ? { appliedAt: row.applied_at } : {}), ...(row.effective_from ? { effectiveFrom: row.effective_from } : {}) })),
-    entitlement: entitlements[0] ? { userId, plan: entitlements[0].plan, status: entitlements[0].status, provider: entitlements[0].provider ?? undefined, currentPeriodEnd: entitlements[0].current_period_end ?? undefined } : undefined,
+    entitlement: entitlements[0] ? entitlementFromRow(userId, entitlements[0]) : undefined,
   };
 }
 

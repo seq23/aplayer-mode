@@ -77,7 +77,7 @@ The key beta question remains:
 | Autopilot | does (includes Life OS) | $79.99/mo |
 | Household | Future shared mental load | Waitlist only |
 
-These prices are final (ADR-0004) and pinned to `PLAN_PRICES` in code. Billing is App Store + Google Play in-app subscriptions (Phase D, not built). A price is not permission to expose capabilities that do not exist, and buying a tier never grants autonomy.
+These prices are final (ADR-0004) and pinned to `PLAN_PRICES` in code. Annual plans are 2 months free (ADR-0005). Billing is App Store + Google Play in-app subscriptions via RevenueCat (Phase D, docs/33; store configuration is Phase E). A price is not permission to expose capabilities that do not exist, and buying a tier never grants autonomy.
 
 ## Entitlement vs authority
 
@@ -105,7 +105,7 @@ The Life Graph/platform stores server-side subscription entitlements independent
 - webhook/reconciliation;
 - no client-only entitlement trust.
 
-No billing provider is silently locked by this document. Provider selection should be an ADR based on then-current store requirements, engineering effort and margin.
+Provider: RevenueCat over App Store + Google Play (owner decision, 7 Oct 2026; docs/33-BILLING-PHASE-D.md). No free trial; the Founding 100 and 3-month intro are Chief of Staff monthly only.
 
 ## Distribution engine
 

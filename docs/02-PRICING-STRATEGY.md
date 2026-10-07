@@ -1,10 +1,10 @@
 # A Player Mode — Pricing Strategy
 
-**Status:** OWNER-DECIDED / FINAL (ADR-0004)
-**Version:** 2.0
+**Status:** OWNER-DECIDED / FINAL (ADR-0004, ADR-0005)
+**Version:** 2.1
 **Date:** 2026-10-07
 
-Pricing is documented separately from the locked Product and Privacy constitutions. The decision of record is **ADR-0004**; the numbers live in code (`packages/policy/src/index.ts`: `PLAN_PRICES`, `CHIEF_OF_STAFF_INTRO_OFFERS`) and this document is pinned to them by `packages/policy/test/pricing.test.mjs`.
+Pricing is documented separately from the locked Product and Privacy constitutions. The decisions of record are **ADR-0004** (monthly) and **ADR-0005** (annual); the numbers live in code (`packages/policy/src/index.ts`: `PLAN_PRICES`, `CHIEF_OF_STAFF_INTRO_OFFERS`, `BILLING_PRODUCTS`) and this document is pinned to them by `packages/policy/test/pricing.test.mjs`.
 
 ## Price list
 
@@ -18,7 +18,15 @@ Pricing is documented separately from the locked Product and Privacy constitutio
 
 - **Cumulative ladder.** Each tier includes the one below it.
 - **Every tier reduces cognitive load; upper tiers reduce more.** Chief of Staff takes the "what do I do today, in what order" decision off the user. Life OS also remembers the wider life (relationships, birthdays, bills, subscriptions, appointments, travel, routines) and prepares what each needs. Autopilot also does approved work inside standing rules the user writes.
-- **Monthly only at launch.** Any annual plan needs a new pricing decision record and a change to the price constants.
+- **Monthly or annual.** Annual is "2 months free" (ADR-0005):
+
+| Tier | Monthly | Annual |
+|---|---:|---:|
+| Chief of Staff | $24.99 | $249.99 |
+| Life OS | $39.99 | $399.99 |
+| Autopilot | $79.99 | $799.99 |
+
+- **No free trial** on any plan.
 
 ## Chief of Staff intro offers
 
@@ -27,12 +35,12 @@ Pricing is documented separately from the locked Product and Privacy constitutio
 | **Founding 100** | the first 100 subscribers | **$9.99/mo** | locked while continuously subscribed |
 | **Intro** | everyone else | **$9.99/mo** | first 3 months, then $24.99/mo |
 
-Intro offers apply to Chief of Staff only.
+Intro offers apply to Chief of Staff monthly only. Founding 100 is a separate store product shown only while the server holds a free slot for that user (docs/33); a lapse loses the lock.
 
 ## Billing
 
-- **App Store and Google Play in-app subscriptions** (Phase D, pending; not built).
-- Server-side entitlements are reconciled from verified store receipts only. The client never grants a plan.
+- **App Store and Google Play in-app subscriptions** through RevenueCat (Phase D, `SOURCE_COMPLETE`; store/RevenueCat configuration is Phase E — docs/33-BILLING-PHASE-D.md).
+- Server-side entitlements are written only by the verified RevenueCat webhook (migration 0040). The client never grants a plan.
 - **Buying a tier never grants autonomy.** Entitlement AND explicit user permission AND server policy AND kill switches decide authority.
 
 ```mermaid

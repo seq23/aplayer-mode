@@ -3,10 +3,11 @@ import { z } from 'zod';
 import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, selectForeground, verdictFromReview } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
-import { autonomyLabels, capabilitiesForPlan, forbiddenStandingActions, localMoment, maxAutonomyForPlan, planHasCapability, planPriceLabels, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
+import { autonomyLabels, BILLING_PRODUCTS, capabilitiesForPlan, formatUsdCents, PLAN_PRICES, REVENUECAT_CONFIG, type PaidPlan, forbiddenStandingActions, localMoment, maxAutonomyForPlan, planHasCapability, planPriceLabels, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
 import { authenticateRequest } from './auth';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
+import { billingOfferingFor, handleRevenueCatWebhook } from './billing';
 import {
   completeNextAction,
   getLifeGraph,
@@ -149,10 +150,31 @@ function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: 
       maxAutonomyLevel,
       maxAutonomyLabel: autonomyLabels[maxAutonomyLevel],
     },
+    // Store subscription state, as the verified RevenueCat webhook last wrote it (docs/33).
+    billing: resolved.provider === 'app_store' || resolved.provider === 'google_play'
+      ? {
+          store: resolved.provider,
+          period: resolved.billingPeriod ?? null,
+          founding: resolved.offer === 'founding',
+          periodEnd: resolved.currentPeriodEnd ?? null,
+          renews: usable && !resolved.cancelAtPeriodEnd,
+          cancelAtPeriodEnd: Boolean(resolved.cancelAtPeriodEnd),
+          billingIssue: Boolean(resolved.billingIssueAt),
+          pendingPlan: resolved.pendingPlan ?? null,
+        }
+      : null,
     plans: (Object.keys(productPlanPolicies) as ProductPlan[]).map((plan) => {
       const item = productPlanPolicies[plan];
       const level = maxAutonomyForPlan(plan, 'calendar');
+      const price = plan in PLAN_PRICES ? PLAN_PRICES[plan as PaidPlan] : undefined;
       return {
+        ...(price ? {
+          monthlyUsdCents: price.monthlyUsdCents,
+          annualUsdCents: price.annualUsdCents,
+          monthlyPriceLabel: `${formatUsdCents(price.monthlyUsdCents)}/month`,
+          annualPriceLabel: `${formatUsdCents(price.annualUsdCents)}/year`,
+          packages: REVENUECAT_CONFIG.packages[plan as PaidPlan],
+        } : {}),
         plan,
         displayName: item.displayName,
         promise: item.promise,
@@ -500,6 +522,25 @@ app.get('/v1/product/plan', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const { graph } = await buildUserState(c.env, user.accessToken, user.id);
   return c.json(planResponse(graph.entitlement, user.id));
+});
+
+// RevenueCat webhook (docs/33). No user session: the shared Authorization secret is the
+// credential, checked in constant time before anything is parsed.
+app.post(REVENUECAT_CONFIG.webhookPath, async (c) => {
+  const result = await handleRevenueCatWebhook(c.env, c.req.raw);
+  return c.json(result.body, result.status);
+});
+
+// Which RevenueCat offering the paywall may show. The server decides Founding 100.
+app.get('/v1/billing/offering', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const offering = await billingOfferingFor(c.env, user.id);
+  return c.json({
+    ...offering,
+    offeringId: offering.offering === 'founding' ? REVENUECAT_CONFIG.foundingOffering : REVENUECAT_CONFIG.defaultOffering,
+    appUserId: user.id,
+    products: BILLING_PRODUCTS.filter((item) => offering.offering === 'founding' || item.offer === 'standard').map(({ productId, store, plan, period, offer }) => ({ productId, store, plan, period, offer })),
+  });
 });
 
 app.get('/v1/product/household-interest', async (c) => {

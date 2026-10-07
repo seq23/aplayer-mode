@@ -78,17 +78,19 @@ export interface PlanPrice {
   tagline: string;
   /** USD cents per month, before any intro offer. */
   monthlyUsdCents: number;
+  /** USD cents per year for the annual plan ("2 months free": 10 x monthly; ADR-0005). */
+  annualUsdCents: number;
   /** The tier this one fully includes (cumulative ladder). */
   includes: PaidPlan | null;
 }
 
 export const PLAN_PRICES: Readonly<Record<PaidPlan, PlanPrice>> = {
-  chief_of_staff: { plan: 'chief_of_staff', displayName: 'Chief of Staff', tagline: 'decides the day', monthlyUsdCents: 2499, includes: null },
-  life_os: { plan: 'life_os', displayName: 'Life OS', tagline: 'remembers and prepares', monthlyUsdCents: 3999, includes: 'chief_of_staff' },
-  autopilot: { plan: 'autopilot', displayName: 'Autopilot', tagline: 'does', monthlyUsdCents: 7999, includes: 'life_os' },
+  chief_of_staff: { plan: 'chief_of_staff', displayName: 'Chief of Staff', tagline: 'decides the day', monthlyUsdCents: 2499, annualUsdCents: 24999, includes: null },
+  life_os: { plan: 'life_os', displayName: 'Life OS', tagline: 'remembers and prepares', monthlyUsdCents: 3999, annualUsdCents: 39999, includes: 'chief_of_staff' },
+  autopilot: { plan: 'autopilot', displayName: 'Autopilot', tagline: 'does', monthlyUsdCents: 7999, annualUsdCents: 79999, includes: 'life_os' },
 };
 
-/** Intro offers exist on Chief of Staff only. */
+/** Intro offers exist on Chief of Staff MONTHLY only (never annual, never Life OS / Autopilot). */
 export const CHIEF_OF_STAFF_INTRO_OFFERS = {
   /** First 100 subscribers: the intro price for as long as they stay continuously subscribed. */
   founding100: { subscribers: 100, monthlyUsdCents: 999, lockedWhileContinuouslySubscribed: true },
@@ -96,9 +98,79 @@ export const CHIEF_OF_STAFF_INTRO_OFFERS = {
   introductory: { monthlyUsdCents: 999, months: 3, thenMonthlyUsdCents: 2499 },
 } as const;
 
-/** Billing is store in-app subscriptions only (Phase D, not built). */
+/** Billing is store in-app subscriptions only, via RevenueCat (Phase D, docs/33). */
 export const BILLING_CHANNELS = ['app_store', 'google_play'] as const;
 export type BillingChannel = (typeof BILLING_CHANNELS)[number];
+
+export type BillingPeriod = 'monthly' | 'annual';
+/** `standard` = list price (Chief of Staff monthly carries the 3-month intro); `founding` = the Founding 100 product. */
+export type BillingOffer = 'standard' | 'founding';
+
+export interface BillingProduct {
+  /** The store product identifier exactly as RevenueCat reports it (`product_id` in webhooks). */
+  productId: string;
+  store: BillingChannel;
+  plan: PaidPlan;
+  period: BillingPeriod;
+  offer: BillingOffer;
+  /** Store list price in USD cents (the intro / founding price is the store's own configuration). */
+  usdCents: number;
+}
+
+const product = (productId: string, store: BillingChannel, plan: PaidPlan, period: BillingPeriod, offer: BillingOffer = 'standard'): BillingProduct => ({
+  productId, store, plan, period, offer,
+  usdCents: offer === 'founding' ? CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents
+    : period === 'annual' ? PLAN_PRICES[plan].annualUsdCents : PLAN_PRICES[plan].monthlyUsdCents,
+});
+
+/**
+ * THE store product catalogue (docs/33-BILLING-PHASE-D.md). The database seeds the
+ * same rows (migration 0040, private.billing_products) and the webhook maps a
+ * product id to a plan ONLY through that table, never through anything the client
+ * or the event's own entitlement list says. services/api/test/billing-db.test.mjs
+ * pins the migration seed to this constant.
+ *
+ * App Store: one subscription group, one product per row. Google Play: one
+ * subscription per tier with base plans; RevenueCat reports `<subscription>:<base plan>`.
+ */
+export const BILLING_PRODUCTS: ReadonlyArray<BillingProduct> = [
+  product('apm_cos_monthly', 'app_store', 'chief_of_staff', 'monthly'),
+  product('apm_cos_monthly_founding', 'app_store', 'chief_of_staff', 'monthly', 'founding'),
+  product('apm_cos_annual', 'app_store', 'chief_of_staff', 'annual'),
+  product('apm_lifeos_monthly', 'app_store', 'life_os', 'monthly'),
+  product('apm_lifeos_annual', 'app_store', 'life_os', 'annual'),
+  product('apm_autopilot_monthly', 'app_store', 'autopilot', 'monthly'),
+  product('apm_autopilot_annual', 'app_store', 'autopilot', 'annual'),
+  product('apm_cos:monthly', 'google_play', 'chief_of_staff', 'monthly'),
+  product('apm_cos:founding-monthly', 'google_play', 'chief_of_staff', 'monthly', 'founding'),
+  product('apm_cos:annual', 'google_play', 'chief_of_staff', 'annual'),
+  product('apm_lifeos:monthly', 'google_play', 'life_os', 'monthly'),
+  product('apm_lifeos:annual', 'google_play', 'life_os', 'annual'),
+  product('apm_autopilot:monthly', 'google_play', 'autopilot', 'monthly'),
+  product('apm_autopilot:annual', 'google_play', 'autopilot', 'annual'),
+];
+
+/** RevenueCat identifiers (dashboard configuration in docs/33). */
+export const REVENUECAT_CONFIG = {
+  /** RevenueCat entitlements, one per tier; informational only (the server maps product ids). */
+  entitlements: { chief_of_staff: 'chief_of_staff', life_os: 'life_os', autopilot: 'autopilot' } as Readonly<Record<PaidPlan, string>>,
+  /** Offering shown to everyone; Chief of Staff monthly carries the 3-month intro. */
+  defaultOffering: 'default',
+  /** Offering shown ONLY when the server reserved a Founding 100 slot for this user. */
+  foundingOffering: 'founding',
+  /** Package identifiers inside both offerings. */
+  packages: {
+    chief_of_staff: { monthly: 'cos_monthly', annual: 'cos_annual' },
+    life_os: { monthly: 'lifeos_monthly', annual: 'lifeos_annual' },
+    autopilot: { monthly: 'autopilot_monthly', annual: 'autopilot_annual' },
+  } as Readonly<Record<PaidPlan, Readonly<Record<BillingPeriod, string>>>>,
+  /** Webhook route on the APM API (Worker). */
+  webhookPath: '/v1/billing/revenuecat/webhook',
+} as const;
+
+export function billingProductFor(productId: string): BillingProduct | undefined {
+  return BILLING_PRODUCTS.find((item) => item.productId === productId);
+}
 
 export function formatUsdCents(cents: number): string {
   if (!Number.isInteger(cents) || cents < 0) throw new Error('price_cents_invalid');
@@ -108,9 +180,9 @@ export function formatUsdCents(cents: number): string {
 /** The plan labels the API returns; derived from PLAN_PRICES, never typed by hand. */
 export const planPriceLabels: Readonly<Record<ProductPlan, string>> = {
   beta: 'Free during beta',
-  chief_of_staff: `${formatUsdCents(PLAN_PRICES.chief_of_staff.monthlyUsdCents)}/mo · founding 100: ${formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents)}/mo locked · everyone else: ${formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents)}/mo for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months`,
-  life_os: `${formatUsdCents(PLAN_PRICES.life_os.monthlyUsdCents)}/mo · includes Chief of Staff`,
-  autopilot: `${formatUsdCents(PLAN_PRICES.autopilot.monthlyUsdCents)}/mo · includes Life OS`,
+  chief_of_staff: `${formatUsdCents(PLAN_PRICES.chief_of_staff.monthlyUsdCents)}/mo or ${formatUsdCents(PLAN_PRICES.chief_of_staff.annualUsdCents)}/yr · founding 100: ${formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents)}/mo locked · everyone else: ${formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents)}/mo for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months`,
+  life_os: `${formatUsdCents(PLAN_PRICES.life_os.monthlyUsdCents)}/mo or ${formatUsdCents(PLAN_PRICES.life_os.annualUsdCents)}/yr · includes Chief of Staff`,
+  autopilot: `${formatUsdCents(PLAN_PRICES.autopilot.monthlyUsdCents)}/mo or ${formatUsdCents(PLAN_PRICES.autopilot.annualUsdCents)}/yr · includes Life OS`,
   household: 'Waitlist only',
 };
 
