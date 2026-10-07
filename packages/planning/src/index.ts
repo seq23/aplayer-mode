@@ -2,8 +2,8 @@ import type { DailyPlan, DailyPlanBlock, Goal, LifeGraphSnapshot, NextAction } f
 import {
   executableActionProblem,
   selectMinimumViableAction,
-  shouldForceRecovery,
 } from './methodology.js';
+import { dayStateFromGraph } from './daily-loop.js';
 
 export * from './methodology.js';
 
@@ -131,7 +131,8 @@ export function buildDailyPlan(
   options: TodayProjectionOptions = {},
 ): DailyPlan {
   const date = options.date ?? calendarDateInTimezone(options.now ?? new Date(), graph.identity.timezone);
-  const continuityRecovery = shouldForceRecovery(graph.dayRecords);
+  // Never Miss Twice for YESTERDAY only, by the daily loop's own rule (one rule, not two).
+  const continuityRecovery = dayStateFromGraph(graph, date, false).state === 'missed_yesterday';
   const mode = options.mode ?? (continuityRecovery ? 'recovery' : graph.personalOS?.activeMode ?? 'standard');
   const numberOneMove = mode === 'recovery' ? selectMinimumViableAction(graph) : selectStandardNumberOneMove(graph);
   const openActions = graph.nextActions.filter((action) => action.status === 'open');

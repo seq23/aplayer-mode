@@ -227,24 +227,3 @@ export interface DailySupply {
   dayComplete: boolean;
 }
 
-/** Edits an LLM (or a human) may propose. Safety, persona and dates are not editable. */
-export interface PlanRefinement {
-  source: string;
-  actions?: Array<{
-    key: string;
-    title?: string;
-    output?: string;
-    durationMinutes?: number;
-    mvd?: Partial<MvdAction>;
-  }>;
-  gateOutcomes?: Partial<Record<GateKey, string>>;
-  milestones?: Array<{ id: string; title: string }>;
-}
-
-export interface PlanRefinementRequest {
-  plan: GoalPlan;
-  context: GoalPlanContext;
-}
-
-/** The seam for later LLM refinement. Implementations live server-side behind the Privacy Gateway. */
-export type PlanRefiner = (request: PlanRefinementRequest) => Promise<PlanRefinement>;

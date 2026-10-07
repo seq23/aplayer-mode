@@ -195,7 +195,7 @@ test('plan context comes from the Personal OS: roles, floors, recovery day, heal
 });
 
 test('carry-forward joins a normal next day once, is held on a recovery day, and refuses catch-up', async () => {
-  const { carryForwardProblem, continuityView, dayInsight, suggestPillarReview, verdictFromReview } = await import('../.test-dist/index.js');
+  const { carryForwardProblem, continuityView, dayInsight, suggestPillarReview } = await import('../.test-dist/index.js');
   const day2 = shift(START, 1);
   const carried = composeAgenda({ date: day2, state: 'normal', plans: [body], goals, completions: [], morningSequence: [], carryForward: { text: 'Book the gym induction for Thursday', fromDay: START } });
   const item = carried.dailyStack.find((i) => i.kind === 'carry_forward');
@@ -211,11 +211,14 @@ test('carry-forward joins a normal next day once, is held on a recovery day, and
 
   const agenda = composeAgenda({ date: START, state: 'normal', plans: [body], goals, completions: [], morningSequence: [] });
   const doneAgenda = withCompletionStatus(agenda, [{ planId: 'p-body', actionKey: agenda.firstHour.priority.actionKey, day: START }]);
-  const review = suggestPillarReview(doneAgenda, ['body', 'wealth']);
-  assert.deepEqual(review.map((r) => [r.pillar, r.score]), [['body', 'hit'], ['wealth', 'miss']]);
-  assert.equal(verdictFromReview(review, ['body'], false), 'full_day');
-  assert.equal(verdictFromReview(review, ['body', 'wealth'], false), 'miss');
-  assert.equal(verdictFromReview([{ pillar: 'body', score: 'partial' }], ['body'], true), 'mvd');
+  // Only pillars the agenda carried are reviewed: the engine left wealth off today, so it is not a miss.
+  const review = suggestPillarReview(doneAgenda);
+  assert.deepEqual(review.map((r) => [r.pillar, r.score]), [['body', 'hit']]);
+  // Engine P1-1: the one live rule is scoreAgendaDay. Every agenda item done with a critical
+  // pillar absent from the agenda is a Full Day, never a Miss that would force tomorrow's Recovery.
+  assert.equal(scoreAgendaDay(doneAgenda, ['body']).verdict, 'full_day');
+  assert.equal(scoreAgendaDay(doneAgenda, ['body', 'wealth']).verdict, 'full_day');
+  assert.equal(scoreAgendaDay(agenda, ['body', 'wealth']).verdict, 'miss', 'nothing done is still a Miss');
 
   const continuity = continuityView([{ day: START, verdict: 'full_day' }, { day: shift(START, -1), verdict: 'mvd' }, { day: shift(START, -2), verdict: 'miss' }], START);
   assert.deepEqual(continuity.map((d) => d.symbol), ['·', '·', '·', '·', '❌', '⚡', '✅']);
@@ -274,4 +277,20 @@ test('Billionaire Mindset shapes Today: strategic work is framed by the four fil
   assert.match(linear[0].message, /extra shift/);
   assert.equal(agendaItems(shaped).length, agendaItems(composeAgenda({ date: START, state: 'normal', plans: [found], goals: g, foregroundGoalId: 'g-found', completions: [], morningSequence: [], tracks: ctx([]),
     nextActions: [{ id: 'na-1', title: 'Pick up an extra shift on Saturday', goalId: 'g-found', status: 'open', estimatedMinutes: 30 }] })).length, 'a Track never adds tasks');
+});
+
+test('engine P1-1: Continuity > Intensity — a normal day with the foreground done but a critical floor left is an MVD, never a Miss', async () => {
+  const { generateGoalPlan } = await import('../.test-dist/index.js');
+  const founder = generateGoalPlan('Launch my startup MVP to ten paying users', { startDate: START, roles: ['Parenting / caregiving', 'Building a business'], minimumFloors: { family: 'Read one bedtime story' } });
+  const entry = { plan: founder, record: { ...body.record, id: 'p-founder', goalId: 'g-body', startDate: founder.startDate } };
+  const agenda = composeAgenda({ date: shift(START, 2), state: 'normal', plans: [entry], goals, completions: [], morningSequence: [] });
+  const critical = [...new Set([agenda.firstHour.priority.pillar, ...agenda.dailyStack.map((i) => i.pillar)].filter(Boolean))];
+  assert.ok(agenda.dailyStack.length > 0, 'the plan prints a floor next to the foreground');
+  const foregroundOnly = withCompletionStatus(agenda, [{ planId: 'p-founder', actionKey: agenda.firstHour.priority.actionKey, day: shift(START, 2) }]);
+  const scored = scoreAgendaDay(foregroundOnly, critical);
+  assert.deepEqual(critical.sort(), ['execution', 'family']);
+  assert.deepEqual([scored.completedCritical, scored.requiredCritical], [1, 2]);
+  assert.equal(scored.verdict, 'mvd', 'evidence on a normal day is at least an MVD, never a Miss');
+  const all = withCompletionStatus(agenda, [agenda.firstHour.priority, ...agenda.dailyStack].map((i) => ({ planId: i.planId, actionKey: i.actionKey, day: shift(START, 2) })));
+  assert.equal(scoreAgendaDay(all, [...critical, 'spirit']).verdict, 'full_day', 'a critical pillar the agenda did not carry is not required');
 });

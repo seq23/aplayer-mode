@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, selectForeground, verdictFromReview } from '@apm/planning';
+import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, scoreAgendaDay, selectForeground } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
 import { autonomyLabels, BILLING_PRODUCTS, capabilitiesForPlan, formatUsdCents, PLAN_PRICES, REVENUECAT_CONFIG, type PaidPlan, forbiddenStandingActions, localMoment, maxAutonomyForPlan, planHasCapability, planPriceLabels, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
@@ -794,7 +794,9 @@ app.post('/v1/today/close', async (c) => {
   const carryProblem = carry ? carryForwardProblem(carry) : null;
   if (carryProblem) return c.json({ error: 'invalid_carry_forward', message: carryProblem }, 400);
   const state = await buildUserState(c.env, user.accessToken, user.id);
-  const computedVerdict = verdictFromReview(parsed.data.pillarReview, criticalPillars(state.graph), state.today.agenda.mode === 'recovery');
+  // Computed from the locked agenda's evidence, not from the self-review (engine P1-1):
+  // a critical pillar the engine left off today's agenda is never a miss.
+  const computedVerdict = scoreAgendaDay(state.today.agenda, criticalPillars(state.graph)).verdict;
   // The user has final authority over the verdict; the computed one is kept next to it.
   // Evidence before verdict: without the check-in the day can only close as a Miss.
   if (!state.today.checkedIn && parsed.data.verdict && parsed.data.verdict !== 'miss') {

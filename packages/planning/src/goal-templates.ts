@@ -49,7 +49,7 @@ export interface TemplateSpec {
 }
 
 // ---------------------------------------------------------------------------
-// Safety vocabularies (also used by validatePlan and applyPlanRefinement).
+// Safety vocabularies (used by validatePlan).
 // ---------------------------------------------------------------------------
 
 /** Diet / medication prescription language that no plan action may contain. */

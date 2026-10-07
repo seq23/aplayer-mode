@@ -117,6 +117,27 @@ export function deriveDayState(input: DayStateInput): DayStateResult {
   return { state: 'normal', reason: 'normal' };
 }
 
+/**
+ * The one Never Miss Twice rule over a Life Graph: yesterday decides, from the plans that
+ * are still running (a parked plan or a paused goal supplies nothing to miss). Used by the
+ * daily loop AND the daily plan projection, so the two can never disagree.
+ */
+export function dayStateFromGraph(
+  graph: Pick<LifeGraphSnapshot, 'goalPlans' | 'goals' | 'dayRecords' | 'planCompletions'>,
+  date: string,
+  recoveryMode: boolean,
+): DayStateResult {
+  const running = (graph.goalPlans ?? []).filter((record) => isPlanEligible(record)
+    && graph.goals.some((goal) => goal.id === record.goalId && goal.status === 'active'));
+  return deriveDayState({
+    date,
+    dayRecords: graph.dayRecords,
+    completions: graph.planCompletions ?? [],
+    firstActiveDay: running.map((record) => record.startDate).sort()[0],
+    recoveryMode,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // One foreground: the Arbitration Engine
 // ---------------------------------------------------------------------------
@@ -593,29 +614,19 @@ export function carryForwardProblem(text: string): string | null {
   return null;
 }
 
-/** Pillar-by-pillar review suggested from the day's evidence; the user may change any score. */
-export function suggestPillarReview(agenda: DailyAgenda, pillars: PlanPillar[]): PillarReviewEntry[] {
+/**
+ * Pillar-by-pillar review suggested from the day's evidence; the user may change any
+ * score. Only pillars the agenda actually carried are scored: the engine chose the
+ * agenda, so a pillar it left off is not applicable today, never a miss.
+ */
+export function suggestPillarReview(agenda: DailyAgenda): PillarReviewEntry[] {
   const items = agendaItems(agenda).filter((item) => item.pillar);
-  const onAgenda = new Set(items.map((item) => item.pillar!));
-  const order = [...new Set([...items.map((item) => item.pillar!), ...pillars])];
+  const order = [...new Set(items.map((item) => item.pillar!))];
   return order.map((pillar) => {
     const forPillar = items.filter((item) => item.pillar === pillar);
     const done = forPillar.filter((item) => item.status === 'done');
-    const score: PillarScore = !onAgenda.has(pillar) || done.length === 0 ? 'miss' : done.length === forPillar.length ? 'hit' : 'partial';
+    const score: PillarScore = done.length === 0 ? 'miss' : done.length === forPillar.length ? 'hit' : 'partial';
     return { pillar, score, ...(done.length ? { completed: done.map((item) => item.title).join('; ').slice(0, 300) } : {}) };
-  });
-}
-
-/** Verdict from the reviewed pillars: every critical pillar hit (partial counts on a recovery day) → Full Day. */
-export function verdictFromReview(review: PillarReviewEntry[], criticalPillars: PlanPillar[], recovery: boolean): 'full_day' | 'mvd' | 'miss' {
-  const critical = criticalPillars.length ? criticalPillars : review.map((entry) => entry.pillar);
-  const scoreOf = (pillar: PlanPillar) => review.find((entry) => entry.pillar === pillar)?.score ?? 'miss';
-  const anyDone = review.some((entry) => entry.score !== 'miss');
-  return scoreDay({
-    completedCritical: critical.filter((pillar) => scoreOf(pillar) === 'hit' || (recovery && scoreOf(pillar) === 'partial')).length,
-    requiredCritical: critical.length,
-    recoveryMode: recovery,
-    mvdActionCompleted: anyDone,
   });
 }
 
@@ -663,8 +674,11 @@ export function midDayReplanDecision(reason: ReplanReason): ReplanDecision {
 }
 
 /**
- * Score the day from evidence: critical pillars on the agenda must be done for a Full
- * Day; on a recovery day the one MVD action is the win.
+ * The day's computed verdict, from the locked agenda's evidence (the one rule the API
+ * uses for every close). Critical pillars ON the agenda must be done for a Full Day; a
+ * critical pillar the agenda did not carry is not required. On a recovery day the one
+ * MVD action is the win. Continuity > Intensity: a normal day with any completed
+ * action is at least an MVD, never a Miss ("10% is better than 0%").
  */
 export function scoreAgendaDay(
   agenda: DailyAgenda,
@@ -676,12 +690,13 @@ export function scoreAgendaDay(
   const requiredPillars = new Set<PlanPillar>(criticalItems.map((item) => item.pillar!));
   const completedPillars = new Set<PlanPillar>(criticalItems.filter((item) => item.status === 'done').map((item) => item.pillar!));
   const mvdActionCompleted = agenda.firstHour.priority?.status === 'done' || items.some((item) => item.status === 'done');
-  const verdict = scoreDay({
+  const scored = scoreDay({
     completedCritical: completedPillars.size,
     requiredCritical: requiredPillars.size,
     recoveryMode: agenda.mode === 'recovery',
     mvdActionCompleted,
   });
+  const verdict = scored === 'miss' && mvdActionCompleted ? 'mvd' : scored;
   return { verdict, requiredCritical: requiredPillars.size, completedCritical: completedPillars.size, mvdActionCompleted };
 }
 

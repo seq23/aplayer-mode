@@ -289,14 +289,6 @@ export function decideAuthority(request: AuthorityRequest): AuthorityDecision {
   return { allowed: true, effectiveLevel, reason: 'allowed' };
 }
 
-export function requiresExplicitApproval(level: AutonomyLevel): boolean {
-  return level === 4;
-}
-
-export function mayExecuteWithoutPerActionApproval(level: AutonomyLevel): boolean {
-  return level === 5;
-}
-
 export const autonomyLabels: Record<AutonomyLevel, string> = {
   0: 'Observe',
   1: 'Remind',
@@ -401,13 +393,6 @@ export function isStandingActionClass(value: string): value is StandingActionCla
   return Object.prototype.hasOwnProperty.call(standingActionClasses, value);
 }
 
-export function standingForbiddenReason(actionClass: string): string | undefined {
-  for (const rule of forbiddenStandingActions) {
-    const prefix = rule.match.endsWith('.*') ? rule.match.slice(0, -1) : undefined;
-    if (prefix ? actionClass.startsWith(prefix) : actionClass === rule.match) return rule.reason;
-  }
-  return isStandingActionClass(actionClass) ? undefined : 'Not a supported Autopilot action class.';
-}
 
 export interface StandingWindow {
   timezone: string;
@@ -635,42 +620,7 @@ export function localMoment(instant: Date, timezone: string): LocalMoment {
   return { date: `${read('year')}-${read('month')}-${read('day')}`, isoWeekday: weekday, minutes: Number(read('hour')) * 60 + Number(read('minute')) };
 }
 
-export type StandingProposalVerdict =
-  | 'allowed'
-  | 'invalid_payload'
-  | 'outside_rule'
-  | 'collision'
-  | 'rate_limited';
 
-export interface BusyInterval { startsAt: string; endsAt: string }
-
-/**
- * Deterministic preview of private.apm_autopilot_claim's calendar checks
- * (duration, horizon, single local day, weekday, window, collision, daily cap).
- */
-export function evaluateCalendarStandingProposal(input: {
-  constraints: CalendarStandingConstraints;
-  startsAt: string;
-  endsAt: string;
-  now: Date;
-  busy: BusyInterval[];
-  claimedOnLocalDay: number;
-}): StandingProposalVerdict {
-  const starts = Date.parse(input.startsAt);
-  const ends = Date.parse(input.endsAt);
-  if (!Number.isFinite(starts) || !Number.isFinite(ends) || ends <= starts) return 'invalid_payload';
-  const c = input.constraints;
-  if ((ends - starts) / 60_000 > c.maxDurationMinutes) return 'outside_rule';
-  if (starts <= input.now.getTime() || starts > input.now.getTime() + c.horizonDays * 86_400_000) return 'outside_rule';
-  const localStart = localMoment(new Date(starts), c.timezone);
-  const localEnd = localMoment(new Date(ends), c.timezone);
-  if (localStart.date !== localEnd.date) return 'outside_rule';
-  if (!c.weekdays.includes(localStart.isoWeekday)) return 'outside_rule';
-  if (localStart.minutes < minutesOf(c.windowStart) || localEnd.minutes > minutesOf(c.windowEnd)) return 'outside_rule';
-  if (input.busy.some((event) => Date.parse(event.startsAt) < ends && Date.parse(event.endsAt) > starts)) return 'collision';
-  if (input.claimedOnLocalDay >= c.maxPerDay) return 'rate_limited';
-  return 'allowed';
-}
 
 export type StandingAuthorityReason =
   | AuthorityDecision['reason']
@@ -722,7 +672,9 @@ export function decideStandingAuthority(input: {
   if (!base.allowed) return { allowed: false, reason: base.reason };
   if (input.masterPaused) return { allowed: false, reason: 'autopilot_paused' };
   if (!input.rule || input.rule.status !== 'active') return { allowed: false, reason: 'rule_inactive' };
-  if (Date.parse(input.rule.expiresAt) <= input.now.getTime()) return { allowed: false, reason: 'rule_expired' };
+  // Fail closed: an unparseable expiry is expired, never open-ended.
+  const expires = Date.parse(input.rule.expiresAt);
+  if (!Number.isFinite(expires) || expires <= input.now.getTime()) return { allowed: false, reason: 'rule_expired' };
   if (!input.classActivated) return { allowed: false, reason: 'class_not_activated' };
   return { allowed: true, reason: 'allowed' };
 }

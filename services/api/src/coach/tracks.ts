@@ -63,10 +63,10 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
       'Leverage: does this scale without me?',
     ],
     triggers: [/\b(opportunit(y|ies)|offer|deal|equity|invest(ing|ment)?|salary|raise money|side hustle)\b/i],
-    challenge: 'Billionaire Mindset filters apply: it must still be right in 10 years, the worst case must be survivable, and it should scale without you.',
+    challenge: `${TRACK_DISPLAY_NAMES.billionaire_mindset} filters apply: it must still be right in 10 years, the worst case must be survivable, and it should scale without you.`,
     // Declarative on purpose: a coach turn carries at most one question (assertCoachTurnContract).
     guidance: 'Billionaire filter on this move: favour leverage over activity and ownership over income; it should still be right in 10 years, its worst case must be survivable, and it should scale without you.',
-    precedence: 'Wealth Foundation’s buffer gate governs personal money; Billionaire Mindset governs venture and business decisions.',
+    precedence: `Wealth Foundation’s buffer gate governs personal money; the ${TRACK_DISPLAY_NAMES.billionaire_mindset} governs venture and business decisions.`,
   },
   operator_discipline: {
     key: 'operator_discipline',
@@ -159,7 +159,7 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
     filters: ['If this goes to zero, is my buffer intact?', 'Will this happen without my willpower?', 'Is this the next debt on my list?', 'Is this recurring cost still earning its place?'],
     triggers: [/\b(crypto|bet|options trading|day trad\w*|get rich|speculat\w*|pause (my )?savings|stop (my )?savings|all in)\b/i],
     challenge: 'Wealth Foundation is active: buffer before bets. If this went to zero, your buffer must still be intact — and this is not product or investment advice.',
-    precedence: 'For personal money, Wealth Foundation’s buffer gate takes precedence over Billionaire Mindset.',
+    precedence: `For personal money, Wealth Foundation’s buffer gate takes precedence over the ${TRACK_DISPLAY_NAMES.billionaire_mindset}.`,
   },
   home_front: {
     key: 'home_front',

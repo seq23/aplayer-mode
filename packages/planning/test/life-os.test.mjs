@@ -204,3 +204,21 @@ test('keeps device all-day events on the source local date east of UTC', () => {
   assert.equal(oct5.blocks.some((block) => block.id === 'calendar:device-all-day'), false);
   assert.equal(oct6.blocks.some((block) => block.id === 'calendar:device-all-day'), true);
 });
+
+test('engine P2-1: the Today projection uses the daily loop’s Never Miss Twice rule — yesterday only', () => {
+  const state = graph();
+  state.goals = [{ id: 'g1', title: 'Run a 10k', status: 'active', priority: 1 }];
+  state.goalPlans = [{ id: 'p1', goalId: 'g1', startDate: '2026-09-01', status: 'active' }];
+  state.planCompletions = [{ planId: 'p1', actionKey: 'x', day: '2026-10-05' }];
+  // A Miss weeks ago never forces Recovery today.
+  state.dayRecords = [{ day: '2026-09-17', verdict: 'miss' }, { day: '2026-10-05', verdict: 'full_day' }];
+  assert.equal(buildDailyPlan(state, { date: '2026-10-06' }).mode, 'standard');
+  state.dayRecords = [{ day: '2026-09-17', verdict: 'miss' }];
+  assert.equal(buildDailyPlan(state, { date: '2026-10-06' }).mode, 'standard', 'yesterday had completion evidence');
+  // Yesterday unclosed with no evidence counts as a miss, exactly as the daily loop says.
+  state.planCompletions = [];
+  state.dayRecords = [{ day: '2026-10-04', verdict: 'full_day' }];
+  assert.equal(buildDailyPlan(state, { date: '2026-10-06' }).mode, 'recovery');
+  state.dayRecords = [{ day: '2026-10-05', verdict: 'miss' }];
+  assert.equal(buildDailyPlan(state, { date: '2026-10-06' }).mode, 'recovery');
+});

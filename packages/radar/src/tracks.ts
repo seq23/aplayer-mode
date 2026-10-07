@@ -8,7 +8,9 @@ import type { LifeGraphSnapshot, RadarItem, TrackKey } from '@apm/domain';
 
 const DAY_MS = 86_400_000;
 const COMPENSATION = /\b(double|twice as|extra|make up|makeup|catch[- ]?up|skip (a |the )?(meal|breakfast|lunch|dinner)|fast(ing)?|punish|burn (it )?off)\b/i;
-const AUTOMATION = /\b(auto(matic)?|transfer|saving|savings|debt|loan|card) ?(payment|transfer|deposit|saving)?s?\b/i;
+/** A money-movement phrase, not a single word: "birthday card" or "car loan reminder" never counts. */
+const AUTOMATION = /\b(automatic (savings? )?(transfer|deposit|payment)|auto[- ]?(pay|transfer|save|savings|invest)|savings? (transfer|deposit)|debt payment|loan payment)\b/i;
+const MONEY_KINDS = new Set(['bill', 'subscription', 'recurring_obligation']);
 
 function item(graph: LifeGraphSnapshot, now: Date, input: {
   rule: string; track: TrackKey; type: RadarItem['type']; severity: RadarItem['severity']; headline: string; summary: string; ref: string; urgency?: number;
@@ -41,7 +43,10 @@ export function trackRadarItems(graph: LifeGraphSnapshot, now: Date): RadarItem[
   const lifeAdmin = (graph.lifeAdminItems ?? []).filter((entry) => !['completed', 'cancelled'].includes(entry.status));
 
   if (active.has('wealth_foundation')) {
-    const automated = lifeAdmin.some((entry) => entry.recurrence?.frequency && (entry.details?.tag === 'savings_transfer' || entry.details?.tag === 'debt_payment' || AUTOMATION.test(entry.title)));
+    // Only a recurring money item counts: an explicit tag, or a money-movement phrase on a
+    // bill / subscription / recurring obligation (never a family reminder that says "card").
+    const automated = lifeAdmin.some((entry) => entry.recurrence?.frequency && (entry.details?.tag === 'savings_transfer' || entry.details?.tag === 'debt_payment'
+      || (MONEY_KINDS.has(entry.kind) && AUTOMATION.test(entry.title))));
     if (!automated) {
       items.push(item(graph, now, { rule: 'wealth.no_automation', track: 'wealth_foundation', type: 'opportunity', severity: 'medium', ref: graph.identity.userId,
         headline: 'Set the automatic transfer: amount, account, date', summary: 'Wealth Foundation: saving happens before spending, not from what is left over. No recurring transfer or debt payment exists yet.' }));

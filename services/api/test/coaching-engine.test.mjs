@@ -534,7 +534,7 @@ test('Track library: the 4 BHPC + 3 app Tracks with rules; retired Tracks are no
   assert.equal(TRACK_LIBRARY.billionaire_mindset.origin, 'bhpc');
   assert.equal(TRACK_LIBRARY.home_front.origin, 'app');
   assert.match(TRACK_LIBRARY.body_foundation.rules.join(' '), /0\.9 kg/);
-  assert.match(TRACK_LIBRARY.wealth_foundation.precedence, /takes precedence over Billionaire Mindset/);
+  assert.match(TRACK_LIBRARY.wealth_foundation.precedence, /takes precedence over the Billionaire High Performance Coach Track/);
 });
 
 test('Active Track RULES reach coaching and are enforced in the scripted flow; inactive and retired ones are not', () => {
@@ -561,7 +561,7 @@ test('Billionaire Mindset (Track 1) filters apply to ALL guidance, not only trig
   assert.match(plain.text, /Billionaire filter on this move: favour leverage over activity and ownership over income/);
   assert.ok(plain.challenges.some((line) => /Billionaire filter/.test(line)));
   const triggered = machine.scriptedSynthesis('standard', ['Should I take this investment offer?', 'x', 'y'], 'List the downside cases', tracksOn);
-  assert.match(triggered.text, /Billionaire Mindset filters apply/);
+  assert.match(triggered.text, /Billionaire High Performance Coach Track filters apply/);
   assert.doesNotMatch(triggered.text, /Billionaire filter on this move/, 'the guidance line never repeats a fired challenge');
   const off = machine.scriptedSynthesis('standard', ['I keep putting off the hiring plan', 'x', 'y'], 'Write the first role description', [track('billionaire_mindset', false)]);
   assert.doesNotMatch(off.text, /Billionaire/);

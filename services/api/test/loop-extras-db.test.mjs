@@ -221,6 +221,15 @@ test('Phase Bridge, Return/Reset and REPRINT on the day record', async () => {
 
   await rejects(rpc(USER, 'apm_service_day_reprint', [USER, today, JSON.stringify(agenda)]), /permission denied/, 'REPRINT is server-derived too');
   await rejects(svc('apm_service_day_reprint', [USER, today, JSON.stringify({ ...agenda, mode: agenda.mode === 'recovery' ? 'standard' : 'recovery' })]), /loop_invalid_agenda/, 'a reprint never changes scope');
+  // 0046: a reprint keeps the foreground action and every protected floor, and must still pass the required-floors check.
+  const swapped = { ...agenda, firstHour: { ...agenda.firstHour, priority: { ...agenda.firstHour.priority, actionKey: 'some_other_action' } } };
+  await rejects(svc('apm_service_day_reprint', [USER, today, JSON.stringify(swapped)]), /loop_no_midday_negotiation|loop_invalid_agenda/, 'the foreground is never swapped mid-day');
+  // A locked agenda that carried a protected floor: a reprint without it is refused.
+  const lockedRow = (await admin('select agenda from public.day_records where user_id = $1 and day = $2', [USER, today])).rows[0].agenda;
+  const withFloor = { ...lockedRow, dailyStack: [...(lockedRow.dailyStack ?? []), { id: 'track:home_touchpoint', kind: 'track_floor', actionKey: 'track:home_touchpoint', title: 'Call home at 6pm', status: 'open', reasonCodes: [] }] };
+  await admin('update public.day_records set agenda = $3::jsonb where user_id = $1 and day = $2', [USER, today, JSON.stringify(withFloor)]);
+  await rejects(svc('apm_service_day_reprint', [USER, today, JSON.stringify(agenda)]), /loop_invalid_agenda/, 'a protected floor is never dropped');
+  await admin('update public.day_records set agenda = $3::jsonb where user_id = $1 and day = $2', [USER, today, JSON.stringify(lockedRow)]);
   const reprinted = await svc('apm_service_day_reprint', [USER, today, JSON.stringify(agenda)]);
   assert.equal(reprinted.reprint_count, 1);
   for (let i = 0; i < 4; i += 1) await svc('apm_service_day_reprint', [USER, today, JSON.stringify(agenda)]);
