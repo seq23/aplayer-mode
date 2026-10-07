@@ -22,13 +22,38 @@ interface ExtractedSignal {
   confidence: number;
 }
 
-function decodeBase64Url(value: string): string {
+/** Gmail bodies are base64url-encoded UTF-8 bytes: decode the bytes, then the UTF-8. */
+export function decodeBase64Url(value: string): string {
   try {
     const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
-    return atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='));
+    const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='));
+    return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
   } catch {
     return '';
   }
+}
+
+const SIGNAL_TYPES = new Set(['commitment','request','follow_up','waiting_for','deadline','meeting','cancellation','completion','person']);
+
+/**
+ * The model's output is untrusted: a signal with an unknown type/owner, an empty
+ * summary or a non-finite confidence is skipped (never thrown); a dueAt that is not a
+ * real timestamp becomes null instead of aborting the sync at the timestamptz cast;
+ * confidence is clamped to 0–1.
+ */
+export function sanitizeSignals(raw: unknown): ExtractedSignal[] {
+  const list = raw && typeof raw === 'object' && Array.isArray((raw as { signals?: unknown }).signals) ? (raw as { signals: unknown[] }).signals : [];
+  const out: ExtractedSignal[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const signal = item as Record<string, unknown>;
+    const summary = typeof signal.summary === 'string' ? signal.summary.trim().slice(0, 500) : '';
+    const confidence = typeof signal.confidence === 'number' && Number.isFinite(signal.confidence) ? Math.min(1, Math.max(0, signal.confidence)) : NaN;
+    if (!SIGNAL_TYPES.has(String(signal.type)) || !summary || (signal.owner !== 'user' && signal.owner !== 'other') || Number.isNaN(confidence)) continue;
+    const dueAt = typeof signal.dueAt === 'string' && Number.isFinite(Date.parse(signal.dueAt)) ? new Date(Date.parse(signal.dueAt)).toISOString() : null;
+    out.push({ type: signal.type as MessageSignalType, summary, owner: signal.owner, dueAt, confidence });
+  }
+  return out;
 }
 
 function gmailPartText(part: { mimeType?: string; body?: { data?: string }; parts?: any[] }): string {
@@ -120,7 +145,7 @@ const extractionSchema = {
 
 async function extractSignals(input: { env: ApiEnv; accessToken: string; userId: string; message: SourceMessage }): Promise<ExtractedSignal[]> {
   if (!input.message.body.trim()) return [];
-  const result = await runUserInference<{ signals: ExtractedSignal[] }>({
+  const result = await runUserInference<unknown>({
     env: input.env,
     accessToken: input.accessToken,
     userId: input.userId,
@@ -142,7 +167,7 @@ async function extractSignals(input: { env: ApiEnv; accessToken: string; userId:
       maxTokens: 1000,
     },
   });
-  return result.signals.filter((signal) => signal.confidence >= 0.65).slice(0, 12);
+  return sanitizeSignals(result).filter((signal) => signal.confidence >= 0.65).slice(0, 12);
 }
 
 async function persistSignals(input: { env: ApiEnv; accessToken: string; userId: string; connectionId: string; message: SourceMessage; signals: ExtractedSignal[] }): Promise<number> {
@@ -168,9 +193,12 @@ async function persistSignals(input: { env: ApiEnv; accessToken: string; userId:
     count += 1;
 
     if (['commitment','request','follow_up','waiting_for','deadline'].includes(signal.type)) {
-      const commitmentRows = await supabaseRest<Array<{ id: string }>>(input.env, input.accessToken, '/rest/v1/commitments?on_conflict=user_id,source_type,source_ref&select=id', {
+      // The source identity is (user, source, message, title): a full unique index since
+      // 0045, so a re-sync of the same window is a no-op instead of a 23505 failure, and
+      // never overwrites a commitment the user has since corrected or completed.
+      const commitmentRows = await supabaseRest<Array<{ id: string }>>(input.env, input.accessToken, '/rest/v1/commitments?on_conflict=user_id,source_type,source_ref,title&select=id', {
         method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
         body: JSON.stringify([{
           user_id: input.userId,
           title: signal.summary,
@@ -183,17 +211,8 @@ async function persistSignals(input: { env: ApiEnv; accessToken: string; userId:
           confidence: signal.confidence,
           updated_at: new Date().toISOString(),
         }]),
-      }).catch(async () => {
-        return supabaseRest<Array<{ id: string }>>(input.env, input.accessToken, '/rest/v1/commitments?select=id', {
-          method: 'POST', headers: { Prefer: 'return=representation' },
-          body: JSON.stringify([{
-            user_id: input.userId, title: signal.summary, owner: signal.owner, status: 'understood', due_at: signal.dueAt ?? null,
-            provenance_kind: 'inferred', source_type: input.message.provider === 'google' ? 'gmail' : 'outlook',
-            source_ref: input.message.externalMessageId, confidence: signal.confidence,
-          }]),
-        });
       });
-      const commitmentId = commitmentRows[0]?.id;
+      const commitmentId = commitmentRows?.[0]?.id;
       if (commitmentId) {
         await supabaseRest(input.env, input.accessToken, `/rest/v1/message_signals?id=eq.${encodeURIComponent(signalId)}`, {
           method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ related_commitment_id: commitmentId }),

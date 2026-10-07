@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import type { Session, User } from '@supabase/supabase-js';
 import { getSupabaseClient, isSupabaseConfigured } from '../auth/supabase';
 import { forgetBillingUser, identifyBillingUser } from '../billing/purchases';
+import { disableApmPushForSignOut } from '../integrations/push';
 
 type SessionStatus = 'loading' | 'signed_out' | 'signed_in' | 'unconfigured';
 
@@ -100,6 +101,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
       signOut: async () => {
         const supabase = getSupabaseClient();
+        if (session?.access_token) await disableApmPushForSignOut(session.access_token);
         const { error: signOutError } = await supabase.auth.signOut();
         if (signOutError) {
           setError(signOutError.message);

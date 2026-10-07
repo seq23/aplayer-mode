@@ -63,6 +63,8 @@ test.before(async () => {
   await db.exec(SUBSTRATE);
   for (const name of (await readdir(migrationsDir)).filter((n) => n.endsWith('.sql')).sort()) await db.exec(await migration(name));
   await admin(`insert into auth.users (id) values ('${USER}'), ('${NEWBIE}')`);
+  // 0044: no account gets beta by default; these users hold a paid plan.
+  await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER}', 'standard', current_date - 20), ('${NEWBIE}', 'standard', current_date)`);
   await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL}', '${USER}', 'lose 30 lbs', 'active', 'unknown', 1, 'stated', 'manual')`);
 });

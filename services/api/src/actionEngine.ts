@@ -4,6 +4,7 @@ import type { ApiEnv } from './env';
 import { actionDomainEnabled, actionsGloballyEnabled } from './env';
 import { restErrorMessage, serviceRpc } from './db';
 import { getValidConnectorToken } from './connectors/oauth';
+import { entitlementIsUsable } from './entitlement';
 
 interface ActionRow {
   id: string; domain: string; action_type: string; status: ActionRecord['status']; payload: Record<string, unknown>;
@@ -33,7 +34,7 @@ function policyPermission(userId: string, permission: Permission | undefined): P
 }
 
 function policyEntitlement(entitlement: SubscriptionEntitlement | undefined, domain: ActionDomain): Entitlement | undefined {
-  if (!entitlement || !['active','trialing'].includes(entitlement.status)) return undefined;
+  if (!entitlement || !entitlementIsUsable(entitlement)) return undefined;
   return { domain, maxAvailableLevel: maxAutonomyForPlan(entitlement.plan, domain), enabled: true };
 }
 

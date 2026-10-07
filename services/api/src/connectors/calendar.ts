@@ -112,23 +112,24 @@ export async function persistCalendarSnapshot(input: {
   env: ApiEnv; accessToken: string; userId: string; connectionId?: string; provider: string;
   events: NormalizedCalendarEventInput[]; from: string; to: string;
 }): Promise<number> {
-  const connectionFilter = input.connectionId ? `&connection_id=eq.${encodeURIComponent(input.connectionId)}` : '';
-  await supabaseRest(input.env, input.accessToken, `/rest/v1/calendar_events?user_id=eq.${encodeURIComponent(input.userId)}&provider=eq.${encodeURIComponent(input.provider)}${connectionFilter}&starts_at=gte.${encodeURIComponent(input.from)}&starts_at=lte.${encodeURIComponent(input.to)}`, {
-    method: 'DELETE', headers: { Prefer: 'return=minimal' },
-  });
-  if (input.events.length === 0) return 0;
+  // One transaction (0045): the window is replaced atomically, so a bad row can never leave
+  // it empty and blind Autopilot's collision check. Duplicate ids are refused up front.
+  const ids = new Set<string>();
+  for (const event of input.events) {
+    if (ids.has(event.externalEventId)) throw new Error('calendar_duplicate_event');
+    ids.add(event.externalEventId);
+  }
   const rows = input.events.map((event) => ({
-    user_id: input.userId, connection_id: input.connectionId ?? null, provider: event.provider,
-    external_event_id: event.externalEventId, calendar_external_id: event.calendarExternalId ?? null,
+    provider: event.provider, external_event_id: event.externalEventId, calendar_external_id: event.calendarExternalId ?? null,
     title: event.title, location: event.location ?? null, starts_at: event.startsAt, ends_at: event.endsAt,
     timezone: event.timezone ?? null, all_day: event.allDay, availability: event.availability,
     recurrence: event.recurrence ?? {}, organizer: event.organizer ?? {}, attendees: event.attendees ?? [],
-    source_version: event.sourceVersion ?? null, deleted: event.deleted ?? false, observed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    source_version: event.sourceVersion ?? null, deleted: event.deleted ?? false,
   }));
-  await supabaseRest(input.env, input.accessToken, '/rest/v1/calendar_events', {
-    method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(rows),
+  return supabaseRest<number>(input.env, input.accessToken, '/rest/v1/rpc/apm_replace_calendar_window', {
+    method: 'POST',
+    body: JSON.stringify({ p_provider: input.provider, p_connection_id: input.connectionId ?? null, p_from: input.from, p_to: input.to, p_events: rows }),
   });
-  return rows.length;
 }
 
 export async function syncCloudCalendar(input: {

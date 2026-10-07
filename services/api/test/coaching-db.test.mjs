@@ -65,6 +65,8 @@ test.before(async () => {
 
   // Pre-0020 data, written the way 0004/0006 allowed it.
   await admin(`insert into auth.users (id) values ('${USER_A}'), ('${USER_B}')`);
+  // 0044: no account gets beta by default; these users hold a paid plan.
+  await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`insert into public.personal_os (user_id, active_mode) values ('${USER_A}', 'standard'), ('${USER_B}', 'sprint')`);
   await admin(`insert into public.operating_modes (user_id, key, name, active, provenance_kind) values ('${USER_B}', 'sprint', 'Sprint', true, 'stated'), ('${USER_B}', 'standard', 'Standard', false, 'stated')`);
   await admin(`insert into public.tracks (user_id, key, name) values
@@ -98,6 +100,8 @@ test('Personal OS intake works again: operating_modes accepts the system provena
   // Before 0020 the column default ('system') violated its own check, so the
   // 0004 intake RPC and the API's operating_modes upsert could never succeed.
   await admin(`insert into auth.users (id) values ('00000000-0000-4000-8000-0000000000cc')`);
+  // 0044: no account gets beta by default; these users hold a paid plan.
+  await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await as('00000000-0000-4000-8000-0000000000cc', "select public.apm_save_methodology_intake($1::jsonb)", [JSON.stringify({
     display_name: 'Casey', roles: ['Studying / learning'], primary_goal: 'Pass the bar exam', track_keys: ['operator_discipline'], active_mode: 'standard',
     values: [], non_negotiables: [], failure_patterns: [], critical_pillars: [], minimum_floors: {}, weekly_cadence: { heavyDays: [], lightDays: [] },

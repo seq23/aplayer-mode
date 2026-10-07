@@ -419,6 +419,10 @@ export async function approveExternalAction(actionId: string, accessToken: strin
 export async function registerPushToken(input: { expoPushToken: string; deviceId?: string; platform?: 'ios' | 'android' | 'web' }, accessToken: string) {
   return request<{ ok: boolean }>('/v1/push/register', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
+
+export async function unregisterPushToken(expoPushToken: string, accessToken: string) {
+  return request<{ ok: boolean }>('/v1/push/unregister', accessToken, { method: 'POST', body: JSON.stringify({ expoPushToken }) });
+}
 export async function evaluateProactivePush(accessToken: string) {
   return request<{ queued: number; sent: number; suppressed: number }>('/v1/push/evaluate', accessToken, { method: 'POST' });
 }

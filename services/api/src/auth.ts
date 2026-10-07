@@ -8,12 +8,25 @@ export interface AuthenticatedUser {
   email?: string;
 }
 
+declare const __APM_RUNTIME_ENVIRONMENT__: string | undefined;
+
+/** 'staging' / 'production' on a deployed Worker (Wrangler define); 'development' locally. */
+export function runtimeEnvironment(): string {
+  return typeof __APM_RUNTIME_ENVIRONMENT__ === 'string' ? __APM_RUNTIME_ENVIRONMENT__ : 'development';
+}
+
+/** True when the dev bypass variable is set on a deployed Worker: a named misconfiguration. */
+export function devBypassMisconfigured(env: ApiEnv): boolean {
+  return Boolean(env.AUTH_DEV_BYPASS_USER_ID) && runtimeEnvironment() !== 'development';
+}
+
 export async function authenticateRequest(
   request: Request,
   env: ApiEnv,
 ): Promise<AuthenticatedUser | null> {
-  // Local-only escape hatch. Never configure this variable in staging/production.
-  if (env.AUTH_DEV_BYPASS_USER_ID) {
+  // Local-only escape hatch, enforced in code: it is ignored on any deployed Worker
+  // (staging/production), and /v1/health fails while it is set there.
+  if (env.AUTH_DEV_BYPASS_USER_ID && runtimeEnvironment() === 'development') {
     return {
       id: env.AUTH_DEV_BYPASS_USER_ID,
       accessToken: 'apm-dev-bypass',

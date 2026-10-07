@@ -1,6 +1,6 @@
 import type { RadarItem } from '@apm/domain';
 import type { ApiEnv } from './env';
-import { supabaseRest } from './db';
+import { serviceRpc, supabaseRest } from './db';
 
 const severityValue: Record<RadarItem['severity'], number> = { low: 0, medium: 1, high: 2, critical: 3 };
 
@@ -40,8 +40,22 @@ export function inQuietHours(quiet: Record<string, unknown>, now: Date, timezone
   return a <= b ? minutes >= a && minutes < b : minutes >= a || minutes < b;
 }
 
-export async function sendExpoPush(env: ApiEnv, messages: Array<Record<string, unknown>>): Promise<Response> {
-  return fetch('https://exp.host/--/api/v2/push/send', {
+export interface ExpoPushOutcome {
+  /** True only when the request succeeded AND Expo accepted at least one message. */
+  delivered: boolean;
+  /** The failure recorded on the notification when not delivered. */
+  error?: string;
+  /** Tokens Expo reported as DeviceNotRegistered (already deactivated when possible). */
+  deadTokens: string[];
+}
+
+/**
+ * Sends, then reads Expo's per-message tickets: Expo answers HTTP 200 even when every
+ * message failed (`data[i].status === 'error'`), so HTTP status alone is never "sent".
+ * Dead tokens are deactivated through the service role (0045) so they stop being used.
+ */
+export async function sendExpoPush(env: ApiEnv, messages: Array<Record<string, unknown>>): Promise<ExpoPushOutcome> {
+  const response = await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -49,6 +63,17 @@ export async function sendExpoPush(env: ApiEnv, messages: Array<Record<string, u
     },
     body: JSON.stringify(messages),
   });
+  if (!response.ok) return { delivered: false, error: `expo_http_${response.status}`, deadTokens: [] };
+  const body = await response.json().catch(() => null) as { data?: Array<{ status?: string; details?: { error?: string } }> } | null;
+  const tickets = Array.isArray(body?.data) ? body!.data! : [];
+  const deadTokens = tickets.flatMap((ticket, index) => ticket?.status === 'error' && ticket.details?.error === 'DeviceNotRegistered' && typeof messages[index]?.to === 'string' ? [messages[index]!.to as string] : []);
+  if (deadTokens.length && env.SUPABASE_SECRET_KEY) {
+    await serviceRpc(env, 'apm_service_deactivate_push_tokens', { p_tokens: deadTokens })
+      .catch((error: unknown) => console.error('APM push: could not deactivate dead tokens', { message: error instanceof Error ? error.message : String(error) }));
+  }
+  if (tickets.some((ticket) => ticket?.status === 'ok')) return { delivered: true, deadTokens };
+  const firstError = tickets.find((ticket) => ticket?.status === 'error')?.details?.error;
+  return { delivered: false, error: `expo_${firstError ?? 'no_ticket'}`.slice(0, 120), deadTokens };
 }
 
 export async function notifyRadarItems(input: {
@@ -74,9 +99,6 @@ export async function notifyRadarItems(input: {
       if (!exempt) { held += 1; continue; }
     }
     const dedupeKey = `radar:${item.id}`;
-    const existing = await supabaseRest<Array<{ id: string; status: string }>>(input.env, input.accessToken, `/rest/v1/notifications?user_id=eq.${encodeURIComponent(input.userId)}&dedupe_key=eq.${encodeURIComponent(dedupeKey)}&select=id,status&limit=1`);
-    if (existing.length > 0) continue;
-
     let suppressionReason: string | undefined;
     if (!pref.enabled) suppressionReason = 'notifications_disabled';
     else if (severityValue[item.severity] < severityValue[pref.minimum_severity]) suppressionReason = 'below_severity_threshold';
@@ -84,22 +106,25 @@ export async function notifyRadarItems(input: {
     else if (item.confidence < 0.75) suppressionReason = 'low_confidence';
     else if (subscriptions.length === 0) suppressionReason = 'no_push_subscription';
 
+    // Claim first (insert-or-nothing on the dedupe key): of two concurrent evaluations
+    // only the one whose insert landed sends, so a push never goes out twice.
     const copy = notificationCopy(item, pref.lock_screen_detail);
-    if (suppressionReason) {
-      suppressed += 1;
-      await supabaseRest(input.env, input.accessToken, '/rest/v1/notifications', {
-        method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ user_id: input.userId, radar_item_id: item.id.startsWith('radar:') ? null : item.id, title: copy.title, body: copy.body, deep_link: `/radar/${encodeURIComponent(item.id)}`, dedupe_key: dedupeKey, status: 'suppressed', suppression_reason: suppressionReason }]),
-      });
-      continue;
-    }
+    const claimed = await supabaseRest<Array<{ id: string }>>(input.env, input.accessToken, '/rest/v1/notifications?on_conflict=user_id,dedupe_key&select=id', {
+      method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
+      body: JSON.stringify([{ user_id: input.userId, radar_item_id: null, title: copy.title, body: copy.body, deep_link: `/radar/${encodeURIComponent(item.id)}`, dedupe_key: dedupeKey,
+        status: suppressionReason ? 'suppressed' : 'queued', suppression_reason: suppressionReason ?? null }]),
+    });
+    const claimId = claimed?.[0]?.id;
+    if (!claimId) continue;
+    if (suppressionReason) { suppressed += 1; continue; }
 
     queued += 1;
     const messages = subscriptions.map((subscription) => ({ to: subscription.expo_push_token, title: copy.title, body: copy.body, data: { type: 'radar', radarId: item.id, deepLink: `/radar/${item.id}` }, sound: 'default' }));
-    const response = await sendExpoPush(input.env, messages);
-    const status = response.ok ? 'sent' : 'failed';
-    if (response.ok) sent += 1;
-    await supabaseRest(input.env, input.accessToken, '/rest/v1/notifications', {
-      method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ user_id: input.userId, radar_item_id: null, title: copy.title, body: copy.body, deep_link: `/radar/${encodeURIComponent(item.id)}`, dedupe_key: dedupeKey, status, sent_at: response.ok ? new Date().toISOString() : null, suppression_reason: response.ok ? null : `expo_http_${response.status}` }]),
+    const outcome = await sendExpoPush(input.env, messages);
+    if (outcome.delivered) sent += 1;
+    await supabaseRest(input.env, input.accessToken, `/rest/v1/notifications?id=eq.${encodeURIComponent(claimId)}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ status: outcome.delivered ? 'sent' : 'failed', sent_at: outcome.delivered ? new Date().toISOString() : null, suppression_reason: outcome.delivered ? null : outcome.error ?? null }),
     });
   }
   return { queued, sent, suppressed, held };
