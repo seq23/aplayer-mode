@@ -112,6 +112,15 @@ test('the Drafting Room: draft → validate → apply from tomorrow; Week 1 bloc
   const pillar = await rpc(USER, 'apm_draft_os_change', ['pillar', JSON.stringify({ name: 'body', critical: true, minimumFloor: 'Walk 10 minutes' }), null]);
   await rpc(USER, 'apm_apply_os_change', [pillar.id]);
   assert.deepEqual((await admin(`select critical, minimum_floor from public.pillar_settings where user_id = '${USER}' and name = 'body'`)).rows[0], { critical: true, minimum_floor: 'Walk 10 minutes' });
+  // 0037: the plans pick the change up on its effective date, once, through the service path.
+  assert.deepEqual(await svc('apm_service_pending_pillar_rebuilds', [USER]), [], 'not before the effective date');
+  await rejects(rpc(USER, 'apm_service_pending_pillar_rebuilds', [USER]), /permission denied/);
+  await rejects(rpc(USER, 'apm_service_mark_pillar_rebuilt', [USER, pillar.id]), /permission denied/);
+  assert.equal(await svc('apm_service_mark_pillar_rebuilt', [USER, pillar.id]), false, 'cannot be marked early');
+  await admin(`update public.os_change_requests set effective_from = private.apm_local_today($1) where id = $2`, [USER, pillar.id]);
+  assert.deepEqual(await svc('apm_service_pending_pillar_rebuilds', [USER]), [{ id: pillar.id, pillar: 'body' }]);
+  assert.equal(await svc('apm_service_mark_pillar_rebuilt', [USER, pillar.id]), true);
+  assert.deepEqual(await svc('apm_service_pending_pillar_rebuilds', [USER]), [], 'rebuilt once');
 
   const early = await rpc(NEWBIE, 'apm_draft_os_change', ['day_start', JSON.stringify('hard'), null]);
   await rejects(rpc(NEWBIE, 'apm_apply_os_change', [early.id]), /loop_week_one_lock/, 'Week 1: do not customise');

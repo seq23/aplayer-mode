@@ -4,7 +4,7 @@ import { SERVICE_ROLE_TOKEN, supabaseRest } from './db';
 import { getLifeGraph } from './lifeGraphRepository';
 import { getModeState } from './modeRepository';
 import { reconcileModeState, type ModeState } from './coach/modes';
-import { todayLoopState } from './dailyLoop';
+import { todayLoopState, reconcilePillarRebuilds } from './dailyLoop';
 import { inQuietHours, sendExpoPush } from './push';
 
 /**
@@ -88,6 +88,8 @@ type Outcome = 'sent' | 'held' | 'suppressed' | 'failed' | 'alreadyClaimed';
 async function deliverMorningTrigger(env: ApiEnv, candidate: MorningCandidate, now: Date): Promise<{ outcome: Outcome; printed: boolean }> {
   const done = (outcome: Outcome, printed = false) => ({ outcome, printed });
   const userId = candidate.user_id;
+  // A pillar change that took effect today reaches its plans before the agenda prints (0037).
+  await reconcilePillarRebuilds(env, SERVICE_ROLE_TOKEN, userId);
   const graph = await getLifeGraph(env, SERVICE_ROLE_TOKEN, userId);
   const mode = reconcileModeState(await getModeState(env, SERVICE_ROLE_TOKEN, userId), now, graph.identity.timezone).state;
   if (workPushHold(graph, mode, now)) return done('held');

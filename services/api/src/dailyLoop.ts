@@ -25,7 +25,7 @@ import {
   type TrackRuleContext,
 } from '@apm/planning';
 import type { ApiEnv } from './env';
-import { flagBodyReferral, getGoalPlans, saveGoalPlan } from './dailyLoopRepository';
+import { flagBodyReferral, getGoalPlans, markPillarRebuilt, pendingPillarRebuilds, replanDay, saveGoalPlan } from './dailyLoopRepository';
 import { getLifeGraph } from './lifeGraphRepository';
 
 /**
@@ -68,6 +68,9 @@ function entitled(graph: LifeGraphSnapshot): boolean {
  */
 export async function ensureGoalPlans(env: ApiEnv, accessToken: string, graph: LifeGraphSnapshot, now: Date): Promise<LifeGraphSnapshot> {
   if (!graph.personalOS || !entitled(graph)) return graph;
+  if (await reconcilePillarRebuilds(env, accessToken, graph.identity.userId)) {
+    graph = { ...graph, goalPlans: await getGoalPlans(env, accessToken, graph.identity.userId) as unknown as StoredGoalPlan[] };
+  }
   const planned = new Set(graph.goalPlans.map((plan) => plan.goalId));
   const missing = graph.goals.filter((goal) => goal.status === 'active' && !planned.has(goal.id));
   if (missing.length === 0) return graph;
@@ -259,7 +262,8 @@ async function rebuildPlans(
   const graph = await getLifeGraph(env, accessToken, userId);
   let rebuilt = 0;
   for (const entry of planEntries(graph)) {
-    if (entry.record.status !== 'active' || !affected(entry)) continue;
+    // Every plan still in execution: active, or decided to promote/maintain (never parked).
+    if (!isPlanEligible(entry.record) || !affected(entry)) continue;
     const goal = graph.goals.find((candidate) => candidate.id === entry.record.goalId);
     if (!goal) continue;
     const plan = generateGoalPlan(goalText(goal), planContextFromGraph(graph, { startDate: entry.record.startDate, goal, ...extra }));
@@ -269,10 +273,50 @@ async function rebuildPlans(
   return rebuilt;
 }
 
-/** Rebuilds every live weight-loss plan (referral or clearance), keeping its 90 days. */
-export async function rebuildBodyPlans(env: ApiEnv, accessToken: string, userId: string, source: 'referral' | 'clearance', _now: Date): Promise<void> {
-  await rebuildPlans(env, accessToken, userId, source, (entry) => entry.plan.persona.foregroundPersona === 'weight_loss',
+/**
+ * Rebuilds every live weight-loss plan (referral or clearance), keeping its 90 days. A
+ * referral or a clearance is a SAFETY change, so if today is already locked the rest of
+ * today is replanned as a declared change (the only mid-day change BHPC allows): the
+ * locked agenda then carries the rebuilt plan's actions and its safety state, instead of
+ * actions the rebuilt plan no longer allows.
+ */
+export async function rebuildBodyPlans(env: ApiEnv, accessToken: string, userId: string, source: 'referral' | 'clearance', now: Date): Promise<void> {
+  const rebuilt = await rebuildPlans(env, accessToken, userId, source, (entry) => entry.plan.persona.foregroundPersona === 'weight_loss',
     source === 'clearance' ? { clinicianCleared: true } : {});
+  if (!rebuilt) return;
+  const graph = await getLifeGraph(env, accessToken, userId);
+  const date = localToday(graph, now);
+  const day = graph.dayRecords.find((record) => record.day === date);
+  if (!day?.checkedInAt || day.closedAt) return;
+  const agenda = freshAgenda(graph, { date, state: source === 'referral' ? 'recovery' : day.dayState ?? 'normal', ...(day.mood !== undefined ? { mood: day.mood } : {}) });
+  await replanDay(env, userId, {
+    day: date,
+    reason: source === 'referral' ? 'safety' : 'permission',
+    detail: source === 'referral' ? 'Body red flag: body coaching paused until clinician clearance.' : 'Clinician clearance recorded: body coaching resumes.',
+    agenda,
+  });
+}
+
+/**
+ * Applied pillar changes reach their plans on the effective date (0037): rebuilt once,
+ * in place, then marked. A failure leaves the change pending and is retried on the next
+ * read, so an applied change is never stranded half-done.
+ */
+export async function reconcilePillarRebuilds(env: ApiEnv, accessToken: string, userId: string): Promise<number> {
+  if (!env.SUPABASE_SECRET_KEY) return 0;
+  let pending: Array<{ id: string; pillar: string }>;
+  try { pending = await pendingPillarRebuilds(env, userId) ?? []; }
+  catch (error) { console.error('APM pillar rebuild check failed', { message: (error as Error)?.message }); return 0; }
+  let rebuilt = 0;
+  for (const change of pending) {
+    try {
+      rebuilt += await rebuildPlansForPillar(env, accessToken, userId, change.pillar);
+      await markPillarRebuilt(env, userId, change.id);
+    } catch (error) {
+      console.error('APM pillar rebuild failed; retried on the next read', { changeId: change.id, message: (error as Error)?.message });
+    }
+  }
+  return rebuilt;
 }
 
 /**

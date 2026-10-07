@@ -242,17 +242,12 @@ export const saveWeeklyReview = (env: ApiEnv, accessToken: string, input: { week
   loopRpc<Record<string, unknown>>(env, accessToken, 'apm_save_weekly_review', { p_week_start: input.weekStart, p_summary: input.summary, p_adjustment: input.adjustment ?? null });
 export const draftOsChange = (env: ApiEnv, accessToken: string, input: { field: string; value: unknown; reason?: string }) =>
   loopRpc<{ id: string }>(env, accessToken, 'apm_draft_os_change', { p_field: input.field, p_value: input.value, p_reason: input.reason ?? null });
-/** An already-applied Drafting Room change (own row; RLS needs ownership + entitlement). */
-export async function getAppliedOsChange(env: ApiEnv, accessToken: string, id: string): Promise<{ id: string; field: string; effective_from: string; proposed?: unknown } | undefined> {
-  const rows = await supabaseRest<Array<{ id: string; field: string; status: string; effective_from: string; proposed: unknown }>>(
-    env, accessToken, `/rest/v1/os_change_requests?id=eq.${encodeURIComponent(id)}&status=eq.applied&select=id,field,status,effective_from,proposed&limit=1`,
-  );
-  return rows[0] ? { id: rows[0].id, field: rows[0].field, effective_from: rows[0].effective_from, proposed: rows[0].proposed } : undefined;
+/** Applied pillar changes whose effective date has arrived and whose plans are not rebuilt yet (0037). */
+export function pendingPillarRebuilds(env: ApiEnv, userId: string) {
+  return loopRpc<Array<{ id: string; pillar: string }>>(env, serviceToken(env), 'apm_service_pending_pillar_rebuilds', { p_user_id: userId });
 }
-
-/** The loop error code of a thrown error, if it is one. */
-export function loopErrorCode(error: unknown): string | undefined {
-  return error instanceof LoopError ? error.code : undefined;
+export function markPillarRebuilt(env: ApiEnv, userId: string, id: string) {
+  return loopRpc<boolean>(env, serviceToken(env), 'apm_service_mark_pillar_rebuilt', { p_user_id: userId, p_id: id });
 }
 
 export const applyOsChange = (env: ApiEnv, accessToken: string, id: string) => loopRpc<{ id: string; field: string; effective_from: string; proposed?: unknown }>(env, accessToken, 'apm_apply_os_change', { p_id: id });
