@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   decideStandingAuthority,
+  forbiddenStandingActions,
   evaluateCalendarStandingProposal,
   isStandingActionClass,
   localMoment,
@@ -15,15 +16,51 @@ const calendarRule = {
   maxDurationMinutes: 90, maxPerDay: 1, horizonDays: 14, collision: 'never_overlap_busy',
 };
 
-test('only reversible calendar.create and email.draft can be standing classes', () => {
-  assert.deepEqual(Object.keys(standingActionClasses).sort(), ['calendar.create', 'email.draft']);
-  for (const policy of Object.values(standingActionClasses)) assert.equal(policy.reversible, true);
-  for (const forbidden of ['purchase.order', 'healthcare.book', 'financial.pay_bill', 'email.send', 'calendar.update', 'connector.disconnect', 'life_graph.delete']) {
+test('the allow-list is exactly the ruled classes; spending, clinical choices and money movement stay rejected by name', () => {
+  assert.deepEqual(Object.keys(standingActionClasses).sort(), [
+    'appointment.book', 'calendar.create', 'calendar.decline', 'calendar.reschedule', 'email.draft', 'email.send', 'subscription.cancel',
+  ]);
+  for (const policy of Object.values(standingActionClasses)) {
+    assert.equal(policy.reversible, policy.undo !== 'none', policy.actionClass);
+    // Every class shows the user either what Undo does or a clear "can't undo".
+    assert.match(policy.undoLabel, policy.reversible ? /^Undo / : /^Can't undo/, policy.actionClass);
+  }
+  assert.deepEqual(Object.values(standingActionClasses).filter((p) => !p.reversible).map((p) => p.actionClass).sort(), ['appointment.book', 'email.send', 'subscription.cancel']);
+  for (const forbidden of ['purchase.order', 'payment.card', 'subscription.upgrade', 'subscription.signup', 'healthcare.book', 'healthcare.treatment',
+    'financial.pay_bill', 'financial.transfer', 'calendar.update', 'connector.disconnect', 'life_graph.delete']) {
     assert.equal(isStandingActionClass(forbidden), false, forbidden);
     assert.ok(standingForbiddenReason(forbidden), forbidden);
   }
+  for (const named of ['purchase.*', 'payment.*', 'subscription.upgrade', 'subscription.signup', 'healthcare.*', 'financial.*']) {
+    assert.ok(forbiddenStandingActions.some((rule) => rule.match === named), `${named} must stay rejected by name`);
+  }
   assert.equal(standingForbiddenReason('calendar.create'), undefined);
+  assert.equal(standingForbiddenReason('email.send'), undefined);
   assert.match(standingForbiddenReason('purchase.order'), /purchasing/);
+  assert.match(standingForbiddenReason('subscription.upgrade'), /never spend/);
+});
+
+test('new class constraints mirror the database shape', () => {
+  const window = { timezone: 'UTC', weekdays: [1, 2, 3, 4, 5], windowStart: '08:00', windowEnd: '18:00' };
+  const send = { ...window, maxPerDay: 5, maxPerRecipientPerDay: 1, allowedKinds: ['follow_up', 'template'], allowedRecipients: ['coach@club.example.com'], allowedRecipientDomains: [],
+    templates: [{ id: 'birthday', label: 'Birthday', subject: 'Happy birthday!', body: 'Have a great year.' }] };
+  assert.deepEqual(validateStandingConstraints('email.send', send), []);
+  assert.ok(validateStandingConstraints('email.send', { ...send, allowedKinds: ['marketing'] }).includes('allowedKinds'));
+  assert.ok(validateStandingConstraints('email.send', { ...send, templates: [] }).includes('templates'));
+  assert.ok(validateStandingConstraints('email.send', { ...send, allowedRecipients: [] }).includes('recipients_required'));
+  assert.ok(validateStandingConstraints('email.send', { ...send, templates: [{ ...send.templates[0], subject: 'Hi\r\nBcc: x@y.z' }] }).includes('templates'));
+  assert.ok(validateStandingConstraints('email.send', { ...send, templates: [{ ...send.templates[0], body: 'card 4111 1111 1111 1111' }] }).includes('payment_data'));
+  const criteria = { matchTitleKeywords: ['1:1'], maxAttendees: 3, protectedTitleKeywords: [] };
+  assert.deepEqual(validateStandingConstraints('calendar.reschedule', { ...window, ...criteria, maxPerDay: 2, horizonDays: 7, maxShiftDays: 2, collision: 'never_overlap_busy' }), []);
+  assert.ok(validateStandingConstraints('calendar.reschedule', { ...window, ...criteria, maxPerDay: 2, horizonDays: 7, maxShiftDays: 9, collision: 'never_overlap_busy' }).includes('maxShiftDays'));
+  const decline = { timezone: 'UTC', ...criteria, maxPerDay: 2, horizonDays: 7, boundaries: [{ weekdays: [1], start: '18:00', end: '23:00' }] };
+  assert.deepEqual(validateStandingConstraints('calendar.decline', decline), []);
+  assert.ok(validateStandingConstraints('calendar.decline', { ...decline, boundaries: [] }).includes('boundaries'));
+  const book = { ...window, maxPerDay: 1, horizonDays: 30, providers: [{ email: 'desk@clinic.example.com', label: 'Clinic', category: 'medical', appointmentTypes: ['check-up'] }] };
+  assert.deepEqual(validateStandingConstraints('appointment.book', book), []);
+  assert.ok(validateStandingConstraints('appointment.book', { ...book, providers: [{ ...book.providers[0], category: 'surgery' }] }).includes('providers'));
+  assert.deepEqual(validateStandingConstraints('subscription.cancel', { timezone: 'UTC', maxPerDay: 1, allowedProviderDomains: ['streamco.example.com'] }), []);
+  assert.ok(validateStandingConstraints('subscription.cancel', { timezone: 'UTC', maxPerDay: 1, allowedProviderDomains: ['streamco.example.com'], upgrade: true }).includes('unknown:upgrade'));
 });
 
 test('constraint validation mirrors the database shape', () => {
@@ -72,7 +109,7 @@ test('standing authority needs entitlement, level-5 permission, an active rule, 
     permission: { userId: 'u1', domain: 'calendar', maxLevel: 5, enabled: true, updatedAt: now.toISOString() },
     rule: { status: 'active', expiresAt: '2026-11-01T00:00:00Z' },
     classActivated: true, masterPaused: false,
-    globalExecutionEnabled: true, domainExecutionEnabled: true, autopilotExecutionEnabled: true, now,
+    globalExecutionEnabled: true, domainExecutionEnabled: true, autopilotExecutionEnabled: true, classSwitchEnabled: true, now,
   };
   assert.deepEqual(decideStandingAuthority(ok), { allowed: true, reason: 'allowed' });
   // Buying Autopilot without granting permission is not authority.
@@ -89,5 +126,9 @@ test('standing authority needs entitlement, level-5 permission, an active rule, 
   assert.equal(decideStandingAuthority({ ...ok, globalExecutionEnabled: false }).reason, 'global_execution_disabled');
   assert.equal(decideStandingAuthority({ ...ok, domainExecutionEnabled: false }).reason, 'domain_execution_disabled');
   assert.equal(decideStandingAuthority({ ...ok, actionClass: 'purchase.order' }).reason, 'unsupported_action_class');
-  assert.equal(decideStandingAuthority({ ...ok, actionClass: 'email.send' }).reason, 'unsupported_action_class');
+  assert.equal(decideStandingAuthority({ ...ok, actionClass: 'subscription.upgrade' }).reason, 'unsupported_action_class');
+  assert.equal(decideStandingAuthority({ ...ok, classSwitchEnabled: false }).reason, 'class_switch_off');
+  // The new classes use their own permission domains; a calendar grant never covers them.
+  assert.equal(decideStandingAuthority({ ...ok, actionClass: 'appointment.book' }).allowed, false);
+  assert.equal(decideStandingAuthority({ ...ok, actionClass: 'appointment.book', permission: { ...ok.permission, domain: 'appointment' } }).allowed, true);
 });

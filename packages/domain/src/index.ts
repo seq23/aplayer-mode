@@ -681,27 +681,69 @@ export interface StoredGoalPlan<TPlan = Record<string, unknown>> {
   createdAt: ISODateTime;
 }
 
-export type AutopilotActionClass = 'calendar.create' | 'email.draft';
+export type AutopilotActionClass =
+  | 'calendar.create'
+  | 'email.draft'
+  | 'email.send'
+  | 'calendar.reschedule'
+  | 'calendar.decline'
+  | 'appointment.book'
+  | 'subscription.cancel';
 
-/** Standing-rule constraints (Phase C, migration 0018). ISO weekdays: Monday = 1. */
+export type AutopilotUndoMethod = 'delete_event' | 'delete_draft' | 'restore_time' | 'reaccept' | 'none';
+
+/**
+ * Standing-rule constraints (migrations 0018 + 0033). ISO weekdays: Monday = 1.
+ * Each class uses its own subset; the database validates the exact shape.
+ */
 export interface AutopilotRuleConstraints {
   timezone: string;
-  weekdays: number[];
-  windowStart: string;
-  windowEnd: string;
+  weekdays?: number[];
+  windowStart?: string;
+  windowEnd?: string;
   maxPerDay: number;
   maxDurationMinutes?: number;
   horizonDays?: number;
   collision?: 'never_overlap_busy';
   allowedRecipientDomains?: string[];
+  maxPerRecipientPerDay?: number;
+  allowedKinds?: Array<'scheduling_reply' | 'follow_up' | 'confirmation' | 'template'>;
+  allowedRecipients?: string[];
+  templates?: Array<{ id: string; label: string; subject: string; body: string }>;
+  maxShiftDays?: number;
+  matchTitleKeywords?: string[];
+  maxAttendees?: number;
+  protectedTitleKeywords?: string[];
+  boundaries?: Array<{ weekdays: number[]; start: string; end: string }>;
+  declineNote?: string;
+  providers?: Array<{ email: string; label: string; category: string; appointmentTypes: string[] }>;
+  allowedProviderDomains?: string[];
+}
+
+/** One line of the Autopilot daily done-list (private.apm_autopilot_done_list). */
+export interface AutopilotDoneItem {
+  kind: 'run' | 'stopped';
+  executionId?: UUID;
+  actionId?: UUID;
+  actionClass: AutopilotActionClass;
+  status: AutopilotExecution['status'] | 'needs_you';
+  at: ISODateTime;
+  summary: string;
+  reversible: boolean;
+  canUndo: boolean;
+  undoLabel: string;
+  stoppedReason?: 'payment_required' | 'needs_user';
+  failureCode?: string;
 }
 
 export interface AutopilotActionClassState {
   actionClass: AutopilotActionClass;
-  domain: 'calendar' | 'email';
+  domain: 'calendar' | 'email' | 'appointment' | 'subscription';
+  connectorKind: 'calendar' | 'email';
   actionType: string;
   reversible: boolean;
-  undoMethod: 'delete_event' | 'delete_draft';
+  undoMethod: AutopilotUndoMethod;
+  undoLabel: string;
   activationStatus: 'inactive' | 'active';
   activatedAt?: ISODateTime;
 }
@@ -736,6 +778,9 @@ export interface AutopilotExecution {
   proposedEndsAt?: ISODateTime;
   localDay: string;
   externalRef?: string;
+  targetRef?: string;
+  originalStartsAt?: ISODateTime;
+  originalEndsAt?: ISODateTime;
   failureCode?: string;
   claimedAt: ISODateTime;
   completedAt?: ISODateTime;

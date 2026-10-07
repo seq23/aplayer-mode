@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, selectForeground, verdictFromReview } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
-import { autonomyLabels, capabilitiesForPlan, forbiddenStandingActions, maxAutonomyForPlan, planHasCapability, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
+import { autonomyLabels, capabilitiesForPlan, forbiddenStandingActions, localMoment, maxAutonomyForPlan, planHasCapability, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
 import { authenticateRequest } from './auth';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
@@ -45,12 +45,14 @@ import { getModeState, saveModeState } from './modeRepository';
 import { approveAndMaybeExecuteAction, prepareAction } from './actionEngine';
 import {
   autopilotErrorResponse,
+  getAutopilotDoneList,
   getAutopilotExportState,
   getAutopilotState,
   grantAutopilotRule,
   hasAutopilotAccess,
   revokeAutopilotRule,
   runStandingRule,
+  setAutopilotEventFlexible,
   setAutopilotMasterPause,
   setAutopilotRuleStatus,
   undoStandingExecution,
@@ -314,9 +316,61 @@ const expiresAtSchema = z.string().datetime().refine((value) => {
   const ms = Date.parse(value) - Date.now();
   return ms > 3_600_000 && ms <= STANDING_RULE_MAX_DAYS * 86_400_000;
 }, { message: `expiresAt must be between 1 hour and ${STANDING_RULE_MAX_DAYS} days ahead` });
+// Header-safe single-line text: CR/LF or any control character could inject MIME headers.
+const headerSafe = (max: number) => z.string().trim().min(1).max(max).refine((value) => !/[\u0000-\u001f\u007f]/.test(value), { message: 'control characters are not allowed' });
+const lowerList = (max: number, len: number) => z.array(z.string().trim().toLowerCase().min(1).max(len)).max(max);
+const criteriaSchema = {
+  matchTitleKeywords: lowerList(10, 60),
+  maxAttendees: z.number().int().min(0).max(50),
+  protectedTitleKeywords: lowerList(10, 60),
+};
+const emailSendConstraintsSchema = z.object({
+  ...standingWindowSchema,
+  maxPerDay: z.number().int().min(1).max(20),
+  maxPerRecipientPerDay: z.number().int().min(1).max(3),
+  allowedKinds: z.array(z.enum(['scheduling_reply','follow_up','confirmation','template'])).min(1).max(4),
+  allowedRecipients: z.array(z.string().trim().toLowerCase().email().max(320)).max(25),
+  allowedRecipientDomains: z.array(z.string().trim().toLowerCase().min(3).max(253)).max(10),
+  templates: z.array(z.object({ id: z.string().regex(/^[a-z0-9_-]{1,40}$/), label: headerSafe(80), subject: headerSafe(300), body: z.string().min(1).max(5000) }).strict()).max(10),
+}).strict();
+const rescheduleConstraintsSchema = z.object({
+  ...standingWindowSchema, ...criteriaSchema,
+  maxPerDay: z.number().int().min(1).max(10),
+  horizonDays: z.number().int().min(1).max(30),
+  maxShiftDays: z.number().int().min(0).max(7),
+  collision: z.literal('never_overlap_busy'),
+}).strict();
+const declineConstraintsSchema = z.object({
+  timezone: standingWindowSchema.timezone, ...criteriaSchema,
+  maxPerDay: z.number().int().min(1).max(10),
+  horizonDays: z.number().int().min(1).max(30),
+  boundaries: z.array(z.object({ weekdays: standingWindowSchema.weekdays, start: standingWindowSchema.windowStart, end: standingWindowSchema.windowEnd }).strict()).min(1).max(10),
+  declineNote: headerSafe(500).optional(),
+}).strict();
+const appointmentConstraintsSchema = z.object({
+  ...standingWindowSchema,
+  maxPerDay: z.number().int().min(1).max(3),
+  horizonDays: z.number().int().min(1).max(60),
+  providers: z.array(z.object({
+    email: z.string().trim().toLowerCase().email().max(320),
+    label: headerSafe(80),
+    category: z.enum(['medical','dental','vision','therapy','vet','personal_care','auto','home','other']),
+    appointmentTypes: z.array(headerSafe(80)).min(1).max(5),
+  }).strict()).min(1).max(10),
+}).strict();
+const subscriptionCancelConstraintsSchema = z.object({
+  timezone: standingWindowSchema.timezone,
+  maxPerDay: z.number().int().min(1).max(5),
+  allowedProviderDomains: z.array(z.string().trim().toLowerCase().min(3).max(253)).min(1).max(10),
+}).strict();
 const autopilotGrantSchema = z.discriminatedUnion('actionClass', [
   z.object({ actionClass: z.literal('calendar.create'), constraints: calendarConstraintsSchema, expiresAt: expiresAtSchema }),
   z.object({ actionClass: z.literal('email.draft'), constraints: emailDraftConstraintsSchema, expiresAt: expiresAtSchema }),
+  z.object({ actionClass: z.literal('email.send'), constraints: emailSendConstraintsSchema, expiresAt: expiresAtSchema }),
+  z.object({ actionClass: z.literal('calendar.reschedule'), constraints: rescheduleConstraintsSchema, expiresAt: expiresAtSchema }),
+  z.object({ actionClass: z.literal('calendar.decline'), constraints: declineConstraintsSchema, expiresAt: expiresAtSchema }),
+  z.object({ actionClass: z.literal('appointment.book'), constraints: appointmentConstraintsSchema, expiresAt: expiresAtSchema }),
+  z.object({ actionClass: z.literal('subscription.cancel'), constraints: subscriptionCancelConstraintsSchema, expiresAt: expiresAtSchema }),
 ]);
 const autopilotUpdateSchema = z.object({
   expectedVersion: z.number().int().min(1),
@@ -340,6 +394,23 @@ const autopilotRunPayloadSchemas = {
     subject: z.string().trim().min(1).max(300).refine((value) => !/[\u0000-\u001f\u007f]/.test(value), { message: 'control characters are not allowed' }),
     body: z.string().max(10000),
   }).strict(),
+  // Rule-defined kinds only; the database binds each kind to a real source.
+  'email.send': z.discriminatedUnion('kind', [
+    z.object({ connectionId: z.string().uuid(), kind: z.literal('template'), to: z.string().email().max(320), templateId: z.string().regex(/^[a-z0-9_-]{1,40}$/) }).strict(),
+    z.object({ connectionId: z.string().uuid(), kind: z.literal('follow_up'), to: z.string().email().max(320), subject: headerSafe(300), body: z.string().trim().min(1).max(5000), commitmentId: z.string().uuid() }).strict(),
+    z.object({ connectionId: z.string().uuid(), kind: z.enum(['scheduling_reply','confirmation']), to: z.string().email().max(320), subject: headerSafe(300), body: z.string().trim().min(1).max(5000), sourceSignalId: z.string().uuid() }).strict(),
+  ]),
+  'calendar.reschedule': z.object({ eventId: z.string().uuid(), startsAt: z.string().datetime(), endsAt: z.string().datetime() }).strict(),
+  'calendar.decline': z.object({ eventId: z.string().uuid() }).strict(),
+  // No free text: the request is composed by the database from the rule.
+  'appointment.book': z.object({
+    connectionId: z.string().uuid(), providerEmail: z.string().email().max(320), appointmentType: headerSafe(80),
+    startsAt: z.string().datetime(), endsAt: z.string().datetime(), paymentRequired: z.boolean(), sourceSignalId: z.string().uuid().optional(),
+  }).strict(),
+  'subscription.cancel': z.discriminatedUnion('route', [
+    z.object({ connectionId: z.string().uuid(), lifeAdminItemId: z.string().uuid(), route: z.literal('email'), cancelEmail: z.string().email().max(320), accountRef: headerSafe(120).optional() }).strict(),
+    z.object({ connectionId: z.string().uuid(), lifeAdminItemId: z.string().uuid(), route: z.literal('web') }).strict(),
+  ]),
 } as const;
 
 const deviceCalendarEventSchema = z.object({
@@ -948,7 +1019,8 @@ app.post('/v1/apm/coach/:sessionId/close', async (c) => {
 
 app.post('/v1/connections/oauth/start', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, codeChallenge: z.string().min(20).max(200), redirectUri: z.string().url().optional() }).safeParse(await c.req.json().catch(() => null));
+  // access 'act' is a separate, explicit consent for provider write scopes (Autopilot).
+  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, codeChallenge: z.string().min(20).max(200), redirectUri: z.string().url().optional(), access: z.enum(['read','act']).default('read') }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   const state = await createOAuthState(c.env, { userId: user.id, provider: parsed.data.provider, kind: parsed.data.kind, codeChallenge: parsed.data.codeChallenge });
   return c.json({ state, authorizationUrl: buildOAuthAuthorizationUrl({ env: c.env, ...parsed.data, state }) });
@@ -996,7 +1068,7 @@ app.post('/v1/email/connections/:id/sync', async (c) => {
 
 app.put('/v1/permissions/:domain/:actionType', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const domain = z.enum(['calendar','email','routine','life_graph','purchase','notification','connector']).safeParse(c.req.param('domain'));
+  const domain = z.enum(['calendar','email','routine','life_graph','purchase','notification','connector','appointment','subscription']).safeParse(c.req.param('domain'));
   const parsed = z.object({ autonomyLevel: z.union([z.literal(0),z.literal(1),z.literal(2),z.literal(3),z.literal(4),z.literal(5)]), constraints: z.record(z.string(), z.unknown()).optional(), enabled: z.boolean().optional() }).safeParse(await c.req.json().catch(() => null));
   if (!domain.success || !parsed.success) return c.json({ error: 'invalid_request' }, 400);
 
@@ -1039,6 +1111,8 @@ app.post('/v1/actions/:id/approve', async (c) => {
   const action = graph.actions.find((candidate) => candidate.id === c.req.param('id'));
   if (!action) return c.json({ error: 'not_found' }, 404);
   if (action.status !== 'prepared' && action.status !== 'approved') return c.json({ error: 'invalid_action_state' }, 409);
+  // An Autopilot stop (payment asked / no emailed route) is the user's to finish; approval never executes it.
+  if (action.payload && typeof action.payload === 'object' && 'stoppedReason' in action.payload) return c.json({ error: 'needs_user' }, 409);
   const permission = graph.permissions.find((p) => p.domain === action.domain && p.actionType === action.actionType && p.enabled);
   const executed = await approveAndMaybeExecuteAction({ env: c.env, accessToken: user.accessToken, userId: user.id, action: action as ActionRecord, permission, entitlement: graph.entitlement });
   await audit(c.env, user.accessToken, user.id, 'action.executed', { domain: executed.domain, actionType: executed.actionType, status: executed.status }, 'action', executed.id);
@@ -1156,8 +1230,10 @@ app.post('/v1/autopilot/rules/:id/run', async (c) => {
       env: c.env, accessToken: user.accessToken, userId: user.id, rule, state, permission, entitlement: graph.entitlement,
       idempotencyKey: base.data.idempotencyKey, reason: base.data.reason, payload: payload.data,
     });
-    if (!result.replayed) await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'autopilot_executed', { actionClass: rule.actionClass });
-    return c.json(result, result.replayed ? 200 : 201);
+    if (!result.replayed) {
+      await recordAnalyticsEvent(c.env, user.accessToken, user.id, result.stopped ? 'autopilot_stopped' : 'autopilot_executed', { actionClass: rule.actionClass });
+    }
+    return c.json(result, result.replayed ? 200 : result.stopped ? 202 : 201);
   } catch (error) { return autopilotFailure(c, error); }
 });
 
@@ -1166,6 +1242,29 @@ app.post('/v1/autopilot/executions/:id/undo', async (c) => {
   try {
     const execution = await undoStandingExecution({ env: c.env, accessToken: user.accessToken, userId: user.id, executionId: c.req.param('id') });
     return c.json({ execution });
+  } catch (error) { return autopilotFailure(c, error); }
+});
+
+// The daily done-list: what Autopilot did today (user's local day unless ?day=),
+// each with Undo or a clear "can't undo". Owner-only, so it survives downgrade.
+app.get('/v1/autopilot/done', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const requested = c.req.query('day');
+  if (requested !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(requested)) return c.json({ error: 'invalid_request' }, 400);
+  const graph = requested ? undefined : await getLifeGraph(c.env, user.accessToken, user.id);
+  const day = requested ?? localMoment(new Date(), graph?.identity.timezone || 'UTC').date;
+  try {
+    return c.json({ day, items: await getAutopilotDoneList(c.env, user.accessToken, day) });
+  } catch (error) { return autopilotFailure(c, error); }
+});
+
+app.put('/v1/autopilot/flexible-events/:eventId', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ flexible: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+  const eventId = z.string().uuid().safeParse(c.req.param('eventId'));
+  if (!parsed.success || !eventId.success) return c.json({ error: 'invalid_request' }, 400);
+  try {
+    return c.json(await setAutopilotEventFlexible(c.env, user.accessToken, eventId.data, parsed.data.flexible));
   } catch (error) { return autopilotFailure(c, error); }
 });
 

@@ -2,6 +2,7 @@ import type {
   ActionRecord,
   AutopilotActionClass,
   AutopilotActionClassState,
+  AutopilotDoneItem,
   AutopilotExecution,
   AutopilotRule,
   AutopilotRuleConstraints,
@@ -11,9 +12,9 @@ import type {
 } from '@apm/domain';
 import { decideStandingAuthority, standingActionClasses, type PermissionGrant } from '@apm/policy';
 import type { ApiEnv } from './env';
-import { actionDomainEnabled, actionsGloballyEnabled, autopilotExecutionEnabled } from './env';
-import { SupabaseRestError, supabaseRest } from './db';
-import { executeConnectorAction, revertConnectorAction } from './actionEngine';
+import { actionDomainEnabled, actionsGloballyEnabled, autopilotClassEnabled, autopilotExecutionEnabled } from './env';
+import { SERVICE_ROLE_TOKEN, SupabaseRestError, supabaseRest } from './db';
+import { executeStandingConnectorAction, revertStandingConnectorAction } from './actionEngine';
 
 /**
  * Autopilot rows are written ONLY through the governed RPCs from migration
@@ -38,8 +39,9 @@ async function autopilotRpc<T>(env: ApiEnv, accessToken: string, fn: string, arg
 }
 
 interface ClassRow {
-  class_key: AutopilotActionClass; domain: 'calendar' | 'email'; action_type: string; reversible: boolean;
-  undo_method: 'delete_event' | 'delete_draft'; activation_status: 'inactive' | 'active'; activated_at: string | null;
+  class_key: AutopilotActionClass; domain: AutopilotActionClassState['domain']; connector_kind: 'calendar' | 'email';
+  action_type: string; reversible: boolean; undo_method: AutopilotActionClassState['undoMethod']; undo_label: string;
+  activation_status: 'inactive' | 'active'; activated_at: string | null;
 }
 interface RuleRow {
   id: string; user_id: string; action_class: AutopilotActionClass; status: AutopilotRule['status'];
@@ -52,6 +54,7 @@ interface ExecutionRow {
   action_id: string | null; status: AutopilotExecution['status']; idempotency_key: string;
   proposed_starts_at: string | null; proposed_ends_at: string | null; local_day: string;
   external_ref: string | null; failure_code: string | null; claimed_at: string; completed_at: string | null; reverted_at: string | null;
+  target_ref?: string | null; original_starts_at?: string | null; original_ends_at?: string | null;
 }
 interface SettingsRow { user_id: string; paused: boolean; paused_at: string | null }
 interface ActionRow {
@@ -65,8 +68,8 @@ const opt = <T>(value: T | null | undefined) => value ?? undefined;
 
 export function mapClass(row: ClassRow): AutopilotActionClassState {
   return {
-    actionClass: row.class_key, domain: row.domain, actionType: row.action_type, reversible: row.reversible,
-    undoMethod: row.undo_method, activationStatus: row.activation_status, activatedAt: opt(row.activated_at),
+    actionClass: row.class_key, domain: row.domain, connectorKind: row.connector_kind, actionType: row.action_type, reversible: row.reversible,
+    undoMethod: row.undo_method, undoLabel: row.undo_label, activationStatus: row.activation_status, activatedAt: opt(row.activated_at),
   };
 }
 
@@ -84,7 +87,8 @@ export function mapExecution(row: ExecutionRow): AutopilotExecution {
     id: row.id, userId: row.user_id, ruleId: row.rule_id, ruleVersion: row.rule_version, actionClass: row.action_class,
     actionId: opt(row.action_id), status: row.status, idempotencyKey: row.idempotency_key,
     proposedStartsAt: opt(row.proposed_starts_at), proposedEndsAt: opt(row.proposed_ends_at), localDay: row.local_day,
-    externalRef: opt(row.external_ref), failureCode: opt(row.failure_code), claimedAt: row.claimed_at,
+    externalRef: opt(row.external_ref), targetRef: opt(row.target_ref), originalStartsAt: opt(row.original_starts_at),
+    originalEndsAt: opt(row.original_ends_at), failureCode: opt(row.failure_code), claimedAt: row.claimed_at,
     completedAt: opt(row.completed_at), revertedAt: opt(row.reverted_at),
   };
 }
@@ -157,12 +161,24 @@ function policyPermission(userId: string, permission: Permission | undefined): P
 }
 
 /**
- * Standing execution. Fails closed in the Worker first (kill switches,
- * entitlement, level-5 permission, rule state, class activation, master pause),
- * then the database claim re-checks all of it plus the rule's constraints and
- * idempotency, and creates the action + execution + audit atomically. Only a
- * successful claim reaches the provider; the result is recorded through the
- * governed RPC. A replayed idempotency key never re-executes.
+ * Results and undo are recorded ONLY with the server-only key (migration 0033):
+ * a user can no longer mark their own claimed run failed to free their cap.
+ */
+const serviceRecord = <T>(env: ApiEnv, fn: string, args: Record<string, unknown>) => autopilotRpc<T>(env, SERVICE_ROLE_TOKEN, fn, args);
+
+export type StandingRunResult =
+  | { replayed: boolean; stopped?: undefined; execution: AutopilotExecution; action: ActionRecord }
+  | { replayed: boolean; stopped: 'payment_required' | 'needs_user'; execution?: undefined; action: ActionRecord };
+
+/**
+ * Standing execution. Fails closed in the Worker first (kill switches incl. the
+ * per-class switch, entitlement, level-5 permission, rule state, class
+ * activation, master pause, the service credential that alone may record the
+ * outcome), then the database claim re-checks all of it plus the class's own
+ * rules and idempotency, composes the exact provider write, and creates the
+ * action + execution + audit atomically — or STOPS (payment asked, no emailed
+ * route) and leaves a prepared action for the user. Only a successful claim
+ * reaches the provider; a replayed key never re-executes.
  */
 export async function runStandingRule(input: {
   env: ApiEnv; accessToken: string; userId: string;
@@ -170,7 +186,7 @@ export async function runStandingRule(input: {
   permission?: Permission; entitlement?: SubscriptionEntitlement;
   idempotencyKey: string; reason: string; payload: Record<string, unknown>;
   now?: Date;
-}): Promise<{ replayed: boolean; execution: AutopilotExecution; action: ActionRecord }> {
+}): Promise<StandingRunResult> {
   const policy = standingActionClasses[input.rule.actionClass];
   const decision = decideStandingAuthority({
     userId: input.userId,
@@ -182,47 +198,70 @@ export async function runStandingRule(input: {
     classActivated: input.state.classes.some((c) => c.actionClass === input.rule.actionClass && c.activationStatus === 'active'),
     masterPaused: input.state.masterPaused,
     globalExecutionEnabled: actionsGloballyEnabled(input.env),
-    domainExecutionEnabled: actionDomainEnabled(input.env, policy.domain),
+    domainExecutionEnabled: actionDomainEnabled(input.env, policy.connector),
     autopilotExecutionEnabled: autopilotExecutionEnabled(input.env),
+    classSwitchEnabled: autopilotClassEnabled(input.env, input.rule.actionClass),
     now: input.now ?? new Date(),
   });
   if (!decision.allowed) throw new Error(`autopilot_not_authorized:${decision.reason}`);
+  if (!input.env.SUPABASE_SECRET_KEY) throw new Error('autopilot_not_authorized:service_credential_missing');
 
-  const claim = await autopilotRpc<{ replayed: boolean; execution: ExecutionRow; action: ActionRow }>(input.env, input.accessToken, 'apm_autopilot_claim', {
+  const claim = await autopilotRpc<{ replayed: boolean; stopped?: 'payment_required' | 'needs_user'; execution?: ExecutionRow; action: ActionRow }>(input.env, input.accessToken, 'apm_autopilot_claim', {
     p_rule_id: input.rule.id, p_idempotency_key: input.idempotencyKey, p_payload: input.payload, p_reason: input.reason,
   });
   const action = mapActionRow(claim.action, input.userId);
+  if (claim.stopped) return { replayed: claim.replayed, stopped: claim.stopped, action };
+  if (!claim.execution) throw new Error('autopilot_invalid_execution_state');
   if (claim.replayed) return { replayed: true, execution: mapExecution(claim.execution), action };
 
   let externalRef: string;
   try {
-    externalRef = await executeConnectorAction(action, input);
+    externalRef = await executeStandingConnectorAction(action, input);
     if (!externalRef) throw new Error('provider_reference_missing');
   } catch (error) {
     const failureCode = (error instanceof Error ? error.message : 'unknown_failure').replace(/[^A-Za-z0-9_:.-]/g, '_').slice(0, 120) || 'unknown_failure';
-    await autopilotRpc(input.env, input.accessToken, 'apm_autopilot_record_result', {
-      p_execution_id: claim.execution.id, p_outcome: 'failed', p_external_ref: null, p_failure_code: failureCode,
+    await serviceRecord(input.env, 'apm_service_autopilot_record_result', {
+      p_user_id: input.userId, p_execution_id: claim.execution.id, p_outcome: 'failed', p_external_ref: null, p_failure_code: failureCode,
     });
     throw new Error('autopilot_execution_failed');
   }
-  const verified = await autopilotRpc<ExecutionRow>(input.env, input.accessToken, 'apm_autopilot_record_result', {
-    p_execution_id: claim.execution.id, p_outcome: 'verified', p_external_ref: externalRef.slice(0, 500), p_failure_code: null,
+  const verified = await serviceRecord<ExecutionRow>(input.env, 'apm_service_autopilot_record_result', {
+    p_user_id: input.userId, p_execution_id: claim.execution.id, p_outcome: 'verified', p_external_ref: externalRef.slice(0, 500), p_failure_code: null,
   });
   return { replayed: false, execution: mapExecution(verified), action: { ...action, status: 'verified' } };
 }
 
+interface UndoTarget {
+  executionId: string; actionClass: AutopilotActionClass; domain: string; connectorKind: 'calendar' | 'email';
+  undoMethod: AutopilotActionClassState['undoMethod']; externalRef: string | null; connectionId: string | null;
+  originalStartsAt: string | null; originalEndsAt: string | null;
+}
+
 /**
- * Undo a verified, reversible execution. Owner-only in the database so it works
- * after downgrade; still needs the provider kill switches because it calls the
- * provider.
+ * Undo a verified, reversible execution. The target is owner-only in the
+ * database (works after downgrade) and built from the ledger, never from the
+ * client; the reversal is recorded with the server-only key. Irreversible
+ * classes are refused by the database with `autopilot_cannot_undo`.
  */
 export async function undoStandingExecution(input: { env: ApiEnv; accessToken: string; userId: string; executionId: string }): Promise<AutopilotExecution> {
-  const target = await autopilotRpc<{ executionId: string; domain: 'calendar' | 'email'; undoMethod: 'delete_event' | 'delete_draft'; externalRef: string | null; connectionId: string | null }>(
-    input.env, input.accessToken, 'apm_autopilot_undo_target', { p_execution_id: input.executionId },
-  );
-  if (!actionsGloballyEnabled(input.env) || !actionDomainEnabled(input.env, target.domain)) throw new Error('autopilot_not_authorized:global_execution_disabled');
-  await revertConnectorAction({ undoMethod: target.undoMethod, connectionId: target.connectionId ?? '', externalRef: target.externalRef ?? '' }, input);
-  return mapExecution(await autopilotRpc<ExecutionRow>(input.env, input.accessToken, 'apm_autopilot_record_undo', { p_execution_id: input.executionId }));
+  const target = await autopilotRpc<UndoTarget>(input.env, input.accessToken, 'apm_autopilot_undo_target', { p_execution_id: input.executionId });
+  if (!actionsGloballyEnabled(input.env) || !actionDomainEnabled(input.env, target.connectorKind ?? target.domain)) throw new Error('autopilot_not_authorized:global_execution_disabled');
+  if (!input.env.SUPABASE_SECRET_KEY) throw new Error('autopilot_not_authorized:service_credential_missing');
+  await revertStandingConnectorAction({
+    undoMethod: target.undoMethod, connectionId: target.connectionId ?? '', externalRef: target.externalRef ?? '',
+    originalStartsAt: target.originalStartsAt ?? undefined, originalEndsAt: target.originalEndsAt ?? undefined,
+  }, input);
+  return mapExecution(await serviceRecord<ExecutionRow>(input.env, 'apm_service_autopilot_record_undo', { p_user_id: input.userId, p_execution_id: input.executionId }));
+}
+
+/** The daily done-list: what Autopilot did (or stopped on) that local day, with Undo or "can't undo". Owner-only. */
+export async function getAutopilotDoneList(env: ApiEnv, accessToken: string, day: string): Promise<AutopilotDoneItem[]> {
+  return (await autopilotRpc<AutopilotDoneItem[] | null>(env, accessToken, 'apm_autopilot_done_list', { p_day: day })) ?? [];
+}
+
+/** Mark/unmark one of the user's events as flexible (marking needs the entitlement in the DB). */
+export async function setAutopilotEventFlexible(env: ApiEnv, accessToken: string, eventId: string, flexible: boolean): Promise<{ eventId: string; flexible: boolean }> {
+  return autopilotRpc(env, accessToken, 'apm_autopilot_set_event_flexible', { p_event_id: eventId, p_flexible: flexible });
 }
 
 /** Data-rights path: owner-only, no entitlement, so exports survive downgrade. */
@@ -261,6 +300,11 @@ const AUTOPILOT_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 
   autopilot_outside_rule: { error: 'outside_rule', status: 403 },
   autopilot_collision: { error: 'collision', status: 409 },
   autopilot_rate_limited: { error: 'rate_limited', status: 409 },
+  autopilot_connector_scope_missing: { error: 'connector_scope_missing', status: 403 },
+  autopilot_event_not_found: { error: 'not_found', status: 404 },
+  autopilot_event_protected: { error: 'event_protected', status: 403 },
+  autopilot_payment_data_refused: { error: 'payment_data_refused', status: 403 },
+  autopilot_cannot_undo: { error: 'cannot_undo', status: 409 },
   autopilot_execution_failed: { error: 'execution_failed', status: 502 },
 };
 

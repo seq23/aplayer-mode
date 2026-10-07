@@ -22,6 +22,12 @@ export interface ApiEnv {
   ACTION_EMAIL_EXECUTION?: string;
   /** Phase C kill switch for standing (level-5) execution. Off unless exactly 'true'. */
   AUTOPILOT_EXECUTION?: string;
+  /**
+   * Per-class Autopilot switch: comma-separated class keys allowed to run (e.g.
+   * `calendar.create,email.draft`). A class not listed never runs, whatever its
+   * database activation says. Empty/absent = none.
+   */
+  AUTOPILOT_ENABLED_CLASSES?: string;
 }
 
 export function requireSupabaseConfig(env: ApiEnv): { url: string; publishableKey: string } {
@@ -48,4 +54,8 @@ export function actionDomainEnabled(env: ApiEnv, domain: string): boolean {
 
 export function autopilotExecutionEnabled(env: ApiEnv): boolean {
   return env.AUTOPILOT_EXECUTION === 'true';
+}
+
+export function autopilotClassEnabled(env: ApiEnv, actionClass: string): boolean {
+  return (env.AUTOPILOT_ENABLED_CLASSES ?? '').split(',').map((value) => value.trim()).filter(Boolean).includes(actionClass);
 }

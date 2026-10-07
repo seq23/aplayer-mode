@@ -123,7 +123,7 @@ function toBase64Url(value: string): string {
   return btoa(unescape(encodeURIComponent(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
-async function executeEmail(action: ActionRecord, input: { env: ApiEnv; accessToken: string; userId: string }): Promise<string> {
+async function executeEmail(action: ActionRecord, input: { env: ApiEnv; accessToken: string; userId: string }, sendOverride?: boolean): Promise<string> {
   const connectionId = String(action.payload.connectionId ?? '');
   if (!connectionId) throw new Error('action_connection_required');
   const to = String(action.payload.to ?? '').trim();
@@ -136,7 +136,7 @@ async function executeEmail(action: ActionRecord, input: { env: ApiEnv; accessTo
   if (/[\u0000-\u001f\u007f]/.test(to) || /[\u0000-\u001f\u007f]/.test(subject)) throw new Error('email_action_invalid');
   const auth = await getValidConnectorToken({ ...input, connectionId });
   if (auth.kind !== 'email') throw new Error('action_connection_kind_mismatch');
-  const send = action.actionType === 'email.send';
+  const send = sendOverride ?? action.actionType === 'email.send';
 
   if (auth.provider === 'google') {
     const raw = toBase64Url(`To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset="UTF-8"\r\n\r\n${body}`);
@@ -173,6 +173,112 @@ export async function executeConnectorAction(action: ActionRecord, input: { env:
   throw new Error('unsupported_action_type');
 }
 
+type ConnectorInput = { env: ApiEnv; accessToken: string; userId: string };
+
+/** The database-composed write for a standing run (migration 0033); never client text. */
+function composedOf(action: ActionRecord): Record<string, unknown> {
+  const composed = action.payload.composed;
+  if (!composed || typeof composed !== 'object' || Array.isArray(composed)) throw new Error('standing_action_not_composed');
+  return composed as Record<string, unknown>;
+}
+
+async function moveCalendarEvent(connectionId: string, externalEventId: string, startsAt: string, endsAt: string, input: ConnectorInput): Promise<string> {
+  if (!connectionId || !externalEventId || !startsAt || !endsAt) throw new Error('calendar_move_invalid');
+  const auth = await getValidConnectorToken({ ...input, connectionId });
+  if (auth.kind !== 'calendar') throw new Error('action_connection_kind_mismatch');
+  const id = encodeURIComponent(externalEventId);
+  const response = auth.provider === 'google'
+    // sendUpdates=all: attendees get the provider's own update notice.
+    ? await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}?sendUpdates=all`, {
+      method: 'PATCH', headers: { authorization: `Bearer ${auth.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ start: { dateTime: startsAt }, end: { dateTime: endsAt } }),
+    })
+    : await fetch(`https://graph.microsoft.com/v1.0/me/events/${id}`, {
+      method: 'PATCH', headers: { authorization: `Bearer ${auth.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ start: { dateTime: startsAt, timeZone: 'UTC' }, end: { dateTime: endsAt, timeZone: 'UTC' } }),
+    });
+  if (!response.ok) throw new Error(`${auth.provider}_calendar_move_failed:${response.status}`);
+  return externalEventId;
+}
+
+async function respondToInvitation(connectionId: string, externalEventId: string, response: 'declined' | 'accepted', note: string | undefined, input: ConnectorInput): Promise<string> {
+  if (!connectionId || !externalEventId) throw new Error('calendar_response_invalid');
+  // The note is the rule's own (user-written or the fixed polite default): it is
+  // sent as the RSVP comment, never as a header.
+  if (note !== undefined && (note.length > 500 || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(note))) throw new Error('calendar_response_invalid');
+  const auth = await getValidConnectorToken({ ...input, connectionId });
+  if (auth.kind !== 'calendar') throw new Error('action_connection_kind_mismatch');
+  const id = encodeURIComponent(externalEventId);
+  if (auth.provider === 'google') {
+    const current = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}`, { headers: { authorization: `Bearer ${auth.accessToken}` } });
+    if (!current.ok) throw new Error(`google_calendar_read_failed:${current.status}`);
+    const event = await current.json() as { attendees?: Array<Record<string, unknown> & { self?: boolean }> };
+    const attendees = event.attendees ?? [];
+    if (!attendees.some((attendee) => attendee.self)) throw new Error('google_calendar_not_invited');
+    const next = attendees.map((attendee) => attendee.self
+      ? { ...attendee, responseStatus: response, ...(note ? { comment: note } : { comment: undefined }) }
+      : attendee);
+    const patched = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}?sendUpdates=all`, {
+      method: 'PATCH', headers: { authorization: `Bearer ${auth.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ attendees: next }),
+    });
+    if (!patched.ok) throw new Error(`google_calendar_response_failed:${patched.status}`);
+    return externalEventId;
+  }
+  const verb = response === 'declined' ? 'decline' : 'accept';
+  const answered = await fetch(`https://graph.microsoft.com/v1.0/me/events/${id}/${verb}`, {
+    method: 'POST', headers: { authorization: `Bearer ${auth.accessToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ sendResponse: true, ...(note ? { comment: note } : {}) }),
+  });
+  if (!answered.ok) throw new Error(`microsoft_calendar_response_failed:${answered.status}`);
+  return externalEventId;
+}
+
+/**
+ * Executes one CLAIMED standing action at its provider. Every class reads only
+ * the database-composed write (`payload.composed`): event ids, recipients and
+ * message text the database derived or validated, never raw client input.
+ */
+export async function executeStandingConnectorAction(action: ActionRecord, input: ConnectorInput): Promise<string> {
+  const composed = composedOf(action);
+  const connectionId = String(composed.connectionId ?? '');
+  const as = (payload: Record<string, unknown>, actionType: string): ActionRecord => ({ ...action, actionType, payload: { ...payload, connectionId } });
+  switch (action.actionType) {
+    case 'calendar.create':
+      return executeCalendar(as(composed, 'calendar.create'), input);
+    case 'email.draft':
+      return executeEmail(as(composed, 'email.draft'), input, false);
+    case 'email.send':
+    case 'appointment.book':
+    case 'subscription.cancel':
+      // Fixed or rule-bound text composed by the database; sent from the user's own mailbox.
+      return executeEmail(as(composed, 'email.send'), input, true);
+    case 'calendar.reschedule':
+      return moveCalendarEvent(connectionId, String(composed.externalEventId ?? ''), String(composed.startsAt ?? ''), String(composed.endsAt ?? ''), input);
+    case 'calendar.decline':
+      return respondToInvitation(connectionId, String(composed.externalEventId ?? ''), 'declined', typeof composed.note === 'string' ? composed.note : undefined, input);
+    default:
+      throw new Error('unsupported_action_type');
+  }
+}
+
+/** Reverses a reversible standing write from the ledger's undo target. */
+export async function revertStandingConnectorAction(
+  target: { undoMethod: 'delete_event' | 'delete_draft' | 'restore_time' | 'reaccept' | 'none'; connectionId: string; externalRef: string; originalStartsAt?: string; originalEndsAt?: string },
+  input: ConnectorInput,
+): Promise<void> {
+  if (target.undoMethod === 'none') throw new Error('autopilot_cannot_undo');
+  if (target.undoMethod === 'restore_time') {
+    await moveCalendarEvent(target.connectionId, target.externalRef, target.originalStartsAt ?? '', target.originalEndsAt ?? '', input);
+    return;
+  }
+  if (target.undoMethod === 'reaccept') {
+    await respondToInvitation(target.connectionId, target.externalRef, 'accepted', undefined, input);
+    return;
+  }
+  await revertConnectorAction({ undoMethod: target.undoMethod, connectionId: target.connectionId, externalRef: target.externalRef }, input);
+}
+
 /**
  * Reverses a reversible Autopilot write: deletes the created calendar event or
  * the prepared draft. A provider 404/410 means it is already gone.
@@ -204,6 +310,9 @@ export async function approveAndMaybeExecuteAction(input: {
   env: ApiEnv; accessToken: string; userId: string; action: ActionRecord; permission?: Permission; entitlement?: SubscriptionEntitlement;
 }): Promise<ActionRecord> {
   const domain = input.action.domain as ActionDomain;
+  // An Autopilot stop (payment asked, no emailed route) is the user's to finish
+  // themselves: approving it can never make APM pay, book or log in.
+  if (input.action.payload && 'stoppedReason' in input.action.payload) throw new Error('action_needs_user');
   // This route is a per-action approval, so it is always level 4. A row's
   // requires_approval flag is client-writable and never escalates to level 5;
   // standing authority goes through the Autopilot claim path instead.

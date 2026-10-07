@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
+import { ALL_WRITE_SCOPES, AUTOPILOT_MIGRATIONS, SUBSTRATE } from './helpers/autopilot-substrate.mjs';
 
 const migration = (name) => readFile(fileURLToPath(new URL(`../migrations/${name}`, import.meta.url)), 'utf8');
 
@@ -24,104 +25,6 @@ const USER_A = '00000000-0000-4000-8000-00000000000a';
 const USER_B = '00000000-0000-4000-8000-00000000000b';
 const USER_C = '00000000-0000-4000-8000-00000000000c';
 
-const SUBSTRATE = `
-  create role anon nologin;
-  create role authenticated nologin;
-  grant usage on schema public to anon, authenticated;
-  alter default privileges in schema public grant all on tables to anon, authenticated;
-  alter default privileges in schema public grant all on functions to anon, authenticated;
-
-  create schema auth;
-  grant usage on schema auth to anon, authenticated;
-  create table auth.users (id uuid primary key);
-  create function auth.uid() returns uuid language sql stable as $$
-    select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
-  $$;
-  grant execute on function auth.uid() to anon, authenticated;
-
-  create schema private;
-  revoke all on schema private from public;
-  grant usage on schema private to authenticated;
-
-  create table public.audit_events (
-    id uuid primary key default gen_random_uuid(),
-    user_id uuid references auth.users(id) on delete cascade,
-    event_type text not null,
-    actor_type text not null check (actor_type in ('user','system','connector','ai')),
-    actor_ref text, object_type text, object_id text, data_class text,
-    metadata jsonb not null default '{}'::jsonb,
-    created_at timestamptz not null default now()
-  );
-  create table public.subscription_entitlements (
-    user_id uuid primary key references auth.users(id) on delete cascade,
-    plan text not null default 'beta',
-    status text not null default 'active',
-    updated_at timestamptz not null default now()
-  );
-  create table public.permissions (
-    id uuid primary key default gen_random_uuid(),
-    user_id uuid not null references auth.users(id) on delete cascade,
-    domain text not null, action_type text not null,
-    autonomy_level integer not null default 0 check (autonomy_level between 0 and 5),
-    constraints jsonb not null default '{}'::jsonb,
-    enabled boolean not null default true,
-    granted_at timestamptz, updated_at timestamptz not null default now(),
-    unique(user_id, domain, action_type)
-  );
-  create table public.actions (
-    id uuid primary key default gen_random_uuid(),
-    user_id uuid not null references auth.users(id) on delete cascade,
-    domain text not null, action_type text not null,
-    status text not null default 'proposed' check (status in ('proposed','prepared','approved','executing','executed','verified','closed','failed','cancelled')),
-    payload jsonb not null default '{}'::jsonb,
-    reason text not null,
-    permission_id uuid references public.permissions(id) on delete set null,
-    idempotency_key text not null,
-    requires_approval boolean not null default true,
-    approved_at timestamptz, executed_at timestamptz, verified_at timestamptz, failure_code text,
-    created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
-    unique(user_id, idempotency_key)
-  );
-  create table public.action_attempts (
-    id uuid primary key default gen_random_uuid(),
-    user_id uuid not null references auth.users(id) on delete cascade,
-    action_id uuid not null references public.actions(id) on delete cascade,
-    attempt integer not null,
-    status text not null check (status in ('started','succeeded','failed')),
-    provider text, external_ref text, error_code text,
-    started_at timestamptz not null default now(), completed_at timestamptz,
-    unique(action_id, attempt)
-  );
-  create table public.integration_connections (
-    id uuid primary key default gen_random_uuid(),
-    user_id uuid not null references auth.users(id) on delete cascade,
-    provider text not null, kind text not null,
-    status text not null default 'connected'
-  );
-  create table public.calendar_events (
-    id uuid primary key default gen_random_uuid(),
-    user_id uuid not null references auth.users(id) on delete cascade,
-    provider text not null default 'device',
-    external_event_id text not null default gen_random_uuid()::text,
-    title text not null default '',
-    starts_at timestamptz not null, ends_at timestamptz not null,
-    availability text not null default 'busy',
-    deleted boolean not null default false
-  );
-  do $$
-  declare t text;
-  begin
-    foreach t in array array['permissions','actions','action_attempts','integration_connections','calendar_events'] loop
-      execute format('alter table public.%I enable row level security', t);
-      execute format('create policy %I on public.%I for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id)', t || '_own', t);
-    end loop;
-  end $$;
-  alter table public.audit_events enable row level security;
-  alter table public.subscription_entitlements enable row level security;
-  create policy audit_events_select_own on public.audit_events for select to authenticated using (auth.uid() = user_id);
-  create policy audit_events_insert_own on public.audit_events for insert to authenticated with check (auth.uid() = user_id);
-  create policy entitlements_select_own on public.subscription_entitlements for select to authenticated using (auth.uid() = user_id);
-`;
 
 let db;
 const conn = {};
@@ -151,6 +54,18 @@ async function rejects(promise, pattern) {
     return true;
   });
 }
+
+async function asService(sql, params = []) {
+  return db.transaction(async (tx) => {
+    await tx.exec(`set local role service_role; select set_config('request.jwt.claim.sub', '', true);`);
+    return tx.query(sql, params);
+  });
+}
+/** Results are recorded only by the Worker's server key (0033). */
+const record = async (userId, executionId, outcome, ref = null, code = null) =>
+  (await asService('select public.apm_service_autopilot_record_result($1::uuid, $2::uuid, $3, $4, $5) as r', [userId, executionId, outcome, ref, code])).rows[0].r;
+const recordUndo = async (userId, executionId) =>
+  (await asService('select public.apm_service_autopilot_record_undo($1::uuid, $2::uuid) as r', [userId, executionId])).rows[0].r;
 
 const rpc = async (userId, fn, args, values) => (await as(userId, `select public.${fn}(${args}) as r`, values)).rows[0].r;
 const auditCount = async (eventType, userId = USER_A) => Number((await admin('select count(*)::int as n from public.audit_events where event_type = $1 and user_id = $2', [eventType, userId])).rows[0].n);
@@ -196,7 +111,7 @@ const claim = (userId, ruleId, key, payload, reason = 'Morning routine block') =
 test.before(async () => {
   db = new PGlite();
   await db.exec(SUBSTRATE);
-  for (const name of ['0018_autopilot_standing_rules.sql', '0019_autopilot_draft_header_hardening.sql']) {
+  for (const name of AUTOPILOT_MIGRATIONS) {
     await db.exec(await migration(name));
   }
   await admin(`insert into auth.users (id) values ('${USER_A}'), ('${USER_B}'), ('${USER_C}')`);
@@ -204,7 +119,7 @@ test.before(async () => {
   await setPlan(USER_B, 'life_os', 'active');
   await setPlan(USER_C, 'autopilot', 'trialing');
   for (const [user, kind] of [[USER_A, 'calendar'], [USER_A, 'email'], [USER_B, 'calendar'], [USER_C, 'calendar']]) {
-    conn[`${user}:${kind}`] = (await admin(`insert into public.integration_connections (user_id, provider, kind) values ($1, 'google', $2) returning id`, [user, kind])).rows[0].id;
+    conn[`${user}:${kind}`] = (await admin(`insert into public.integration_connections (user_id, provider, kind, scopes) values ($1, 'google', $2, $3) returning id`, [user, kind, ALL_WRITE_SCOPES])).rows[0].id;
   }
 });
 
@@ -219,6 +134,7 @@ test('no direct client writes to any Autopilot table; only SELECT policies exist
   await rejects(as(USER_A, `insert into public.autopilot_executions (user_id, rule_id, rule_version, action_class, idempotency_key, local_day)
     values ('${USER_A}', '${rule.id}', 1, 'calendar.create', 'forged-key-1', current_date)`), /permission denied/);
   await rejects(as(USER_A, `insert into public.autopilot_settings (user_id, paused) values ('${USER_A}', false)`), /permission denied/);
+  await rejects(as(USER_A, `insert into public.autopilot_flexible_events (user_id, provider, external_event_id) values ('${USER_A}', 'google', 'x')`), /permission denied/);
   await rejects(as(USER_A, `update public.autopilot_action_classes set activation_status = 'active', evidence_ref = 'me', activated_at = now()`), /permission denied/);
   await rejects(as(USER_A, `insert into public.autopilot_action_classes (class_key, domain, action_type, reversible, undo_method) values ('email.draft','email','email.draft',true,'delete_draft')`), /permission denied/);
   await rejects(asAnon(`select * from public.autopilot_rules`), /permission denied/);
@@ -228,6 +144,7 @@ test('no direct client writes to any Autopilot table; only SELECT policies exist
   assert.deepEqual(policies, [
     { tablename: 'autopilot_action_classes', cmd: 'SELECT' },
     { tablename: 'autopilot_executions', cmd: 'SELECT' },
+    { tablename: 'autopilot_flexible_events', cmd: 'SELECT' },
     { tablename: 'autopilot_rules', cmd: 'SELECT' },
     { tablename: 'autopilot_settings', cmd: 'SELECT' },
   ]);
@@ -242,20 +159,51 @@ test('anon cannot execute any Autopilot RPC; definers stay out of the exposed sc
   await rejects(as(USER_A, `select private.apm_autopilot_check_constraints('calendar.create', '{}'::jsonb)`), /permission denied/);
 
   const exposedDefiners = (await admin(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public' and p.proname like 'apm_autopilot%' and p.prosecdef`)).rows;
+    where n.nspname = 'public' and (p.proname like 'apm_autopilot%' or p.proname like 'apm_service_autopilot%') and p.prosecdef`)).rows;
   assert.deepEqual(exposedDefiners, []);
   const unpinned = (await admin(`select n.nspname || '.' || p.proname as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where (p.proname like 'apm_autopilot%' or p.proname = 'apm_has_autopilot_access') and not coalesce(p.proconfig @> array['search_path=""'], false)`)).rows;
+    where (p.proname like 'apm_autopilot%' or p.proname like 'apm_service_autopilot%' or p.proname = 'apm_has_autopilot_access') and not coalesce(p.proconfig @> array['search_path=""'], false)`)).rows;
   assert.deepEqual(unpinned, []);
+});
+
+test('a user can no longer record their own run (Phase C P2): results and undo are Worker-only', async () => {
+  await activate('calendar.create');
+  await setPermission(USER_A, 'calendar', 'calendar.create', 5);
+  const rule = await grant(USER_A, 'calendar.create', calendarConstraints({ maxPerDay: 1 }));
+  const payload = { connectionId: conn[`${USER_A}:calendar`], title: 'Cap test', ...slot(11, 7) };
+  const run = await claim(USER_A, rule.id, 'p2-cap-0001', payload);
+  // The old self-service RPCs are gone, and the service ones refuse the user role.
+  await rejects(as(USER_A, `select public.apm_autopilot_record_result($1::uuid, 'failed', null, 'dodge')`, [run.execution.id]), /does not exist/);
+  await rejects(as(USER_A, `select private.apm_autopilot_record_result($1::uuid, 'failed', null, 'dodge')`, [run.execution.id]), /does not exist/);
+  await rejects(as(USER_A, `select public.apm_service_autopilot_record_result($1::uuid, $2::uuid, 'failed', null, 'dodge')`, [USER_A, run.execution.id]), /permission denied/);
+  await rejects(as(USER_A, `select private.apm_service_autopilot_record_result($1::uuid, $2::uuid, 'failed', null, 'dodge')`, [USER_A, run.execution.id]), /permission denied/);
+  await rejects(as(USER_A, `select public.apm_service_autopilot_record_undo($1::uuid, $2::uuid)`, [USER_A, run.execution.id]), /permission denied/);
+  await rejects(asAnon(`select public.apm_service_autopilot_record_result($1::uuid, $2::uuid, 'failed', null, 'dodge')`, [USER_A, run.execution.id]), /permission denied/);
+  // So the claimed run keeps its slot: the daily cap still holds.
+  await rejects(claim(USER_A, rule.id, 'p2-cap-0002', { ...payload, ...slot(11, 9) }), /autopilot_rate_limited/);
+  // Only the Worker's key records it, and a recorded failure says who recorded it.
+  await record(USER_A, run.execution.id, 'failed', null, 'google_calendar_action_failed:500');
+  const meta = (await admin(`select metadata from public.audit_events where event_type = 'autopilot.execution_failed' order by created_at desc limit 1`)).rows[0].metadata;
+  assert.equal(meta.recordedBy, 'worker');
+  await rpc(USER_A, 'apm_autopilot_revoke_rule', '$1::uuid', [rule.id]);
+  await deactivate('calendar.create');
 });
 
 test('every supported class ships inactive; the catalogue is the whole allow-list', async () => {
   const classes = (await admin(`select class_key, activation_status, reversible from public.autopilot_action_classes order by 1`)).rows;
   assert.deepEqual(classes, [
+    { class_key: 'appointment.book', activation_status: 'inactive', reversible: false },
     { class_key: 'calendar.create', activation_status: 'inactive', reversible: true },
+    { class_key: 'calendar.decline', activation_status: 'inactive', reversible: true },
+    { class_key: 'calendar.reschedule', activation_status: 'inactive', reversible: true },
     { class_key: 'email.draft', activation_status: 'inactive', reversible: true },
+    { class_key: 'email.send', activation_status: 'inactive', reversible: false },
+    { class_key: 'subscription.cancel', activation_status: 'inactive', reversible: false },
   ]);
-  for (const forbidden of ['purchase.order', 'healthcare.book', 'financial.pay_bill', 'email.send', 'calendar.update']) {
+  // Purchases, payments, upgrades/sign-ups, clinical/healthcare decisions and
+  // money movement stay rejected by name, as do generic event edits.
+  for (const forbidden of ['purchase.order', 'payment.card', 'subscription.upgrade', 'subscription.signup', 'healthcare.book', 'healthcare.treatment',
+    'financial.pay_bill', 'financial.transfer', 'calendar.update', 'connector.admin']) {
     await rejects(grant(USER_A, forbidden, calendarConstraints()), /autopilot_unsupported_action_class/);
   }
 });
@@ -321,15 +269,15 @@ test('buying Autopilot alone is not authority: permission 5 and an activated cla
   assert.equal(Number((await admin(`select count(*)::int n from public.autopilot_executions where idempotency_key = 'idem-ok-0001'`)).rows[0].n), 1);
 
   // Record the verified result; a second record is a state error.
-  const verified = await rpc(USER_A, 'apm_autopilot_record_result', '$1::uuid, $2, $3', [result.execution.id, 'verified', 'gcal-event-1']);
+  const verified = await record(USER_A, result.execution.id, 'verified', 'gcal-event-1');
   assert.equal(verified.status, 'verified');
   const action = (await admin(`select status, verified_at from public.actions where id = $1`, [result.action.id])).rows[0];
   assert.equal(action.status, 'verified');
   assert.ok(action.verified_at);
   assert.equal(Number((await admin(`select count(*)::int n from public.action_attempts where action_id = $1 and status = 'succeeded'`, [result.action.id])).rows[0].n), 1);
-  await rejects(rpc(USER_A, 'apm_autopilot_record_result', '$1::uuid, $2, $3', [result.execution.id, 'verified', 'again']), /autopilot_invalid_execution_state/);
-  await rejects(rpc(USER_C, 'apm_autopilot_record_result', '$1::uuid, $2, $3', [result.execution.id, 'failed', null]), /autopilot_invalid_request/);
-  await rejects(rpc(USER_C, 'apm_autopilot_record_result', '$1::uuid, $2, $3, $4', [result.execution.id, 'failed', null, 'x']), /autopilot_execution_not_found/);
+  await rejects(record(USER_A, result.execution.id, 'verified', 'again'), /autopilot_invalid_execution_state/);
+  await rejects(record(USER_C, result.execution.id, 'failed'), /autopilot_invalid_request/);
+  await rejects(record(USER_C, result.execution.id, 'failed', null, 'x'), /autopilot_execution_not_found/);
 
   await rpc(USER_A, 'apm_autopilot_revoke_rule', '$1::uuid', [rule.id]);
 });
@@ -369,18 +317,19 @@ test('claims must fit the rule: payload, duration, horizon, window, weekday, col
   // Daily cap of 1 on that local day (claimed counts), and the claimed block itself blocks overlap.
   await rejects(claim(USER_A, rule.id, 'idem-cap-001', { ...base, ...slot(3, 8) }), /autopilot_rate_limited/);
   // A failed attempt frees the cap.
-  await rpc(USER_A, 'apm_autopilot_record_result', '$1::uuid, $2, $3, $4', [ok.execution.id, 'failed', null, 'google_calendar_action_failed:503']);
+  await record(USER_A, ok.execution.id, 'failed', null, 'google_calendar_action_failed:503');
   assert.equal((await admin(`select status, failure_code from public.actions where id = $1`, [ok.action.id])).rows[0].status, 'failed');
   const retry = await claim(USER_A, rule.id, 'idem-retry-1', { ...base, ...slot(3, 8) });
   assert.equal(retry.execution.status, 'claimed');
   await rpc(USER_A, 'apm_autopilot_revoke_rule', '$1::uuid', [rule.id]);
 });
 
-test('email.draft: recipient domains, daily cap; send is never a standing class', async () => {
+test('email.draft: recipient domains, daily cap; draft constraints never grant sending', async () => {
   await activate('email.draft');
   await setPermission(USER_A, 'email', 'email.draft', 5);
   await setPermission(USER_A, 'email', 'email.send', 5);
-  await rejects(grant(USER_A, 'email.send', emailConstraints()), /autopilot_unsupported_action_class/);
+  // email.send has its own, stricter rule shape (kinds, recipients, per-recipient cap).
+  await rejects(grant(USER_A, 'email.send', emailConstraints()), /autopilot_invalid_constraints/);
   const rule = await grant(USER_A, 'email.draft', emailConstraints());
   const base = { connectionId: conn[`${USER_A}:email`], subject: 'Pickup', body: 'Running 10 minutes late.' };
   await rejects(claim(USER_A, rule.id, 'mail-bad-01', { ...base, to: 'teacher@elsewhere.example.com' }), /autopilot_outside_rule/);
@@ -417,7 +366,7 @@ test('pause, master pause, expiry and revoke stop authority; stopping never need
   const renewed = await rpc(USER_C, 'apm_autopilot_update_rule', '$1::uuid, $2, $3::jsonb, $4::timestamptz', [rule.id, resumed.version, null, inDays(20)]);
   const ok = await claim(USER_C, rule.id, 'renewed-key1', payload);
   assert.equal(ok.execution.status, 'claimed');
-  await rpc(USER_C, 'apm_autopilot_record_result', '$1::uuid, $2, $3', [ok.execution.id, 'verified', 'gcal-c-1']);
+  await record(USER_C, ok.execution.id, 'verified', 'gcal-c-1');
 
   // Downgrade: claims, grants and resumes fail; reads are hidden; stopping still works.
   await setPlan(USER_C, 'autopilot', 'expired');
@@ -429,7 +378,7 @@ test('pause, master pause, expiry and revoke stop authority; stopping never need
   await rpc(USER_C, 'apm_autopilot_set_master_pause', '$1', [true]);
   const target = await rpc(USER_C, 'apm_autopilot_undo_target', '$1::uuid', [ok.execution.id]);
   assert.deepEqual({ undo: target.undoMethod, ref: target.externalRef, connectionId: target.connectionId }, { undo: 'delete_event', ref: 'gcal-c-1', connectionId: conn[`${USER_C}:calendar`] });
-  const reverted = await rpc(USER_C, 'apm_autopilot_record_undo', '$1::uuid', [ok.execution.id]);
+  const reverted = await recordUndo(USER_C, ok.execution.id);
   assert.equal(reverted.status, 'reverted');
   assert.equal((await admin(`select status from public.actions where id = $1`, [ok.action.id])).rows[0].status, 'cancelled');
   await rejects(rpc(USER_C, 'apm_autopilot_undo_target', '$1::uuid', [ok.execution.id]), /autopilot_invalid_execution_state/);
