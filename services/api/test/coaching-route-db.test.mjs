@@ -64,17 +64,20 @@ test('0090 records the json_schema 400 once and never changes a status on re-run
   assert.equal(gemma.status, 'restricted', 'a re-run never overwrites a reviewed status');
 });
 
-// The coaching promotion is written but PENDING the owner's human review
-// (docs/23): it lives under docs/reference, never in migrations, and when the
-// coordinator applies it, it promotes exactly the reviewed route for exactly the
-// evaluated coaching capabilities, once.
-const pendingPromotion = fileURLToPath(new URL('../../../docs/reference/0091_promote_coaching_route.sql', import.meta.url));
+// The coaching promotion was signed off by the owner as the human reviewer
+// (docs/23) on 2026-10-07. It lives in migrations as 0091, nothing pending is
+// left under docs/reference, and it promotes exactly the reviewed route for
+// exactly the evaluated coaching capabilities, once.
+const promotionFile = '0091_promote_coaching_route.sql';
+const formerPendingPath = fileURLToPath(new URL('../../../docs/reference/0091_promote_coaching_route.sql', import.meta.url));
 
-test('0091 promotion is pending: not in migrations, ready to apply, scoped and one-way', async () => {
+test('0091 promotion is applied after sign-off: in migrations, scoped and one-way', async () => {
   const files = await readdir(migrationsDir);
-  assert.ok(!files.some((name) => name.startsWith('0091')), 'the promotion is not applied before sign-off');
-  const sql = await readFile(pendingPromotion, 'utf8');
-  assert.match(sql, /PENDING — NOT APPLIED/);
+  assert.ok(files.includes(promotionFile), 'the signed-off promotion is a real migration');
+  await assert.rejects(readFile(formerPendingPath, 'utf8'), 'no pending copy is left beside the applied migration');
+  const sql = await migration(promotionFile);
+  assert.match(sql, /APPROVED 2026-10-07/);
+  assert.doesNotMatch(sql, /PENDING/);
 
   const fresh = new PGlite();
   await fresh.exec(SUBSTRATE);

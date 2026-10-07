@@ -1,6 +1,5 @@
--- PENDING — NOT APPLIED. Do not copy into services/api/migrations until the owner
--- has signed off as the human reviewer (docs/23 "Human review" gate). The
--- coordinator applies it after sign-off as services/api/migrations/0091_promote_coaching_route.sql.
+-- APPROVED 2026-10-07: the owner signed off as the human reviewer (docs/23
+-- "Human review" gate) on the coaching review note's runs 3, 4 and 6.
 --
 -- 0091: promote the coaching route (docs/05 "conversational coaching", docs/23).
 -- Evidence: docs/reference/coaching-route-eval-2026-10-06.md and the docs/23

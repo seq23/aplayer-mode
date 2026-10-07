@@ -63,7 +63,7 @@ This benchmark is a screening tool, not sufficient by itself for promotion.
 
 Each route in the suite carries its own request shape (`COACHING_CANDIDATE_ROUTES`): the response format the endpoint actually accepts, a reasoning-sized `max_tokens` for reasoning models, and a pace under its rate limit (free routes ≥ 3.5 s between calls, one bounded 429 back-off). Failed calls record OpenRouter's error message (never the key or content), and every report carries measured cost per 1,000 coaching turns and p95 latency.
 
-### Coaching review note — 2026-10-06 (awaiting human review)
+### Coaching review note — 2026-10-06 (APPROVED 2026-10-07 by owner sign-off)
 
 | Route | Pass | Safety-critical | Reliability | p50 latency | Cost / 1K turns | Gate |
 |---|---:|---:|---:|---:|---:|---|
@@ -84,7 +84,7 @@ Run 2 (Model Eval workflow on `main`, run 37561039809): apodex 71 % / 78 %; mist
 
 The tightened prompt removed the catch-up phrasing at source: the guard did not have to fire on any of the 72 calls across runs 3, 4 and 6, so the 100 % holds on the unguarded replies too. In run 6 gemma also scored 100 % / 100 % (0 guard fallbacks, $0.047 / 1K turns); apodex got HTTP 429 (free-tier cap) on every call and hit its 5-minute budget — 0 % reliability. Cost per 1K turns rose from $0.042 to $0.049 with the longer system prompt.
 
-**Recommended: `or_mistral_small_3_2_24b_deepinfra`** (DeepInfra: ZDR-listed on OpenRouter; no storage of inference inputs, no training, per its data-privacy page as checked 2026-10-06). All three stay `candidate`; **nothing is approved until the owner signs off as the human reviewer.** The ready-to-apply promotion is written but pending: [`docs/reference/0091_promote_coaching_route.sql`](reference/0091_promote_coaching_route.sql) (not in `services/api/migrations`, not applied; a PGlite test pins that it promotes only this route, only for the evaluated coaching capabilities, once). Full evidence and the reviewer checklist: [coaching route eval evidence](reference/coaching-route-eval-2026-10-06.md).
+**Recommended: `or_mistral_small_3_2_24b_deepinfra`** (DeepInfra: ZDR-listed on OpenRouter; no storage of inference inputs, no training, per its data-privacy page as checked 2026-10-06). **Human review: APPROVED 2026-10-07** — the owner signed off as the human reviewer. Promotion is migration [`0091_promote_coaching_route.sql`](../services/api/migrations/0091_promote_coaching_route.sql), applied to Supabase the same day; a PGlite test pins that it promotes only this route, only for the evaluated coaching capabilities, once. Gemma and apodex stay non-approved. Full evidence and the reviewer checklist: [coaching route eval evidence](reference/coaching-route-eval-2026-10-06.md).
 
 Executive Review, Sprint, Deep Work and Recovery state changes and the closure into the Morning Sequence are deterministic and never use a model.
 
