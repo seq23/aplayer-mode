@@ -80,7 +80,7 @@ test('the Morning Trigger functions are service-role only', async () => {
   }
 });
 
-test('candidates: local wake time reached within 4 h, settings respected, one push per local day', async () => {
+test('candidates: local wake time reached within 6 h, settings respected, one push per local day', async () => {
   // 07:00 in Chicago (CDT, UTC-5) on 7 Oct 2026.
   const at = '2026-10-07T12:00:00Z';
   const rows = await candidates(at);
@@ -88,7 +88,8 @@ test('candidates: local wake time reached within 4 h, settings respected, one pu
   assert.equal(rows[0].local_day, '2026-10-07');
   assert.deepEqual((await candidates('2026-10-07T11:00:00Z')).map((r) => r.user_id), [], '06:00 local: nobody is up yet');
   assert.ok((await candidates('2026-10-07T14:15:00Z')).some((r) => r.user_id === EARLY), '09:15 local');
-  assert.ok(!(await candidates('2026-10-07T16:45:00Z')).some((r) => r.user_id === DUE), 'more than 4 h after wake: missed, not sent at lunch');
+  assert.ok((await candidates('2026-10-07T16:45:00Z')).some((r) => r.user_id === DUE), '5 h 15 after wake: still deliverable after a 4-hour Deep Work hold');
+  assert.ok(!(await candidates('2026-10-07T18:45:00Z')).some((r) => r.user_id === DUE), 'more than 6 h after wake: missed, not sent mid-afternoon');
 
   const first = (await service("select public.apm_service_claim_notification($1, 'morning:2026-10-07', 'Your agenda is ready', 'Open APM to start the day.', '/today') id", [DUE])).rows[0].id;
   assert.ok(first);
@@ -96,11 +97,19 @@ test('candidates: local wake time reached within 4 h, settings respected, one pu
   assert.equal(second, null, 'claimed exactly once');
   assert.ok(!(await candidates(at)).some((r) => r.user_id === DUE), 'a claimed day is no longer a candidate');
   await rejects(service("select public.apm_service_claim_notification($1, 'radar:x', 't', 'b', '/today')", [DUE]), /loop_invalid_request/);
+  // A failed delivery is retried by a later tick; a sent one never is.
+  const retry = (await service("select public.apm_service_claim_notification($1, 'morning:2026-10-09', 't', 'b', '/today') id", [DUE])).rows[0].id;
+  await service("select public.apm_service_finish_notification($1, 'failed', 'expo_http_503')", [retry]);
+  assert.ok((await candidates('2026-10-09T12:00:00Z')).some((r) => r.user_id === DUE), 'a failed push is a candidate again');
+  assert.equal((await service("select public.apm_service_claim_notification($1, 'morning:2026-10-09', 't', 'b', '/today') id", [DUE])).rows[0].id, retry, 'the same row is re-claimed');
+  await admin("update public.notifications set created_at = now() - interval '11 minutes' where id = $1", [retry]);
+  assert.ok((await candidates('2026-10-09T12:00:00Z')).some((r) => r.user_id === DUE), 'a claim abandoned mid-send is retried');
   await service("select public.apm_service_finish_notification($1, 'sent', null)", [first]);
   const row = (await admin('select status, sent_at from public.notifications where id = $1', [first])).rows[0];
   assert.equal(row.status, 'sent');
   assert.ok(row.sent_at);
-  assert.equal((await admin(`select count(*)::int n from public.audit_events where event_type = 'notification.morning_trigger' and user_id = '${DUE}'`)).rows[0].n, 1);
+  assert.equal((await admin(`select count(*)::int n from public.audit_events where event_type = 'notification.morning_trigger' and user_id = '${DUE}' and metadata->>'status' = 'sent'`)).rows[0].n, 1);
+  assert.equal((await admin(`select count(*)::int n from public.audit_events where event_type = 'notification.morning_trigger' and user_id = '${DUE}' and metadata->>'status' = 'failed'`)).rows[0].n, 1);
   // The next local day is a new day.
   assert.ok((await candidates('2026-10-08T12:00:00Z')).some((r) => r.user_id === DUE));
 });
@@ -147,6 +156,13 @@ test('the end-of-day close is validated, local-day, audited, and keeps one carry
   assert.deepEqual({ overridden: audit.overridden, carried: audit.carried }, { overridden: true, carried: true });
   await rejects(asRole('authenticated', DUE, 'update public.day_records set carry_forward = $1', ['Do everything twice']), /permission denied/);
   await rejects(call(['miss', 'miss', review, null, null, null]), /loop_day_closed/, 'a closed day stays closed');
+});
+
+test('a late wake time never claims the next day after midnight', async () => {
+  await admin(`update public.notification_preferences set wake_time = '23:00' where user_id = '${EARLY}'`);
+  assert.ok((await candidates('2026-10-08T04:10:00Z')).some((r) => r.user_id === EARLY && r.local_day === '2026-10-07'), '23:10 local on the 7th');
+  assert.ok(!(await candidates('2026-10-08T05:15:00Z')).some((r) => r.user_id === EARLY), '00:15 local on the 8th belongs to no wake window');
+  await admin(`update public.notification_preferences set wake_time = '09:00' where user_id = '${EARLY}'`);
 });
 
 test('wake time and Morning Trigger settings are constrained', async () => {

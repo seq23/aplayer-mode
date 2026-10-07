@@ -95,7 +95,9 @@ export function criticalPillars(graph: Pick<LifeGraphSnapshot, 'pillarSettings'>
 
 export function closePreview(graph: LifeGraphSnapshot, agenda: DailyAgenda): TodayLoopState['closePreview'] {
   const critical = criticalPillars(graph);
-  const pillarReview = suggestPillarReview(agenda, critical);
+  // Every active pillar is reviewed; only the critical ones decide the verdict.
+  const active = graph.pillarSettings.filter((pillar) => pillar.active).map((pillar) => pillar.name);
+  const pillarReview = suggestPillarReview(agenda, active.length ? active : critical);
   const evidence = [agenda.firstHour.priority, ...agenda.dailyStack].filter((item) => item?.status === 'done').map((item) => item!.title);
   return { pillarReview, computedVerdict: verdictFromReview(pillarReview, critical, agenda.mode === 'recovery'), evidence };
 }
