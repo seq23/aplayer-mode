@@ -133,7 +133,7 @@ export default function ApmScreen() {
   const awaitingOptions = last?.prompt.options.length ? last.prompt : undefined;
 
   return (
-    <Screen eyebrow="APM Coach" title="Your system changes with your state, not your standards." subtitle="Modes change how APM holds the day. Your Personal OS remains the source of truth.">
+    <Screen eyebrow="Coach" title="Stuck? Talk it through." subtitle="One question at a time. APM ends every session with the one thing to do next.">
       {/* One clear primary (docs/35 U8): the current mode and one way into coaching. Everything else is tucked below. */}
       <Card tone="feature">
         <Row justify="space-between" gap="xs">
@@ -147,8 +147,8 @@ export default function ApmScreen() {
         {modeState?.todayEffect ? <Body muted>Today: {modeState.todayEffect.summary}</Body> : null}
         {!turns.length ? (
           <>
-            <Body muted>{activeMode === 'executive_review' ? 'Executive Review organizes what you already know. No new ideas, no questions.' : activeMode === 'deep_work' ? 'Coaching waits until your block ends.' : 'One question at a time. Coaching closes back into your Morning Sequence.'}</Body>
-            <Button label={coachingBusy ? 'Starting…' : activeMode === 'executive_review' ? 'Run Executive Review' : 'Start coaching'} large icon="message-circle" onPress={() => void send({})} />
+            <Body muted>{activeMode === 'executive_review' ? 'Executive Review sorts what is already in your head. No new ideas, no questions.' : activeMode === 'deep_work' ? 'You are in a focus block. Coaching is here if you need it; otherwise stay on the task.' : 'A few short questions, then you are back to your morning plan with one clear next step.'}</Body>
+            <Button label={coachingBusy ? 'Starting…' : activeMode === 'executive_review' ? 'Run Executive Review' : 'Start coaching'} large icon="message-circle" busy={coachingBusy} onPress={() => send({})} />
           </>
         ) : null}
       </Card>
@@ -176,7 +176,7 @@ export default function ApmScreen() {
           ))}
 
           {last?.morningSequence && last.phase === 'morning_sequence' ? (
-            <Card tone="accent"><Label>Morning Sequence</Label>{last.morningSequence.map((step, index) => <Body key={step}>{index + 1}. {step}</Body>)}</Card>
+            <Card tone="accent"><Label>Your morning steps</Label>{last.morningSequence.map((step, index) => <Body key={step}>{index + 1}. {step}</Body>)}</Card>
           ) : null}
 
           {safety ? (
@@ -202,21 +202,21 @@ export default function ApmScreen() {
           {last?.phase !== 'safety_stop' && last?.phase !== 'closed' ? (
             <>
               <TextField value={message} onChangeText={setMessage} accessibilityLabel="Your reply to APM" placeholder={last?.phase === 'morning_sequence' ? 'Tell APM when you are done…' : 'Answer APM…'} multiline />
-              <Button label={coachingBusy ? 'Thinking…' : 'Send'} icon="send" onPress={submitMessage} />
+              <Button label={coachingBusy ? 'Thinking…' : 'Send'} icon="send" busy={coachingBusy} disabled={!message.trim() && !coachingBusy} disabledReason={coachingBusy ? undefined : 'Type a reply first.'} onPress={submitMessage} />
             </>
           ) : null}
           {sessionId ? <Button label={last?.phase === 'closed' || last?.phase === 'safety_stop' ? 'Start a new session' : 'Close coaching session'} variant="ghost" onPress={() => void close()} /> : null}
-          {last ? <Muted>{last.engine === 'model' ? 'Phrased by a privacy-approved model; the structure is APM’s.' : 'Running APM’s built-in BHPC flow: no AI model received your words.'}</Muted> : null}
+          {last ? <Muted>{last.engine === 'model' ? 'Worded by a privacy-approved AI model; the steps are APM’s own.' : 'Answered by APM’s built-in coaching steps: no AI model saw your words.'}</Muted> : null}
         </Card>
       ) : null}
 
       {error ? <ErrorState message={error} /> : null}
 
-      <Disclosure icon="sliders" title="Other modes" summary="Sprint, Deep Work, Recovery and more. Explicit and yours.">
-        <Body muted>Mode changes are explicit and yours. APM never silently escalates coaching intensity.</Body>
+      <Disclosure icon="sliders" title="Other modes" summary="Sprint, Deep Work, Recovery and more. You switch; APM never does it behind your back.">
+        <Body muted>You choose the mode. APM never turns up the pressure on its own.</Body>
         {definition?.rules.length ? <Label>{`${definition.name} rules`}</Label> : null}
         {definition?.rules.map((rule) => <Body key={rule} muted>• {rule}</Body>)}
-        {definition ? <Body muted>Exit: {definition.exitProtocol}</Body> : null}
+        {definition ? <Body muted>How it ends: {definition.exitProtocol}</Body> : null}
         {modeState?.canExit ? (
           <Button
             label={busyMode === 'exit' ? 'Saving…' : activeMode === 'sprint' ? 'Declare sprint complete' : activeMode === 'recovery' ? 'Declare my return (resumes tomorrow)' : activeMode === 'deep_work' ? 'End the block early' : `Exit ${MODE_LABEL[activeMode]}`}
@@ -256,7 +256,7 @@ export default function ApmScreen() {
         <ListRow icon="bar-chart-2" title="Weekly debrief" detail="Review the week on your review day" onPress={() => router.push('/review')} />
         <ListRow icon="tool" title="Drafting Room" detail="Change a rule without redoing the setup" onPress={() => router.push('/settings/os')} />
         <Label>Your background tracks</Label>
-        {graph.tracks.length ? graph.tracks.filter((track) => track.active).map((track) => <ListItem key={track.id} title={track.name} detail="Background decision filter · applied to every coaching turn" />) : <Muted>No tracks installed yet. Complete the Personal OS intake to choose them.</Muted>}
+        {graph.tracks.some((track) => track.active) ? graph.tracks.filter((track) => track.active).map((track) => <ListItem key={track.id} title={track.name} detail="Shapes every plan and coaching answer, quietly" />) : <Muted>No Tracks yet. Finish setup and APM picks the ones that fit you.</Muted>}
         <Label>Core laws</Label>
         {['Never Miss Twice', 'Continuity > Intensity', 'No Catch-Up', 'No Mid-Day Negotiation', 'Zeros Are Allowed', 'Minimum Viable Day'].map((law) => <ListItem key={law} title={law} />)}
       </Disclosure>

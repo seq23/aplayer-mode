@@ -12,6 +12,7 @@ import {
   ErrorState,
   Fill,
   Heading,
+  Icon,
   KeyValue,
   Label,
   LinkButton,
@@ -25,6 +26,7 @@ import {
   Stack,
   TextField,
   Toast,
+  type IconName,
 } from '../../src/components/ui';
 import type { AgendaItem } from '@apm/planning';
 import {
@@ -50,6 +52,7 @@ import { hasDailyLoopAccess, noPlanCopy } from '../../src/billing/access';
 import { billingAvailability } from '../../src/billing/purchases';
 import { plainError } from '../../src/api/errors';
 import { greeting } from '../../src/content/greeting';
+import { GATE_WORDS, ITEM_KIND_WORDS, MODE_WORDS, TODAY_COPY, VERDICT_WORDS, actionTag, radarTag, shortDate } from '../../src/content/words';
 
 function timeLabel(value?: string) {
   if (!value) return undefined;
@@ -62,6 +65,8 @@ export default function TodayScreen() {
   const { accessToken } = useSession();
   const [busy, setBusy] = useState(false);
   const [busyActionId, setBusyActionId] = useState<string>();
+  // Which agenda item is saving: only THAT card says "Recording…" (docs/35 E22).
+  const [busyItemId, setBusyItemId] = useState<string>();
   const [closing, setClosing] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [mood, setMood] = useState<number>();
@@ -92,8 +97,11 @@ export default function TodayScreen() {
   };
   const checkIn = () => mood !== undefined && run('check-in', () => perform((token) => checkInToday(mood, token)));
   const completeItem = (item: AgendaItem) => run('complete', async () => {
-    if (item.planId && item.actionKey) await perform((token) => completeAgendaAction({ planId: item.planId!, actionKey: item.actionKey! }, token));
-    else if (item.nextActionId) await completeNextAction(item.nextActionId);
+    setBusyItemId(item.id);
+    try {
+      if (item.planId && item.actionKey) await perform((token) => completeAgendaAction({ planId: item.planId!, actionKey: item.actionKey! }, token));
+      else if (item.nextActionId) await completeNextAction(item.nextActionId);
+    } finally { setBusyItemId(undefined); }
   });
   const replan = (reason: ReplanReason) => run('replan', async () => {
     try {
@@ -128,9 +136,9 @@ export default function TodayScreen() {
       </Row>
       <CardTitle>{item.title}</CardTitle>
       {item.output ? <Body muted>{`Done means: ${item.output}`}</Body> : null}
-      {item.status === 'open' && executionOpen && phaseOpen ? <Button label={busy ? 'Recording…' : 'Mark done'} onPress={() => void completeItem(item)} /> : null}
-      {item.status === 'open' && executionOpen && phaseOpen && todayLoop?.locked ? <Button label="Not a physical action? Rewrite it" variant="ghost" onPress={() => void reprint([item.id])} /> : null}
-      {item.status === 'open' && !executionOpen && !todayLoop?.closed ? <Body muted>Execution starts after your check-in.</Body> : null}
+      {item.status === 'open' && executionOpen && phaseOpen ? <Button label={busyItemId === item.id ? 'Recording…' : 'Mark done'} busy={busyItemId === item.id} disabled={busy && busyItemId !== item.id} onPress={() => completeItem(item)} /> : null}
+      {item.status === 'open' && executionOpen && phaseOpen && todayLoop?.locked ? <Button label="Can't do this as written? Rewrite it" variant="ghost" onPress={() => reprint([item.id])} /> : null}
+      {item.status === 'open' && !executionOpen && !todayLoop?.closed ? <Body muted>{TODAY_COPY.afterCheckIn}</Body> : null}
     </Card>
   );
   const primaryGoal = graph.goals.find((goal) => goal.priority === 1) ?? graph.goals[0];
@@ -141,6 +149,12 @@ export default function TodayScreen() {
   const mode = modeState?.mode ?? todayPlan?.mode ?? graph.personalOS?.activeMode ?? 'standard';
   // The agenda's own state counts: a mood-2 day or a missed yesterday is an MVD even outside Recovery Mode.
   const recovery = mode === 'recovery' || todayLoop?.agenda.mode === 'recovery';
+  // Open loops as words, and only the non-zero ones ("0 commitments · 0 routines" said nothing).
+  const openLoops = [
+    [todayPlan?.commitmentIds.length ?? 0, 'promise', 'promises'],
+    [todayPlan?.routineIds.length ?? 0, 'routine', 'routines'],
+    [todayPlan?.radarItemIds.length ?? 0, 'heads-up', 'heads-ups'],
+  ].filter(([n]) => Number(n) > 0).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
   const approvals = (todayPlan?.approvalActionIds ?? [])
     .map((id) => graph.actions.find((action) => action.id === id))
     .filter((action): action is NonNullable<typeof action> => Boolean(action));
@@ -195,14 +209,17 @@ export default function TodayScreen() {
     <Screen
       eyebrow="Today"
       title={`${greeting(new Date().getHours())}, ${name}.`}
-      subtitle={primaryGoal ? recovery ? 'Recovery Mode is active. Today protects continuity instead of demanding intensity.' : 'APM rebuilt Today from your Personal OS, Life Graph, calendar and current execution state.' : 'APM is ready to build your first durable Personal OS.'}
+      subtitle={primaryGoal ? recovery ? TODAY_COPY.subtitleRecovery : TODAY_COPY.subtitle : TODAY_COPY.subtitleNoOs}
     >
       {/* Summary first (docs/35 U9): where the day stands, then the ONE next step; the rest is folded below. */}
-      <Row wrap gap="xs">
-        <Pill tone={recovery ? 'warning' : 'accent'}>{MODE_WORDS[mode] ?? mode.replace('_', ' ')}</Pill>
-        {todayPlan ? <Pill>{sentence(todayPlan.completionState.replace('_', ' '))}</Pill> : null}
-        {planItemCount ? <Pill>{`${doneCount} of ${planItemCount} done`}</Pill> : null}
-      </Row>
+      {/* Only what tells her something: a non-standard mode and the done count. "Standard" and
+          "Not started" said nothing (docs/36 T5). */}
+      {mode !== 'standard' || planItemCount ? (
+        <Row wrap gap="xs">
+          {mode !== 'standard' ? <Pill tone={recovery ? 'warning' : 'accent'}>{`${MODE_WORDS[mode] ?? 'Coaching'} mode`}</Pill> : null}
+          {planItemCount ? <Pill tone={doneCount && doneCount === planItemCount ? 'success' : 'neutral'}>{`${doneCount} of ${planItemCount} done`}</Pill> : null}
+        </Row>
+      ) : null}
 
       <SaveAccountBanner />
 
@@ -226,8 +243,8 @@ export default function TodayScreen() {
       {!graph.personalOS && syncStatus === 'ready' ? (
         <Card tone="feature">
           <Label tone="accent">Start here</Label>
-          <Heading>Build your Personal OS so APM can plan around your actual game.</Heading>
-          <Button label="Build my APM" large onPress={() => router.push('/intake')} />
+          <Heading>{TODAY_COPY.noOsTitle}</Heading>
+          <Button label={TODAY_COPY.noOsButton} large onPress={() => router.push('/intake')} />
         </Card>
       ) : null}
 
@@ -235,19 +252,19 @@ export default function TodayScreen() {
         <>
           {drifting ? (
             <Card tone="feature">
-              <Label tone="accent">Return / Reset</Label>
-              <Heading>{todayLoop.drift.message ?? "Welcome back. Want me to print today's agenda and restart the day?"}</Heading>
-              <Button label="Yes, restart the day" large onPress={() => void restart()} />
+              <Label tone="accent">Welcome back</Label>
+              <Heading>{todayLoop.drift.message ?? TODAY_COPY.drift}</Heading>
+              <Button label="Yes, restart the day" large onPress={() => restart()} />
             </Card>
           ) : null}
 
           {loopOpen && !todayLoop.checkedIn && !todayLoop.closed ? (
             <Card tone="feature">
-              <Label tone="accent">{todayLoop.dayStart === 'hard' ? 'Hard Start · opening step' : 'Guided Start · opening step'}</Label>
-              <Heading>How is your energy right now, 1 to 10?</Heading>
-              <Body muted>{todayLoop.dayStart === 'hard' ? 'Your agenda prints after this answer.' : 'You can read the agenda below; execution starts after this answer.'} At 2 or lower, today becomes a Minimum Viable Day automatically.</Body>
+              <Label tone="accent">{TODAY_COPY.checkInLabel}</Label>
+              <Heading>{TODAY_COPY.checkInQuestion}</Heading>
+              <Body muted>{todayLoop.dayStart === 'hard' ? TODAY_COPY.checkInBodyHard : TODAY_COPY.checkInBody}</Body>
               <ChoiceRow options={Array.from({ length: 10 }, (_, i) => ({ id: i + 1, label: String(i + 1) }))} value={mood} onChange={setMood} />
-              <Button label={busy ? 'Printing…' : 'Print my agenda'} large disabled={mood === undefined} onPress={() => void checkIn()} />
+              <Button label={busy ? TODAY_COPY.checkInBusy : TODAY_COPY.checkInButton} large busy={busy} disabled={mood === undefined} disabledReason={TODAY_COPY.checkInReason} onPress={() => checkIn() || undefined} />
             </Card>
           ) : null}
 
@@ -257,22 +274,22 @@ export default function TodayScreen() {
               <Heading>{agenda.bridge}</Heading>
               {agenda.firstHour.sequence.slice(0, 3).map((step, index) => <Row key={`${index}-${step}`} gap="sm" align="flex-start"><Small tone="inkMuted">{String(index + 1)}</Small><Fill><Body>{step}</Body></Fill></Row>)}
               {agenda.firstHour.sequence.length > 3 ? <Muted>{`${agenda.firstHour.sequence.length - 3} more step(s) in Today's agenda below`}</Muted> : null}
-              <Button label="Begin my First Hour" variant="accent" large onPress={() => void beginPhase('first_hour')} />
+              <Button label="Begin my First Hour" variant="accent" large onPress={() => beginPhase('first_hour')} />
               <Button label="Coaching first" variant="ghost" onPress={() => router.push('/(tabs)/apm')} />
             </Card>
           ) : null}
 
-          {agenda && !hideAgenda && agenda.firstHour.priority ? itemCard(agenda.firstHour.priority, 'Priority execution') : null}
+          {agenda && !hideAgenda && agenda.firstHour.priority ? itemCard(agenda.firstHour.priority, TODAY_COPY.priorityLabel) : null}
 
           {stackOpen && agenda && !hideAgenda && agenda.dailyStack.length ? (
             <>
-              <SectionTitle>The daily stack</SectionTitle>
+              <SectionTitle>The rest of today</SectionTitle>
               {agenda.dailyStack.map((item) => itemCard(item))}
             </>
           ) : null}
 
           {phaseOpen && !stackOpen && agenda?.dailyStack.length && !hideAgenda ? (
-            <Card tone="muted"><Body>First Hour first. When it is done, open the rest of the day.</Body><Button label="Open the daily stack" variant="secondary" onPress={() => void beginPhase('executing')} /></Card>
+            <Card tone="muted"><Body>First Hour first. When it is done, open the rest of the day.</Body><Button label="Open the rest of today" variant="secondary" onPress={() => beginPhase('executing')} /></Card>
           ) : null}
 
           {todayLoop.bodyReferral ? (
@@ -280,7 +297,7 @@ export default function TodayScreen() {
               <Label tone="danger">Body coaching paused</Label>
               <CardTitle>A red flag was recorded. Talk to a doctor before body goals continue.</CardTitle>
               <Body muted>APM never prescribes diet, calories or medication. When a clinician has cleared you, record it here and your body plan restarts.</Body>
-              <Button label="A clinician has cleared me" variant="secondary" onPress={() => void clearance()} />
+              <Button label="A clinician has cleared me" variant="secondary" onPress={() => clearance()} />
             </Card>
           ) : null}
           {todayLoop.dayState.state === 'missed_yesterday' ? <Card tone="warning"><Label>Never Miss Twice</Label><CardTitle>Yesterday is closed. Today is a Recovery Day.</CardTitle><Body muted>One small thing, then close the day. Nothing from yesterday is owed.</Body></Card> : null}
@@ -289,7 +306,7 @@ export default function TodayScreen() {
           {gateDue && !hideAgenda && todayLoop.checkedIn ? (
             <Card tone="warning">
               <Label tone="warning">{`${gateDue.label} · ${goalTitleForPlan(gateDue.planId)}`}</Label>
-              <CardTitle>{`Recommended: ${gateDue.recommended}. ${gateDue.completedDays} days with evidence.`}</CardTitle>
+              <CardTitle>{`APM suggests you ${GATE_WORDS[gateDue.recommended] ?? 'keep going'}. You showed up on ${gateDue.completedDays} days.`}</CardTitle>
               <Body muted>Is this goal still aligned with what you want?</Body>
               <Button label="Still aligned" onPress={() => void reviewGate(true)} />
               <Button label="Not aligned any more" variant="secondary" onPress={() => void reviewGate(false)} />
@@ -298,13 +315,13 @@ export default function TodayScreen() {
 
           {decisionDue && !hideAgenda && todayLoop.checkedIn ? (
             <Card tone="warning">
-              <Label tone="warning">Day 90 · forced decision</Label>
-              <CardTitle>{`${goalTitleForPlan(decisionDue.planId)}: Promote, Maintain or Park? APM recommends ${decisionDue.recommended}.`}</CardTitle>
+              <Label tone="warning">Day 90 · time to decide</Label>
+              <CardTitle>{`${goalTitleForPlan(decisionDue.planId)}: APM suggests you ${GATE_WORDS[decisionDue.recommended] ?? 'keep going'}.`}</CardTitle>
               {decisionDue.criteria.map((line) => <Body key={line} muted>{line}</Body>)}
-              <ChoiceRow options={[{ id: 'promote', label: 'Promote' }, { id: 'maintain', label: 'Maintain' }, { id: 'park', label: 'Park' }]} value={chosenDecision} onChange={setDecision} />
+              <ChoiceRow options={[{ id: 'promote', label: 'Make it my main goal' }, { id: 'maintain', label: 'Keep it as it is' }, { id: 'park', label: 'Park it' }]} value={chosenDecision} onChange={setDecision} />
               <TextField value={decisionReason} onChangeText={setDecisionReason} placeholder="Why (optional)" />
-              <Button label="Record the decision" onPress={() => void decide()} />
-              <Body muted>Parking is a successful outcome: it is a strategic allocation choice.</Body>
+              <Button label="Save my decision" onPress={() => decide() || undefined} />
+              <Body muted>Parking a goal is a good outcome: it frees energy for what matters now.</Body>
             </Card>
           ) : null}
 
@@ -314,7 +331,7 @@ export default function TodayScreen() {
           {!hideAgenda && !recovery && approvals.length ? (
             <>
               <SectionTitle>Needs your approval</SectionTitle>
-              {approvals.map((action) => <Card key={action.id} tone="warning"><Label tone="warning">{action.domain} · {action.actionType}</Label><CardTitle>{action.reason}</CardTitle><Body muted>APM prepared this action but has not executed it. Your subscription does not grant permission; this approval is explicit.</Body><Button label={busyActionId === action.id ? 'Executing…' : 'Approve & execute'} onPress={() => void approve(action.id)} /></Card>)}
+              {approvals.map((action) => <Card key={action.id} tone="warning"><Label tone="warning">{actionTag(action.domain, action.actionType)}</Label><CardTitle>{action.reason}</CardTitle><Body muted>{TODAY_COPY.approvalBody}</Body><Button label={busyActionId === action.id ? TODAY_COPY.approvalBusy : TODAY_COPY.approvalButton} busy={busyActionId === action.id} disabled={Boolean(busyActionId) && busyActionId !== action.id} onPress={() => approve(action.id)} /></Card>)}
             </>
           ) : null}
 
@@ -322,7 +339,7 @@ export default function TodayScreen() {
 
           {!hideAgenda && !recovery ? (
             <>
-              <SectionTitle>Your run of show</SectionTitle>
+              <SectionTitle>Your schedule</SectionTitle>
               <RunOfShow blocks={todayPlan?.blocks ?? []} sourceLabel={(block) => (block.source === 'calendar' ? sourceAccountLabel(graph.connections, 'calendar', block.connectionIds) : undefined)} />
             </>
           ) : null}
@@ -330,20 +347,20 @@ export default function TodayScreen() {
           <CoachingModeChips graph={graph} activeMode={mode} />
 
           {agenda && !hideAgenda ? (
-            <Disclosure icon="list" title="Today's agenda" summary={`${agenda.foregroundPriority?.label ?? 'No foreground goal yet'} · ${agenda.dailyStack.length} in the daily stack`}>
-              <Label>Foreground priority</Label>
-              <CardTitle>{agenda.foregroundPriority?.label ?? 'No foreground goal yet'}</CardTitle>
+            <Disclosure icon="list" title="Today's agenda" summary={`${agenda.foregroundPriority?.label ?? 'Your main goal'}${agenda.dailyStack.length ? ` · ${agenda.dailyStack.length} more for today` : ''}`}>
+              <Label>Your main goal</Label>
+              <CardTitle>{agenda.foregroundPriority?.label ?? 'No main goal yet'}</CardTitle>
               <Row wrap gap="xs">
-                <Pill tone={agenda.mode === 'recovery' ? 'warning' : 'neutral'}>{agenda.mode === 'recovery' ? 'Minimum Viable Day' : 'Standard day'}</Pill>
+                <Pill tone={agenda.mode === 'recovery' ? 'warning' : 'neutral'}>{agenda.mode === 'recovery' ? 'Light day' : 'Full day'}</Pill>
                 {agenda.dayIndex ? <Pill>{`Day ${Math.max(agenda.dayIndex, 0)} of 90`}</Pill> : null}
                 <Pill>{todayLoop.locked ? 'Set for today' : 'Draft until your check-in'}</Pill>
               </Row>
-              {agenda.background.length ? <Body muted>{`Background (maintenance only): ${agenda.background.map((b) => b.label).join(', ')}`}</Body> : null}
+              {agenda.background.length ? <Body muted>{`Kept ticking over: ${agenda.background.map((b) => b.label).join(', ')}`}</Body> : null}
               {agenda.firstHour.sequence.length ? (
                 <Card tone="accent"><Label>The first hour</Label>{agenda.firstHour.sequence.map((step, index) => <KeyValue key={`${index}-${step}`} label={`${index + 1}`} value={step} />)}</Card>
               ) : null}
-              {agenda.firstHour.priority ? null : <Body>No foreground action is available. Add a goal in Goals.</Body>}
-              {!todayLoop.checkedIn && agenda.dailyStack.length ? <Label>The daily stack</Label> : null}
+              {agenda.firstHour.priority ? null : <Body>No step toward a goal today. Add a goal in Goals and APM plans it.</Body>}
+              {!todayLoop.checkedIn && agenda.dailyStack.length ? <Label>The rest of today</Label> : null}
               {!todayLoop.checkedIn ? agenda.dailyStack.map((item) => itemCard(item)) : null}
               {(agenda.trackFlags ?? []).length ? <Card tone="warning"><Label>Your Tracks</Label>{(agenda.trackFlags ?? []).map((flag) => <Body key={`${flag.code}-${flag.message}`}>{`• ${flag.message}`}</Body>)}</Card> : null}
               {agenda.safety.referral ? <Card tone="danger"><Label tone="danger">Body coaching paused</Label><Body>{agenda.safety.doctorLine ?? 'Talk to a clinician before body goals continue.'}</Body></Card> : null}
@@ -351,7 +368,7 @@ export default function TodayScreen() {
             </Disclosure>
           ) : null}
 
-          {agenda && !hideAgenda && agenda.problems.length ? <Card tone="warning"><Label tone="warning">Today's plan needs a fix</Label>{agenda.problems.map((problem) => <Body key={problem}>{problem}</Body>)}{todayLoop.locked ? <Button label="Rewrite today's plan" onPress={() => void reprint([])} /> : null}</Card> : null}
+          {agenda && !hideAgenda && agenda.problems.length ? <Card tone="warning"><Label tone="warning">Today's plan needs a fix</Label>{agenda.problems.map((problem) => <Body key={problem}>{problem}</Body>)}{todayLoop.locked ? <Button label="Rewrite today's plan" onPress={() => reprint([])} /> : null}</Card> : null}
 
           <Disclosure icon="layers" title="More for today" summary="Your first week, quick taps, practices, what APM noticed, open loops">
             {todayLoop.firstWeek ? (
@@ -365,27 +382,27 @@ export default function TodayScreen() {
             <QuickTaps graph={graph} />
             <PracticesToday graph={graph} />
             {todayLoop.coachingCheckIn.due ? <Card tone="muted"><Label>Coaching check-in</Label><Body>{todayLoop.coachingCheckIn.message}</Body><Button label="Open APM Coach" variant="secondary" onPress={() => router.push('/(tabs)/apm')} /></Card> : null}
-            {hideAgenda ? <Body muted>Hard Start: Radar, your run of show, approvals and the close appear after the opening step.</Body> : null}
+            {hideAgenda ? <Body muted>The rest of today appears after you answer the energy question.</Body> : null}
             {!hideAgenda && completionEvidence ? <Card><Label>Evidence recorded</Label><CardTitle>{completionEvidence.summary}</CardTitle><KeyValue label="Source" value="You marked it complete" /><KeyValue label="Recorded" value={new Date(completionEvidence.createdAt).toLocaleString()} /></Card> : null}
             {!hideAgenda && !recovery ? (
               <>
                 <Label>APM noticed</Label>
-                {firstRadarItem ? <Card tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'default'}><Pill tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'neutral'}>{firstRadarItem.type} · {firstRadarItem.severity}</Pill><CardTitle>{firstRadarItem.headline}</CardTitle><Body muted>{firstRadarItem.summary}</Body><Button label="Why am I seeing this?" variant="secondary" onPress={() => router.push({ pathname: '/radar/why', params: { id: firstRadarItem.id } })} /></Card> : <EmptyState icon="compass" title="Radar is clear for now." body="APM found no high-value signal it can justify surfacing right now." />}
-                <Label>Open loops</Label>
-                <Row wrap gap="xs">
-                  <Pill>{`${todayPlan?.commitmentIds.length ?? 0} commitments`}</Pill>
-                  <Pill>{`${todayPlan?.routineIds.length ?? 0} routines`}</Pill>
-                  <Pill>{`${todayPlan?.radarItemIds.length ?? 0} Radar items`}</Pill>
-                </Row>
+                {firstRadarItem ? <Card tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'default'}><Pill tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'neutral'}>{radarTag(firstRadarItem.type, firstRadarItem.severity)}</Pill><CardTitle>{firstRadarItem.headline}</CardTitle><Body muted>{firstRadarItem.summary}</Body><Button label="Why am I seeing this?" variant="secondary" onPress={() => router.push({ pathname: '/radar/why', params: { id: firstRadarItem.id } })} /></Card> : <EmptyState icon="compass" title="Nothing slipping right now." body="APM tells you here when a promise, deadline or reply needs you." />}
+                {openLoops.length ? (
+                  <>
+                    <Label>Open loops</Label>
+                    <Row wrap gap="xs">{openLoops.map((loop) => <Pill key={loop}>{loop}</Pill>)}</Row>
+                  </>
+                ) : null}
               </>
             ) : null}
-            {!hideAgenda && recovery ? <Body muted>Minimum Viable Day: the run of show, approvals and open loops wait until tomorrow. One thing, then close.</Body> : null}
-            {graph.personalOS ? <Card tone="muted"><Label>Personal OS</Label><KeyValue label="Day start" value={graph.personalOS.accountability.dayStart === 'hard' ? 'Hard Start' : 'Guided Start'} /><KeyValue label="Tracks" value={graph.tracks.filter((track) => track.active).map((track) => track.name).join(', ') || 'None'} /></Card> : null}
+            {!hideAgenda && recovery ? <Body muted>Light day: your schedule, approvals and open loops wait until tomorrow. One thing, then close.</Body> : null}
+            {graph.tracks.some((track) => track.active) ? <Card tone="muted"><Label>Running in the background</Label><Body>{graph.tracks.filter((track) => track.active).map((track) => track.name).join(', ')}</Body></Card> : null}
             {todayLoop.locked && !todayLoop.closed ? (
               <>
                 <Label>Something changed?</Label>
-                <Body muted>The morning plan stands. Only a real external change, a safety issue or a permission change reopens it.</Body>
-                <ChoiceRow<ReplanReason> options={[{ id: 'external_change', label: 'External change' }, { id: 'safety', label: 'Safety / sick' }, { id: 'permission', label: 'Permission changed' }, { id: 'mood', label: 'I feel tired' }]} onChange={(reason) => void replan(reason)} />
+                <Body muted>The morning plan stands, so you don't renegotiate it at 2 p.m. Tap one only if something real changed; APM rewrites the rest of today.</Body>
+                <ChoiceRow<ReplanReason> options={[{ id: 'external_change', label: 'My day changed' }, { id: 'safety', label: "I'm sick or not safe" }, { id: 'permission', label: 'An app access changed' }, { id: 'mood', label: "I'm worn out" }]} onChange={(reason) => void replan(reason)} />
               </>
             ) : null}
           </Disclosure>
@@ -399,65 +416,80 @@ export default function TodayScreen() {
           {todayLoop?.closed ? (
             <Card tone="accent">
               <Label tone="accent">Day closed</Label>
-              <Heading>{todayLoop.day?.verdict === 'full_day' ? '✅ Full Day' : todayLoop.day?.verdict === 'mvd' ? '⚡ Minimum Viable Day' : '❌ Miss: it is data, not a verdict on you'}</Heading>
+              <Heading>{todayLoop.day?.verdict === 'full_day' ? 'Full day. Well done.' : todayLoop.day?.verdict === 'mvd' ? 'Light day. It counts.' : 'Missed. It is data, not a verdict on you.'}</Heading>
               {closedRecord?.pillarReview?.length ? <PillarRollUpLine graph={graph} review={closedRecord.pillarReview} recovery={closedRecord.mode === 'recovery'} /> : null}
               {todayLoop.day?.insight ? <Body>{todayLoop.day.insight}</Body> : null}
               {todayLoop.day?.carryForward ? <KeyValue label="Carrying to tomorrow" value={todayLoop.day.carryForward} /> : null}
             </Card>
           ) : todayLoop && loopOpen ? (
-            <Disclosure icon="moon" title="Close the day" summary="Score each area, then close. Nothing becomes debt for tomorrow.">
-              <Body muted>What did you complete today? Score each area; the line below rolls them up to Mind, Body and Spirit. Closing records evidence for continuity; nothing becomes debt for tomorrow.</Body>
-              {todayLoop.closePreview.evidence.length ? <><Label>Completion evidence</Label>{todayLoop.closePreview.evidence.map((line) => <Body key={line}>{`• ${line}`}</Body>)}</> : <Body muted>No completion evidence yet today.</Body>}
+            <Disclosure icon="moon" title="Close the day" summary="Two taps. Nothing carries over as debt.">
+              <Body muted>APM already filled this in from what you marked done. Change anything that's wrong, then close.</Body>
+              {todayLoop.closePreview.evidence.length ? <><Label>Done today</Label>{todayLoop.closePreview.evidence.map((line) => <Body key={line}>{`• ${line}`}</Body>)}</> : <Body muted>Nothing marked done yet today.</Body>}
               {reviewRows.map((row) => (
                 <Stack key={row.pillar} gap="xs">
                   <Label>{areaDisplay(row.pillar)}</Label>
-                  <ChoiceRow options={[{ id: 'hit', label: '✅ Hit' }, { id: 'partial', label: '⚡ Partial' }, { id: 'miss', label: '❌ Missed' }]} value={scoreOf(row.pillar)} onChange={(score) => setPillarScores((current) => ({ ...current, [row.pillar]: score }))} />
+                  <ChoiceRow options={[{ id: 'hit', label: 'Done' }, { id: 'partial', label: 'Partly' }, { id: 'miss', label: 'Missed' }]} value={scoreOf(row.pillar)} onChange={(score) => setPillarScores((current) => ({ ...current, [row.pillar]: score }))} />
                 </Stack>
               ))}
               {reviewRows.length ? <PillarRollUpLine graph={graph} review={reviewRows.map((row) => ({ ...row, score: scoreOf(row.pillar) }))} recovery={recovery} /> : null}
-              <KeyValue label="APM's verdict from the evidence" value={VERDICT_WORDS[todayLoop.closePreview.computedVerdict] ?? todayLoop.closePreview.computedVerdict.replace('_', ' ')} />
+              <KeyValue label="How APM scores today" value={VERDICT_WORDS[todayLoop.closePreview.computedVerdict] ?? 'Missed'} />
               {todayLoop.checkedIn ? (
                 <>
-                  <Label>Your verdict (optional: you have the final say)</Label>
+                  <Label>Your call (optional: you have the final say)</Label>
                   <ChoiceRow
                     options={[
-                      ...(planItemCount > 0 && doneCount === planItemCount && agenda?.mode !== 'recovery' ? [{ id: 'full_day' as const, label: 'Full Day' }] : []),
-                      ...(doneCount > 0 ? [{ id: 'mvd' as const, label: 'MVD' }] : []),
-                      { id: 'miss' as const, label: 'Miss' },
+                      ...(planItemCount > 0 && doneCount === planItemCount && agenda?.mode !== 'recovery' ? [{ id: 'full_day' as const, label: 'Full day' }] : []),
+                      ...(doneCount > 0 ? [{ id: 'mvd' as const, label: 'Light day' }] : []),
+                      { id: 'miss' as const, label: 'Missed' },
                     ]}
                     value={verdictOverride}
                     onChange={setVerdictOverride}
                   />
-                  <Body muted>{`The verdict can't claim more than the evidence: ${doneCount} of ${planItemCount} agenda items done.`}</Body>
+                  <Body muted>{`You marked ${doneCount} of ${planItemCount} things done today.`}</Body>
                 </>
-              ) : <Body muted>No check-in today, so the day closes as a Miss. A miss is data: tomorrow starts as a Recovery Day.</Body>}
+              ) : <Body muted>No energy check today, so the day closes as missed. That's fine: tomorrow starts as a light day.</Body>}
               <TextField value={closeNote} onChangeText={setCloseNote} placeholder="A note for today (optional)" multiline />
               <TextField label="One item to carry to tomorrow (optional)" value={carry} onChangeText={setCarry} placeholder="e.g. Book the gym induction for Thursday" />
-              <Button label={closing ? 'Closing…' : 'Close the day'} onPress={() => void submitClose()} />
+              <Button label={closing ? 'Closing…' : 'Close the day'} busy={closing} onPress={() => submitClose()} />
             </Disclosure>
           ) : null}
           {todayLoop?.showContinuity && todayLoop.continuity.length ? (
-            <Card tone="muted"><Label>Last 7 days</Label><Heading>{todayLoop.continuity.map((day) => day.symbol).join('  ')}</Heading><Muted>✅ Full Day · ⚡ MVD · ❌ Miss · · not closed</Muted></Card>
+            <ContinuityStrip days={todayLoop.continuity} />
           ) : null}
         </>
       )}
 
       <SectionTitle>Trust & control</SectionTitle>
-      <ListRow icon="shield" title="Privacy & AI" detail="See exactly how APM works with your information: data, AI processing, providers, connections, permissions and activity." onPress={() => router.push('/settings/privacy')} />
+      <ListRow icon="shield" title="Privacy & AI" detail="What APM knows, how AI is used, and what APM may do." onPress={() => router.push('/settings/privacy')} />
       <ListRow icon="settings" title="Settings" onPress={() => router.push('/settings')} />
     </Screen>
   );
 }
 
-const sentence = (text: string) => (text ? text[0]!.toUpperCase() + text.slice(1) : text);
-const MODE_WORDS: Record<string, string> = { standard: 'Standard', high_pressure: 'High-Pressure', executive_review: 'Executive Review', sprint: 'Sprint', recovery: 'Recovery', deep_work: 'Deep Work' };
-const VERDICT_WORDS: Record<string, string> = { full_day: 'Full Day', mvd: 'Minimum Viable Day', miss: 'Miss' };
-const ITEM_KIND_WORDS: Record<AgendaItem['kind'], string> = { plan_action: 'Plan step', plan_floor: 'Floor', next_action: 'Next action', track_floor: 'Track floor', carry_forward: 'Carried over' };
+/** The last 7 days as seven labelled dots (one icon set, no emoji; docs/36 T16). */
+function ContinuityStrip({ days }: { days: ReadonlyArray<{ day: string; verdict?: 'full_day' | 'mvd' | 'miss' }> }) {
+  const icon = (v?: string): IconName => (v === 'full_day' ? 'check-circle' : v === 'mvd' ? 'zap' : v === 'miss' ? 'x-circle' : 'circle');
+  const tone = (v?: string) => (v === 'full_day' ? 'success' as const : v === 'mvd' ? 'accent' as const : v === 'miss' ? 'danger' as const : 'inkMuted' as const);
+  return (
+    <Card tone="muted">
+      <Label>Last 7 days</Label>
+      <Row gap="sm" wrap>
+        {days.map((d) => <Icon key={d.day} name={icon(d.verdict)} size={22} tone={tone(d.verdict)} label={`${shortDate(d.day)}: ${d.verdict ? VERDICT_WORDS[d.verdict] : 'not closed'}`} />)}
+      </Row>
+      <Row gap="sm" wrap>
+        <Row gap="xxs"><Icon name="check-circle" size={14} tone="success" /><Small tone="inkMuted">Full day</Small></Row>
+        <Row gap="xxs"><Icon name="zap" size={14} tone="accent" /><Small tone="inkMuted">Light day</Small></Row>
+        <Row gap="xxs"><Icon name="x-circle" size={14} tone="danger" /><Small tone="inkMuted">Missed</Small></Row>
+        <Row gap="xxs"><Icon name="circle" size={14} tone="inkMuted" /><Small tone="inkMuted">Not closed</Small></Row>
+      </Row>
+    </Card>
+  );
+}
 
 /** C's run of show: a hairline list, time on the left; the first three, the rest one tap away. */
 function RunOfShow({ blocks, sourceLabel }: { blocks: NonNullable<ReturnType<typeof useLifeGraph>['todayPlan']>['blocks']; sourceLabel: (block: NonNullable<ReturnType<typeof useLifeGraph>['todayPlan']>['blocks'][number]) => string | undefined }) {
   const [all, setAll] = useState(false);
-  if (!blocks.length) return <EmptyState icon="calendar" title="Nothing scheduled yet" body="No calendar or execution blocks are available yet." />;
+  if (!blocks.length) return <EmptyState icon="calendar" title="Nothing scheduled yet" body={TODAY_COPY.runOfShowEmpty} actionLabel={TODAY_COPY.runOfShowEmptyAction} onAction={() => router.push('/settings/privacy/connections')} />;
   const shown = all ? blocks : blocks.slice(0, 3);
   return (
     <Card>
@@ -468,7 +500,7 @@ function RunOfShow({ blocks, sourceLabel }: { blocks: NonNullable<ReturnType<typ
             <Small tone={index === 0 ? 'accent' : 'inkMuted'} strong={index === 0}>{block.startAt ? `${timeLabel(block.startAt) ?? ''}${block.endAt ? `–${timeLabel(block.endAt)}` : ''}` : 'Any time'}</Small>
             <Fill>
               <Body strong={index === 0}>{block.title}</Body>
-              <Muted>{[block.source === 'calendar' ? 'Calendar' : 'Plan', sourceLabel(block)].filter(Boolean).join(' · ')}</Muted>
+              <Muted>{[block.source === 'calendar' ? 'Calendar' : 'From your plan', sourceLabel(block)].filter(Boolean).join(' · ')}</Muted>
             </Fill>
           </Row>
         </Stack>

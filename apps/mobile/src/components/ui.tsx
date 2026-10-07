@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AccessibilityInfo,
+  ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Platform,
@@ -185,34 +186,64 @@ const cardStyles = ({ colors }: Theme) => ({
 // ---------------------------------------------------------------- buttons
 
 export type ButtonVariant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'destructive' | 'danger';
-/** Pill buttons (C). Primary = Ink with Paper text; accent = Moss; destructive = brick. */
-export function Button({ label, onPress, variant = 'primary', disabled = false, icon, large = false, accessibilityLabel, accessibilityHint }: {
+/**
+ * Pill buttons (C). Primary = Ink with Paper text; accent = Moss; destructive = brick.
+ * Never a dead button: a disabled one says why (`disabledReason`, shown under it and read
+ * as its hint). Never a double submit: when `onPress` returns a promise the button locks
+ * (synchronously, so a second tap in the same frame is dropped) and shows a spinner until
+ * it settles (docs/36 H5).
+ */
+export function Button({ label, onPress, variant = 'primary', disabled = false, disabledReason, busy = false, icon, large = false, accessibilityLabel, accessibilityHint }: {
   label: string;
-  onPress: () => void;
+  onPress: () => void | Promise<unknown>;
   variant?: ButtonVariant;
   disabled?: boolean;
+  /** Why it is disabled, in plain words ("Tap a number first."). */
+  disabledReason?: string;
+  /** The work it started is still running (spinner, no second tap). */
+  busy?: boolean;
   icon?: IconName;
   large?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
 }) {
   const s = useThemedStyles(buttonStyles);
-  const { reducedMotion } = useTheme();
+  const { colors, reducedMotion } = useTheme();
+  const inFlight = useRef(false);
+  const [pending, setPending] = useState(false);
   const v = variant === 'danger' ? 'destructive' : variant;
   const textTone: Tone = v === 'primary' ? 'onPrimary' : v === 'accent' ? 'onAccent' : v === 'destructive' ? 'onDanger' : v === 'ghost' ? 'accent' : 'ink';
-  return (
+  const working = busy || pending;
+  const press = () => {
+    if (inFlight.current || working || disabled) return;
+    const result = onPress();
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      inFlight.current = true;
+      setPending(true);
+      void (result as Promise<unknown>).catch(() => undefined).finally(() => { inFlight.current = false; setPending(false); });
+    }
+  };
+  const showReason = disabled && Boolean(disabledReason);
+  const button = (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityHint={accessibilityHint}
-      accessibilityState={{ disabled }}
+      accessibilityHint={showReason ? disabledReason : accessibilityHint}
+      accessibilityState={{ disabled, busy: working }}
       disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [s.base, large && s.large, s[v], pressed && s.pressed, pressed && !reducedMotion && s.pressedScale, disabled && s.disabled]}
+      onPress={press}
+      style={({ pressed }) => [s.base, large && s.large, s[v], pressed && s.pressed, pressed && !reducedMotion && s.pressedScale, disabled && (showReason ? s.waiting : s.disabled)]}
     >
-      {icon ? <Icon name={icon} size={18} tone={textTone} /> : null}
-      <ButtonText tone={textTone}>{label}</ButtonText>
+      {working ? <ActivityIndicator size="small" color={colors[textTone]} /> : icon ? <Icon name={icon} size={18} tone={showReason ? 'inkMuted' : textTone} /> : null}
+      <ButtonText tone={showReason ? 'inkMuted' : textTone}>{label}</ButtonText>
     </Pressable>
+  );
+  if (!showReason) return button;
+  return (
+    <View style={styles.field}>
+      {button}
+      <Txt variant="small" tone="inkMuted" align="center" live>{disabledReason}</Txt>
+    </View>
   );
 }
 function ButtonText({ children, tone }: { children: string; tone: Tone }) {
@@ -231,6 +262,8 @@ const buttonStyles = ({ colors }: Theme) => ({
   pressed: { opacity: 0.86 },
   pressedScale: { transform: [{ scale: 0.98 }] },
   disabled: { opacity: 0.42 },
+  /** Disabled WITH a reason: a calm waiting state (muted surface, outlined), not a dead grey slab. */
+  waiting: { backgroundColor: colors.surfaceMuted, borderColor: colors.lineStrong, borderStyle: 'dashed' as const },
 });
 
 /** A text link (≥ 44 pt tall). */

@@ -112,7 +112,9 @@ test('design-lint FAILS on each violation (negative proof)', async () => {
     // An unlabelled control inside the primitives themselves.
     const uiPath = join(copy, 'src/components/ui.tsx');
     const ui = await readFile(uiPath, 'utf8');
-    await writeFile(uiPath, ui.replace('accessibilityLabel={accessibilityLabel ?? label}\n      accessibilityHint={accessibilityHint}', 'accessibilityHint={accessibilityHint}'));
+    const unlabelled = ui.replace('accessibilityLabel={accessibilityLabel ?? label}\n      accessibilityHint={showReason ? disabledReason : accessibilityHint}', 'accessibilityHint={showReason ? disabledReason : accessibilityHint}');
+    assert.notEqual(unlabelled, ui, 'the break was planted (the Button source still has the line it removes)');
+    await writeFile(uiPath, unlabelled);
     assert.ok((await lintDesign(copy)).violations.some((v) => /<Pressable> without an accessibilityLabel/.test(v)), 'an unlabelled Button is caught');
     await writeFile(uiPath, ui);
     assert.deepEqual((await lintDesign(copy)).violations, [], 'restored copy passes again');
@@ -155,7 +157,10 @@ test('U8: the coach tab has ONE primary (start coaching); the other modes and th
 test('U9/U10: Today leads with the summary and the one next step, folds the rest, and speaks plain words', async () => {
   const today = await src('app/(tabs)/today.tsx');
   const firstFold = today.indexOf('<Disclosure');
-  assert.ok(firstFold > 0 && today.indexOf('Print my agenda') < firstFold && today.indexOf('Begin my First Hour') < firstFold, 'the check-in and the First Hour sit above the fold');
+  const checkIn = today.indexOf('TODAY_COPY.checkInButton');
+  const firstHour = today.indexOf('Begin my First Hour');
+  assert.ok(firstFold > 0 && checkIn > 0 && firstHour > 0, 'the check-in, the First Hour and a fold are all on Today');
+  assert.ok(checkIn < firstFold && firstHour < firstFold, 'the check-in and the First Hour sit above the fold');
   for (const folded of ["title=\"Today's agenda\"", 'title="More for today"', 'title="Close the day"']) assert.ok(today.includes(folded), `${folded} is a disclosure`);
   assert.doesNotMatch(today, /REPRINT|Reprinted|Invalid agenda|Locked for today|'Preview'|Server-backed/, 'no engineering words on Today');
   assert.doesNotMatch(today, /item\.kind\.replace\('_', ' '\)\}<\/Pill>/, 'agenda item kinds read as words, not keys');

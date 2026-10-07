@@ -9,12 +9,18 @@ import { requestDeletion } from '../../src/api/apmApi';
 import { plainError } from '../../src/api/errors';
 import { UNAVAILABLE_COPY, billingAvailability, restoreStorePurchases } from '../../src/billing/purchases';
 
-/** The three plans by their ONE display name (ADR-0006); never retyped here. */
-const PLAN_TITLES = (['chief_of_staff', 'life_os', 'autopilot'] as const).map((plan) => PLAN_PRICES[plan].displayName).join(' · ');
+/** Her plan by its ONE display name (ADR-0006); never retyped here. */
+const PAID_KEYS = ['chief_of_staff', 'life_os', 'autopilot'] as const;
+function planTitle(plan: string | undefined, usable: boolean): string {
+  if (!usable || !plan || !(PAID_KEYS as readonly string[]).includes(plan)) return 'No plan yet';
+  return PLAN_PRICES[plan as (typeof PAID_KEYS)[number]].displayName;
+}
 
 export default function SettingsScreen() {
   const { user, status, accessToken, signOut } = useSession();
-  const { refresh } = useLifeGraph();
+  const { refresh, graph } = useLifeGraph();
+  const entitlement = graph.entitlement;
+  const usable = entitlement?.status === 'active' || entitlement?.status === 'trialing';
   const [busy, setBusy] = useState<'restore' | 'delete' | 'signout'>();
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
@@ -57,23 +63,24 @@ export default function SettingsScreen() {
   };
 
   return (
-    <Screen eyebrow="Settings" title="Your A Player Mode." subtitle="Control how APM understands, connects and acts.">
+    <Screen title="Your A Player Mode." subtitle="What APM knows, what it may do, and your plan.">
       {error ? <ErrorState message={error} /> : null}
       <Toast message={notice} />
 
-      <SectionTitle>Account</SectionTitle>
-      <Card>
-        <CardTitle>{status === 'signed_in' ? 'Private APM account' : 'Not signed in'}</CardTitle>
-        {user?.email ? <KeyValue label="Email" value={user.email} /> : null}
-        {status === 'signed_in' ? <Button label={busy === 'signout' ? 'Signing out…' : 'Sign out'} variant="secondary" onPress={() => void handleSignOut()} /> : null}
-      </Card>
+      {status !== 'signed_in' ? (
+        <Card tone="warning">
+          <CardTitle>You are not signed in</CardTitle>
+          <Body muted>Sign in to see your plan, your data and your settings.</Body>
+          <Button label="Sign in" onPress={() => router.push('/account')} />
+        </Card>
+      ) : null}
 
-      <SectionTitle>Plan</SectionTitle>
+      <SectionTitle>Your plan</SectionTitle>
       <Card>
-        <CardTitle>{PLAN_TITLES}</CardTitle>
-        <Body muted>Choose how much responsibility APM carries.</Body>
-        <Button label="View plans" onPress={() => router.push('/settings/plan')} />
-        <Button label={busy === 'restore' ? 'Restoring…' : 'Restore purchases'} variant="secondary" onPress={() => void restore()} />
+        <CardTitle>{planTitle(entitlement?.plan, usable)}</CardTitle>
+        <Body muted>{usable ? 'Change how much APM carries, or manage your subscription.' : 'Pick how much APM carries for you.'}</Body>
+        <Button label={usable ? 'Change plan' : 'See plans'} onPress={() => router.push('/settings/plan')} />
+        <Button label={busy === 'restore' ? 'Restoring…' : 'Restore purchases'} variant="secondary" busy={busy === 'restore'} onPress={() => restore()} />
       </Card>
 
       <SectionTitle>Appearance</SectionTitle>
@@ -84,15 +91,25 @@ export default function SettingsScreen() {
       </Card>
 
       <SectionTitle>Trust & control</SectionTitle>
-      <ListRow icon="shield" title="Privacy & AI" detail="See your data, AI processing, providers, connections, permissions, activity and export." onPress={() => router.push('/settings/privacy')} />
-      <ListRow icon="bell" title="Notifications" detail="Choose whether APM may reach this device. It stays rare: your morning agenda, real approvals and urgent Radar items." onPress={() => router.push('/settings/notifications')} />
+      <ListRow icon="shield" title="Privacy & AI" detail="What APM knows, how AI is used, export or delete." onPress={() => router.push('/settings/privacy')} />
+      <ListRow icon="bell" title="Notifications" detail="Your morning plan, approvals and urgent heads-ups. Nothing else." onPress={() => router.push('/settings/notifications')} />
 
       <SectionTitle>Life</SectionTitle>
-      <ListRow icon="tool" title="Drafting Room" detail="Change your morning sequence, Hard/Guided start, pillars, floors, Tracks or Track settings without redoing the setup. Draft, review, then apply." onPress={() => router.push('/settings/os')} />
-      <ListRow icon="edit-3" title="Diary" detail="File entries without coaching." onPress={() => router.push('/diary')} />
-      <ListRow icon="bar-chart-2" title="Weekly debrief" detail="Review the week on your review day." onPress={() => router.push('/review')} />
-      <ListRow icon="home" title="Life areas" detail="Relationships, birthdays, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations." onPress={() => router.push('/settings/life')} />
-      <ListRow icon="zap" title="Autopilot" detail="Standing rules you set for safe, reversible work, like scheduling routine blocks or preparing drafts. Revocable any time; never purchases, healthcare or money." onPress={() => router.push('/settings/autopilot')} />
+      <ListRow icon="tool" title="Drafting Room" detail="Change your morning, rules or Tracks without redoing setup." onPress={() => router.push('/settings/os')} />
+      <ListRow icon="edit-3" title="Diary" detail="Jot something down. No coaching." onPress={() => router.push('/diary')} />
+      <ListRow icon="bar-chart-2" title="Weekly debrief" detail="A five-minute look back at your week." onPress={() => router.push('/review')} />
+      <ListRow icon="home" title="Life areas" detail="Birthdays, bills, appointments and the rest of life admin." onPress={() => router.push('/settings/life')} />
+      <ListRow icon="zap" title="Autopilot" detail="Routine work APM may do inside rules you set. Never money or health." onPress={() => router.push('/settings/autopilot')} />
+
+      {status === 'signed_in' ? (
+        <>
+          <SectionTitle>Account</SectionTitle>
+          <Card>
+            {user?.email ? <KeyValue label="Signed in as" value={user.email} /> : <CardTitle>Signed in</CardTitle>}
+            <Button label={busy === 'signout' ? 'Signing out…' : 'Sign out'} variant="secondary" busy={busy === 'signout'} onPress={() => handleSignOut()} />
+          </Card>
+        </>
+      ) : null}
 
       {status === 'signed_in' ? (
         <>

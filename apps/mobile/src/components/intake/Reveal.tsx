@@ -9,6 +9,7 @@ import {
   classifySuggestedArea,
   clockLabel,
   goalOutcome,
+  goalTemplates,
   holdingCount,
   optionLabel,
   synthesizeProfile,
@@ -34,7 +35,7 @@ export function useSynthesis(answers: IntakeAnswers): IntakeSynthesis {
 
 /** "Building your operating system": a real wait, ≤ 8 s, five lines ticking off (docs/34 §7.3). */
 export function BuildingScreen({ work, onDone }: { work: () => Promise<void>; onDone: () => void }) {
-  const lines = ['Reading your answers', 'Choosing your one foreground', 'Setting your pillars and floors', 'Picking your Tracks', 'Writing your first 7 days'];
+  const lines = ['Reading your answers', 'Choosing your one priority', 'Setting your pillars and floors', 'Picking your Tracks', 'Writing your first 7 days'];
   const [ticked, setTicked] = useState(0);
   const finished = useRef(false);
   useEffect(() => {
@@ -134,7 +135,9 @@ export function SummaryScreen({ answers, onSet, onOpen, onPush, saveCard, nameCh
     <View style={intakeStyles.stack}>
       <QuestionTitle>Your operating system</QuestionTitle>
       <Body muted>Built from your answers. Every piece is already decided; tap Change on anything that's wrong.</Body>
-      <ChangeCard title="Your one priority" body={`${goal?.label ?? 'Your goal'}${goalOutcome(answers) ? ` (${goalOutcome(answers)})` : ''} · first step: ${String(answers.first_step ?? '—')}`} onChange={() => onOpen('r2')} />
+      {/* APM fills the gap, never a dash (docs/36 S1): with no goal or first step picked yet
+          (a quick start), it shows the one it will use. */}
+      <ChangeCard title="Your one priority" body={`${(goal ?? goalTemplates(answers)[0])?.label ?? 'Your goal'}${goalOutcome(answers) ? ` (${goalOutcome(answers)})` : ''} · first step: ${typeof answers.first_step === 'string' && answers.first_step ? answers.first_step : (goal ?? goalTemplates(answers)[0])?.steps[0] ?? 'APM picks it on Day 1'}`} onChange={() => onOpen('r2')} />
       <ChangeCard title="Your pillars" onChange={() => onOpen('r1')}>
         <PillarCards synthesis={s} />
       </ChangeCard>
@@ -210,14 +213,14 @@ export function DetailScreen({ id, answers, onSet }: { id: 'r1' | 'r2' | 'r3' | 
     const goal = chosenGoal(answers);
     return (
       <View style={intakeStyles.stack}>
-        {heading('Your foreground')}
-        <Card tone="accent"><CardTitle>{`${goal?.label ?? 'Your goal'}${goalOutcome(answers) ? ` (${goalOutcome(answers)})` : ''}`}</CardTitle><Muted>{`Target: ${answers.target ? (answers.target === 'none' ? 'no hard date (90-day gates)' : `${String(answers.target)} days`) : '90 days'}`}</Muted></Card>
+        {heading('Your one priority')}
+        <Card tone="accent"><CardTitle>{`${goal?.label ?? 'Your goal'}${goalOutcome(answers) ? ` (${goalOutcome(answers)})` : ''}`}</CardTitle><Muted>{`Target: ${answers.target ? (answers.target === 'none' ? 'no hard date (three 30-day stages)' : `${String(answers.target)} days`) : '90 days'}`}</Muted></Card>
         <Card>
           {s.plan.gates.map((gate) => <Body key={gate.key}>{`Day ${gate.startDay} to ${gate.endDay} · ${gate.label}: ${gate.outcome}`}</Body>)}
         </Card>
-        <Card><Label>First action</Label><Body>{String(answers.first_step ?? s.plan.actions[s.plan.setup[0]?.actionKey ?? '']?.title ?? '—')}</Body><Muted>{`Minutes a day: ${String(answers.minutes ?? 45)}`}</Muted></Card>
+        <Card><Label>First action</Label><Body>{String(answers.first_step ?? s.plan.actions[s.plan.setup[0]?.actionKey ?? '']?.title ?? 'APM picks it on Day 1')}</Body><Muted>{`Minutes a day: ${String(answers.minutes ?? 45)}`}</Muted></Card>
         {s.plan.safety.notes.length ? <Card tone="warning">{s.plan.safety.notes.map((note) => <Body key={note}>{note}</Body>)}</Card> : null}
-        <Muted>Swap with a background goal later from Goals: it runs Arbitration (leverage, urgency, energy match, compounding, downside).</Muted>
+        <Muted>Want a different goal first? Change it any time in Goals; APM tells you which one should lead.</Muted>
       </View>
     );
   }

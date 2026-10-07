@@ -34,6 +34,7 @@ import { BuildingScreen, DetailScreen, SummaryScreen } from '../src/components/i
 import { OptionButton, intakeStyles } from '../src/components/intake/primitives';
 import { PlanChoice } from '../src/billing/PlanChoice';
 import { Body, Button, Card, CardTitle, Fill, Label, LinkButton, Muted, PlateLine, ProgressBar, QuestionTitle, Reason, Row, Screen, Toast } from '../src/components/ui';
+import { minutesLeftLabel } from '../src/content/words';
 
 const DETAIL = new Set(['r1', 'r2', 'r3', 'r4', 'r5', 'r6']);
 
@@ -145,7 +146,12 @@ export default function IntakeScreenRoute() {
     if (nextLabel === 'Skip') onNext = () => { track('intake_question_skipped', { qid: screen.id }); next(); };
   }
   if (screen.kind === 'account') { canNext = Boolean(answers._acct); if (!canNext) reason = 'Pick a way to save, or "Not now".'; }
-  if (screen.kind === 'express') { canNext = Boolean(answers.mode); }
+  // The express choice is never a dead grey Continue (docs/36 I3): with nothing tapped,
+  // Continue takes the recommended quick start, and the button says so.
+  if (screen.kind === 'express' && !answers.mode) {
+    nextLabel = 'Build my plan now';
+    onNext = () => { answer('mode', 'quick'); track('intake_quick_start_chosen', { mode: 'quick' }); advanceFrom('express', 'quick'); };
+  }
   if (DETAIL.has(screen.id)) { nextLabel = 'Done'; onNext = () => go('summary'); }
   if (screen.kind === 'summary') {
     const noSession = status !== 'signed_in';
@@ -182,8 +188,9 @@ export default function IntakeScreenRoute() {
   const top = screen.kind === 'question' || screen.kind === 'interstitial' ? (
     <>
       <Row justify="space-between" gap="sm">
-        <Fill><Label tone="accent">{screen.kind === 'question' ? `${screen.group} · ${p.index + 1} of ${p.total}` : screen.group}</Label></Fill>
-        {screen.kind === 'question' ? <LinkButton label="Finish later" onPress={finishLater} /> : <Label>{`${p.answered}/${p.total}`}</Label>}
+        {/* Time left, not "1 of 54" (docs/36 I1): a count that big scares off the person who most needs this. */}
+        <Fill><Label tone="accent">{screen.kind === 'question' ? `${screen.group} · ${minutesLeftLabel(p.total - p.answered)}` : screen.group}</Label></Fill>
+        {screen.kind === 'question' ? <LinkButton label="Finish later" onPress={finishLater} /> : null}
       </Row>
       <ProgressBar done={p.answered} total={p.total} label={`Setup progress: ${p.answered} of ${p.total} answered`} />
       <Muted>{`${holdingCount(answers)} things APM is now holding for you · ${sync === 'saved' ? 'Saved' : 'Saved on this phone'}`}</Muted>
@@ -227,8 +234,8 @@ export default function IntakeScreenRoute() {
       <View style={intakeStyles.stack}>
         <QuestionTitle>That's enough for a working plan.</QuestionTitle>
         <Body muted>{`You've answered ${p.answered}. Pick how much more to do today. You can switch later.`}</Body>
-        <OptionButton label="Build my plan now" recommended={rec} selected={answers.mode === 'quick'} detail={`${counts.quickLeft} more tap${counts.quickLeft === 1 ? '' : 's'}, under a minute. The other ${Math.max(0, counts.fullLeft - counts.quickLeft)} wait on Today, 2 a day from Day 2.`} onPress={() => { answer('mode', 'quick'); track('intake_quick_start_chosen', { mode: 'quick' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'quick'), 250); }} />
-        <OptionButton label="Keep going" selected={answers.mode === 'full'} detail={`About ${counts.fullLeft} more, roughly ${Math.max(1, Math.round((counts.fullLeft * 7) / 60))} minutes. A sharper plan on Day 1.`} onPress={() => { answer('mode', 'full'); track('intake_quick_start_chosen', { mode: 'full' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'full'), 250); }} />
+        <OptionButton label="Build my plan now" recommended={rec || !answers.mode} selected={answers.mode === 'quick'} detail={`${counts.quickLeft} more tap${counts.quickLeft === 1 ? '' : 's'}, ${minutesLeftLabel(counts.quickLeft).replace(/^About /, 'about ').replace(/ left$/, '')}. The other ${Math.max(0, counts.fullLeft - counts.quickLeft)} wait on Today, 2 a day from Day 2.`} onPress={() => { answer('mode', 'quick'); track('intake_quick_start_chosen', { mode: 'quick' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'quick'), 250); }} />
+        <OptionButton label="Keep going" selected={answers.mode === 'full'} detail={`About ${counts.fullLeft} more, ${minutesLeftLabel(counts.fullLeft).replace(/^About /, 'about ').replace(/ left$/, '')}. A sharper plan on Day 1.`} onPress={() => { answer('mode', 'full'); track('intake_quick_start_chosen', { mode: 'full' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'full'), 250); }} />
         <Muted>Either way your answers are saved, and the plan only gets better as you add more.</Muted>
       </View>
     );
@@ -299,7 +306,7 @@ export default function IntakeScreenRoute() {
           {reason ? <Reason>{reason}</Reason> : null}
           <Row gap="sm">
             <Fill><Button label="Back" variant="secondary" large onPress={back} /></Fill>
-            <Fill weight={2}><Button label={nextLabel} large disabled={!canNext} onPress={onNext} /></Fill>
+            <Fill weight={2}><Button label={nextLabel} large disabled={!canNext} busy={screen.kind === 'summary' && installing} onPress={onNext} /></Fill>
           </Row>
         </>
       ) : undefined}

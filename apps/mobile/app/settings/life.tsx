@@ -5,6 +5,7 @@ import type { LifeAdminItem, LifeAdminKind, LifeRelationship } from '@apm/domain
 import { Body, Button, Card, CardTitle, ChoiceRow, ErrorState, Fill, KeyValue, Muted, Pill, Row, Screen, SectionTitle, TextField, uiStyles } from '../../src/components/ui';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { PLAN_PRICES } from '@apm/policy';
+import { plainError } from '../../src/api/errors';
 
 const kinds: Array<{ id: LifeAdminKind; label: string }> = [
   { id: 'appointment', label: 'Appointment' },
@@ -242,7 +243,7 @@ export default function LifeOsScreen() {
       }
       resetRelationshipForm();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to save relationship.');
+      setError(plainError(cause, 'Unable to save relationship.'));
     } finally {
       setBusy(false);
     }
@@ -297,7 +298,7 @@ export default function LifeOsScreen() {
       }
       resetItemForm();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to save this life-area item.');
+      setError(plainError(cause, 'Unable to save this life-area item.'));
     } finally {
       setBusy(false);
     }
@@ -309,7 +310,7 @@ export default function LifeOsScreen() {
     try {
       await completeLifeItem(itemId);
       if (editingItemId === itemId) resetItemForm();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to complete item.'); }
+    } catch (cause) { setError(plainError(cause, 'Unable to complete item.')); }
     finally { setBusy(false); }
   };
 
@@ -319,7 +320,7 @@ export default function LifeOsScreen() {
     try {
       await updateLifeItem(itemId, { status: 'cancelled' });
       if (editingItemId === itemId) resetItemForm();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to cancel item.'); }
+    } catch (cause) { setError(plainError(cause, 'Unable to cancel item.')); }
     finally { setBusy(false); }
   };
 
@@ -331,7 +332,7 @@ export default function LifeOsScreen() {
       next.setUTCDate(next.getUTCDate() + cadenceDays);
       await updateRelationship(relationshipId, { nextContactAt: next.toISOString() });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to move the relationship cadence.');
+      setError(plainError(cause, 'Unable to move the relationship cadence.'));
     } finally {
       setBusy(false);
     }
@@ -339,7 +340,7 @@ export default function LifeOsScreen() {
 
   if (!hasAccess) {
     return (
-      <Screen eyebrow="Life areas" title="Carry more of the mental load." subtitle={`${PLAN_PRICES.life_os.displayName} runs the recurring personal obligations that should not have to live in your head.`}>
+      <Screen title="Carry more of the mental load." subtitle={`${PLAN_PRICES.life_os.displayName} runs the recurring personal obligations that should not have to live in your head.`}>
         <Card tone="warning">
           <CardTitle>{`Life areas need ${PLAN_PRICES.life_os.displayName} or ${PLAN_PRICES.autopilot.displayName}.`}</CardTitle>
           <Body muted>{`Your current plan still runs the core APM system and all five jobs. Life areas need an active ${PLAN_PRICES.life_os.displayName} or ${PLAN_PRICES.autopilot.displayName} plan, enforced by the server and database.`}</Body>
@@ -350,7 +351,7 @@ export default function LifeOsScreen() {
   }
 
   return (
-    <Screen eyebrow="Life areas" title="The stuff your brain should not have to carry." subtitle="Relationships, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations feed the same Today + Radar system.">
+    <Screen title="The stuff your brain should not have to carry." subtitle="Relationships, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations feed the same Today + Radar system.">
       {error ? <ErrorState message={error} /> : null}
       {syncStatus === 'saving' ? <Pill tone="warning">Saving…</Pill> : null}
 

@@ -30,9 +30,9 @@ Severity: **P0** a person is stuck or App Review rejects; **P1** loses data, mis
 | E17 | CONFIRMED | P2 | `PlanChoice.tsx:130,190`, `apm.tsx:182` | External links opened ad hoc with `Linking.openURL`; nothing stopped a future webview or http link. | One helper, `src/links/external.ts` (`openExternal`: https only, system browser, digits-only phone numbers); `npm run presubmit:ios` enforces it. |
 | E18 | CONFIRMED | P3 | `today.tsx:174` | "Good morning" at 9 p.m. | Greeting follows the clock. |
 | E19 | SUSPECTED | P3 | `src/state/lifeGraph.tsx:139` | Every hourly token refresh refetches Today (`user`/`accessToken` change identity). Harmless now (no screen unmounts on it) but wasteful. | Listed, not changed. |
-| E20 | CONFIRMED | P3 | `app/settings/*`, deep links | A signed-out deep link to a settings screen (`aplayermode://settings/plan`) shows "Loading…" until Back. | Listed. |
+| E20 | CONFIRMED | P3 | `app/settings/*`, deep links | A signed-out deep link to a settings screen (`aplayermode://settings/plan`) shows "Loading…" until Back. | **Fixed (docs/36 ST3):** Settings shows a Sign in card. |
 | E21 | CONFIRMED | P3 | `app/settings/autopilot.tsx:220` | A failed load had no retry. | Try again. |
-| E22 | CONFIRMED | P3 | `app/(tabs)/today.tsx:108` | One shared `busy` flag: every Mark done reads "Recording…" while any one saves. | Listed. |
+| E22 | CONFIRMED | P3 | `app/(tabs)/today.tsx:108` | One shared `busy` flag: every Mark done reads "Recording…" while any one saves. | **Fixed (docs/36 T6):** per-item busy. |
 
 ## 2. Findings: overwhelmed people
 

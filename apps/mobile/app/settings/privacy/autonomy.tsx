@@ -17,6 +17,7 @@ import {
 import { setPermission } from '../../../src/api/apmApi';
 import { useLifeGraph } from '../../../src/state/lifeGraph';
 import { useSession } from '../../../src/state/session';
+import { plainError } from '../../../src/api/errors';
 
 const labels: Record<AutonomyLevel, string> = {
   0: 'Observe',
@@ -57,7 +58,7 @@ export default function AutonomyScreen() {
       await setPermission(domain, actionType, level, accessToken);
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to update permission.');
+      setError(plainError(cause, 'Unable to update permission.'));
     } finally {
       setBusy(undefined);
     }
@@ -65,7 +66,6 @@ export default function AutonomyScreen() {
 
   return (
     <Screen
-      eyebrow="Permissions & Autonomy"
       title="APM never grants itself authority."
       subtitle="A subscription can make a capability available. You still decide whether APM may use it in each part of your life."
     >

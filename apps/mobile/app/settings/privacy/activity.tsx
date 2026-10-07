@@ -13,6 +13,7 @@ import {
 } from '../../../src/components/ui';
 import { fetchActivity } from '../../../src/api/apmApi';
 import { useSession } from '../../../src/state/session';
+import { plainError } from '../../../src/api/errors';
 
 interface ActivityEvent {
   id: string;
@@ -34,13 +35,12 @@ export default function ActivityScreen() {
     let active = true;
     void fetchActivity(accessToken)
       .then((result) => { if (active) setEvents(result.events); })
-      .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : 'Unable to load APM activity.'); });
+      .catch((cause: unknown) => { if (active) setError(plainError(cause, 'Unable to load APM activity.')); });
     return () => { active = false; };
   }, [accessToken]);
 
   return (
     <Screen
-      eyebrow="APM Activity"
       title="See what APM did."
       subtitle="Consequential behavior is attributable, inspectable and auditable."
     >
@@ -66,7 +66,7 @@ export default function ActivityScreen() {
 
       <Card>
         <CardTitle>What should appear here</CardTitle>
-        <Body muted>Permission changes · integrations · mode changes · prepared/executed actions · important Life Graph changes · export/delete requests.</Body>
+        <Body muted>Permission changes · integrations · mode changes · prepared/executed actions · important changes to what APM knows · export/delete requests.</Body>
       </Card>
     </Screen>
   );

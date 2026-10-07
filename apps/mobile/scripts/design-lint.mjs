@@ -7,13 +7,35 @@
 //   4. a screen (app/) with its own StyleSheet, inline style object, raw <Text>, <Pressable>
 //      or <TextInput>; components outside ui.tsx with a raw <Pressable>/<TextInput>;
 //   5. a control in the primitives (src/components/ui.tsx) without an accessibilityLabel;
-//   6. allowFontScaling={false} anywhere (Dynamic Type must scale every text).
+//   6. allowFontScaling={false} anywhere (Dynamic Type must scale every text);
+//   7. engineering words in what a person reads (docs/36): "Life Graph", "Personal OS",
+//      "BHPC", "deterministic", "durable", "LLM", "execution state", "foreground", "Print my
+//      agenda", "Priority execution", "opening step", "Plan step" in the screens, components,
+//      content and billing code (comments and property names are not copy);
+//   8. a raw thrown message shown to a person (`cause.message`): screens use plainError().
 // Usage: node scripts/design-lint.mjs [appDir]   (default: this app)
 import { readFile, readdir } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PRIMITIVES = 'src/components/ui.tsx';
+
+/** Words a burnt-out parent should never have to read (docs/36). Lookarounds skip identifiers and `.foreground` properties. */
+export const JARGON = [
+  /Life Graph/i, /Personal OS/i, /\bBHPC\b/, /(?<![.\w$])deterministic(?![\w$])/i, /(?<![.\w$])durable(?![\w$])/i, /\bLLM\b/,
+  /execution state/i, /(?<![.\w$'"])foreground(?![\w$:])/i, /Print my agenda/i, /Priority execution/i, /opening step/i, /\bPlan step\b/i,
+];
+/** Where copy lives (the API client, session and integrations hold codes and keys, not copy). */
+const COPY_ROOTS = ['app/', 'src/components/', 'src/content/', 'src/billing/'];
+/** Analytics values, never shown. */
+const JARGON_ALLOWED = [/reason: 'deterministic'/];
+
+/** The text minus comments, line numbers kept. */
+function withoutComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .split('\n').map((line) => line.replace(/(^|[^:'"`\\])\/\/.*$/, '$1')).join('\n');
+}
 
 async function sources(dir) {
   const out = [];
@@ -62,6 +84,14 @@ export async function lintDesign(appDir) {
       if (isScreen && /<Text\b/.test(line)) violations.push(`${at} raw <Text> in a screen: use Body, Heading, Label… from the primitives`);
       if (rel !== PRIMITIVES && /<(Pressable|TextInput|TouchableOpacity|TouchableHighlight)\b/.test(line)) violations.push(`${at} raw control outside the primitives: use Button, Chip, AnswerCard, LinkButton, ListRow or TextField`);
     });
+    if (COPY_ROOTS.some((root) => rel.startsWith(root))) {
+      withoutComments(text).split('\n').forEach((line, i) => {
+        if (JARGON_ALLOWED.some((ok) => ok.test(line))) return;
+        const hit = JARGON.find((re) => re.test(line));
+        if (hit) violations.push(`${rel}:${i + 1} engineering word in user copy (${hit.source}): say it in plain words (src/content/words.ts)`);
+        if (/\b(cause|err|error)\.message\b/.test(line)) violations.push(`${rel}:${i + 1} raw error message shown to a person: use plainError(cause, '…')`);
+      });
+    }
     if (rel === PRIMITIVES) {
       for (const tag of ['Pressable', 'TextInput']) {
         for (const [index, opening] of openingTags(text, tag)) {
@@ -81,5 +111,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     for (const v of violations) console.error(`  ✗ ${v}`);
     process.exit(1);
   }
-  console.log(`design-lint passed: ${files} files; colours and fonts only in src/theme, screens built from the primitives, every control labelled.`);
+  console.log(`design-lint passed: ${files} files; colours and fonts only in src/theme, screens built from the primitives, every control labelled, plain words and plain errors in the copy.`);
 }

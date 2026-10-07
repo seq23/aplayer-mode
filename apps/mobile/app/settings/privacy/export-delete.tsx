@@ -26,7 +26,7 @@ export default function ExportDeleteScreen() {
     setBusy('export'); setError(undefined); setMessage(undefined);
     try {
       const result = await exportMyData(accessToken);
-      setMessage(`Your export is ready (made ${new Date(result.export.generatedAt).toLocaleString()}). It holds your Life Graph and APM's activity record.`);
+      setMessage(`Your export is ready (made ${new Date(result.export.generatedAt).toLocaleString()}). It holds everything APM knows about you and a record of everything it did.`);
     } catch (cause) {
       setError(plainError(cause, 'The export did not finish. Try again.'));
     } finally { setBusy(undefined); }
@@ -46,7 +46,6 @@ export default function ExportDeleteScreen() {
 
   return (
     <Screen
-      eyebrow="Export & Delete"
       title="Your data should not be trapped."
       subtitle="Take a copy of everything APM holds, or delete your account and all of it."
     >
@@ -56,7 +55,7 @@ export default function ExportDeleteScreen() {
       <SectionTitle>Export</SectionTitle>
       <Card>
         <CardTitle>Export my APM data</CardTitle>
-        <Body muted>Your Life Graph and APM's activity record, made on the spot. No support ticket.</Body>
+        <Body muted>Everything APM knows about you and everything it did, made on the spot. No support ticket.</Body>
         <Button label={busy === 'export' ? 'Generating…' : 'Generate export'} variant="secondary" onPress={() => void runExport()} />
       </Card>
 

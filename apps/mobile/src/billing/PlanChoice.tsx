@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import type { BillingPeriod, PaidPlan } from '@apm/policy';
-import { Body, Button, Card, CardTitle, ChoiceRow, Figure, Heading, KeyValue, Label, Pill, Row, SectionTitle, Small, Stack, Tile, Toast, uiStyles } from '../components/ui';
+import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Figure, Heading, KeyValue, Label, Pill, Row, SectionTitle, Small, Stack, Tile, Toast, uiStyles } from '../components/ui';
 import { fetchBillingOffering, fetchProductPlan, type BillingOfferingResponse, type ProductPlanResponse } from '../api/apmApi';
 import { useSession } from '../state/session';
 import { APPLE_STANDARD_EULA_URL, PAID_PLANS, storeManageUrl, subscriptionDisclosure, tierOffers, type StorePrice } from './catalog';
@@ -133,6 +133,17 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
     await openExternal({ kind: 'web', url: target });
   };
 
+  /** Why a buy button is disabled, in words (never a silent grey button; docs/36 H5). */
+  const buyBlockedReason = (pkg: PurchasesPackage | undefined): string | undefined => {
+    if (!availability.available) return undefined; // the unavailable card above says why
+    if (isAnonymous) return 'Save your account above first. Then you can subscribe.';
+    if (!privacyUrl || !termsUrl) return undefined; // the configuration card above says why
+    if (error) return 'Plans did not load. Tap Try again above.';
+    if (!storeOffering) return 'Getting prices from the store…';
+    if (!pkg) return 'This plan is not in the store yet. Pick another or decide later.';
+    return undefined;
+  };
+
   const disclosureOffer = offers.find((item) => item.plan === (PLAN_RANK[currentPlan]! >= 1 ? currentPlan : 'chief_of_staff')) ?? offers[0]!;
 
   return (
@@ -142,10 +153,9 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
 
       <OfferBannerCard banner={banner} />
 
-      <TierGrid title={TIER_GRID_WHO.title} note={TIER_GRID_WHO.note} columns={TIER_GRID_WHO.columns} rows={TIER_GRID_WHO.rows} highlight={PAID_PLANS.indexOf(recommended)} />
-      <TierGrid title={TIER_GRID_WHAT.title} columns={TIER_GRID_WHAT.columns} rows={TIER_GRID_WHAT.rows} highlight={PAID_PLANS.indexOf(recommended)} />
-      <Body muted>{`${PLAN_SCREEN.annualLine} ${PLAN_SCREEN.autonomyLine}`}</Body>
-
+      {/* The buy buttons come right after the offer (docs/36 H2): the 13 grid rows used to sit
+          in front of them, four screens of reading before the one thing to do. The grids fold
+          into "Compare the three plans" below. */}
       <SectionTitle>Choose your plan</SectionTitle>
       <ChoiceRow<BillingPeriod> options={[{ id: 'monthly', label: 'Monthly' }, { id: 'annual', label: 'Annual · 2 months free' }]} value={period} onChange={setPeriod} />
       {!availability.available ? <Card tone="muted"><Body>{UNAVAILABLE_COPY[availability.reason]}</Body></Card> : null}
@@ -165,14 +175,16 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
           <Card key={planKey} tone={isCurrent || planKey === recommended ? 'accent' : 'default'}>
             <Row justify="space-between" wrap gap="xs">
               <CardTitle>{offer.displayName}</CardTitle>
-              {isCurrent ? <Pill tone="success">Current</Pill> : planKey === recommended ? <Pill tone="success">{games.includes('parent') ? 'Most parents start here' : 'Recommended'}</Pill> : <Pill>{offer.tagline}</Pill>}
+              {/* "solid": a soft pill on the accent card was invisible (successSoft = accentSoft). */}
+              {isCurrent ? <Pill tone="solid">Current</Pill> : planKey === recommended ? <Pill tone="solid">{games.includes('parent') ? 'Most parents start here' : 'Recommended'}</Pill> : <Pill>{offer.tagline}</Pill>}
             </Row>
             {card ? <Body>{card.promise}</Body> : null}
             <KeyValue label="Price" value={offer.priceLabel} />
             {offer.note ? <Body muted>{offer.note}</Body> : null}
-            {card ? <KeyValue label="Autonomy ceiling" value={`${card.maxAutonomyLevel} · ${card.maxAutonomyLabel}`} /> : null}
-            {!isCurrent ? (
-              <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName} · ${offer.priceLabel}`} variant={planKey === recommended ? 'accent' : 'primary'} disabled={!purchasesEnabled || !pkg || Boolean(busy)} onPress={() => void purchase(planKey)} />
+            {/* No wall of dead buttons where this build cannot buy: the card above says where to. */}
+            {!isCurrent && availability.available ? (
+              <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName}`} accessibilityLabel={`${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'accent' : 'secondary'} busy={busy === planKey}
+                disabled={!purchasesEnabled || !pkg || Boolean(busy)} disabledReason={busy ? undefined : buyBlockedReason(pkg)} onPress={() => purchase(planKey)} />
             ) : null}
           </Card>
         );
@@ -189,6 +201,12 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
           <Button label={availability.available ? 'Decide later, show me Today' : 'Go to Today'} variant="secondary" onPress={() => onFinished?.('continue')} />
         </Card>
       ) : null}
+
+      <Disclosure icon="columns" title={PLAN_SCREEN.compareTitle} summary={PLAN_SCREEN.compareSummary}>
+        <TierGrid title={TIER_GRID_WHO.title} note={TIER_GRID_WHO.note} columns={TIER_GRID_WHO.columns} rows={TIER_GRID_WHO.rows} highlight={PAID_PLANS.indexOf(recommended)} />
+        <TierGrid title={TIER_GRID_WHAT.title} columns={TIER_GRID_WHAT.columns} rows={TIER_GRID_WHAT.rows} highlight={PAID_PLANS.indexOf(recommended)} />
+      </Disclosure>
+      <Body muted>{`${PLAN_SCREEN.annualLine} ${PLAN_SCREEN.autonomyLine}`}</Body>
 
       <Card tone="muted">
         <Button label={busy === 'restore' ? 'Restoring…' : 'Restore purchases'} variant="secondary" disabled={!availability.available || Boolean(busy)} onPress={() => void restore()} />

@@ -4,6 +4,8 @@ import { type ProductPlanResponse } from '../../src/api/apmApi';
 import { PlanChoice } from '../../src/billing/PlanChoice';
 import { PLAN_SCREEN } from '../../src/content/sell';
 
+const STATUS_WORDS: Record<string, string> = { active: 'Active', trialing: 'Active', past_due: 'Payment problem', cancelled: 'Cancelled', expired: 'Ended' };
+
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   const date = new Date(iso);
@@ -19,12 +21,12 @@ export default function PlanScreen() {
   const billing = product?.billing ?? null;
 
   return (
-    <Screen eyebrow="Your plan" title={PLAN_SCREEN.title} subtitle={PLAN_SCREEN.plate}>
+    <Screen title={PLAN_SCREEN.title} subtitle={PLAN_SCREEN.plate}>
       <Card tone="accent">
         <CardTitle>{entitlement?.displayName ?? 'Loading your plan…'}</CardTitle>
         {entitlement ? (
           <>
-            <KeyValue label="Status" value={entitlement.status} />
+            <KeyValue label="Status" value={STATUS_WORDS[entitlement.status] ?? 'Not active'} />
             {billing ? (
               <>
                 <KeyValue label="Billing" value={`${billing.period === 'annual' ? 'Annual' : 'Monthly'} · ${billing.store === 'app_store' ? 'App Store' : 'Google Play'}${billing.founding ? ' · Founding Member price' : ''}`} />
@@ -34,7 +36,7 @@ export default function PlanScreen() {
                 {billing.pendingPlan ? <Body muted>Changes to {product?.plans.find((plan) => plan.plan === billing.pendingPlan)?.displayName ?? billing.pendingPlan} at your next renewal.</Body> : null}
               </>
             ) : null}
-            <KeyValue label="Maximum autonomy" value={`${entitlement.maxAutonomyLevel} · ${entitlement.maxAutonomyLabel}`} />
+            <KeyValue label="The most APM may do on its own" value={entitlement.maxAutonomyLabel} />
             <Body muted>{entitlement.promise}</Body>
           </>
         ) : null}

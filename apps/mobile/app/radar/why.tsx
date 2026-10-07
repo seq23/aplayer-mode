@@ -10,6 +10,7 @@ import {
   Screen,
   SectionTitle,
 } from '../../src/components/ui';
+import { radarTag } from '../../src/content/words';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 
 const reasonText: Record<string, string> = {
@@ -27,9 +28,9 @@ export default function RadarWhyScreen() {
 
   if (!item) {
     return (
-      <Screen eyebrow="Why APM saw this" title="That Radar signal is no longer active.">
+      <Screen title="That Radar signal is no longer active.">
         <Card tone="muted">
-          <Body muted>The underlying Life Graph may have changed, so APM no longer has the same reason to surface it.</Body>
+          <Body muted>Something changed since, so APM no longer has a reason to show it.</Body>
         </Card>
         <Button label="Back to Radar" onPress={() => router.replace('/(tabs)/radar')} />
       </Screen>
@@ -40,13 +41,12 @@ export default function RadarWhyScreen() {
 
   return (
     <Screen
-      eyebrow="Why APM saw this"
       title={item.headline}
-      subtitle="This explanation comes from deterministic Life Graph rules. No LLM was needed to create this signal."
+      subtitle="APM worked this out from what it already knows about you, with fixed rules. No AI model was involved."
     >
       <Card tone={item.severity === 'critical' || item.severity === 'high' ? 'warning' : 'default'}>
         <Pill tone={item.severity === 'critical' || item.severity === 'high' ? 'warning' : 'neutral'}>
-          {item.type} · {item.severity}
+          {radarTag(item.type, item.severity)}
         </Pill>
         <CardTitle>{item.summary}</CardTitle>
       </Card>
@@ -62,7 +62,7 @@ export default function RadarWhyScreen() {
           <KeyValue
             key={`${source.sourceType}-${source.sourceRef ?? index}`}
             label={source.sourceType}
-            value={source.label ?? source.sourceRef ?? 'Life Graph state'}
+            value={source.label ?? source.sourceRef ?? 'What APM already knew'}
           />
         ))}
       </Card>
