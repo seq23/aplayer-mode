@@ -1,5 +1,6 @@
 import app from './index';
 import type { ApiEnv } from './env';
+import { runMorningTrigger } from './morningTrigger';
 
 declare const __APM_BUILD_SHA__: string;
 declare const __APM_RUNTIME_ENVIRONMENT__: string;
@@ -16,6 +17,15 @@ const RUNTIME_ENVIRONMENT =
  * external evidence cannot certify an older Worker or the wrong Worker target.
  */
 export default {
+  /** Cloudflare Cron Trigger (wrangler.jsonc `triggers.crons`): the BHPC Morning Trigger. */
+  async scheduled(controller: { scheduledTime: number; cron: string }, env: ApiEnv, ctx: { waitUntil(promise: Promise<unknown>): void }): Promise<void> {
+    ctx.waitUntil(
+      runMorningTrigger(env, new Date(controller.scheduledTime)).then((result) => {
+        console.log('APM morning trigger', { cron: controller.cron, ...result });
+      }),
+    );
+  },
+
   async fetch(request: Request, env: ApiEnv): Promise<Response> {
     const response = await app.fetch(request, env);
     if (new URL(request.url).pathname !== '/v1/health' || !response.ok) return response;

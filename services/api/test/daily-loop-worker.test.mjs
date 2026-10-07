@@ -250,3 +250,44 @@ test('without the server-only key the check-in is a named 503, never a silent su
     assert.equal(h.calls.rpc.filter((c) => c.fn.includes('check_in')).length, 0);
   } finally { h.restore(); }
 });
+
+test('end-of-day close: pillar review → computed verdict, user authority kept, one carry item, no catch-up', async () => {
+  const h = harness();
+  try {
+    await request('/v1/me/today');
+    const refused = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'miss' }], carryForward: 'Double session tomorrow to make up for it' }) });
+    assert.equal(refused.status, 400);
+    assert.equal((await refused.json()).error, 'invalid_carry_forward');
+    const vague = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'miss' }], carryForward: 'Work on fitness' }) });
+    assert.equal(vague.status, 400, 'Ambiguity Stop applies to the carry item');
+    const duplicate = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit' }, { pillar: 'body', score: 'miss' }] }) });
+    assert.equal(duplicate.status, 400);
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').length, 0);
+
+    const noCheckIn = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit' }], verdict: 'full_day' }) });
+    assert.equal(noCheckIn.status, 409, 'evidence before verdict');
+    await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit' }] }) });
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').at(-1).args.p_verdict, 'miss', 'no check-in closes as a Miss');
+    const checkedIn = await (await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) })).json();
+    const noEvidence = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit' }], verdict: 'full_day' }) });
+    assert.equal(noEvidence.status, 409, 'a win needs completion evidence');
+    assert.equal((await noEvidence.json()).error, 'verdict_needs_evidence');
+    const priority = checkedIn.today.agenda.firstHour.priority;
+    h.store.plan_action_completions.push({ id: 'c1', user_id: USER, plan_id: priority.planId, day: localToday(), action_key: priority.actionKey, instance_id: 'i', scope: 'standard', role: 'foreground', note: null, created_at: new Date().toISOString() });
+
+    const response = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit', completed: 'Walked 15 minutes' }], note: 'Felt good', carryForward: 'Book the gym induction for Thursday' }) });
+    assert.equal(response.status, 200);
+    const close = h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').at(-1);
+    assert.equal(close.args.p_verdict, 'full_day');
+    assert.equal(close.args.p_computed_verdict, 'full_day');
+    assert.equal(close.args.p_carry_forward, 'Book the gym induction for Thursday');
+    assert.ok(close.args.p_insight.length > 10);
+    const body = await response.json();
+    assert.equal(body.continuity.length, 7);
+    assert.equal(body.continuity[6].symbol, '✅');
+
+    await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'miss' }], verdict: 'mvd' }) });
+    const override = h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').at(-1);
+    assert.deepEqual([override.args.p_verdict, override.args.p_computed_verdict], ['mvd', 'miss'], 'the user decides; the computed verdict is kept beside it');
+  } finally { h.restore(); }
+});

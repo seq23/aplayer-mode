@@ -36,6 +36,7 @@ export interface PlanEntry {
 
 export const PHASE_BRIDGE_QUESTION = 'Do you need coaching to clear any friction, or are you ready to begin your First Hour?';
 export const MOOD_MVD_THRESHOLD = 2;
+export const CARRY_FORWARD_ACTION_KEY = 'carry_forward';
 
 // ---------------------------------------------------------------------------
 // Plan context from the Life Graph
@@ -266,6 +267,8 @@ export interface AgendaInput {
   completions: PlanActionCompletion[];
   morningSequence: string[];
   nextActions?: Pick<NextAction, 'id' | 'title' | 'goalId' | 'status' | 'estimatedMinutes'>[];
+  /** The one item yesterday's close carried forward. */
+  carryForward?: { text: string; fromDay: string };
 }
 
 function completionsFor(entry: PlanEntry, completions: PlanActionCompletion[]) {
@@ -410,6 +413,27 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
     });
   }
 
+  // Carry-forward is a named intention, never debt: it joins a normal day's stack once,
+  // and a recovery / MVD day holds it (No Catch-Up).
+  if (input.carryForward && input.carryForward.fromDay === addDays(input.date, -1)) {
+    if (lowDay) {
+      reasons.add('carry_forward_held');
+    } else {
+      dailyStack.push({
+        id: 'carry_forward',
+        kind: 'carry_forward',
+        title: input.carryForward.text,
+        output: 'Carried item done',
+        durationMinutes: 15,
+        ...(selection.foreground ? { planId: selection.foreground.record.id, goalId: selection.foreground.record.goalId } : {}),
+        actionKey: CARRY_FORWARD_ACTION_KEY,
+        status: input.completions.some((c) => c.day === input.date && c.actionKey === CARRY_FORWARD_ACTION_KEY) ? 'done' : 'open',
+        reasonCodes: ['carry_forward'],
+      });
+      reasons.add('carry_forward');
+    }
+  }
+
   if (lowDay && (input.nextActions ?? []).some((action) => action.status === 'open')) reasons.add('backlog_held_mvd');
   const recovery = supply?.mode === 'recovery' || lowDay;
   const agenda: DailyAgenda = {
@@ -512,6 +536,73 @@ export function withCompletionStatus(agenda: DailyAgenda, completions: PlanActio
     firstHour: { ...agenda.firstHour, ...(agenda.firstHour.priority ? { priority: { ...agenda.firstHour.priority, status: done(agenda.firstHour.priority) } } : {}) },
     dailyStack: agenda.dailyStack.map((item) => ({ ...item, status: done(item) })),
   };
+}
+
+// ---------------------------------------------------------------------------
+// End-of-day close (BHPC Prompt #6)
+// ---------------------------------------------------------------------------
+
+export type PillarScore = 'hit' | 'partial' | 'miss';
+export interface PillarReviewEntry { pillar: PlanPillar; score: PillarScore; completed?: string }
+
+/** Compensation after a slip ("double session", "skip a meal") is never a carry-forward (No Catch-Up, Body Foundation). */
+export const COMPENSATION_PATTERN = /\b(double|twice as|extra|make up|makeup|catch[- ]?up|skip (a |the )?(meal|breakfast|lunch|dinner)|fast(ing)? (all|the whole) day|punish|burn (it )?off)\b/i;
+
+export function carryForwardProblem(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed.length < 5 || trimmed.length > 200) return 'A carry-forward item is one short physical action (5–200 characters).';
+  if (isGenericAgendaTitle(trimmed)) return 'Ambiguity stop: name the physical action, not a theme.';
+  if (COMPENSATION_PATTERN.test(trimmed)) return 'No Catch-Up: tomorrow does not pay for today. Carry one normal action, not a make-up.';
+  return null;
+}
+
+/** Pillar-by-pillar review suggested from the day's evidence; the user may change any score. */
+export function suggestPillarReview(agenda: DailyAgenda, pillars: PlanPillar[]): PillarReviewEntry[] {
+  const items = agendaItems(agenda).filter((item) => item.pillar);
+  const onAgenda = new Set(items.map((item) => item.pillar!));
+  const order = [...new Set([...items.map((item) => item.pillar!), ...pillars])];
+  return order.map((pillar) => {
+    const forPillar = items.filter((item) => item.pillar === pillar);
+    const done = forPillar.filter((item) => item.status === 'done');
+    const score: PillarScore = !onAgenda.has(pillar) || done.length === 0 ? 'miss' : done.length === forPillar.length ? 'hit' : 'partial';
+    return { pillar, score, ...(done.length ? { completed: done.map((item) => item.title).join('; ').slice(0, 300) } : {}) };
+  });
+}
+
+/** Verdict from the reviewed pillars: every critical pillar hit (partial counts on a recovery day) → Full Day. */
+export function verdictFromReview(review: PillarReviewEntry[], criticalPillars: PlanPillar[], recovery: boolean): 'full_day' | 'mvd' | 'miss' {
+  const critical = criticalPillars.length ? criticalPillars : review.map((entry) => entry.pillar);
+  const scoreOf = (pillar: PlanPillar) => review.find((entry) => entry.pillar === pillar)?.score ?? 'miss';
+  const anyDone = review.some((entry) => entry.score !== 'miss');
+  return scoreDay({
+    completedCritical: critical.filter((pillar) => scoreOf(pillar) === 'hit' || (recovery && scoreOf(pillar) === 'partial')).length,
+    requiredCritical: critical.length,
+    recoveryMode: recovery,
+    mvdActionCompleted: anyDone,
+  });
+}
+
+export interface ContinuityDay { day: string; verdict?: 'full_day' | 'mvd' | 'miss'; symbol: '✅' | '⚡' | '❌' | '·' }
+
+/** The 7-day continuity snapshot, oldest first, ending today. */
+export function continuityView(dayRecords: Pick<DayRecord, 'day' | 'verdict'>[], today: string): ContinuityDay[] {
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = addDays(today, index - 6);
+    const verdict = dayRecords.find((record) => record.day === day)?.verdict;
+    const symbol = verdict === 'full_day' ? '✅' : verdict === 'mvd' ? '⚡' : verdict === 'miss' ? '❌' : '·';
+    return { day, ...(verdict ? { verdict } : {}), symbol };
+  });
+}
+
+/** One behavioural pattern, named without judgement (no gap analysis, no shame). */
+export function dayInsight(continuity: ContinuityDay[], verdict: 'full_day' | 'mvd' | 'miss'): string {
+  const shown = continuity.filter((day) => day.verdict);
+  const counted = shown.filter((day) => day.verdict !== 'miss').length;
+  if (verdict === 'miss') return 'A miss is data. Tomorrow starts as a Recovery Day: one small thing, then close.';
+  if (verdict === 'mvd') return `Minimum Viable Day kept the chain: ${counted} of the last ${Math.max(shown.length, 1)} recorded days counted.`;
+  const streak = [...continuity].reverse().findIndex((day) => !day.verdict || day.verdict === 'miss');
+  const run = streak === -1 ? continuity.length : streak;
+  return run >= 3 ? `${run} days in a row that counted. Keep it boring.` : `${counted} of the last ${Math.max(shown.length, 1)} recorded days counted. Continuity beats intensity.`;
 }
 
 export type ReplanReason = 'external_change' | 'safety' | 'permission' | 'mood' | 'discomfort';

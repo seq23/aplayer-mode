@@ -90,6 +90,8 @@ export interface DayRow {
   note: string | null; closed_at: string | null; mood?: number | null; day_state?: DayRecord['dayState'] | null;
   agenda?: Record<string, unknown> | null; agenda_status?: DayRecord['agendaStatus'] | null; checked_in_at?: string | null;
   replans?: DayRecord['replans'] | null;
+  pillar_review?: DayRecord['pillarReview'] | null; computed_verdict?: DayRecord['computedVerdict'] | null;
+  carry_forward?: string | null; insight?: string | null;
 }
 
 export function mapGoalPlan(row: GoalPlanRow): StoredGoalPlan<GoalPlan> {
@@ -145,6 +147,10 @@ export function mapDayRecord(row: DayRow, userId: string): DayRecord {
     ...(row.agenda_status ? { agendaStatus: row.agenda_status } : {}),
     ...(row.checked_in_at ? { checkedInAt: row.checked_in_at } : {}),
     replans: row.replans ?? [],
+    ...(row.pillar_review ? { pillarReview: row.pillar_review } : {}),
+    ...(row.computed_verdict ? { computedVerdict: row.computed_verdict } : {}),
+    ...(row.carry_forward ? { carryForward: row.carry_forward } : {}),
+    ...(row.insight ? { insight: row.insight } : {}),
   };
 }
 
@@ -201,6 +207,16 @@ export function reviewGoalPlanGate(env: ApiEnv, accessToken: string, input: { pl
 
 export function decideGoalPlan(env: ApiEnv, accessToken: string, input: { planId: string; decision: GoalPlanDecision; reason: string }) {
   return loopRpc<GoalPlanRow>(env, accessToken, 'apm_decide_goal_plan', { p_plan_id: input.planId, p_decision: input.decision, p_reason: input.reason });
+}
+
+export function closeDayReview(env: ApiEnv, accessToken: string, input: {
+  verdict: 'full_day' | 'mvd' | 'miss'; computedVerdict: 'full_day' | 'mvd' | 'miss';
+  pillarReview: NonNullable<DayRecord['pillarReview']>; note?: string; carryForward?: string; insight: string;
+}) {
+  return loopRpc<DayRow>(env, accessToken, 'apm_close_day_review', {
+    p_verdict: input.verdict, p_computed_verdict: input.computedVerdict, p_pillar_review: input.pillarReview,
+    p_note: input.note ?? null, p_carry_forward: input.carryForward ?? null, p_insight: input.insight,
+  });
 }
 
 export function getDailyLoopExportState(env: ApiEnv, accessToken: string) {

@@ -19,7 +19,7 @@ import type { AgendaItem } from '@apm/planning';
 import {
   approveExternalAction,
   checkInToday,
-  closeDay,
+  closeToday,
   completeAgendaAction,
   decideGoalPlan,
   replanToday,
@@ -47,6 +47,9 @@ export default function TodayScreen() {
   const [decision, setDecision] = useState<'promote' | 'maintain' | 'park'>();
   const [decisionReason, setDecisionReason] = useState('');
   const [closeNote, setCloseNote] = useState('');
+  const [carry, setCarry] = useState('');
+  const [pillarScores, setPillarScores] = useState<Record<string, 'hit' | 'partial' | 'miss'>>({});
+  const [verdictOverride, setVerdictOverride] = useState<'full_day' | 'mvd' | 'miss'>();
   const agenda = todayLoop?.agenda;
   const executionOpen = Boolean(todayLoop?.checkedIn && !todayLoop.closed);
   const planItems = [agenda?.firstHour.priority, ...(agenda?.dailyStack ?? [])].filter((item): item is AgendaItem => Boolean((item?.planId && item.actionKey) || item?.nextActionId));
@@ -126,16 +129,24 @@ export default function TodayScreen() {
     } finally { setBusyActionId(undefined); }
   };
 
-  const closeToday = async (verdict: 'full_day' | 'mvd' | 'miss') => {
-    if (!accessToken || closing) return;
+  const reviewRows = todayLoop?.closePreview.pillarReview ?? [];
+  const scoreOf = (pillar: string) => pillarScores[pillar] ?? reviewRows.find((row) => row.pillar === pillar)?.score ?? 'miss';
+  const submitClose = async () => {
+    if (!accessToken || closing || !todayLoop) return;
     setClosing(true); setActionError(undefined);
     try {
-      await closeDay(verdict, closeNote.trim() || undefined, accessToken);
-      await refresh();
+      const pillarReview = reviewRows.map((row) => ({ pillar: row.pillar, score: scoreOf(row.pillar), ...(row.completed ? { completed: row.completed } : {}) }));
+      await perform((token) => closeToday({
+        pillarReview: pillarReview.length ? pillarReview : [{ pillar: 'execution', score: 'miss' }],
+        ...(!todayLoop.checkedIn ? { verdict: 'miss' as const } : verdictOverride ? { verdict: verdictOverride } : {}),
+        ...(closeNote.trim() ? { note: closeNote.trim() } : {}),
+        ...(carry.trim() ? { carryForward: carry.trim() } : {}),
+      }, token));
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Unable to close the day.');
     } finally { setClosing(false); }
   };
+
 
   return (
     <Screen
@@ -279,18 +290,48 @@ export default function TodayScreen() {
 
       {graph.personalOS ? <Card><Label>Personal OS</Label><KeyValue label="Day start" value={graph.personalOS.accountability.dayStart === 'hard' ? 'Hard Start' : 'Guided Start'} /><KeyValue label="Tracks" value={graph.tracks.filter((track) => track.active).map((track) => track.name).join(', ') || 'None'} /><Button label="Open APM Coach" variant="secondary" onPress={() => router.push('/(tabs)/apm')} /></Card> : null}
 
-      <SectionTitle>Close the day</SectionTitle>
-      <Card>
-        <Body muted>Closing records evidence for continuity. No catch-up is created for tomorrow.</Body>
-        <TextField value={closeNote} onChangeText={setCloseNote} placeholder="A note for today (optional)" />
-        {todayLoop?.closed ? <Body>{`Closed: ${todayLoop.day?.verdict?.replace('_', ' ') ?? 'done'}. Prior days stay closed; tomorrow starts fresh.`}</Body> : todayLoop && (!todayLoop.checkedIn || doneCount === 0) ? <Body muted>A Full Day or MVD needs the check-in and at least one completed action. Otherwise today closes as a Miss — a miss is data.</Body> : (
-          <>
-            {doneCount === planItemCount && agenda?.mode !== 'recovery' ? <Button label={closing ? 'Saving…' : 'Full Day'} onPress={() => void closeToday('full_day')} /> : <Body muted>{agenda?.mode === 'recovery' ? 'A Minimum Viable Day closes as an MVD — and that counts as a win.' : `Full Day needs every agenda item done (${doneCount} of ${planItemCount}).`}</Body>}
-            <Button label="Minimum Viable Day" variant="secondary" onPress={() => void closeToday('mvd')} />
-          </>
-        )}
-        {!todayLoop?.closed ? <Button label="Miss" variant="secondary" onPress={() => void closeToday('miss')} /> : null}
-      </Card>
+      <SectionTitle>End-of-day check-in</SectionTitle>
+      {todayLoop?.closed ? (
+        <Card tone="accent">
+          <Label>Day closed</Label>
+          <CardTitle>{todayLoop.day?.verdict === 'full_day' ? '✅ Full Day' : todayLoop.day?.verdict === 'mvd' ? '⚡ Minimum Viable Day' : '❌ Miss — it is data, not a verdict on you'}</CardTitle>
+          {todayLoop.day?.insight ? <Body>{todayLoop.day.insight}</Body> : null}
+          {todayLoop.day?.carryForward ? <KeyValue label="Carrying to tomorrow" value={todayLoop.day.carryForward} /> : null}
+        </Card>
+      ) : todayLoop ? (
+        <Card>
+          <Body muted>What did you complete today? Score each pillar. Closing records evidence for continuity; nothing becomes debt for tomorrow.</Body>
+          {todayLoop.closePreview.evidence.length ? <><Label>Completion evidence</Label>{todayLoop.closePreview.evidence.map((line) => <Body key={line}>{`• ${line}`}</Body>)}</> : <Body muted>No completion evidence yet today.</Body>}
+          {reviewRows.map((row) => (
+            <Card key={row.pillar} tone="muted">
+              <Label>{row.pillar}</Label>
+              <ChoiceRow options={[{ id: 'hit', label: '✅ Hit' }, { id: 'partial', label: '⚡ Partial' }, { id: 'miss', label: '❌ Missed' }]} value={scoreOf(row.pillar)} onChange={(score) => setPillarScores((current) => ({ ...current, [row.pillar]: score }))} />
+            </Card>
+          ))}
+          <KeyValue label="APM's verdict from the evidence" value={todayLoop.closePreview.computedVerdict.replace('_', ' ')} />
+          {todayLoop.checkedIn ? (
+            <>
+              <Label>Your verdict (optional — you have the final say)</Label>
+              <ChoiceRow
+                options={[
+                  ...(planItemCount > 0 && doneCount === planItemCount && agenda?.mode !== 'recovery' ? [{ id: 'full_day' as const, label: 'Full Day' }] : []),
+                  ...(doneCount > 0 ? [{ id: 'mvd' as const, label: 'MVD' }] : []),
+                  { id: 'miss' as const, label: 'Miss' },
+                ]}
+                value={verdictOverride}
+                onChange={setVerdictOverride}
+              />
+              <Body muted>{`The verdict can't claim more than the evidence: ${doneCount} of ${planItemCount} agenda items done.`}</Body>
+            </>
+          ) : <Body muted>No check-in today, so the day closes as a Miss. A miss is data: tomorrow starts as a Recovery Day.</Body>}
+          <TextField value={closeNote} onChangeText={setCloseNote} placeholder="A note for today (optional)" multiline />
+          <TextField label="One item to carry to tomorrow (optional)" value={carry} onChangeText={setCarry} placeholder="e.g. Book the gym induction for Thursday" />
+          <Button label={closing ? 'Closing…' : 'Close the day'} onPress={() => void submitClose()} />
+        </Card>
+      ) : null}
+      {todayLoop?.showContinuity && todayLoop.continuity.length ? (
+        <Card tone="muted"><Label>Last 7 days</Label><CardTitle>{todayLoop.continuity.map((day) => day.symbol).join('  ')}</CardTitle><Body muted>✅ Full Day · ⚡ MVD · ❌ Miss · · not closed</Body></Card>
+      ) : null}
 
         </>
       )}

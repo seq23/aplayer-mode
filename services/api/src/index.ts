@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { buildDailyPlan, midDayReplanDecision, selectForeground } from '@apm/planning';
+import { buildDailyPlan, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, selectForeground, verdictFromReview } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
 import { autonomyLabels, capabilitiesForPlan, forbiddenStandingActions, maxAutonomyForPlan, planHasCapability, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
@@ -57,10 +57,12 @@ import {
   updateAutopilotRule,
 } from './autopilotRepository';
 import { notifyRadarItems } from './push';
-import { buildGoalPlan, ensureGoalPlans, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
+import { workPushHold } from './morningTrigger';
+import { buildGoalPlan, criticalPillars, ensureGoalPlans, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
   asLoopError,
   checkInDay,
+  closeDayReview,
   completePlanAction,
   createGoalWithPlan,
   decideGoalPlan,
@@ -632,6 +634,49 @@ app.post('/v1/today/replan', async (c) => {
   return c.json({ message: decision.message, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });
 
+// End-of-day check-in (BHPC Prompt #6): what was completed pillar by pillar, Hit /
+// Partial / Miss, the verdict, the 7-day snapshot, one insight and one carry item.
+app.post('/v1/today/close', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({
+    pillarReview: z.array(z.object({ pillar: z.enum(['wealth', 'body', 'spirit', 'execution', 'family']), score: z.enum(['hit', 'partial', 'miss']), completed: z.string().trim().max(300).optional() })).min(1).max(5),
+    verdict: z.enum(['full_day', 'mvd', 'miss']).optional(),
+    note: z.string().trim().max(1000).optional(),
+    carryForward: z.string().trim().max(200).optional(),
+  }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (new Set(parsed.data.pillarReview.map((entry) => entry.pillar)).size !== parsed.data.pillarReview.length) return c.json({ error: 'invalid_request', message: 'One score per pillar.' }, 400);
+  const carry = parsed.data.carryForward?.trim() || undefined;
+  const carryProblem = carry ? carryForwardProblem(carry) : null;
+  if (carryProblem) return c.json({ error: 'invalid_carry_forward', message: carryProblem }, 400);
+  const state = await buildUserState(c.env, user.accessToken, user.id);
+  const computedVerdict = verdictFromReview(parsed.data.pillarReview, criticalPillars(state.graph), state.today.agenda.mode === 'recovery');
+  // The user has final authority over the verdict; the computed one is kept next to it.
+  // Evidence before verdict: without the check-in the day can only close as a Miss.
+  if (!state.today.checkedIn && parsed.data.verdict && parsed.data.verdict !== 'miss') {
+    return c.json({ error: 'opening_step_required', message: 'A Full Day or MVD needs the check-in first. Without it, today closes as a Miss.' }, 409);
+  }
+  const hasEvidence = state.today.closePreview.evidence.length > 0;
+  if (parsed.data.verdict && parsed.data.verdict !== 'miss' && !hasEvidence) {
+    return c.json({ error: 'verdict_needs_evidence', message: 'A Full Day or MVD needs at least one completed action today. Otherwise close it as a Miss — a miss is data.' }, 409);
+  }
+  const items = [state.today.agenda.firstHour.priority, ...state.today.agenda.dailyStack].filter((item) => (item?.planId && item.actionKey) || item?.nextActionId);
+  // A recovery agenda (MVD) closes as an MVD at most, whatever was done.
+  const allDone = items.length > 0 && items.every((item) => item!.status === 'done') && state.today.agenda.mode !== 'recovery';
+  if (parsed.data.verdict === 'full_day' && !allDone) {
+    return c.json({ error: 'verdict_needs_evidence', message: 'A Full Day needs every agenda item done. Close it as an MVD — that still counts.' }, 409);
+  }
+  // Never claim more than the evidence: the computed verdict is capped the same way.
+  const cappedComputed = computedVerdict === 'full_day' && !allDone ? (hasEvidence ? 'mvd' : 'miss') : computedVerdict;
+  const verdict = state.today.checkedIn && hasEvidence ? parsed.data.verdict ?? cappedComputed : 'miss';
+  const continuity = continuityView([{ day: state.today.date, verdict }, ...state.graph.dayRecords.filter((record) => record.day !== state.today.date)], state.today.date);
+  const insight = dayInsight(continuity, verdict);
+  try {
+    await closeDayReview(c.env, user.accessToken, { verdict, computedVerdict: cappedComputed, pillarReview: parsed.data.pillarReview, note: parsed.data.note, carryForward: carry, insight });
+  } catch (error) { return loopFailure(c, error); }
+  return c.json({ verdict, computedVerdict: cappedComputed, insight, continuity, carryForward: carry ?? null, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
 app.post('/v1/goals', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({
@@ -967,8 +1012,38 @@ app.post('/v1/push/register', async (c) => {
 
 app.post('/v1/push/evaluate', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const { graph } = await buildUserState(c.env, user.accessToken, user.id);
-  return c.json(await notifyRadarItems({ env: c.env, accessToken: user.accessToken, userId: user.id, radarItems: graph.radarItems }));
+  const { graph, mode } = await buildUserState(c.env, user.accessToken, user.id);
+  const hold = workPushHold(graph, mode, new Date());
+  return c.json(await notifyRadarItems({ env: c.env, accessToken: user.accessToken, userId: user.id, radarItems: graph.radarItems, timezone: graph.identity.timezone, ...(hold ? { hold } : {}) }));
+});
+
+const hhmmSchema = z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/);
+app.get('/v1/notifications/preferences', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const rows = await supabaseRest<Array<Record<string, unknown>>>(c.env, user.accessToken, `/rest/v1/notification_preferences?user_id=eq.${encodeURIComponent(user.id)}&select=enabled,quiet_hours,lock_screen_detail,minimum_severity,morning_push_enabled,wake_time&limit=1`);
+  return c.json({ preferences: rows[0] ?? null });
+});
+app.put('/v1/notifications/preferences', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({
+    enabled: z.boolean().optional(),
+    morningPushEnabled: z.boolean().optional(),
+    wakeTime: hhmmSchema.optional(),
+    lockScreenDetail: z.enum(['minimal', 'normal']).optional(),
+    quietHours: z.union([z.object({ start: hhmmSchema, end: hhmmSchema }), z.object({})]).optional(),
+  }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const patch: Record<string, unknown> = { user_id: user.id, updated_at: new Date().toISOString() };
+  if (parsed.data.enabled !== undefined) patch.enabled = parsed.data.enabled;
+  if (parsed.data.morningPushEnabled !== undefined) patch.morning_push_enabled = parsed.data.morningPushEnabled;
+  if (parsed.data.wakeTime) patch.wake_time = parsed.data.wakeTime;
+  if (parsed.data.lockScreenDetail) patch.lock_screen_detail = parsed.data.lockScreenDetail;
+  if (parsed.data.quietHours) patch.quiet_hours = parsed.data.quietHours;
+  const rows = await supabaseRest<Array<Record<string, unknown>>>(c.env, user.accessToken, '/rest/v1/notification_preferences?on_conflict=user_id&select=enabled,quiet_hours,lock_screen_detail,minimum_severity,morning_push_enabled,wake_time', {
+    method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify([patch]),
+  });
+  await audit(c.env, user.accessToken, user.id, 'notification_preferences.updated', { fields: Object.keys(patch).filter((key) => key !== 'user_id' && key !== 'updated_at') }, 'notification_preferences', user.id);
+  return c.json({ preferences: rows[0] ?? null });
 });
 
 app.get('/v1/trust/model-routes', async (c) => {

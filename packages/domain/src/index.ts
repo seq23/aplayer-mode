@@ -563,6 +563,11 @@ export interface DayRecord {
   checkedInAt?: ISODateTime;
   /** Declared mid-day replans (external change, safety, permission only). */
   replans: Array<{ reason: string; detail?: string; at: ISODateTime }>;
+  /** End-of-day close (migration 0022). */
+  pillarReview?: Array<{ pillar: PlanPillar; score: 'hit' | 'partial' | 'miss'; completed?: string }>;
+  computedVerdict?: 'full_day' | 'mvd' | 'miss';
+  carryForward?: string;
+  insight?: string;
 }
 
 /** Evidence that one supplied goal-plan action was done on a local day. */
