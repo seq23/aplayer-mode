@@ -139,6 +139,26 @@ Cancellation, billing issue, expiration, refund and product-change events about 
 
 ## 8. What is not done (Phase E)
 
+### 8.0 Phase E go-live, done 2026-10-07 (no owner account needed)
+
+| Item | State | Where |
+|---|---|---|
+| API Worker live | **DONE**: `https://api.aplayermode.com/v1/health` 200, `runtimeEnvironment: production`, build SHA matches | `scripts/deploy-api-production.sh` (mirrors `deploy-cloudflare.yml`; never a bare `wrangler deploy`) |
+| Worker secrets | **SET**: `OPENROUTER_API_KEY`, `CONNECTOR_CREDENTIAL_KEY`, `OAUTH_STATE_SECRET`, `REVENUECAT_WEBHOOK_SECRET`, `APP_REVIEW_CODE`; `BILLING_ALLOW_SANDBOX` unset (the script refuses it) | values only in the operator's 0600 secrets folder, never printed |
+| `SUPABASE_SECRET_KEY` | **NAMED STOP**: the Management API token lacks `api_gateway_keys_write` (POST `/v1/projects/{ref}/api-keys` answered 403) | owner: Supabase → Project Settings → API Keys → *Create new secret key*, then `wrangler secret put SUPABASE_SECRET_KEY --env production` (in `services/api`) |
+| Web app live, installable | **DONE**: `https://app.aplayermode.com` (manifest, icons, `display: standalone`; Add to Home Screen) | `scripts/deploy-web-production.sh`, `apps/mobile/wrangler.web.jsonc` (static assets, SPA fallback) |
+| Terms / Privacy | **DONE**: `/terms`, `/privacy` (Spry Labs, last updated 2026-10-07); `EXPO_PUBLIC_TERMS_URL` / `EXPO_PUBLIC_PRIVACY_POLICY_URL` set in `eas.json` and the web build | `apps/mobile/public/{terms,privacy}/index.html`, pinned by `test/go-live.test.mjs` |
+| Domain | api./app. subdomains added; the zone redirect rules now match `http.host` (apex and www only), and both still 301 to `billionairehighperformancecoach.com/download` (and `/amazon/<slug>` to its book page) | Cloudflare zone aplayermode.com → Rules → Redirect Rules |
+| CORS | `ALLOWED_ORIGIN` = `APP_PUBLIC_URL` = `https://app.aplayermode.com` (preflight checked) | `services/api/wrangler.jsonc` `env.production.vars` |
+| Web paywall | "Subscribe in the iPhone or Android app"; no buy or Restore button on web (store billing only); beta-allowlisted accounts use the web | `src/billing/purchases.ts`, `PlanChoice.tsx` |
+| docs/36 leftovers | **DONE**: A-1 spinners (`LoadingState`); A-5 AX5 clipping (tab label cap, Flow step number); B-1 the weekly debrief proposes one adjustment from the week's misses, prefilled | `test/dynamic-type.test.mjs`, `packages/planning` `suggestWeeklyAdjustment` |
+| Reviewer account | **BUILT and configured** (`APP_REVIEW_EMAIL` var, `APP_REVIEW_CODE` secret); answers 404 until `SUPABASE_SECRET_KEY` is set (the stop above) | docs/35 |
+| `presubmit:ios` | passes | `scripts/presubmit-ios.mjs` |
+| Supabase security advisor | one WARN, not new: `auth_leaked_password_protection` (Auth config; APM has no passwords, sign-in is a code) | |
+
+Still open after 8.0: the Supabase Auth settings below, the stores/RevenueCat setup, and the Android/iOS store builds.
+
+
 **Named stops from the first-run build (docs/34 §14, 7 Oct 2026).** The Management API token used for migrations does not carry `auth_config_read` / `auth_config_write` (PATCH `/config/auth` answered 403), so these Supabase Auth settings are the owner's, in the dashboard (Authentication → Sign In / Providers, Emails, Rate limits, Attack protection):
 - **Email code:** OTP length **6**, and the Magic Link / Confirm signup / Change email templates use `{{ .Token }}` (a code, not a link); custom SMTP (the built-in sender is rate-limited).
 - **Anonymous sign-ins: on**, with **CAPTCHA (Turnstile)** and the per-IP anonymous rate limit; **manual identity linking: on**. Until then the app keeps the draft on the device only and asks for an account before install (no data is lost).
