@@ -134,6 +134,19 @@ test('no OpenRouter key: still scripted, still works', async () => {
   } finally { h.restore(); }
 });
 
+test('approved route: a rewrite with catch-up phrasing (even negated) is guarded to the scripted turn', async () => {
+  const env = { ...baseEnv, OPENROUTER_API_KEY: 'sk-or-test' };
+  const h = harness({ routeStatus: 'approved', modelText: 'No pressure to catch up — what is the one move for today?' });
+  try {
+    const { reply } = await call(env, { message: 'I am stuck' });
+    assert.equal(h.db.openrouterCalls.length, 1, 'the model was asked');
+    assert.match(h.db.openrouterCalls[0].messages[0].content, /BHPC No Catch-Up/, 'the production prompt carries the rule');
+    assert.equal(reply.engine, 'scripted');
+    assert.equal(reply.prompt.text, 'What feels most stuck right now — time, energy, or confidence?');
+    assert.doesNotMatch(JSON.stringify(reply), /catch up/i);
+  } finally { h.restore(); }
+});
+
 test('approved route: a valid rewrite is used; a two-question rewrite is discarded for the scripted turn', async () => {
   const env = { ...baseEnv, OPENROUTER_API_KEY: 'sk-or-test' };
   let h = harness({ routeStatus: 'approved', modelText: 'What part of the training plan feels heaviest this week?' });

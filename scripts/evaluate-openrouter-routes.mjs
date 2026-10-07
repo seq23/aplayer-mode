@@ -15,6 +15,8 @@ import {
   coachingCases,
   crisisNeverReachesModel,
   judgeCase,
+  judgeCaseDetail,
+  judgeRawCase,
   loadCoachingRuntime,
   openRouterErrorMessage,
   PROMOTION_THRESHOLDS,
@@ -31,10 +33,30 @@ if (process.argv.includes('--self-check')) {
   const rt = await loadCoachingRuntime();
   const problems = [];
   for (const testCase of coachingCases(rt)) {
-    for (const sample of testCase.samples.pass) if (!judgeCase(testCase, typeof sample === 'string' ? { text: sample, nextMove: null } : sample)) problems.push(`${testCase.id}: rejected a passing sample`);
-    for (const sample of testCase.samples.fail) if (judgeCase(testCase, typeof sample === 'string' ? { text: sample, nextMove: null } : sample)) problems.push(`${testCase.id}: accepted a failing sample`);
+    // Judge soundness is pinned on the strict, unguarded verdict.
+    for (const sample of testCase.samples.pass) {
+      const out = typeof sample === 'string' ? { text: sample, nextMove: null } : sample;
+      if (!judgeRawCase(testCase, out) || !judgeCase(testCase, out)) problems.push(`${testCase.id}: rejected a passing sample`);
+    }
+    for (const sample of testCase.samples.fail) if (judgeRawCase(testCase, typeof sample === 'string' ? { text: sample, nextMove: null } : sample)) problems.push(`${testCase.id}: accepted a failing sample`);
   }
   if (!crisisNeverReachesModel(rt)) problems.push('crisis language is not stopped before inference');
+  // No Catch-Up guard pins: the scripted fallback of every case is itself a valid
+  // delivery; a catch-up reply (even negated) is guarded to the scripted line and
+  // the strict judge still rejects the raw reply; the prompt carries the rule.
+  const catchUp = ['No pressure to catch up — today is one walk.', 'There is no catch-up today; one short walk is enough.', 'You can make up for the missed workouts later; start with a walk.'];
+  for (const testCase of coachingCases(rt)) {
+    if (!judgeCase(testCase, { text: testCase.scripted, nextMove: null })) problems.push(`${testCase.id}: scripted fallback fails its own judge`);
+    if (!buildCaseTask(rt, testCase).system.includes(rt.NO_CATCH_UP_INSTRUCTION)) problems.push(`${testCase.id}: prompt lacks the No Catch-Up instruction`);
+    const shaped = (t) => (testCase.slot === 'question' ? `${t.replace(/[.;—].*$/, '')}, what is today's one move?` : testCase.mode === 'high_pressure' ? `1. ${t}` : t);
+    for (const t of catchUp) {
+      const text = shaped(t);
+      const detail = judgeCaseDetail(testCase, { text, nextMove: null });
+      if (!detail.guarded) problems.push(`${testCase.id}: catch-up reply not guarded: ${text}`);
+      // The strict judge's own pattern (unchanged) still rejects the unguarded reply.
+      if (testCase.id === 'recovery_no_catch_up' && !/catch-up/.test(t) && judgeRawCase(testCase, { text, nextMove: null })) problems.push(`${testCase.id}: strict judge accepted a raw catch-up reply`);
+    }
+  }
   // Request-shape pins (the coaching_v1 HTTP 400 on Novita, 2026-10-06): every
   // route keeps the privacy controls; json_object routes never send json_schema.
   const sampleTask = buildCaseTask(rt, coachingCases(rt)[0]);
@@ -111,7 +133,7 @@ if (suite === COACHING_SUITE_ID) {
             results.push({ ...base, pass: false, latencyMs, ...usage, error: 'missing_content', finishReason: choice?.finish_reason ?? null });
             continue;
           }
-          results.push({ ...base, pass: judgeCase(testCase, content), latencyMs, ...usage, output: content.slice(0, 500) });
+          results.push({ ...base, ...judgeCaseDetail(testCase, content), latencyMs, ...usage, output: content.slice(0, 500) });
         } catch (error) {
           results.push({ ...base, pass: false, latencyMs: 0, error: error instanceof Error ? error.message : 'unknown_error' });
         }

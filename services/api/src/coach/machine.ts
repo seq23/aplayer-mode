@@ -424,6 +424,19 @@ export function assertCoachTurnContract(turn: Pick<CoachTurn, 'reply' | 'prompt'
   if (prompt.kind === 'question' && questionMarks(turn.reply) !== 0) throw new Error('one_question: the only question must be the closing prompt');
 }
 
+/**
+ * BHPC No Catch-Up output guard (docs/23 coaching review, 2026-10-06). A model
+ * rewrite may speak only of today and moving forward: any "catch up" phrasing —
+ * even negated ("no pressure to catch up", "no catch-up") — is discarded and the
+ * deterministic scripted line is delivered instead. Scripted lines are authored
+ * and never pass through this guard. Deterministic, no model involved.
+ */
+export const CATCH_UP_PHRASING = /\b(?:catch(?:es|ing)?[\s-]*up|caught[\s-]*up|ma(?:ke|kes|king|de)[\s-]*up[\s-]*for|make-?up\s+(?:work|sessions?|workouts?|days?)|double[\s-]*(?:up|it|your)|twice as much|extra\s+(?:sessions?|hours?|time|work)\s+to\s+(?:compensate|make\s+up))\b/i;
+
+export function hasCatchUpPhrasing(text: string | null | undefined): boolean {
+  return typeof text === 'string' && CATCH_UP_PHRASING.test(text);
+}
+
 export function isValidModelQuestion(text: string): boolean {
   const value = text.trim();
   return value.length >= 8 && value.length <= 300 && questionMarks(value) === 1 && value.endsWith('?') && !/morning sequence/i.test(value);
