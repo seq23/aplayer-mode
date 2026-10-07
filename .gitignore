@@ -23,3 +23,4 @@ yarn-error.log*
 # Expo prebuild output (continuous native generation): never committed
 apps/mobile/android/
 apps/mobile/ios/
+dist-android/

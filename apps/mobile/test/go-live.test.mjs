@@ -57,3 +57,11 @@ test('the web app is installable: manifest, icons, standalone', async () => {
   assert.match(head, /rel="manifest" href="\/manifest\.webmanifest"/);
   assert.match(head, /apple-touch-icon/);
 });
+
+test('the reviewer address on the Worker is the one on the beta allowlist (0070)', async () => {
+  const wrangler = await read('../../services/api/wrangler.jsonc');
+  const email = wrangler.match(/"APP_REVIEW_EMAIL": "([^"]+)"/)[1];
+  const migration = await read('../../services/api/migrations/0070_app_review_beta.sql');
+  assert.match(migration, new RegExp(`values \\('${email.replace('.', '\\.')}', '20\\d\\d-`));
+  assert.doesNotMatch(migration, /infinity|9999-/, 'a bounded grant, never permanent');
+});
