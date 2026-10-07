@@ -29,6 +29,10 @@ test('capability matrix keeps Life OS and Autopilot distinct', () => {
   assert.equal(planHasCapability('life_os', 'life_os_domains'), true);
   assert.equal(planHasCapability('life_os', 'standing_autopilot'), false);
   assert.equal(planHasCapability('autopilot', 'standing_autopilot'), true);
+  // Owner decision 7 Oct 2026: multiple connected calendars & inboxes are Autopilot's alone
+  // (the database mirror is pinned by services/api/test/multi-account-db.test.mjs).
+  for (const plan of ['beta', 'chief_of_staff', 'life_os', 'household']) assert.equal(planHasCapability(plan, 'multi_account'), false, plan);
+  assert.equal(planHasCapability('autopilot', 'multi_account'), true);
   assert.deepEqual(capabilitiesForPlan('household'), []);
 });
 
@@ -58,4 +62,14 @@ test('a user permission cannot exceed the product entitlement', () => {
   assert.equal(result.allowed, false);
   assert.equal(result.effectiveLevel, 4);
   assert.equal(result.reason, 'entitlement_too_low');
+});
+
+test('docs/29 states the connected-accounts limit exactly as the capability grants it', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const doc = await readFile(new URL('../../../docs/29-THREE-TIER-PRODUCT-CONTRACT.md', import.meta.url), 'utf8');
+  const row = doc.split('\n').find((line) => line.startsWith('| Connected calendars & inboxes |'));
+  assert.ok(row, 'the capability grid has the connected-accounts row');
+  const cells = row.split('|').slice(2, 5).map((cell) => cell.trim());
+  const expected = ['chief_of_staff', 'life_os', 'autopilot'].map((plan) => (planHasCapability(plan, 'multi_account') ? 'Multiple' : '1'));
+  assert.deepEqual(cells, expected);
 });

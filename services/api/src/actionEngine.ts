@@ -67,6 +67,7 @@ export function actionErrorResponse(error: unknown): { error: string; status: 40
   if (message === 'action_invalid_state') return { error: 'invalid_action_state', status: 409 };
   if (message === 'action_key_reserved' || message === 'action_invalid_request') return { error: 'invalid_request', status: 400 };
   if (message === 'action_needs_user') return { error: 'needs_user', status: 409 };
+  if (message === 'action_connection_paused' || message === 'connection_paused') return { error: 'connection_paused', status: 409 };
   if (message.startsWith('action_not_authorized:')) return { error: 'action_not_authorized', status: 403 };
   if (message === 'service_unavailable') return { error: 'service_unavailable', status: 503 };
   return undefined;
@@ -181,7 +182,7 @@ export async function executeConnectorAction(action: ActionRecord, input: { env:
   throw new Error('unsupported_action_type');
 }
 
-type ConnectorInput = { env: ApiEnv; accessToken: string; userId: string };
+type ConnectorInput = { env: ApiEnv; accessToken: string; userId: string; allowPaused?: boolean };
 
 /** The database-composed write for a standing run (migration 0033); never client text. */
 function composedOf(action: ActionRecord): Record<string, unknown> {
@@ -273,9 +274,11 @@ export async function executeStandingConnectorAction(action: ActionRecord, input
 /** Reverses a reversible standing write from the ledger's undo target. */
 export async function revertStandingConnectorAction(
   target: { undoMethod: 'delete_event' | 'delete_draft' | 'restore_time' | 'reaccept' | 'none'; connectionId: string; externalRef: string; originalStartsAt?: string; originalEndsAt?: string },
-  input: ConnectorInput,
+  connectorInput: ConnectorInput,
 ): Promise<void> {
   if (target.undoMethod === 'none') throw new Error('autopilot_cannot_undo');
+  // Undo goes back to the account that acted, even if that account was paused since.
+  const input = { ...connectorInput, allowPaused: true };
   if (target.undoMethod === 'restore_time') {
     await moveCalendarEvent(target.connectionId, target.externalRef, target.originalStartsAt ?? '', target.originalEndsAt ?? '', input);
     return;
@@ -293,7 +296,7 @@ export async function revertStandingConnectorAction(
  */
 export async function revertConnectorAction(
   target: { undoMethod: 'delete_event' | 'delete_draft'; connectionId: string; externalRef: string },
-  input: { env: ApiEnv; accessToken: string; userId: string },
+  input: ConnectorInput,
 ): Promise<void> {
   if (!target.connectionId || !target.externalRef) throw new Error('undo_target_invalid');
   const auth = await getValidConnectorToken({ ...input, connectionId: target.connectionId });

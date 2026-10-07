@@ -87,6 +87,23 @@ Approving a stopped Autopilot action through `POST /v1/actions/:id/approve` is r
 
 Every claim also creates a normal `actions` row (`status = executing`, `requires_approval = false`, idempotency key `autopilot:<key>`) and an `action_attempts` row on completion, so Activity and the action lifecycle stay unified.
 
+## Multiple connected accounts (migration 0065, owner decision 2026-10-07)
+
+Autopilot is the only plan that connects several calendars and inboxes at once (work AND personal); every other plan connects one of each (docs/29). The database owns the limit.
+
+| Piece | Where |
+|---|---|
+| Label, primary, pause on each account | `integration_connections.label / is_primary / paused_at / paused_reason` |
+| Second live account of a kind needs Autopilot | trigger `integration_connections_guard` → `connection_multi_account_requires_autopilot` (Worker answers 403 naming Autopilot) |
+| Downgrade pauses extras, never deletes | trigger `subscription_entitlements_reconcile_connections` → `private.apm_connections_reconcile`, audited `connection.paused` |
+| Label / primary / reactivate / disconnect | `public.apm_connection_set_label`, `apm_connection_set_primary`, `apm_connection_reactivate`, `apm_connection_disconnect` (Worker: `PATCH /v1/connections/:id`, `POST /v1/connections/:id/{primary,reactivate,disconnect}`) |
+| Paused = no sync, no actions | `private.apm_connection_usable` gates `apm_replace_calendar_window`, synced-row triggers, `apm_autopilot_require_connection` (`autopilot_connection_paused`) and `apm_service_action_claim` (`action_connection_paused`); Undo is never blocked |
+| Rule names its account | `autopilot_rules.connection_id` (default: the primary of the class's kind); `POST /v1/autopilot/rules` takes `connectionId`; one live rule per class **per account** |
+| Execution names its account | `autopilot_executions.connection_id`; trigger `autopilot_executions_account_guard` refuses any other account (`autopilot_wrong_account`) |
+| Collision check spans every calendar | `private.apm_autopilot_slot_busy` reads every calendar row of the user; one invite on two calendars is two rows (`calendar_events_account_event_unique`) but one Run of Show block and never a Radar conflict |
+
+Export (`apm_data_rights_export`) carries the new columns; erasure revokes and purges every account, paused ones included.
+
 ## Rule lifecycle
 
 ```text

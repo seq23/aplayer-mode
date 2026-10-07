@@ -192,6 +192,7 @@ test('rule lifecycle writes are RPC-only with exactly the documented arguments',
   const mock = mockFetch((call) => ({ json: call.url.endsWith('set_master_pause') ? { user_id: USER, paused: true, paused_at: null } : ruleRow }));
   try {
     await repo.grantAutopilotRule(baseEnv, 'jwt', { actionClass: 'calendar.create', constraints: rule.constraints, expiresAt: rule.expiresAt });
+    await repo.grantAutopilotRule(baseEnv, 'jwt', { actionClass: 'calendar.create', constraints: rule.constraints, expiresAt: rule.expiresAt, connectionId: '22222222-2222-4222-8222-222222222222' });
     await repo.updateAutopilotRule(baseEnv, 'jwt', 'rule-1', { expectedVersion: 1, expiresAt: rule.expiresAt });
     await repo.setAutopilotRuleStatus(baseEnv, 'jwt', 'rule-1', 'paused', 2);
     await repo.revokeAutopilotRule(baseEnv, 'jwt', 'rule-1');
@@ -199,7 +200,12 @@ test('rule lifecycle writes are RPC-only with exactly the documented arguments',
   } finally { mock.restore(); }
   assertNoDirectAutopilotWrites(mock.calls);
   const body = (fn) => mock.calls.find((c) => c.url === `/rest/v1/rpc/${fn}`).body;
-  assert.deepEqual(body('apm_autopilot_grant_rule'), { p_action_class: 'calendar.create', p_constraints: rule.constraints, p_expires_at: rule.expiresAt });
+  // The rule names the account it acts on (0065): null = the primary of its kind.
+  const grants = mock.calls.filter((c) => c.url === '/rest/v1/rpc/apm_autopilot_grant_rule').map((c) => c.body);
+  assert.deepEqual(grants, [
+    { p_action_class: 'calendar.create', p_constraints: rule.constraints, p_expires_at: rule.expiresAt, p_connection_id: null },
+    { p_action_class: 'calendar.create', p_constraints: rule.constraints, p_expires_at: rule.expiresAt, p_connection_id: '22222222-2222-4222-8222-222222222222' },
+  ]);
   assert.deepEqual(body('apm_autopilot_update_rule'), { p_id: 'rule-1', p_expected_version: 1, p_constraints: null, p_expires_at: rule.expiresAt });
   assert.deepEqual(body('apm_autopilot_set_rule_status'), { p_id: 'rule-1', p_status: 'paused', p_expected_version: 2 });
   assert.deepEqual(body('apm_autopilot_revoke_rule'), { p_id: 'rule-1', p_reason: null });

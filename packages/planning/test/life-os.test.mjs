@@ -222,3 +222,22 @@ test('engine P2-1: the Today projection uses the daily loop’s Never Miss Twice
   state.dayRecords = [{ day: '2026-10-05', verdict: 'miss' }];
   assert.equal(buildDailyPlan(state, { date: '2026-10-06' }).mode, 'recovery');
 });
+
+test('the run of show spans every connected calendar, and one invite on two calendars is one block (0065)', () => {
+  const state = graph();
+  const event = (id, connectionId, externalEventId, hour, title) => ({
+    id, userId: 'user-1', connectionId, provider: 'google', externalEventId, title,
+    startsAt: `2026-10-06T${String(hour).padStart(2, '0')}:00:00.000Z`, endsAt: `2026-10-06T${String(hour + 1).padStart(2, '0')}:00:00.000Z`,
+    allDay: false, availability: 'busy', recurrence: {}, organizer: {}, attendees: [], deleted: false,
+  });
+  state.calendarEvents = [
+    event('e1', 'conn-work', 'standup', 9, 'Standup'),
+    event('e2', 'conn-personal', 'standup', 9, 'Standup'),
+    event('e3', 'conn-personal', 'pickup', 15, 'School pickup'),
+  ];
+  const blocks = buildDailyPlan(state, { date: '2026-10-06' }).blocks.filter((block) => block.source === 'calendar');
+  assert.deepEqual(blocks.map((block) => [block.title, block.connectionIds]), [
+    ['Standup', ['conn-work', 'conn-personal']],
+    ['School pickup', ['conn-personal']],
+  ]);
+});

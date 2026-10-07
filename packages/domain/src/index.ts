@@ -561,6 +561,8 @@ export interface DailyPlanBlock {
   actionId?: UUID;
   lifeAdminItemId?: UUID;
   source?: 'methodology' | 'calendar' | 'commitment' | 'routine' | 'life_os';
+  /** Calendar blocks: the connected account(s) the event came from (one invite on two calendars is one block). */
+  connectionIds?: UUID[];
 }
 
 export interface DailyPlan {
@@ -588,6 +590,13 @@ export interface IntegrationConnection {
   kind: IntegrationKind;
   accountLabel?: string;
   externalAccountId?: string;
+  /** The user's own name for the account ("Work", "Personal"). */
+  label?: string;
+  /** One primary per kind: kept live on a downgrade, default account for rules. */
+  isPrimary?: boolean;
+  /** Set when the account is paused (no sync, no actions): today only 'plan' (0065). */
+  pausedAt?: ISODateTime;
+  pausedReason?: 'plan';
   status: 'connected' | 'needs_reauth' | 'error' | 'disconnected';
   scopes: string[];
   lastSyncAt?: ISODateTime;
@@ -893,6 +902,8 @@ export interface AutopilotRule {
   actionClass: AutopilotActionClass;
   status: 'active' | 'paused' | 'revoked';
   constraints: AutopilotRuleConstraints;
+  /** The connected account the rule acts on (0065); a claim on any other account is refused. */
+  connectionId?: UUID;
   version: number;
   grantedAt: ISODateTime;
   expiresAt: ISODateTime;
@@ -911,6 +922,8 @@ export interface AutopilotExecution {
   ruleVersion: number;
   actionClass: AutopilotActionClass;
   actionId?: UUID;
+  /** The connected account this execution acted on; undo goes back to it. */
+  connectionId?: UUID;
   status: 'claimed' | 'verified' | 'failed' | 'reverted';
   idempotencyKey: string;
   proposedStartsAt?: ISODateTime;

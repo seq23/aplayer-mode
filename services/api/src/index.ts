@@ -8,7 +8,7 @@ import { authenticateRequest, devBypassMisconfigured, verifyAccessToken } from '
 import { claimIntakeInstall, deleteAuthUser, finishIntakeInstall, getIntakeDraft, hasServiceCredential, mergeAnonymousDraft, saveIntakeDraft } from './intakeRepository';
 import { synthesizeIntake } from './intakeSynthesis';
 import type { ApiEnv } from './env';
-import { SERVICE_ROLE_TOKEN, supabaseRest } from './db';
+import { restErrorMessage, SERVICE_ROLE_TOKEN, supabaseRest } from './db';
 import { billingOfferingFor, handleRevenueCatWebhook } from './billing';
 import {
   completeNextAction,
@@ -1274,11 +1274,43 @@ app.post('/v1/apm/coach/:sessionId/close', async (c) => {
   return c.json({ ok: true });
 });
 
+// Multiple connected calendars / inboxes are Autopilot's (0065). The database is the
+// enforcement (a trigger refuses the second live account); these answers only turn its
+// refusal into a plain upgrade note instead of a failed OAuth round trip.
+function multiAccountRefusal(c: any) {
+  return c.json({
+    error: 'multi_account_requires_autopilot',
+    requiredPlan: 'autopilot',
+    requiredPlanName: PLAN_PRICES.autopilot.displayName,
+    message: `More than one calendar or inbox at once is part of ${PLAN_PRICES.autopilot.displayName}.`,
+  }, 403);
+}
+function connectionErrorMessage(error: unknown): string {
+  return restErrorMessage(error) ?? (error instanceof Error ? error.message : '');
+}
+function connectionFailure(c: any, error: unknown) {
+  const message = connectionErrorMessage(error);
+  if (message === 'connection_multi_account_requires_autopilot') return multiAccountRefusal(c);
+  if (message === 'connection_paused') return c.json({ error: 'connection_paused' }, 409);
+  if (message === 'connection_not_found') return c.json({ error: 'not_found' }, 404);
+  if (message === 'connection_invalid_label') return c.json({ error: 'invalid_label' }, 400);
+  throw error;
+}
+function hasMultiAccount(entitlement: SubscriptionEntitlement | undefined): boolean {
+  return Boolean(entitlement && entitlementIsUsable(entitlement) && planHasCapability(entitlement.plan as ProductPlan, 'multi_account'));
+}
+
 app.post('/v1/connections/oauth/start', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   // access 'act' is a separate, explicit consent for provider write scopes (Autopilot).
-  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, codeChallenge: z.string().min(20).max(200), redirectUri: z.string().url().optional(), access: z.enum(['read','act']).default('read') }).safeParse(await c.req.json().catch(() => null));
+  // intent 'add' = another account of this kind (Autopilot only); 'reconnect' = the same one.
+  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, codeChallenge: z.string().min(20).max(200), redirectUri: z.string().url().optional(), access: z.enum(['read','act']).default('read'), intent: z.enum(['add','reconnect']).default('reconnect') }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (parsed.data.intent === 'add') {
+    const graph = await getLifeGraph(c.env, user.accessToken, user.id);
+    const live = graph.connections.filter((item) => item.kind === parsed.data.kind && item.provider !== 'device' && item.status !== 'disconnected' && !item.pausedAt);
+    if (live.length > 0 && !hasMultiAccount(graph.entitlement)) return multiAccountRefusal(c);
+  }
   const state = await createOAuthState(c.env, { userId: user.id, provider: parsed.data.provider, kind: parsed.data.kind, codeChallenge: parsed.data.codeChallenge });
   return c.json({ state, authorizationUrl: buildOAuthAuthorizationUrl({ env: c.env, ...parsed.data, state }) });
 });
@@ -1293,7 +1325,10 @@ app.post('/v1/connections/oauth/exchange', async (c) => {
   let binary = ''; for (const byte of digest) binary += String.fromCharCode(byte);
   const challenge = btoa(binary).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
   if (challenge !== state.codeChallenge) return c.json({ error: 'oauth_pkce_mismatch' }, 403);
-  const connection = await exchangeAndStoreOAuthConnection({ env: c.env, accessToken: user.accessToken, userId: user.id, provider: parsed.data.provider, kind: parsed.data.kind, code: parsed.data.code, codeVerifier: parsed.data.codeVerifier, redirectUri: parsed.data.redirectUri });
+  let connection: Awaited<ReturnType<typeof exchangeAndStoreOAuthConnection>>;
+  try {
+    connection = await exchangeAndStoreOAuthConnection({ env: c.env, accessToken: user.accessToken, userId: user.id, provider: parsed.data.provider, kind: parsed.data.kind, code: parsed.data.code, codeVerifier: parsed.data.codeVerifier, redirectUri: parsed.data.redirectUri });
+  } catch (error) { return connectionFailure(c, error); }
   await audit(c.env, user.accessToken, user.id, 'integration.connected', { provider: parsed.data.provider, kind: parsed.data.kind }, 'integration_connection', connection.connectionId);
   return c.json(connection);
 });
@@ -1311,7 +1346,9 @@ app.post('/v1/calendar/device/sync', async (c) => {
 
 app.post('/v1/calendar/connections/:id/sync', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const result = await syncCloudCalendar({ env: c.env, accessToken: user.accessToken, userId: user.id, connectionId: c.req.param('id') });
+  let result: Awaited<ReturnType<typeof syncCloudCalendar>>;
+  try { result = await syncCloudCalendar({ env: c.env, accessToken: user.accessToken, userId: user.id, connectionId: c.req.param('id') }); }
+  catch (error) { return connectionFailure(c, error); }
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'calendar_synced', { provider: result.provider, count: result.count });
   return c.json({ ...result, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });
@@ -1320,10 +1357,35 @@ app.post('/v1/email/connections/:id/sync', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ maxMessages: z.number().int().min(1).max(50).optional() }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  const result = await syncEmailSignals({ env: c.env, accessToken: user.accessToken, userId: user.id, connectionId: c.req.param('id'), maxMessages: parsed.data.maxMessages });
+  let result: Awaited<ReturnType<typeof syncEmailSignals>>;
+  try { result = await syncEmailSignals({ env: c.env, accessToken: user.accessToken, userId: user.id, connectionId: c.req.param('id'), maxMessages: parsed.data.maxMessages }); }
+  catch (error) { return connectionFailure(c, error); }
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'email_synced', { provider: result.provider, messagesProcessed: result.messagesProcessed, signalsStored: result.signalsStored });
   return c.json({ ...result, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });
+
+// Account management (0065). Each is a governed RPC: ownership, the plan limit and the
+// audit event are checked in the database. Disconnect works on every plan.
+const connectionIdSchema = z.string().uuid();
+app.patch('/v1/connections/:id', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const id = connectionIdSchema.safeParse(c.req.param('id'));
+  const parsed = z.object({ label: z.string().trim().min(1).max(40).regex(/^[^\p{Cc}]+$/u).nullable() }).strict().safeParse(await c.req.json().catch(() => null));
+  if (!id.success || !parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  try { await supabaseRest(c.env, user.accessToken, '/rest/v1/rpc/apm_connection_set_label', { method: 'POST', body: JSON.stringify({ p_connection_id: id.data, p_label: parsed.data.label }) }); }
+  catch (error) { return connectionFailure(c, error); }
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
+});
+for (const [path, fn] of [['primary', 'apm_connection_set_primary'], ['reactivate', 'apm_connection_reactivate'], ['disconnect', 'apm_connection_disconnect']] as const) {
+  app.post(`/v1/connections/:id/${path}`, async (c) => {
+    const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+    const id = connectionIdSchema.safeParse(c.req.param('id'));
+    if (!id.success) return c.json({ error: 'invalid_request' }, 400);
+    try { await supabaseRest(c.env, user.accessToken, `/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify({ p_connection_id: id.data }) }); }
+    catch (error) { return connectionFailure(c, error); }
+    return c.json(await buildUserState(c.env, user.accessToken, user.id));
+  });
+}
 
 app.put('/v1/permissions/:domain/:actionType', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
@@ -1431,14 +1493,17 @@ app.get('/v1/autopilot', async (c) => {
 
 app.post('/v1/autopilot/rules', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = autopilotGrantSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const body = await c.req.json().catch(() => null);
+  const parsed = autopilotGrantSchema.safeParse(body);
+  // The account the rule acts on (0065); omitted = the primary account of its kind.
+  const account = z.object({ connectionId: z.string().uuid().optional() }).safeParse(body ?? {});
+  if (!parsed.success || !account.success) return c.json({ error: 'invalid_request' }, 400);
   const problems = validateStandingConstraints(parsed.data.actionClass, parsed.data.constraints as Record<string, unknown>);
   if (problems.length) return c.json({ error: 'invalid_constraints', problems }, 400);
   const graph = await getLifeGraph(c.env, user.accessToken, user.id);
   if (!hasAutopilotAccess(graph.entitlement)) return c.json({ error: 'autopilot_required' }, 403);
   try {
-    const rule = await grantAutopilotRule(c.env, user.accessToken, parsed.data);
+    const rule = await grantAutopilotRule(c.env, user.accessToken, { ...parsed.data, connectionId: account.data.connectionId });
     await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'autopilot_rule_granted', { actionClass: rule.actionClass });
     return c.json({ rule }, 201);
   } catch (error) { return autopilotFailure(c, error); }

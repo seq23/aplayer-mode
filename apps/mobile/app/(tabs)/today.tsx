@@ -34,6 +34,7 @@ import { useLifeGraph } from '../../src/state/lifeGraph';
 import { areaDisplay } from '../../src/content/areas';
 import { BedRoutineToday, CoachingModeChips, PillarRollUpLine, PracticesToday, QuickTaps, SaveAccountBanner } from '../../src/components/today/FirstRunCards';
 import { useSession } from '../../src/state/session';
+import { sourceAccountLabel } from '../../src/integrations/accounts';
 
 function timeLabel(value?: string) {
   if (!value) return undefined;
@@ -327,7 +328,7 @@ export default function TodayScreen() {
       <View style={uiStyles.stack}>
         {(todayPlan?.blocks.length ?? 0) ? todayPlan!.blocks.map((block) => (
           <Card key={block.id}>
-            <View style={uiStyles.row}><Pill>{block.source ?? 'plan'}</Pill>{block.startAt ? <Pill>{timeLabel(block.startAt)}{block.endAt ? `–${timeLabel(block.endAt)}` : ''}</Pill> : null}</View>
+            <View style={uiStyles.row}><Pill>{block.source ?? 'plan'}</Pill>{block.startAt ? <Pill>{timeLabel(block.startAt)}{block.endAt ? `–${timeLabel(block.endAt)}` : ''}</Pill> : null}{block.source === 'calendar' && sourceAccountLabel(graph.connections, 'calendar', block.connectionIds) ? <Pill>{sourceAccountLabel(graph.connections, 'calendar', block.connectionIds)!}</Pill> : null}</View>
             <CardTitle>{block.title}</CardTitle>
           </Card>
         )) : <Card><Body muted>No calendar or execution blocks are available yet.</Body></Card>}

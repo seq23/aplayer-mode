@@ -242,6 +242,12 @@ function overlaps(a: CalendarEvent, b: CalendarEvent): boolean {
   return Date.parse(a.startsAt) < Date.parse(b.endsAt) && Date.parse(b.startsAt) < Date.parse(a.endsAt);
 }
 
+/** Which account an event came from: the user's label ("Work"), else the account, else the provider. */
+function calendarAccountLabel(graph: LifeGraphSnapshot, event: CalendarEvent): string {
+  const connection = event.connectionId ? (graph.connections ?? []).find((item) => item.id === event.connectionId) : undefined;
+  return connection?.label ?? connection?.accountLabel ?? event.provider;
+}
+
 function calendarConflictItems(graph: LifeGraphSnapshot, now: Date): RadarItem[] {
   const horizon = now.getTime() + 7 * DAY_MS;
   const events = (graph.calendarEvents ?? [])
@@ -254,6 +260,8 @@ function calendarConflictItems(graph: LifeGraphSnapshot, now: Date): RadarItem[]
       if (Date.parse(events[j]!.startsAt) >= Date.parse(events[i]!.endsAt)) break;
       const a = events[i]!;
       const b = events[j]!;
+      // The same invitation on two connected calendars (work and personal) is one meeting, not a conflict.
+      if (a.provider === b.provider && a.externalEventId === b.externalEventId) continue;
       if (!overlaps(a, b)) continue;
       const key = [a.id, b.id].sort().join(':');
       if (seen.has(key)) continue;
@@ -266,8 +274,8 @@ function calendarConflictItems(graph: LifeGraphSnapshot, now: Date): RadarItem[]
         severity: startsInHours <= 24 ? 'high' : 'medium', confidence: 1, importance: 0.75,
         urgency: startsInHours <= 24 ? 0.95 : 0.7, goalAlignment: 0.6, consequence: 0.75,
         sourceRefs: [
-          { sourceType: 'calendar', sourceRef: a.externalEventId, label: a.provider },
-          { sourceType: 'calendar', sourceRef: b.externalEventId, label: b.provider },
+          { sourceType: 'calendar', sourceRef: a.externalEventId, label: calendarAccountLabel(graph, a) },
+          { sourceType: 'calendar', sourceRef: b.externalEventId, label: calendarAccountLabel(graph, b) },
         ],
         reasonCodes: ['calendar.busy_overlap'], createdAt: now.toISOString(), firstRelevantAt: now.toISOString(),
       });
