@@ -37,6 +37,6 @@ export APM_UPLOAD_STORE_FILE="$APM_KEYSTORE_DIR/upload.keystore"
 APM_UPLOAD_STORE_PASSWORD="$(cat "$APM_KEYSTORE_DIR/upload.keystore.password")"; export APM_UPLOAD_STORE_PASSWORD
 (cd android && ./gradlew --quiet assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64)
 APK=android/app/build/outputs/apk/release/app-release.apk
-"$ANDROID_HOME"/build-tools/37.0.0/apksigner verify "$APK"
+PATH="$JAVA_HOME/bin:$PATH" "$ANDROID_HOME"/build-tools/37.0.0/apksigner verify --print-certs "$APK" | grep -q "certificate DN: CN=A Player Mode, O=Spry Labs" || { echo "APK is not signed with the upload key"; exit 1; }
 mkdir -p ../../dist-android && cp "$APK" ../../dist-android/aplayermode.apk
 echo "APK: dist-android/aplayermode.apk ($(du -h ../../dist-android/aplayermode.apk | cut -f1))"
