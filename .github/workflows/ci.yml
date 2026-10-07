@@ -26,3 +26,7 @@ jobs:
 
       - name: Test workspaces
         run: npm run test
+
+      - name: Bundle the app (Metro must resolve workspace sources)
+        run: npx expo export --platform web --output-dir "$RUNNER_TEMP/web-export"
+        working-directory: apps/mobile
