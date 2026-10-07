@@ -23,6 +23,8 @@ export async function connectOAuthProvider(input: {
   accessToken: string;
   /** 'act' = the separate write consent Autopilot classes require (docs/22). */
   access?: 'read' | 'act';
+  /** 'add' = another account of this kind (Autopilot only, 0065); 'reconnect' = the same account. */
+  intent?: 'add' | 'reconnect';
 }) {
   const redirectUri = makeRedirectUri({ scheme: 'aplayermode', path: 'oauth' });
   const codeVerifier = randomVerifier();
@@ -37,6 +39,7 @@ export async function connectOAuthProvider(input: {
     codeChallenge,
     redirectUri,
     access: input.access ?? 'read',
+    intent: input.intent ?? 'reconnect',
   }, input.accessToken);
 
   const result = await WebBrowser.openAuthSessionAsync(started.authorizationUrl, redirectUri);

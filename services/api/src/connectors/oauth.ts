@@ -17,6 +17,7 @@ interface ConnectionSecretRow {
   kind: IntegrationKind;
   encrypted_credentials: string | null;
   credential_iv: string | null;
+  paused_at?: string | null;
 }
 
 /**
@@ -178,10 +179,13 @@ export async function exchangeAndStoreOAuthConnection(input: {
   return { connectionId, accountLabel: identity.label };
 }
 
-async function loadConnectionSecret(env: ApiEnv, accessToken: string, userId: string, connectionId: string): Promise<ConnectionSecretRow> {
-  const rows = await supabaseRest<ConnectionSecretRow[]>(env, accessToken, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(connectionId)}&user_id=eq.${encodeURIComponent(userId)}&select=id,provider,kind,encrypted_credentials,credential_iv&limit=1`);
+async function loadConnectionSecret(env: ApiEnv, accessToken: string, userId: string, connectionId: string, allowPaused = false): Promise<ConnectionSecretRow> {
+  const rows = await supabaseRest<ConnectionSecretRow[]>(env, accessToken, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(connectionId)}&user_id=eq.${encodeURIComponent(userId)}&select=id,provider,kind,encrypted_credentials,credential_iv,paused_at&limit=1`);
   const row = rows[0];
   if (!row?.encrypted_credentials || !row.credential_iv) throw new Error('connection_credentials_missing');
+  // A paused account (a downgrade's extra, 0065) neither syncs nor acts. Undo is the one
+  // exception: reversing what APM already did on that account is always allowed.
+  if (row.paused_at && !allowPaused) throw new Error('connection_paused');
   return row;
 }
 
@@ -208,8 +212,8 @@ async function refreshMicrosoft(env: ApiEnv, token: ConnectorTokens): Promise<Co
   return { accessToken: data.access_token, refreshToken: data.refresh_token ?? token.refreshToken, expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined, tokenType: data.token_type, scope: data.scope ?? token.scope };
 }
 
-export async function getValidConnectorToken(input: { env: ApiEnv; accessToken: string; userId: string; connectionId: string }): Promise<{ provider: 'google' | 'microsoft'; kind: IntegrationKind; accessToken: string }> {
-  const row = await loadConnectionSecret(input.env, input.accessToken, input.userId, input.connectionId);
+export async function getValidConnectorToken(input: { env: ApiEnv; accessToken: string; userId: string; connectionId: string; allowPaused?: boolean }): Promise<{ provider: 'google' | 'microsoft'; kind: IntegrationKind; accessToken: string }> {
+  const row = await loadConnectionSecret(input.env, input.accessToken, input.userId, input.connectionId, input.allowPaused === true);
   if (row.provider !== 'google' && row.provider !== 'microsoft') throw new Error('oauth_provider_unsupported');
   let tokens = await decryptConnectorCredential<ConnectorTokens>(input.env, row.encrypted_credentials!, row.credential_iv!);
   if (tokens.expiresAt && tokens.expiresAt <= Date.now() + 60_000) {

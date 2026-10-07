@@ -182,3 +182,27 @@ test('Life OS lead windows use local calendar days instead of elapsed hours', ()
   assert.ok(afterItem);
   assert.match(afterItem.headline, /overdue/i);
 });
+
+test('calendar conflicts are found across connected accounts and name each account; a shared invite is not a conflict (0065)', () => {
+  const base = graph([], []);
+  const event = (id, connectionId, externalEventId, start, end, title) => ({
+    id, userId: 'user-1', connectionId, provider: 'google', externalEventId, title, startsAt: start, endsAt: end,
+    allDay: false, availability: 'busy', recurrence: {}, organizer: {}, attendees: [], deleted: false,
+  });
+  const snapshot = {
+    ...base,
+    connections: [
+      { id: 'conn-work', userId: 'user-1', provider: 'google', kind: 'calendar', label: 'Work', isPrimary: true, status: 'connected', scopes: [] },
+      { id: 'conn-personal', userId: 'user-1', provider: 'google', kind: 'calendar', label: 'Personal', isPrimary: false, status: 'connected', scopes: [] },
+    ],
+    calendarEvents: [
+      event('w1', 'conn-work', 'board', '2026-10-06T15:00:00.000Z', '2026-10-06T16:00:00.000Z', 'Board prep'),
+      event('p1', 'conn-personal', 'dentist', '2026-10-06T15:30:00.000Z', '2026-10-06T16:30:00.000Z', 'Dentist'),
+      event('w2', 'conn-work', 'shared', '2026-10-07T15:00:00.000Z', '2026-10-07T16:00:00.000Z', 'Parent evening'),
+      event('p2', 'conn-personal', 'shared', '2026-10-07T15:00:00.000Z', '2026-10-07T16:00:00.000Z', 'Parent evening'),
+    ],
+  };
+  const conflicts = buildRadarItems(snapshot, { now, maxItems: 20 }).filter((item) => item.reasonCodes.includes('calendar.busy_overlap'));
+  assert.equal(conflicts.length, 1, 'work vs personal is a conflict; the same invite on both is not');
+  assert.deepEqual(conflicts[0].sourceRefs.map((ref) => ref.label).sort(), ['Personal', 'Work']);
+});

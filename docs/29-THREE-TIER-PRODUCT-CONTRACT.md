@@ -56,7 +56,18 @@ flowchart LR
 | Health routines / recurring life admin | — | ✓ | ✓ |
 | Per-action execution after approval | — | ✓ | ✓ |
 | Standing authority within constraints | — | — | ✓ |
+| Connected calendars & inboxes | 1 | 1 | Multiple |
 | Household shared graph | — | — | — |
+
+### Connected calendars & inboxes (owner decision, 2026-10-07)
+
+Executive Roundtable and Executive Suite (and the beta) connect **one** cloud calendar and **one** inbox. Autopilot connects **several at once** (work and personal), with a user-chosen label on each ("Work", "Personal") and one primary per kind. The capability is `multi_account` on the autopilot plan in `packages/policy` (`productPlanPolicies`), and the limit is enforced in the database, not only the app (migration 0065: a trigger refuses a second live account of a kind without an active or trialing Autopilot entitlement). Calendars read through the phone's own calendar app are not cloud accounts and are not counted.
+
+- **Downgrade:** nothing is deleted. The primary stays live; every extra account is paused (no sync, no actions), the app says so plainly, and the user reactivates it after upgrading, or makes it the primary instead on any plan.
+- **Disconnect** always works, on every plan, paused or not.
+- **Across accounts:** sync, Today/Radar, the Run of Show and Autopilot's collision check span every connected calendar, so work is never double-booked against personal. Each Autopilot rule and each prepared action names the account it acts on, and Undo goes back to that account.
+
+Pinned by `packages/policy/test/product-plans.test.mjs` (this row and the capability), `services/api/test/multi-account-db.test.mjs` (the database) and `apps/mobile/test/connected-accounts.test.mjs` (what the app says).
 
 ## Autonomy ceiling
 

@@ -77,16 +77,28 @@ function calendarEventDate(graph: LifeGraphSnapshot, event: LifeGraphSnapshot['c
 }
 
 function calendarBlocks(graph: LifeGraphSnapshot, date: string): DailyPlanBlock[] {
-  return graph.calendarEvents
-    .filter((event) => !event.deleted && calendarEventDate(graph, event) === date)
-    .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-    .map((event) => ({
+  // Across every connected calendar (work and personal at once): one invitation that sits on
+  // two calendars is ONE block in the run of show, naming both accounts.
+  const blocks = new Map<string, DailyPlanBlock>();
+  for (const event of graph.calendarEvents
+    .filter((candidate) => !candidate.deleted && calendarEventDate(graph, candidate) === date)
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt))) {
+    const key = `${event.provider}:${event.externalEventId}:${event.startsAt}`;
+    const existing = blocks.get(key);
+    if (existing) {
+      if (event.connectionId && !existing.connectionIds?.includes(event.connectionId)) existing.connectionIds = [...(existing.connectionIds ?? []), event.connectionId];
+      continue;
+    }
+    blocks.set(key, {
       id: `calendar:${event.id}`,
       title: event.title || 'Busy',
       startAt: event.startsAt,
       endAt: event.endsAt,
       source: 'calendar' as const,
-    }));
+      ...(event.connectionId ? { connectionIds: [event.connectionId] } : {}),
+    });
+  }
+  return [...blocks.values()];
 }
 
 function lifeOsBlocks(graph: LifeGraphSnapshot, date: string, minImportance = 1): DailyPlanBlock[] {

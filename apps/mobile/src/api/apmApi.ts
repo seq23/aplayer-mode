@@ -397,11 +397,24 @@ export async function closeCoachSession(sessionId: string, accessToken: string) 
 }
 
 /** `access: 'act'` asks the provider for write scopes as a separate, explicit consent (Autopilot); the default is read-only. */
-export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; codeChallenge: string; redirectUri: string; access?: 'read' | 'act' }, accessToken: string) {
+export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; codeChallenge: string; redirectUri: string; access?: 'read' | 'act'; intent?: 'add' | 'reconnect' }, accessToken: string) {
   return request<{ state: string; authorizationUrl: string }>('/v1/connections/oauth/start', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 export async function exchangeOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; code: string; codeVerifier: string; state: string; redirectUri: string }, accessToken: string) {
   return request<{ connectionId: string; accountLabel?: string }>('/v1/connections/oauth/exchange', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+// Connected accounts (0065): label, primary, reactivate and disconnect are governed RPCs.
+export async function setConnectionLabel(connectionId: string, label: string | null, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/connections/${encodeURIComponent(connectionId)}`, accessToken, { method: 'PATCH', body: JSON.stringify({ label }) });
+}
+export async function setPrimaryConnection(connectionId: string, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/connections/${encodeURIComponent(connectionId)}/primary`, accessToken, { method: 'POST' });
+}
+export async function reactivateConnection(connectionId: string, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/connections/${encodeURIComponent(connectionId)}/reactivate`, accessToken, { method: 'POST' });
+}
+export async function disconnectConnection(connectionId: string, accessToken: string): Promise<TodayState> {
+  return request<TodayState>(`/v1/connections/${encodeURIComponent(connectionId)}/disconnect`, accessToken, { method: 'POST' });
 }
 export async function syncCloudCalendar(connectionId: string, accessToken: string): Promise<TodayState> {
   return request<TodayState>(`/v1/calendar/connections/${encodeURIComponent(connectionId)}/sync`, accessToken, { method: 'POST' });

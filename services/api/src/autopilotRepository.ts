@@ -45,13 +45,13 @@ interface ClassRow {
 }
 interface RuleRow {
   id: string; user_id: string; action_class: AutopilotActionClass; status: AutopilotRule['status'];
-  constraints: AutopilotRuleConstraints; version: number; granted_at: string; expires_at: string;
+  constraints: AutopilotRuleConstraints; version: number; granted_at: string; expires_at: string; connection_id?: string | null;
   paused_at: string | null; revoked_at: string | null; revoke_reason: string | null; last_executed_at: string | null;
   created_at: string; updated_at: string;
 }
 interface ExecutionRow {
   id: string; user_id: string; rule_id: string; rule_version: number; action_class: AutopilotActionClass;
-  action_id: string | null; status: AutopilotExecution['status']; idempotency_key: string;
+  action_id: string | null; status: AutopilotExecution['status']; idempotency_key: string; connection_id?: string | null;
   proposed_starts_at: string | null; proposed_ends_at: string | null; local_day: string;
   external_ref: string | null; failure_code: string | null; claimed_at: string; completed_at: string | null; reverted_at: string | null;
   target_ref?: string | null; original_starts_at?: string | null; original_ends_at?: string | null;
@@ -76,7 +76,7 @@ export function mapClass(row: ClassRow): AutopilotActionClassState {
 export function mapRule(row: RuleRow): AutopilotRule {
   return {
     id: row.id, userId: row.user_id, actionClass: row.action_class, status: row.status, constraints: row.constraints,
-    version: row.version, grantedAt: row.granted_at, expiresAt: row.expires_at, pausedAt: opt(row.paused_at),
+    connectionId: opt(row.connection_id), version: row.version, grantedAt: row.granted_at, expiresAt: row.expires_at, pausedAt: opt(row.paused_at),
     revokedAt: opt(row.revoked_at), revokeReason: opt(row.revoke_reason), lastExecutedAt: opt(row.last_executed_at),
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
@@ -85,7 +85,7 @@ export function mapRule(row: RuleRow): AutopilotRule {
 export function mapExecution(row: ExecutionRow): AutopilotExecution {
   return {
     id: row.id, userId: row.user_id, ruleId: row.rule_id, ruleVersion: row.rule_version, actionClass: row.action_class,
-    actionId: opt(row.action_id), status: row.status, idempotencyKey: row.idempotency_key,
+    actionId: opt(row.action_id), connectionId: opt(row.connection_id), status: row.status, idempotencyKey: row.idempotency_key,
     proposedStartsAt: opt(row.proposed_starts_at), proposedEndsAt: opt(row.proposed_ends_at), localDay: row.local_day,
     externalRef: opt(row.external_ref), targetRef: opt(row.target_ref), originalStartsAt: opt(row.original_starts_at),
     originalEndsAt: opt(row.original_ends_at), failureCode: opt(row.failure_code), claimedAt: row.claimed_at,
@@ -128,9 +128,11 @@ export async function getAutopilotState(env: ApiEnv, accessToken: string, userId
   };
 }
 
-export async function grantAutopilotRule(env: ApiEnv, accessToken: string, input: { actionClass: AutopilotActionClass; constraints: AutopilotRuleConstraints; expiresAt: string }): Promise<AutopilotRule> {
+export async function grantAutopilotRule(env: ApiEnv, accessToken: string, input: { actionClass: AutopilotActionClass; constraints: AutopilotRuleConstraints; expiresAt: string; connectionId?: string }): Promise<AutopilotRule> {
   return mapRule(await autopilotRpc<RuleRow>(env, accessToken, 'apm_autopilot_grant_rule', {
     p_action_class: input.actionClass, p_constraints: input.constraints, p_expires_at: input.expiresAt,
+    // The account the rule acts on; null = the primary account of the class's kind (0065).
+    p_connection_id: input.connectionId ?? null,
   }));
 }
 
@@ -288,6 +290,8 @@ const AUTOPILOT_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 
   autopilot_rule_not_found: { error: 'not_found', status: 404 },
   autopilot_execution_not_found: { error: 'not_found', status: 404 },
   autopilot_connection_not_found: { error: 'connection_not_found', status: 404 },
+  autopilot_connection_paused: { error: 'connection_paused', status: 409 },
+  autopilot_wrong_account: { error: 'wrong_account', status: 403 },
   autopilot_rule_revoked: { error: 'rule_revoked', status: 409 },
   autopilot_rule_expired: { error: 'rule_expired', status: 409 },
   autopilot_rule_inactive: { error: 'rule_inactive', status: 409 },

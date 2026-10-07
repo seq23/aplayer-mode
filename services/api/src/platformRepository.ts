@@ -79,6 +79,7 @@ interface RuleRow {
 }
 interface ConnectionRow {
   id: string; provider: IntegrationConnection['provider']; kind: IntegrationConnection['kind']; account_label: string | null;
+  label?: string | null; is_primary?: boolean | null; paused_at?: string | null; paused_reason?: 'plan' | null;
   external_account_id: string | null; status: IntegrationConnection['status']; scopes: string[]; last_sync_at: string | null; last_error_code: string | null;
 }
 interface CalendarRow {
@@ -163,7 +164,7 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
     supabaseRest<LifeAdminItemRow[]>(env, accessToken, `/rest/v1/life_admin_items?${filter}&select=*&order=due_at.asc.nullslast,created_at.desc`),
     supabaseRest<PreferenceRow[]>(env, accessToken, `/rest/v1/preferences?${filter}&select=*&order=key.asc`),
     supabaseRest<RuleRow[]>(env, accessToken, `/rest/v1/rules?${filter}&select=*&order=key.asc`),
-    supabaseRest<ConnectionRow[]>(env, accessToken, `/rest/v1/integration_connections?${filter}&select=id,provider,kind,account_label,external_account_id,status,scopes,last_sync_at,last_error_code&order=created_at.asc`),
+    supabaseRest<ConnectionRow[]>(env, accessToken, `/rest/v1/integration_connections?${filter}&select=id,provider,kind,account_label,label,is_primary,paused_at,paused_reason,external_account_id,status,scopes,last_sync_at,last_error_code&order=created_at.asc`),
     supabaseRest<CalendarRow[]>(env, accessToken, `/rest/v1/calendar_events?${filter}&starts_at=gte.${qs(from)}&starts_at=lte.${qs(to)}&select=*&order=starts_at.asc`),
     supabaseRest<SignalRow[]>(env, accessToken, `/rest/v1/message_signals?${filter}&select=*&order=observed_at.desc&limit=250`),
     supabaseRest<PermissionRow[]>(env, accessToken, `/rest/v1/permissions?${filter}&select=*&order=domain.asc,action_type.asc`),
@@ -203,7 +204,7 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
     })),
     preferences: preferences.map((row) => ({ id: row.id, userId, key: row.key, value: row.value, provenance: provenance(row) })),
     rules: rules.map((row) => ({ id: row.id, userId, key: row.key, description: row.description, ruleType: row.rule_type, config: row.config, active: row.active, provenance: provenance(row) })),
-    connections: connections.map((row) => ({ id: row.id, userId, provider: row.provider, kind: row.kind, accountLabel: row.account_label ?? undefined, externalAccountId: row.external_account_id ?? undefined, status: row.status, scopes: row.scopes ?? [], lastSyncAt: row.last_sync_at ?? undefined, lastErrorCode: row.last_error_code ?? undefined })),
+    connections: connections.map((row) => ({ id: row.id, userId, provider: row.provider, kind: row.kind, accountLabel: row.account_label ?? undefined, label: row.label ?? undefined, isPrimary: row.is_primary ?? false, pausedAt: row.paused_at ?? undefined, pausedReason: row.paused_reason ?? undefined, externalAccountId: row.external_account_id ?? undefined, status: row.status, scopes: row.scopes ?? [], lastSyncAt: row.last_sync_at ?? undefined, lastErrorCode: row.last_error_code ?? undefined })),
     calendarEvents: calendar.map((row) => ({ id: row.id, userId, connectionId: row.connection_id ?? undefined, provider: row.provider, externalEventId: row.external_event_id, calendarExternalId: row.calendar_external_id ?? undefined, title: row.title, location: row.location ?? undefined, startsAt: row.starts_at, endsAt: row.ends_at, timezone: row.timezone ?? undefined, allDay: row.all_day, availability: row.availability, recurrence: row.recurrence ?? {}, organizer: row.organizer ?? {}, attendees: row.attendees ?? [], sourceVersion: row.source_version ?? undefined, deleted: row.deleted })),
     messageSignals: signals.map((row) => ({ id: row.id, userId, connectionId: row.connection_id ?? undefined, provider: row.provider, externalMessageId: row.external_message_id, externalThreadId: row.external_thread_id ?? undefined, signalType: row.signal_type, summary: row.summary, dueAt: row.due_at ?? undefined, confidence: row.confidence, relatedCommitmentId: row.related_commitment_id ?? undefined, userCorrectedAt: row.user_corrected_at ?? undefined, observedAt: row.observed_at })),
     permissions: permissions.map((row) => ({ id: row.id, userId, domain: row.domain, actionType: row.action_type, autonomyLevel: row.autonomy_level, constraints: row.constraints ?? {}, enabled: row.enabled, grantedAt: row.granted_at ?? undefined, updatedAt: row.updated_at })),

@@ -11,6 +11,9 @@ export type ProductCapability =
   | 'life_os_domains'
   | 'execute_with_approval'
   | 'standing_autopilot'
+  /** More than one connected calendar / inbox at once (work AND personal). Autopilot only;
+   * enforced in the database by private.apm_has_multi_account_access (0065). */
+  | 'multi_account'
   | 'household_shared_graph';
 
 export interface ProductPlanPolicy {
@@ -46,9 +49,9 @@ export const productPlanPolicies: Record<ProductPlan, ProductPlanPolicy> = {
   autopilot: {
     plan: 'autopilot',
     displayName: 'Autopilot',
-    promise: 'APM handles recurring things on its own inside rules you set: everything in Executive Suite. It saves money, never spends it.',
+    promise: 'APM handles recurring things on its own inside rules you set: everything in Executive Suite, across every calendar and inbox you connect (work and personal at once). It saves money, never spends it.',
     publicAvailability: 'available',
-    capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval','standing_autopilot'],
+    capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval','standing_autopilot','multi_account'],
   },
   household: {
     plan: 'household',
