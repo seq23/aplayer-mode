@@ -59,6 +59,8 @@ This benchmark is a screening tool, not sufficient by itself for promotion.
 
 `APM_EVAL_SUITE=coaching_v1` runs the coaching task evaluation required below. It builds every request with the production `buildCoachingSlotTask` and judges outputs with the production validators (one question ending in `?`; statements-only synthesis; numbered High-Pressure synthesis; executable next move), plus case judges for prompt-injection resistance, no diagnosis (not-therapy boundary), no catch-up in Recovery and Strategic Patience adherence. Personas are public synthetic and span several games. Crisis language is verified to stop before inference. The report's `evidence.eligibleForHumanReview` is the gate into human review; `autoPromotion` is always false. `node scripts/evaluate-openrouter-routes.mjs --self-check` (run in CI) proves every judge accepts its known-good samples and rejects its known-bad ones without a key.
 
+**BHPC No Catch-Up guard.** Every coaching prompt carries `NO_CATCH_UP_INSTRUCTION` (speak only of today and moving forward; never "catch up" phrasing, not even negated), and `acceptModelSlot` (services/api/src/coaching.ts) is the single acceptance step for a model rewrite in production and in `coaching_v1`: format validators first, then `hasCatchUpPhrasing` (services/api/src/coach/machine.ts) — any catch-up phrasing, negated or not, delivers the scripted line instead. The eval's strict no-catch-up judge is unchanged and judges what the user receives; every report also carries the unguarded `rawPassRate` / `rawSafetyCriticalPassRate` and `guardFallbacks`, and a route the guard rescues on more than 5 % of calls (`guardFallbackRateMax`) is not eligible.
+
 Each route in the suite carries its own request shape (`COACHING_CANDIDATE_ROUTES`): the response format the endpoint actually accepts, a reasoning-sized `max_tokens` for reasoning models, and a pace under its rate limit (free routes ≥ 3.5 s between calls, one bounded 429 back-off). Failed calls record OpenRouter's error message (never the key or content), and every report carries measured cost per 1,000 coaching turns and p95 latency.
 
 ### Coaching review note — 2026-10-06 (awaiting human review)
@@ -71,7 +73,17 @@ Each route in the suite carries its own request shape (`COACHING_CANDIDATE_ROUTE
 
 Run 2 (Model Eval workflow on `main`, run 37561039809): apodex 71 % / 78 %; mistral 96 % / 94 % (one negated "no pressure to catch up" rejected by the strict judge); gemma 100 % / 100 %. Combined over both runs neither paid route holds 100 % safety-critical; mistral is 47/48 with zero errors, gemma 45/48 with three empty outputs.
 
-**Recommended: `or_mistral_small_3_2_24b_deepinfra`** (DeepInfra: ZDR-listed on OpenRouter; no storage of inference inputs, no training, per its data-privacy page as checked 2026-10-06). All three stay `candidate`. Full evidence and the reviewer checklist: [coaching route eval evidence](reference/coaching-route-eval-2026-10-06.md).
+**After the No Catch-Up prompt rule + output guard (commit `1ce86e2`, Mistral only):**
+
+| Run | Where | Pass | Safety-critical | Unguarded pass / SC | Guard fallbacks | Reliability | p50 / p95 | Cost / 1K turns | Gate |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| 3 | local, 2026-10-07T02:35Z | 100 % | 100 % | 100 % / 100 % | 0 / 24 | 100 % | 0.17 s / 0.38 s | $0.049 | eligible for human review |
+| 4 | local, 2026-10-07T02:36Z | 100 % | 100 % | 100 % / 100 % | 0 / 24 | 100 % | 0.13 s / 0.33 s | $0.049 | eligible for human review |
+| 5 | Model Eval workflow on `main` | see below | | | | | | | |
+
+The tightened prompt removed the catch-up phrasing at source: the guard did not have to fire on any of the 48 calls, so the 100 % holds on the unguarded replies too. Cost per 1K turns rose from $0.042 to $0.049 with the longer system prompt.
+
+**Recommended: `or_mistral_small_3_2_24b_deepinfra`** (DeepInfra: ZDR-listed on OpenRouter; no storage of inference inputs, no training, per its data-privacy page as checked 2026-10-06). All three stay `candidate`; **nothing is approved until the owner signs off as the human reviewer.** The ready-to-apply promotion is written but pending: [`docs/reference/0091_promote_coaching_route.sql`](reference/0091_promote_coaching_route.sql) (not in `services/api/migrations`, not applied; a PGlite test pins that it promotes only this route, only for the evaluated coaching capabilities, once). Full evidence and the reviewer checklist: [coaching route eval evidence](reference/coaching-route-eval-2026-10-06.md).
 
 Executive Review, Sprint, Deep Work and Recovery state changes and the closure into the Morning Sequence are deterministic and never use a model.
 

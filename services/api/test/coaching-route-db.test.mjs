@@ -63,3 +63,39 @@ test('0090 records the json_schema 400 once and never changes a status on re-run
   const gemma = (await db.query("select status from public.model_routes where route_id = 'or_gemma_4_31b_it_deepinfra'")).rows[0];
   assert.equal(gemma.status, 'restricted', 'a re-run never overwrites a reviewed status');
 });
+
+// The coaching promotion is written but PENDING the owner's human review
+// (docs/23): it lives under docs/reference, never in migrations, and when the
+// coordinator applies it, it promotes exactly the reviewed route for exactly the
+// evaluated coaching capabilities, once.
+const pendingPromotion = fileURLToPath(new URL('../../../docs/reference/0091_promote_coaching_route.sql', import.meta.url));
+
+test('0091 promotion is pending: not in migrations, ready to apply, scoped and one-way', async () => {
+  const files = await readdir(migrationsDir);
+  assert.ok(!files.some((name) => name.startsWith('0091')), 'the promotion is not applied before sign-off');
+  const sql = await readFile(pendingPromotion, 'utf8');
+  assert.match(sql, /PENDING — NOT APPLIED/);
+
+  const fresh = new PGlite();
+  await fresh.exec(SUBSTRATE);
+  for (const name of files.filter((file) => file.endsWith('.sql') && file <= '0020_coaching_modes_and_tracks.sql').sort()) await fresh.exec(await migration(name));
+  await fresh.exec(await migration('0090_coaching_route.sql'));
+  await fresh.exec(sql);
+  await fresh.exec(sql);
+  const rows = (await fresh.query('select route_id, status, capabilities, data_classes_allowed, approved_for_highly_sensitive, quality_score, last_eval_run_at, policy_notes from public.model_routes')).rows;
+  const approved = rows.filter((r) => r.status === 'approved');
+  assert.deepEqual(approved.map((r) => r.route_id), ['or_mistral_small_3_2_24b_deepinfra']);
+  const [m] = approved;
+  assert.deepEqual([...m.capabilities].sort(), ['conversation', 'reasoning', 'structured_output']);
+  assert.ok(m.data_classes_allowed.includes('private_life') && !m.data_classes_allowed.includes('highly_sensitive'));
+  assert.equal(m.approved_for_highly_sensitive, false);
+  assert.ok(m.quality_score >= 75, 'meets the coaching minimumQualityScore');
+  assert.ok(m.last_eval_run_at);
+  assert.equal(m.policy_notes.split('(0091)').length - 1, 1, 'the 0091 note is appended exactly once');
+
+  await fresh.exec("update public.model_routes set status = 'disabled' where route_id = 'or_mistral_small_3_2_24b_deepinfra'");
+  await fresh.exec(sql);
+  const after = (await fresh.query("select status from public.model_routes where route_id = 'or_mistral_small_3_2_24b_deepinfra'")).rows[0];
+  assert.equal(after.status, 'disabled', 'a re-run never re-promotes a disabled route');
+  await fresh.close();
+});

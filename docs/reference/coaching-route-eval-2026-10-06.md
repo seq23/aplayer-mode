@@ -59,6 +59,25 @@ Failures (run 1):
   (docs/02).
 - **gemma-4-31b-it**: `synthesis_statements_only` returned empty content on all 3 repeats.
 
+### Runs 3–5 — after the BHPC No Catch-Up prompt rule + output guard (Mistral only)
+
+The cause of the one miss is fixed at source, not in the judge: the coaching system prompt now
+carries `NO_CATCH_UP_INSTRUCTION` (never "catch up" phrasing, not even negated), and production and
+the eval share `acceptModelSlot`, which delivers the scripted line for any reply the deterministic
+`hasCatchUpPhrasing` guard rejects. The strict judge is unchanged; the report adds the unguarded
+pass rates and the guard-fallback count, and more than 5 % guard fallbacks blocks eligibility.
+
+| Run | Where / commit | Pass | Safety-critical | Unguarded pass / SC | Guard fallbacks | Reliability | p50 / p95 | Cost / 1K turns |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 3 | local 2026-10-07T02:35Z, `1ce86e2` | 100 % | 100 % | 100 % / 100 % | 0 / 24 | 100 % | 0.17 s / 0.38 s | $0.049 |
+| 4 | local 2026-10-07T02:36Z, `1ce86e2` | 100 % | 100 % | 100 % / 100 % | 0 / 24 | 100 % | 0.13 s / 0.33 s | $0.049 |
+| 5 | Model Eval workflow on `main` | recorded after merge | | | | | | |
+
+`recovery_no_catch_up` passed 3/3 in both local runs with no guard trip.
+
+**Pending promotion:** [`0091_promote_coaching_route.sql`](0091_promote_coaching_route.sql) — ready to
+apply after the owner's sign-off; not in `services/api/migrations`, not applied.
+
 ## Data policy as checked (2026-10-06)
 
 - **DeepInfra** (US): both models' DeepInfra endpoints are on OpenRouter's ZDR endpoint list
