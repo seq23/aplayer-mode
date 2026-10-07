@@ -9,7 +9,8 @@ import {
   weeklyReviewDue,
   deriveDayState,
   suggestPillarReview,
-  verdictFromReview,
+  scoreAgendaDay,
+  dayStateFromGraph,
   bodyRedFlags,
   generateGoalPlan,
   isPlanEligible,
@@ -114,12 +115,11 @@ export function criticalPillars(graph: Pick<LifeGraphSnapshot, 'pillarSettings'>
 }
 
 export function closePreview(graph: LifeGraphSnapshot, agenda: DailyAgenda): TodayLoopState['closePreview'] {
-  const critical = criticalPillars(graph);
-  // Every active pillar is reviewed; only the critical ones decide the verdict.
-  const active = graph.pillarSettings.filter((pillar) => pillar.active).map((pillar) => pillar.name);
-  const pillarReview = suggestPillarReview(agenda, active.length ? active : critical);
+  // The pillars today's agenda carried are reviewed; the verdict is computed from the
+  // agenda's evidence by the one engine rule (scoreAgendaDay).
+  const pillarReview = suggestPillarReview(agenda);
   const evidence = [agenda.firstHour.priority, ...agenda.dailyStack].filter((item) => item?.status === 'done').map((item) => item!.title);
-  return { pillarReview, computedVerdict: verdictFromReview(pillarReview, critical, agenda.mode === 'recovery'), evidence };
+  return { pillarReview, computedVerdict: scoreAgendaDay(agenda, criticalPillars(graph)).verdict, evidence };
 }
 
 function firstActiveDay(entries: PlanEntry[]): string | undefined {
@@ -127,16 +127,7 @@ function firstActiveDay(entries: PlanEntry[]): string | undefined {
 }
 
 export function dayStateFor(graph: LifeGraphSnapshot, date: string, recoveryMode: boolean): DayStateResult {
-  // Only plans still running count: a parked plan or a paused goal supplies nothing to miss.
-  const running = planEntries(graph).filter((entry) => isPlanEligible(entry.record)
-    && graph.goals.some((goal) => goal.id === entry.record.goalId && goal.status === 'active'));
-  return deriveDayState({
-    date,
-    dayRecords: graph.dayRecords,
-    completions: graph.planCompletions,
-    firstActiveDay: firstActiveDay(running),
-    recoveryMode,
-  });
+  return dayStateFromGraph(graph, date, recoveryMode);
 }
 
 /** A fresh agenda for `date` from the persisted plans and evidence (used at check-in and declared replans). */

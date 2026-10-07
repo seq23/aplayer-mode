@@ -5,7 +5,6 @@ import {
   BODY_SHAME_PATTERN,
   SECURITIES_PATTERN,
   actionAmbiguityProblem,
-  applyPlanRefinement,
   decideAtDay90,
   generateGoalPlan,
   recognizePersona,
@@ -173,8 +172,6 @@ test('weight loss: a red flag refers to a doctor and stops body coaching until c
       if (supply.phase !== 'decision') assert.match(supply.foreground.title, /doctor|clinic|appointment/i, note);
       assert.ok(supply.reasons.includes('referral'));
     }
-    const refined = applyPlanRefinement(plan, { source: 'llm', actions: [{ key: 'confirm_clinician', title: 'Walk 30 minutes' }] });
-    assert.equal(refined.applied.length, 0);
   }
   const cleared = generateGoalPlan('lose 30 lbs', ctx({ body: { healthNotes: ['pregnant'], clinicianCleared: true } }));
   assert.equal(cleared.safety.referral, false);
@@ -356,32 +353,6 @@ test('user minimum floors become the MVD; a vague floor is flagged and the templ
   const vague = generateGoalPlan('Pass the CPA exam', ctx({ minimumFloors: { execution: 'work on it' } }));
   assert.ok(vague.safety.reasonCodes.includes('floor.needs_clarifying'));
   assert.match(vague.actions.practice.mvd.title, /practice questions/);
-});
-
-test('refinement seam: valid edits apply, vague or unsafe edits are rejected', () => {
-  const plan = generateGoalPlan('lose 30 lbs', ctx());
-  const result = applyPlanRefinement(plan, {
-    source: 'llm:test',
-    actions: [
-      { key: 'walk', title: 'Walk 25 minutes on the river path after lunch', durationMinutes: 25 },
-      { key: 'meal_list', title: 'Work on meals' },
-      { key: 'environment', title: 'Start a keto diet and cut carbs' },
-      { key: 'nope', title: 'Walk 10 minutes' },
-    ],
-    gateOutcomes: { build: 'Build: strength twice a week and a 1,200 calorie plan', foundation: 'Foundation: walking on 25 of 30 days, every meal list written' },
-    milestones: [{ id: plan.gates[0].milestones[0].id, title: 'Walk slot fixed and used 6 of 7 days' }],
-  });
-  assert.deepEqual(result.applied.sort(), ['action:walk', 'gate:foundation', `milestone:${plan.gates[0].milestones[0].id}`].sort());
-  assert.deepEqual(result.rejected.map((r) => r.target).sort(), ['environment', 'gate:build', 'meal_list', 'nope'].sort());
-  assert.equal(result.plan.actions.walk.title, 'Walk 25 minutes on the river path after lunch');
-  assert.equal(plan.actions.walk.title.includes('river'), false, 'input plan is not mutated');
-  assert.deepEqual(validatePlan(result.plan), []);
-  assert.deepEqual(result.plan.provenance.refinedBy, ['llm:test']);
-
-  const wealth = generateGoalPlan('Pay off my student loans', ctx());
-  const bad = applyPlanRefinement(wealth, { source: 'llm', actions: [{ key: 'auto_invest', title: 'Buy an S&P 500 index fund every payday' }] });
-  assert.equal(bad.applied.length, 0);
-  assert.equal(bad.rejected.length, 1);
 });
 
 test('invalid dates and empty goals are refused', () => {

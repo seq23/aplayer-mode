@@ -11,7 +11,6 @@ import type {
   PlanAction,
   PlanGate,
   PlanPillar,
-  PlanRefinement,
   SuppliedAction,
   SupplyReason,
   Weekday,
@@ -115,8 +114,8 @@ function toPlanAction(spec: ActionSpec, context: GoalPlanContext, referral: bool
 }
 
 /**
- * Deterministic goal → 30/60/90 plan. Stands on its own; an LLM may later refine it
- * through `applyPlanRefinement`, which re-validates every edit.
+ * Deterministic goal → 30/60/90 plan. There is no model refinement path: any future one
+ * must re-validate every edit through validatePlan before it can be stored.
  */
 export function generateGoalPlan(goalText: string, context: GoalPlanContext): GoalPlan {
   assertDate(context.startDate, 'startDate');
@@ -426,83 +425,5 @@ export function decideAtDay90(plan: GoalPlan, input: GateReviewInput): GateVerdi
   return verdictFor(PLAN_LENGTH_DAYS, input);
 }
 
-// ---------------------------------------------------------------------------
-// Refinement seam (LLM or human edits, always re-validated)
-// ---------------------------------------------------------------------------
-
-export interface RefinementResult {
-  plan: GoalPlan;
-  applied: string[];
-  rejected: Array<{ target: string; reason: string }>;
-}
-
-function textSafetyProblem(text: string): string | null {
-  if (BODY_PRESCRIPTION_PATTERN.test(text) || BODY_SHAME_PATTERN.test(text)) return 'fails the body safety vocabulary';
-  if (SECURITIES_PATTERN.test(text)) return 'fails the securities vocabulary';
-  return null;
-}
-
-/**
- * Apply proposed edits. Persona, dates, safety and the cadence structure are not editable.
- * Every edited action must still pass the Ambiguity Stop and safety checks, or it is rejected
- * and the deterministic version stays.
- */
-export function applyPlanRefinement(plan: GoalPlan, refinement: PlanRefinement): RefinementResult {
-  const next: GoalPlan = JSON.parse(JSON.stringify(plan));
-  const applied: string[] = [];
-  const rejected: RefinementResult['rejected'] = [];
-
-  for (const edit of refinement.actions ?? []) {
-    const current = next.actions[edit.key];
-    if (!current) {
-      rejected.push({ target: edit.key, reason: 'unknown action' });
-      continue;
-    }
-    if (next.safety.referral && current.pillar === 'body') {
-      rejected.push({ target: edit.key, reason: 'body coaching is paused for clinician referral' });
-      continue;
-    }
-    const candidate: PlanAction = {
-      ...current,
-      title: edit.title ?? current.title,
-      output: edit.output ?? current.output,
-      durationMinutes: edit.durationMinutes ?? current.durationMinutes,
-      mvd: { ...current.mvd, ...(edit.mvd ?? {}) },
-    };
-    if (edit.title !== undefined || edit.durationMinutes !== undefined) delete candidate.titleTemplate;
-    const problems = actionProblems(candidate);
-    if (problems.length > 0) {
-      rejected.push({ target: edit.key, reason: problems[0]! });
-      continue;
-    }
-    next.actions[edit.key] = candidate;
-    applied.push(`action:${edit.key}`);
-  }
-
-  for (const [key, outcome] of Object.entries(refinement.gateOutcomes ?? {}) as Array<[GateKey, string]>) {
-    const gate = next.gates.find((candidate) => candidate.key === key);
-    const problem = !gate ? 'unknown gate' : outcome.trim().length < 10 ? 'outcome too vague' : textSafetyProblem(outcome);
-    if (problem || !gate) {
-      rejected.push({ target: `gate:${key}`, reason: problem ?? 'unknown gate' });
-      continue;
-    }
-    gate.outcome = outcome.trim();
-    applied.push(`gate:${key}`);
-  }
-
-  for (const edit of refinement.milestones ?? []) {
-    const milestone = next.gates.flatMap((gate) => gate.milestones).find((candidate) => candidate.id === edit.id);
-    const problem = !milestone ? 'unknown milestone' : edit.title.trim().length < 5 ? 'milestone too vague' : textSafetyProblem(edit.title);
-    if (problem || !milestone) {
-      rejected.push({ target: edit.id, reason: problem ?? 'unknown milestone' });
-      continue;
-    }
-    milestone.title = edit.title.trim();
-    applied.push(`milestone:${edit.id}`);
-  }
-
-  if (applied.length > 0) next.provenance.refinedBy = [...(next.provenance.refinedBy ?? []), refinement.source];
-  return { plan: next, applied, rejected };
-}
 
 export type { PlanPillar };

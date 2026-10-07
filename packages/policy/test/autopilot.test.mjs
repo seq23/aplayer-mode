@@ -3,11 +3,9 @@ import assert from 'node:assert/strict';
 import {
   decideStandingAuthority,
   forbiddenStandingActions,
-  evaluateCalendarStandingProposal,
   isStandingActionClass,
   localMoment,
   standingActionClasses,
-  standingForbiddenReason,
   validateStandingConstraints,
 } from '../.test-dist/index.js';
 
@@ -29,15 +27,14 @@ test('the allow-list is exactly the ruled classes; spending, clinical choices an
   for (const forbidden of ['purchase.order', 'payment.card', 'subscription.upgrade', 'subscription.signup', 'healthcare.book', 'healthcare.treatment',
     'financial.pay_bill', 'financial.transfer', 'calendar.update', 'connector.disconnect', 'life_graph.delete']) {
     assert.equal(isStandingActionClass(forbidden), false, forbidden);
-    assert.ok(standingForbiddenReason(forbidden), forbidden);
+    if (forbidden !== 'life_graph.delete') { // rejected as unsupported, not by name
+      assert.ok(forbiddenStandingActions.some((rule) => (rule.match.endsWith('.*') ? forbidden.startsWith(rule.match.slice(0, -1)) : forbidden === rule.match)), `${forbidden} is named on the forbidden list`);
+    }
   }
   for (const named of ['purchase.*', 'payment.*', 'subscription.upgrade', 'subscription.signup', 'healthcare.*', 'financial.*']) {
     assert.ok(forbiddenStandingActions.some((rule) => rule.match === named), `${named} must stay rejected by name`);
   }
-  assert.equal(standingForbiddenReason('calendar.create'), undefined);
-  assert.equal(standingForbiddenReason('email.send'), undefined);
-  assert.match(standingForbiddenReason('purchase.order'), /purchasing/);
-  assert.match(standingForbiddenReason('subscription.upgrade'), /never spend/);
+  assert.ok(isStandingActionClass('calendar.create') && isStandingActionClass('email.send'));
 });
 
 test('new class constraints mirror the database shape', () => {
@@ -83,25 +80,6 @@ test('localMoment reads wall-clock time and ISO weekday in the rule timezone', (
   assert.equal(localMoment(new Date('2026-10-05T02:00:00Z'), 'America/Chicago').isoWeekday, 7);
 });
 
-test('calendar proposals must fit duration, horizon, weekday, window, collision and cap', () => {
-  const now = new Date('2026-10-04T12:00:00Z');
-  const base = { constraints: calendarRule, now, busy: [], claimedOnLocalDay: 0 };
-  // Monday 07:00–08:00 Chicago.
-  assert.equal(evaluateCalendarStandingProposal({ ...base, startsAt: '2026-10-05T12:00:00Z', endsAt: '2026-10-05T13:00:00Z' }), 'allowed');
-  assert.equal(evaluateCalendarStandingProposal({ ...base, startsAt: '2026-10-05T12:00:00Z', endsAt: '2026-10-05T14:00:00Z' }), 'outside_rule');
-  // Saturday.
-  assert.equal(evaluateCalendarStandingProposal({ ...base, startsAt: '2026-10-10T12:00:00Z', endsAt: '2026-10-10T13:00:00Z' }), 'outside_rule');
-  // Ends after 09:00 local.
-  assert.equal(evaluateCalendarStandingProposal({ ...base, startsAt: '2026-10-05T13:30:00Z', endsAt: '2026-10-05T14:30:00Z' }), 'outside_rule');
-  // Beyond the 14-day horizon.
-  assert.equal(evaluateCalendarStandingProposal({ ...base, startsAt: '2026-10-26T12:00:00Z', endsAt: '2026-10-26T13:00:00Z' }), 'outside_rule');
-  // In the past.
-  assert.equal(evaluateCalendarStandingProposal({ ...base, now: new Date('2026-10-06T00:00:00Z'), startsAt: '2026-10-05T12:00:00Z', endsAt: '2026-10-05T13:00:00Z' }), 'outside_rule');
-  assert.equal(evaluateCalendarStandingProposal({ ...base, busy: [{ startsAt: '2026-10-05T12:30:00Z', endsAt: '2026-10-05T12:45:00Z' }], startsAt: '2026-10-05T12:00:00Z', endsAt: '2026-10-05T13:00:00Z' }), 'collision');
-  assert.equal(evaluateCalendarStandingProposal({ ...base, claimedOnLocalDay: 1, startsAt: '2026-10-05T12:00:00Z', endsAt: '2026-10-05T13:00:00Z' }), 'rate_limited');
-  assert.equal(evaluateCalendarStandingProposal({ ...base, startsAt: 'nope', endsAt: '2026-10-05T13:00:00Z' }), 'invalid_payload');
-});
-
 test('standing authority needs entitlement, level-5 permission, an active rule, activation and every switch', () => {
   const now = new Date('2026-10-06T12:00:00Z');
   const ok = {
@@ -120,6 +98,10 @@ test('standing authority needs entitlement, level-5 permission, an active rule, 
   assert.equal(decideStandingAuthority({ ...ok, rule: undefined }).reason, 'rule_inactive');
   assert.equal(decideStandingAuthority({ ...ok, rule: { status: 'paused', expiresAt: ok.rule.expiresAt } }).reason, 'rule_inactive');
   assert.equal(decideStandingAuthority({ ...ok, rule: { status: 'active', expiresAt: '2026-10-01T00:00:00Z' } }).reason, 'rule_expired');
+  // Engine P2-4: an unparseable expiry fails closed.
+  for (const expiresAt of ['not-a-date', '', undefined]) {
+    assert.deepEqual(decideStandingAuthority({ ...ok, rule: { status: 'active', expiresAt } }), { allowed: false, reason: 'rule_expired' }, String(expiresAt));
+  }
   assert.equal(decideStandingAuthority({ ...ok, classActivated: false }).reason, 'class_not_activated');
   assert.equal(decideStandingAuthority({ ...ok, masterPaused: true }).reason, 'autopilot_paused');
   assert.equal(decideStandingAuthority({ ...ok, autopilotExecutionEnabled: false }).reason, 'autopilot_execution_disabled');

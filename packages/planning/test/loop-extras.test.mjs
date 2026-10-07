@@ -74,8 +74,10 @@ test('REPRINT swaps a flagged or generic item without changing scope; a valid ag
   assert.deepEqual(reprintAgenda(agenda, [plan]).replaced, []);
   const flagged = reprintAgenda(agenda, [plan], [agenda.firstHour.priority.id]);
   assert.equal(flagged.replaced.length, 1);
-  assert.notEqual(flagged.agenda.firstHour.priority.actionKey, agenda.firstHour.priority.actionKey);
-  assert.equal(flagged.agenda.firstHour.priority.scope, agenda.firstHour.priority.scope);
+  // No Mid-Day Negotiation (engine P1-2): the foreground keeps its action; only its scope drops to MVD.
+  assert.equal(flagged.agenda.firstHour.priority.actionKey, agenda.firstHour.priority.actionKey);
+  assert.equal(flagged.agenda.firstHour.priority.scope, 'mvd');
+  assert.equal(flagged.agenda.firstHour.priority.title, plan.plan.actions[agenda.firstHour.priority.actionKey].mvd.title);
   assert.equal(flagged.agenda.mode, agenda.mode);
   const generic = { ...agenda, dailyStack: [...agenda.dailyStack, { id: 'g', kind: 'next_action', title: 'Review goals', nextActionId: 'x', status: 'open', reasonCodes: [] }] };
   const fixed = reprintAgenda(generic, [plan]);
@@ -125,4 +127,18 @@ test('a recorded red flag keeps the body plan paused until clearance', () => {
   assert.ok(paused.safety.reasonCodes.includes('body.referral'));
   const cleared = generateGoalPlan('lose 30 lbs', { roles: [], startDate: START, body: { referralActive: false, clinicianCleared: true, healthNotes: ['fainted last month'] } });
   assert.equal(cleared.safety.referral, false);
+});
+
+test('REPRINT never drops a protected floor: a flagged floor becomes its own MVD or stays', () => {
+  const plan = entry('Launch my startup MVP to ten paying users', ['Parenting / caregiving', 'Building a business']);
+  const agenda = composeAgenda({ date: shift(START, 2), state: 'normal', plans: [plan], goals, completions: [], morningSequence: [] });
+  const floor = agenda.dailyStack.find((item) => item.kind === 'plan_floor');
+  assert.ok(floor, 'the parent+founder plan prints its family floor');
+  const out = reprintAgenda(agenda, [plan], [floor.id]);
+  const kept = out.agenda.dailyStack.find((item) => item.kind === 'plan_floor' && item.actionKey === floor.actionKey);
+  assert.ok(kept, 'the floor is still on the agenda');
+  assert.equal(out.agenda.dailyStack.length, agenda.dailyStack.length);
+  const both = reprintAgenda(agenda, [plan], [floor.id, agenda.firstHour.priority.id]);
+  assert.equal(both.agenda.firstHour.priority.actionKey, agenda.firstHour.priority.actionKey, 'the foreground is never swapped');
+  assert.ok(both.agenda.dailyStack.some((item) => item.kind === 'plan_floor' && item.actionKey === floor.actionKey));
 });

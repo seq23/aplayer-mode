@@ -129,20 +129,6 @@ export function recommendTrackKeys(roles: string[], failurePatterns: string[] = 
   return [...new Set(recommendations)].filter((key) => allowed.has(key));
 }
 
-export interface RuntimeModeSignals {
-  requestedMode?: OperatingModeKey;
-  mood?: number;
-  overwhelmed?: boolean;
-  missedYesterday?: boolean;
-}
-
-export function resolveRuntimeMode(signals: RuntimeModeSignals): OperatingModeKey {
-  if (signals.requestedMode && signals.requestedMode !== 'standard') return signals.requestedMode;
-  if (signals.missedYesterday || signals.overwhelmed || (signals.mood !== undefined && signals.mood <= 2)) {
-    return 'recovery';
-  }
-  return signals.requestedMode ?? 'standard';
-}
 
 function actionPillar(graph: LifeGraphSnapshot, action: NextAction): PillarName | undefined {
   if (!action.goalId) return undefined;
@@ -234,10 +220,6 @@ export function stabilizationDay(installedOn: string, today = new Date()): numbe
   return Math.max(1, Math.min(7, Math.floor((end - start) / 86_400_000) + 1));
 }
 
-export function shouldForceRecovery(dayRecords: DayRecord[]): boolean {
-  const sorted = [...dayRecords].sort((a, b) => b.day.localeCompare(a.day));
-  return sorted[0]?.verdict === 'miss';
-}
 
 export function scoreDay(input: {
   completedCritical: number;

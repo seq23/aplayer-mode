@@ -1,6 +1,7 @@
 import type { MessageSignalType } from '@apm/domain';
 import type { ApiEnv } from '../env';
 import { supabaseRest } from '../db';
+import { InferenceResponseError, NoEligibleModelRouteError } from '@apm/ai';
 import { runUserInference } from '../aiGateway';
 import { getValidConnectorToken } from './oauth';
 
@@ -232,7 +233,14 @@ export async function syncEmailSignals(input: { env: ApiEnv; accessToken: string
     : await fetchMicrosoftMessages(auth.accessToken, maxMessages);
   let signalsStored = 0;
   for (const message of messages) {
-    const signals = await extractSignals({ ...input, message });
+    // A model answer in the wrong shape, or a message no vetted route may receive (e.g.
+    // classified highly sensitive), skips that message; it never aborts the sync.
+    let signals: ExtractedSignal[];
+    try { signals = await extractSignals({ ...input, message }); }
+    catch (error) {
+      if (error instanceof InferenceResponseError || error instanceof NoEligibleModelRouteError) continue;
+      throw error;
+    }
     signalsStored += await persistSignals({ ...input, message, signals });
   }
   await supabaseRest(input.env, input.accessToken, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(input.connectionId)}`, {

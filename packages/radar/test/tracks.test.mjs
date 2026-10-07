@@ -27,6 +27,13 @@ test('Wealth Foundation: automation presence, 7-day leak review and the debt-ord
   assert.ok(codes(graph(base)).includes('wealth.no_automation'));
   const automated = graph({ ...base, lifeAdminItems: [admin({ id: 'a1', kind: 'recurring_obligation', title: 'Automatic savings transfer', recurrence: { frequency: 'monthly' } })] });
   assert.ok(!codes(automated).includes('wealth.no_automation'));
+  // Engine P2-5: a recurring item that merely mentions card/loan/transfer does not silence it.
+  for (const [kind, title] of [['family_obligation', 'Send birthday card to Grandma'], ['bill', 'Car loan reminder'], ['recurring_obligation', 'Transfer kids to the new school'], ['family_obligation', 'Automatic savings transfer']]) {
+    assert.ok(codes(graph({ ...base, lifeAdminItems: [admin({ id: 'f1', kind, title, recurrence: { frequency: 'yearly' } })] })).includes('wealth.no_automation'), `${kind}: ${title}`);
+  }
+  for (const [kind, title, details] of [['bill', 'Credit card autopay', {}], ['bill', 'Student loan payment', {}], ['family_obligation', 'Monthly move', { tag: 'savings_transfer' }]]) {
+    assert.ok(!codes(graph({ ...base, lifeAdminItems: [admin({ id: 'f2', kind, title, details, recurrence: { frequency: 'monthly' } })] })).includes('wealth.no_automation'), `${kind}: ${title}`);
+  }
   const sub = graph({ ...base, lifeAdminItems: [admin({ id: 's1', kind: 'subscription', title: 'StreamCo', createdAt: '2026-10-05T00:00:00Z' })] });
   assert.ok(codes(sub).includes('wealth.leak_review'));
   const wrongDebt = graph({ ...base, lifeAdminItems: [admin({ id: 'b1', kind: 'bill', title: 'Extra car loan payment', details: { debtAccount: 'Car loan', extraPayment: true } })] });

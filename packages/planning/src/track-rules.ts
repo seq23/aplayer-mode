@@ -1,4 +1,5 @@
 import type { TrackKey, TrackSettings } from '@apm/domain';
+import { TRACK_DISPLAY_NAMES } from '@apm/domain';
 import type { AgendaItem, DailyAgenda } from './daily-loop.js';
 
 /**
@@ -147,11 +148,11 @@ export function applyTrackRules(agenda: DailyAgenda, context: TrackRuleContext, 
     }
     for (const item of items) {
       if (LINEAR_EFFORT_PATTERN.test(item.title)) {
-        flags.push({ code: 'billionaire.leverage_check', track: 'billionaire_mindset', message: `“${item.title}” is linear effort. Billionaire Mindset: prefer ownership to income and leverage to activity — does this scale without you?` });
+        flags.push({ code: 'billionaire.leverage_check', track: 'billionaire_mindset', message: `“${item.title}” is linear effort. ${TRACK_DISPLAY_NAMES.billionaire_mindset}: prefer ownership to income and leverage to activity — does this scale without you?` });
       }
     }
     if (agenda.arbitration) {
-      flags.push({ code: 'billionaire.prioritised', track: 'billionaire_mindset', message: 'Foreground chosen with Billionaire Mindset weighting: ownership and compounding outrank linear income.' });
+      flags.push({ code: 'billionaire.prioritised', track: 'billionaire_mindset', message: `Foreground chosen with ${TRACK_DISPLAY_NAMES.billionaire_mindset} weighting: ownership and compounding outrank linear income.` });
     }
   }
 

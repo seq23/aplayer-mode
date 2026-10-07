@@ -323,7 +323,9 @@ test('end-of-day close: pillar review → computed verdict, user authority kept,
 
     await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'miss' }], verdict: 'mvd' }) });
     const override = h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').at(-1);
-    assert.deepEqual([override.args.p_verdict, override.args.p_computed_verdict], ['mvd', 'miss'], 'the user decides; the computed verdict is kept beside it');
+    // The user decides; the computed verdict is kept beside it, computed from the agenda's
+    // evidence (engine P1-1) — a self-scored "miss" does not turn done work into a Miss.
+    assert.deepEqual([override.args.p_verdict, override.args.p_computed_verdict], ['mvd', 'full_day']);
   } finally { h.restore(); }
 });
 
@@ -396,7 +398,9 @@ test('REPRINT needs a locked agenda and rewrites only the flagged item through t
     const response = await (await request('/v1/today/reprint', { method: 'POST', body: JSON.stringify({ itemIds: [priority.id] }) })).json();
     const call = h.calls.rpc.find((c) => c.fn === 'apm_service_day_reprint');
     assert.equal(call.args.p_user_id, USER);
-    assert.notEqual(call.args.p_agenda.firstHour.priority.actionKey, priority.actionKey);
+    // No Mid-Day Negotiation: the foreground keeps its action, rescoped to its MVD.
+    assert.equal(call.args.p_agenda.firstHour.priority.actionKey, priority.actionKey);
+    assert.equal(call.args.p_agenda.firstHour.priority.scope, 'mvd');
     assert.equal(call.args.p_agenda.mode, checkedIn.today.agenda.mode);
     assert.equal(response.replaced.length, 1);
   } finally { h.restore(); }

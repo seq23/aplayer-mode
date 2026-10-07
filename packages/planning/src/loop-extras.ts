@@ -18,19 +18,36 @@ export interface ReprintResult {
 /**
  * Reprints an invalid or user-flagged agenda WITHOUT changing its scope: each bad plan item
  * is swapped for the MVD of the same action, then for another action of the same gate whose
- * title is executable; a generic non-plan item is dropped. A reprint is not a renegotiation.
+ * title is executable; a generic non-plan item is dropped. A reprint is not a renegotiation:
+ *  - the foreground keeps its action (No Mid-Day Negotiation): it may only be rescoped to
+ *    its own MVD, never swapped for another action;
+ *  - a protected floor (plan or Track floor) is never dropped: it may only become its own MVD.
+ * The database enforces both again (apm_service_day_reprint, 0046).
  */
 export function reprintAgenda(agenda: DailyAgenda, plans: PlanEntry[], flaggedIds: string[] = []): ReprintResult {
   const flagged = new Set(flaggedIds);
   const replaced: ReprintResult['replaced'] = [];
   const used = new Set(agendaItems(agenda).map((item) => item.actionKey).filter(Boolean));
-  const repair = (item: AgendaItem): AgendaItem | undefined => {
-    if (!flagged.has(item.id) && !agendaItemProblem(item)) return item;
+  const ownMvd = (item: AgendaItem): AgendaItem | undefined => {
     const entry = plans.find((candidate) => candidate.record.id === item.planId);
     const action = entry && item.actionKey ? entry.plan.actions[item.actionKey] : undefined;
-    if (entry && action && !flagged.has(item.id)) {
-      const mvd = { ...item, title: action.mvd.title, output: action.mvd.output, durationMinutes: action.mvd.durationMinutes, scope: 'mvd' as const };
-      if (!agendaItemProblem(mvd)) { replaced.push({ from: item.title, to: mvd.title }); return mvd; }
+    if (!action || item.scope === 'mvd') return undefined;
+    const mvd = { ...item, title: action.mvd.title, output: action.mvd.output, durationMinutes: action.mvd.durationMinutes, scope: 'mvd' as const };
+    return agendaItemProblem(mvd) ? undefined : mvd;
+  };
+  const repair = (item: AgendaItem, protectedItem: boolean): AgendaItem | undefined => {
+    if (!flagged.has(item.id) && !agendaItemProblem(item)) return item;
+    if (protectedItem) {
+      // Foreground or floor: its own MVD, or unchanged. Never dropped, never swapped.
+      const mvd = ownMvd(item);
+      if (mvd) { replaced.push({ from: item.title, to: mvd.title }); return mvd; }
+      replaced.push({ from: item.title });
+      return item;
+    }
+    const entry = plans.find((candidate) => candidate.record.id === item.planId);
+    if (!flagged.has(item.id)) {
+      const mvd = ownMvd(item);
+      if (mvd) { replaced.push({ from: item.title, to: mvd.title }); return mvd; }
     }
     if (entry && item.kind === 'plan_action') {
       const gate = entry.plan.gates.find((candidate) => {
@@ -48,8 +65,8 @@ export function reprintAgenda(agenda: DailyAgenda, plans: PlanEntry[], flaggedId
     replaced.push({ from: item.title });
     return item.kind === 'plan_action' ? item : undefined;
   };
-  const priority = agenda.firstHour.priority ? repair(agenda.firstHour.priority) : undefined;
-  const dailyStack = agenda.dailyStack.map(repair).filter((item): item is AgendaItem => Boolean(item));
+  const priority = agenda.firstHour.priority ? repair(agenda.firstHour.priority, true) : undefined;
+  const dailyStack = agenda.dailyStack.map((item) => repair(item, item.kind === 'plan_floor' || item.kind === 'track_floor')).filter((item): item is AgendaItem => Boolean(item));
   const next: DailyAgenda = { ...agenda, firstHour: { ...agenda.firstHour, ...(priority ? { priority } : {}) }, dailyStack, reasons: [...new Set([...agenda.reasons, 'reprinted'])] };
   const stillInvalid = agendaItems(next).map(agendaItemProblem).filter((problem): problem is string => Boolean(problem));
   next.problems = stillInvalid;
