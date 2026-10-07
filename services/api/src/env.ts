@@ -28,6 +28,13 @@ export interface ApiEnv {
    * database activation says. Empty/absent = none.
    */
   AUTOPILOT_ENABLED_CLASSES?: string;
+  /**
+   * Phase D: the value RevenueCat sends in the webhook Authorization header (docs/33).
+   * Server-only Worker secret, at least 32 characters; absent = the webhook answers 503.
+   */
+  REVENUECAT_WEBHOOK_SECRET?: string;
+  /** 'true' on staging only: accept RevenueCat SANDBOX events. Production ignores them. */
+  BILLING_ALLOW_SANDBOX?: string;
 }
 
 export function requireSupabaseConfig(env: ApiEnv): { url: string; publishableKey: string } {

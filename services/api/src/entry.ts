@@ -1,6 +1,7 @@
 import app from './index';
 import type { ApiEnv } from './env';
 import { runMorningTrigger } from './morningTrigger';
+import { runBillingSweep } from './billing';
 
 declare const __APM_BUILD_SHA__: string;
 declare const __APM_RUNTIME_ENVIRONMENT__: string;
@@ -23,6 +24,13 @@ export default {
       runMorningTrigger(env, new Date(controller.scheduledTime)).then((result) => {
         console.log('APM morning trigger', { cron: controller.cron, ...result });
       }),
+    );
+    // Billing safety net (docs/33): expire store entitlements whose EXPIRATION webhook never came.
+    ctx.waitUntil(
+      runBillingSweep(env).then(
+        (result) => console.log('APM billing sweep', { cron: controller.cron, ...result }),
+        (error: unknown) => console.error('APM billing sweep failed', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
+      ),
     );
   },
 

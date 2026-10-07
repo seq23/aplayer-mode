@@ -1,7 +1,7 @@
 # A Player Mode — Required External Credentials
 
 **Status: OPERATIONS CHECKLIST**  
-**Updated: 2026-10-06**
+**Updated: 2026-10-07**
 
 No credential value belongs in Git. This file records **names and purpose only** so runtime work can proceed without inventing or exposing secrets.
 
@@ -44,6 +44,8 @@ These secrets should be scoped to the minimum access required by their workflow.
 | `ACTION_LIFE_GRAPH_EXECUTION` | config / kill switch | Life Graph action execution |
 | `ACTION_NOTIFICATION_EXECUTION` | config / kill switch | Notification action execution |
 | `ACTION_CONNECTOR_EXECUTION` | config / kill switch | Connector-level action execution |
+| `REVENUECAT_WEBHOOK_SECRET` | Worker secret (server-only) — **Phase E placeholder** | The exact value RevenueCat sends in the webhook `Authorization` header (raw or `Bearer <value>`), at least 32 random characters. Absent or shorter = the webhook answers 503 `billing_webhook_not_configured` and nothing is written (docs/33). |
+| `BILLING_ALLOW_SANDBOX` | config (staging only) | `true` lets staging accept RevenueCat SANDBOX events; production leaves it unset and records sandbox events as ignored. |
 
 All action switches default conceptually to **false**. Enabling the global switch alone is insufficient; the domain switch must also be enabled.
 
@@ -55,6 +57,8 @@ These values are bundled into the app and therefore are **not secrets**:
 - `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `EXPO_PUBLIC_APM_API_URL`
 - `EXPO_PUBLIC_EAS_PROJECT_ID`
+- `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` — RevenueCat public Apple SDK key (`appl_…`), **Phase E placeholder**
+- `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` — RevenueCat public Google SDK key (`goog_…`), **Phase E placeholder**
 
 Never place server/API/provider secrets into `EXPO_PUBLIC_*` variables.
 
@@ -69,7 +73,7 @@ External setup still requires real accounts/configuration in:
 - Expo / EAS;
 - Apple Developer / App Store Connect;
 - Google Play Console;
-- whichever billing adapter is selected by later ADR.
+- RevenueCat (billing adapter, docs/33-BILLING-PHASE-D.md: products, offerings, entitlements, webhook).
 
 ## Secret rotation rule
 

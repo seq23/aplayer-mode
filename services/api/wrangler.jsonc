@@ -37,6 +37,11 @@
   // Server-only, for the scheduled Morning Trigger (no user JWT exists in a cron run):
   // SUPABASE_SECRET_KEY
   //
+  // Server-only, Phase D billing (docs/33; Phase E sets it): the RevenueCat webhook
+  // Authorization value, >= 32 random characters. Without it the webhook answers 503.
+  // REVENUECAT_WEBHOOK_SECRET
+  // Staging only: BILLING_ALLOW_SANDBOX=true accepts RevenueCat SANDBOX events.
+  //
   // Server-only inference secret when OpenRouter goes live:
   // OPENROUTER_API_KEY
   //
