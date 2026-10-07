@@ -195,7 +195,7 @@ test('No Mid-Day Negotiation holds in the database: only declared external/safet
   assert.equal(replanned.day_state, 'recovery');
   assert.equal(replanned.replans[0].reason, 'safety');
   await rejects(rpc(USER_B, 'apm_day_replan', [await localToday(USER_B), 'external_change', null, JSON.stringify({ ...agenda, date: await localToday(USER_B) })]), /loop_invalid_agenda/, 'another user’s plan items are refused');
-  const emptyB = { ...agenda, date: await localToday(USER_B), firstHour: { sequence: [] }, dailyStack: [] };
+  const emptyB = { ...agenda, date: await localToday(USER_B), foregroundPriority: undefined, firstHour: { sequence: [] }, dailyStack: [] };
   await rejects(rpc(USER_B, 'apm_day_replan', [await localToday(USER_B), 'external_change', null, JSON.stringify(emptyB)]), /loop_day_not_locked/);
 });
 
@@ -366,4 +366,25 @@ test('a Full Day needs the whole locked agenda done; setup days supply only setu
   await admin(`update public.goal_plans set status = 'decided', decision = 'park', decision_reason = 'Parked', decided_at = now() where id = $1`, [stored.id]);
   await admin(`update public.goals set status = 'paused' where id = $1`, [GOAL_D]);
   assert.equal((await admin('select private.apm_loop_missed_yesterday($1, $2::date + 2) m', [USER_D, today])).rows[0].m, false);
+});
+
+test('a locked agenda must carry the floors the supply requires; the day-90 decision waits for the check-in', async () => {
+  const USER_E = '00000000-0000-4000-8000-0000000000e1';
+  const GOAL_E = '00000000-0000-4000-8000-00000000e0e1';
+  await admin(`insert into auth.users (id) values ('${USER_E}')`);
+  await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_E}', 'standard', current_date - 100)`);
+  await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL_E}', '${USER_E}', 'Launch my business', 'active', 'unknown', 1, 'stated', 'manual')`);
+  const today = await localToday(USER_E);
+  const stored = await rpc(USER_E, 'apm_save_goal_plan', [GOAL_E, JSON.stringify(planning.generateGoalPlan('Launch my business', { roles: ['Parenting / caregiving', 'Building a business'], startDate: shift(today, -95) })), 'intake']);
+  await admin(`insert into public.day_records (user_id, day, mode, verdict, closed_at) values ('${USER_E}', $1::date - 1, 'standard', 'full_day', now())`, [today]);
+  await rejects(rpc(USER_E, 'apm_decide_goal_plan', [stored.id, 'promote', 'It worked']), /loop_opening_step_required/, 'no decision before the opening step');
+  const entry = { record: { id: stored.id, goalId: GOAL_E, status: 'active', gateReviews: {}, startDate: stored.start_date }, plan: stored.plan };
+  const agenda = planning.composeAgenda({ date: today, state: 'normal', plans: [entry], goals: [{ id: GOAL_E, title: 'Launch my business', status: 'active', priority: 1 }], completions: [], morningSequence: [] });
+  assert.ok(agenda.dailyStack.some((item) => item.actionKey === 'family_floor'));
+  const stripped = { ...agenda, dailyStack: agenda.dailyStack.filter((item) => item.actionKey !== 'family_floor') };
+  await rejects(rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(stripped)]), /loop_invalid_agenda/, 'the family floor cannot be dropped to fake a Full Day');
+  const foreignPriority = { ...agenda, firstHour: { ...agenda.firstHour, priority: undefined } };
+  await rejects(rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(foreignPriority)]), /loop_invalid_agenda/);
+  await rpc(USER_E, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(agenda)]);
+  assert.equal((await rpc(USER_E, 'apm_decide_goal_plan', [stored.id, 'promote', 'It worked'])).decision, 'promote');
 });

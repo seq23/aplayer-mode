@@ -212,7 +212,7 @@ export default function TodayScreen() {
             </Card>
           ) : null}
 
-          {decisionDue && !hideAgenda ? (
+          {decisionDue && !hideAgenda && todayLoop.checkedIn ? (
             <Card tone="warning">
               <Label>Day 90 · forced decision</Label>
               <CardTitle>{`${goalTitleForPlan(decisionDue.planId)}: Promote, Maintain or Park? APM recommends ${decisionDue.recommended}.`}</CardTitle>
