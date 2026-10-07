@@ -170,6 +170,11 @@ Before merge:
 - **AI processing:** Phase C is deterministic. No inference route receives Autopilot data, and an LLM cannot grant, widen or activate a rule. External content cannot create rules.
 - **Inspection/correction:** Settings → Autopilot (manage, pause, revoke, undo); Privacy & AI → Your Data and Activity (audit events).
 
-## Provisioning receipt
+## Provisioning receipt — 2026-10-06
 
-Recorded after the migration is applied (see the ledger row for Phase C).
+**Supabase project:** `aplayer-mode` (`klzbnchgoqmnwsgolwoe`)
+
+- Applied via the Management API as migration `autopilot_standing_rules` (listed after `life_os_governed_writes`).
+- Post-migration Supabase security advisor: **0 security lints**.
+- The forbidden paths (direct writes, anon RPC calls, exposed definers, unpinned `search_path`, grant/claim without entitlement, permission or activation) are proven against the same migration file in `services/api/test/autopilot-db.test.mjs`. The management token used for provisioning has no `database_read` scope, so live SQL inspection of the applied schema is not part of this receipt.
+- Both action classes are `inactive` as shipped: **no standing execution is possible in production** until a reviewed activation migration records runtime evidence.
