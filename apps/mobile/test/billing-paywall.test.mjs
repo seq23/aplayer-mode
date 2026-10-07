@@ -93,9 +93,17 @@ test('the app never reports a purchase to the API or decides Founding eligibilit
     assert.doesNotMatch(text, /apm_service_billing/, `${path} never names a service billing function`);
     assert.doesNotMatch(text, /customerInfo\.entitlements|entitlements\.active/, `${path} never treats the SDK's entitlements as truth`);
   }
-  const plan = files.find(([path]) => path.endsWith('app/settings/plan.tsx'))[1];
-  assert.match(plan, /loadOffering\(offering\.offeringId\)/, 'the paywall loads exactly the offering the server named');
-  assert.doesNotMatch(plan, /loadOffering\('founding'\)|foundingOffering/, 'never picks the founding offering itself');
+  // ONE paywall component serves Settings and the onboarding plan choice (docs/34 §9).
+  const paywall = files.find(([path]) => path.endsWith('src/billing/PlanChoice.tsx'))[1];
+  assert.match(paywall, /loadOffering\(offering\.offeringId\)/, 'the paywall loads exactly the offering the server named');
+  assert.doesNotMatch(paywall, /loadOffering\('founding'\)|foundingOffering/, 'never picks the founding offering itself');
+  assert.match(paywall, /subscriptionDisclosure\(/, 'the store disclosures are on the paywall');
+  assert.match(paywall, /Restore purchases/, 'Restore is on the paywall');
+  for (const user of ['app/settings/plan.tsx', 'app/intake.tsx']) {
+    const text = files.find(([path]) => path.endsWith(user))?.[1] ?? '';
+    assert.match(text, /<PlanChoice\b/, `${user} renders the shared paywall`);
+    assert.doesNotMatch(text, /loadOffering|buyPackage/, `${user} never runs its own purchase path`);
+  }
   const purchases = files.find(([path]) => path.endsWith('src/billing/purchases.ts'))[1];
   assert.match(purchases, /appUserID: userId/, 'RevenueCat app user id = Supabase user id');
   assert.match(purchases, /Purchases\.logOut\(\)/, 'forgotten on sign-out');

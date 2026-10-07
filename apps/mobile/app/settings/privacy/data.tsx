@@ -52,7 +52,7 @@ export default function YourDataScreen() {
     return () => { active = false; };
   }, [accessToken]);
 
-  const editPersonalOS = () => router.push('/onboarding');
+  const editPersonalOS = () => router.push('/settings/os');
 
   return (
     <Screen

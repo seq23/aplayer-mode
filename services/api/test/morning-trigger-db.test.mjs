@@ -139,10 +139,10 @@ test('a printed agenda never overwrites a checked-in or closed day and only name
 
 test('the end-of-day close is validated, local-day, audited, and keeps one carry item', async () => {
   const call = (args) => asRole('authenticated', DUE, 'select public.apm_close_day_review($1, $2, $3, $4, $5, $6) r', args);
-  const review = JSON.stringify([{ pillar: 'body', score: 'hit', completed: 'Walked 10 minutes' }, { pillar: 'family', score: 'partial' }]);
+  const review = JSON.stringify([{ pillar: 'movement', score: 'hit', completed: 'Walked 10 minutes' }, { pillar: 'family', score: 'partial' }]);
   await rejects(call(['full_day', 'great', review, null, null, null]), /loop_invalid_request/);
   await rejects(call(['full_day', 'full_day', JSON.stringify([{ pillar: 'hobbies', score: 'hit' }]), null, null, null]), /loop_invalid_request/);
-  await rejects(call(['full_day', 'full_day', JSON.stringify([{ pillar: 'body', score: 'hit', user_id: OFF }]), null, null, null]), /loop_field_not_allowed/);
+  await rejects(call(['full_day', 'full_day', JSON.stringify([{ pillar: 'movement', score: 'hit', user_id: OFF }]), null, null, null]), /loop_field_not_allowed/);
   await rejects(call(['full_day', 'full_day', review, null, 'x', null]), /loop_invalid_request/);
   await rejects(call(['mvd', 'full_day', review, null, null, null]), /loop_verdict_needs_evidence/, 'a win needs completion evidence');
   const today = (await admin('select private.apm_local_today($1)::text d', [DUE])).rows[0].d;

@@ -1,6 +1,8 @@
 # A Player Mode — Methodology Engine v1
 
 **Status: LOCKED IMPLEMENTATION BASELINE**  
+
+> **Amendment (owner decision, 7 Oct 2026; supersedes the four-pillar model below).** APM has **three pillars, Mind, Body and Spirit**, all on by default (a whole pillar can be switched off). Everything the engine plans, floors and scores lives in an **area** inside a pillar: Mind = work (labelled per persona), money, learning, focus, mental health; Body = movement, food, sleep, weight, health routines; Spirit = faith, meditation, gratitude, nature, service, family. Critical/flexible, minimum floors, MVD and scoring work at area level and roll up to the three pillars for display and the day verdict. Stored legacy keys were migrated without loss (execution→work, wealth→money, body→movement, family→family, spirit→an area read from its floor text): migration 0060, `@apm/domain` `AREA_PILLAR` / `LEGACY_AREA_MAP`, docs/34 §14.
 **Decision date: 2026-10-06**
 
 ## Brand constraint

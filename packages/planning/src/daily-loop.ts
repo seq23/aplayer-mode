@@ -4,7 +4,6 @@ import type {
   Goal,
   LifeGraphSnapshot,
   NextAction,
-  PillarName,
   PlanActionCompletion,
   PlanPillar,
   StoredGoalPlan,
@@ -21,6 +20,7 @@ import { PLAN_LENGTH_DAYS, decideAtDay90, planDayIndex, reviewPlanGate, supplyDa
 import type { DailySupply, GateKey, GateVerdictKey, GoalPlan, GoalPlanContext, SuppliedAction, Weekday } from './goal-plan-types.js';
 import { addDays, daysBetween } from './goal-templates.js';
 import { applyTrackRules, type TrackFlag, type TrackRuleContext } from './track-rules.js';
+import { dailyPracticeFloors, practicesFromProfile } from './intake/profile.js';
 
 /**
  * The BHPC daily loop, deterministic and model-free:
@@ -63,6 +63,12 @@ export function planContextFromGraph(
     if (pillar.active && pillar.minimumFloor?.trim()) minimumFloors[pillar.name] = pillar.minimumFloor.trim();
   }
   const recoveryDay = weekdayFromName(graph.personalOS?.weeklyCadence.recoveryDay);
+  // Generated Mind / Spirit practices join the plan as daily floors (active areas only).
+  const activeAreas = new Set(graph.pillarSettings.filter((setting) => setting.active).map((setting) => setting.name));
+  const profile = graph.personalOS?.intakeProfile;
+  const practices = profile
+    ? dailyPracticeFloors(practicesFromProfile(profile, input.startDate, input.startDate).filter((p) => activeAreas.has(p.area)), input.startDate)
+    : [];
   const healthNotes = [graph.personalOS?.bodyContext, ...(input.healthNotes ?? [])].filter((note): note is string => Boolean(note?.trim()));
   return {
     roles: graph.roles.filter((role) => role.active).map((role) => role.name),
@@ -72,6 +78,7 @@ export function planContextFromGraph(
     ...(recoveryDay !== undefined ? { availability: { restDays: [recoveryDay] } } : {}),
     constraints: graph.personalOS?.hardBoundaries ?? [],
     minimumFloors,
+    ...(practices.length ? { practices } : {}),
     body: {
       healthNotes,
       ...(graph.personalOS?.bodyReferral ? { referralActive: true } : {}),

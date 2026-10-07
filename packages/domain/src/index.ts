@@ -30,25 +30,110 @@ export interface Role {
   provenance: Provenance;
 }
 
-/** The LOCKED four-pillar model (docs/20-APM-METHODOLOGY-ENGINE-V1.md). */
-export type PillarName = 'wealth' | 'body' | 'spirit' | 'execution';
+/**
+ * The three pillars (owner decision 7 Oct 2026, supersedes the four-pillar model of
+ * docs/20): Mind, Body and Spirit. Everyone starts with all three; a whole pillar can be
+ * switched off. Everything the engine plans, floors and scores lives one level down, in
+ * an AREA (`AreaKey`), and rolls up to its pillar for display and the day verdict.
+ */
+export type PillarName = 'mind' | 'body' | 'spirit';
+
+export const PILLAR_NAMES: readonly PillarName[] = ['mind', 'body', 'spirit'];
+
+export const PILLAR_LABELS: Readonly<Record<PillarName, string>> = { mind: 'Mind', body: 'Body', spirit: 'Spirit' };
 
 /**
- * A plan-level pillar. `family` is the Home Front protected floor of a parent+ goal plan:
- * BHPC names Family as something to protect, but APM v1 keeps four LIFE pillars, so
- * `family` exists only on plans, plan actions and agendas (goal_plans.foreground_pillar),
- * never in pillar_settings, goals or routines. `lifePillarOf` maps it back.
+ * The areas inside the three pillars. The engine works at this level (critical/flexible,
+ * floors, MVD, scoring), exactly as BHPC's pillars did. The database (migration 0060)
+ * checks the same list.
  */
-export type PlanPillar = PillarName | 'family';
+export const AREA_KEYS = [
+  // Mind
+  'work', 'money', 'learning', 'focus', 'mental_health',
+  // Body
+  'movement', 'food', 'sleep', 'weight', 'health_routines',
+  // Spirit
+  'faith', 'meditation', 'gratitude', 'nature', 'service', 'family',
+] as const;
 
-/** The life pillar a plan pillar belongs to; the Home Front floor has none. */
-export function lifePillarOf(pillar: PlanPillar): PillarName | undefined {
-  return pillar === 'family' ? undefined : pillar;
+export type AreaKey = (typeof AREA_KEYS)[number];
+
+/** Which pillar each area rolls up to. */
+export const AREA_PILLAR: Readonly<Record<AreaKey, PillarName>> = {
+  work: 'mind', money: 'mind', learning: 'mind', focus: 'mind', mental_health: 'mind',
+  movement: 'body', food: 'body', sleep: 'body', weight: 'body', health_routines: 'body',
+  faith: 'spirit', meditation: 'spirit', gratitude: 'spirit', nature: 'spirit', service: 'spirit', family: 'spirit',
+};
+
+export const AREA_LABELS: Readonly<Record<AreaKey, string>> = {
+  work: 'Work', money: 'Money', learning: 'Learning', focus: 'Focus & screen boundaries', mental_health: 'Mental health',
+  movement: 'Movement & fitness', food: 'Food & hydration', sleep: 'Sleep', weight: 'Weight', health_routines: 'Health routines',
+  faith: 'Faith', meditation: 'Meditation & mindfulness', gratitude: 'Gratitude', nature: 'Nature & stillness', service: 'Service & giving', family: 'Family & relationships',
+};
+
+export function isAreaKey(value: unknown): value is AreaKey {
+  return typeof value === 'string' && (AREA_KEYS as readonly string[]).includes(value);
 }
 
+export function pillarOfArea(area: AreaKey): PillarName {
+  return AREA_PILLAR[area];
+}
+
+export function areasOfPillar(pillar: PillarName): AreaKey[] {
+  return AREA_KEYS.filter((area) => AREA_PILLAR[area] === pillar);
+}
+
+/** The pre-0060 pillar keys. Kept only to migrate stored data and old payloads. */
+export type LegacyPillarKey = 'wealth' | 'body' | 'spirit' | 'execution' | 'family';
+
+/**
+ * Legacy key → area (migration 0060 applies the same table in SQL). `spirit` had no
+ * finer meaning, so its area is read from the floor text when one exists
+ * (`legacySpiritArea`), else Meditation & mindfulness.
+ */
+export const LEGACY_AREA_MAP: Readonly<Record<LegacyPillarKey, AreaKey>> = {
+  execution: 'work',
+  wealth: 'money',
+  body: 'movement',
+  spirit: 'meditation',
+  family: 'family',
+};
+
+export function legacySpiritArea(floorText?: string): AreaKey {
+  const text = (floorText ?? '').toLowerCase();
+  if (/(pray|prayer|scripture|bible|quran|qur'an|torah|church|mosque|temple|synagogue|worship|devotion|god)/.test(text)) return 'faith';
+  if (/(gratitude|grateful|thankful)/.test(text)) return 'gratitude';
+  if (/(nature|outside|outdoors|walk in|stillness|sunlight)/.test(text)) return 'nature';
+  if (/(volunteer|serve|service|give|giving|donat)/.test(text)) return 'service';
+  return 'meditation';
+}
+
+/** Maps an old pillar key (or an area key, unchanged) to an area. Unknown → undefined. */
+export function toAreaKey(value: string | null | undefined, floorText?: string): AreaKey | undefined {
+  if (!value) return undefined;
+  if (isAreaKey(value)) return value;
+  if (value === 'spirit') return legacySpiritArea(floorText);
+  return (LEGACY_AREA_MAP as Record<string, AreaKey>)[value];
+}
+
+/**
+ * A plan-level area. Plans, plan actions, agendas and reviews carry an area in their
+ * `pillar` field (the JSON field name predates the three-pillar model and is kept so stored
+ * plans stay valid); `lifePillarOf` rolls it up.
+ */
+export type PlanPillar = AreaKey;
+
+/** The pillar a plan area rolls up to. */
+export function lifePillarOf(area: PlanPillar): PillarName {
+  return AREA_PILLAR[area];
+}
+
+/** One AREA's settings (table pillar_settings; `name` is the area key since 0060). */
 export interface PillarSetting {
   userId: UUID;
-  name: PillarName;
+  name: AreaKey;
+  /** The pillar the area rolls up to (stored as a generated column). */
+  pillar: PillarName;
   active: boolean;
   critical: boolean;
   minimumFloor?: string;
@@ -162,6 +247,56 @@ export interface TrackSettings {
   debtOrder?: string[];
 }
 
+/**
+ * The structured profile the first-run intake produces (docs/34 §4, the fields marked NEW).
+ * Only closed-answer ids, numbers and times: the optional catch-all text never lands here.
+ * Stored on personal_os.intake_profile (migration 0060).
+ */
+export interface IntakeProfile {
+  bankVersion: number;
+  games: string[];
+  foregroundGame?: string;
+  loadBaseline?: number;
+  mentalLoadItems: string[];
+  wakeTime?: string;
+  sleepTime?: string;
+  fixedCommitments: string[];
+  /** Line ids she asked APM to hold (non-negotiables + boundaries, docs/34 Q53). */
+  lineIds: string[];
+  travelPattern?: string;
+  defaultMinutes?: number;
+  missPattern?: string;
+  energyDip?: string;
+  deadlines: string[];
+  deadlineWindow?: string;
+  realWork: string[];
+  fakeWork: string[];
+  wealthContext: string[];
+  ownership?: boolean;
+  careerLevers: string[];
+  family?: { dependents: string[]; protected: string[]; shared?: string };
+  /** Mind practices APM supplies (journaling, reading, learning plan, focus, therapy, reflection). */
+  mindPractices: string[];
+  learningTopic?: string;
+  learningModality?: string;
+  /** Spirit practices ("What feeds your spirit?"). */
+  spiritPractices: string[];
+  faithLanguage: boolean;
+  practiceCadence?: 'daily' | 'few' | 'weekly';
+  bedRoutine?: { gentle: boolean };
+  /** Body safety question: a listed condition applies (`yes`) or she would rather not say (`skip`) → body pace paused until a clinician clears it. */
+  bodySafety?: 'none' | 'yes' | 'skip';
+  coachingHelps: string[];
+  coachingAvoid: string[];
+  morningTrigger?: 'wake' | 'wake15' | 'wake30';
+  systemName?: string;
+  quickStart: boolean;
+  /** Question ids left for "2 quick taps" on Today. */
+  deferredQuestionIds: string[];
+  /** Areas the user suggested (catch-all or the summary chip), already classified. */
+  suggestedAreas: Array<{ label: string; area: AreaKey }>;
+}
+
 export interface PersonalOS {
   userId: UUID;
   northStar?: string;
@@ -182,6 +317,9 @@ export interface PersonalOS {
   scoringConfig: ScoringConfig;
   stabilizationStartedAt?: string;
   trackSettings: TrackSettings;
+  /** The pillars switched on (all three by default; unticking one switches its areas off). */
+  pillarsEnabled: PillarName[];
+  intakeProfile?: IntakeProfile;
   /** Body red-flag pause: set until the user records clinician clearance. */
   bodyReferral?: { since: ISODateTime; source?: string };
   clinicianClearedAt?: ISODateTime;
@@ -196,7 +334,8 @@ export interface Goal {
   outcome?: string;
   status: 'active' | 'paused' | 'completed' | 'abandoned';
   health: 'on_track' | 'at_risk' | 'stalled' | 'unknown';
-  pillar?: PillarName;
+  /** The goal's area (field name predates the three-pillar model). */
+  pillar?: AreaKey;
   targetDate?: string;
   priority: number;
   provenance: Provenance;
@@ -264,7 +403,7 @@ export interface Routine {
   id: UUID;
   userId: UUID;
   title: string;
-  pillar?: PillarName;
+  pillar?: AreaKey;
   targetFrequencyPerWeek?: number;
   preferredWindow?: Record<string, unknown>;
   active: boolean;

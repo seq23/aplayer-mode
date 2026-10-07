@@ -86,7 +86,7 @@ test('the Drafting Room: draft → validate → apply from tomorrow; Week 1 bloc
   await rejects(rpc(USER, 'apm_draft_os_change', ['track_settings', JSON.stringify({ hardStop: '6pm' }), null]), /loop_invalid_request/);
   await rejects(rpc(USER, 'apm_draft_os_change', ['track_settings', JSON.stringify({ salary: 1 }), null]), /loop_field_not_allowed/);
   await rejects(rpc(USER, 'apm_draft_os_change', ['tracks', JSON.stringify(['manifestation_mastery']), null]), /loop_invalid_request/);
-  await rejects(rpc(USER, 'apm_draft_os_change', ['pillar', JSON.stringify({ name: 'family', critical: true }), null]), /loop_invalid_request/, 'four LOCKED pillars');
+  await rejects(rpc(USER, 'apm_draft_os_change', ['pillar', JSON.stringify({ name: 'execution', critical: true }), null]), /loop_invalid_request/, 'legacy pillar keys are refused: areas only (0060)');
 
   const draft = await rpc(USER, 'apm_draft_os_change', ['morning_sequence', JSON.stringify(['Drink water', 'Stretch 60 seconds']), 'Simpler mornings']);
   assert.equal(draft.status, 'draft');
@@ -111,19 +111,19 @@ test('the Drafting Room: draft → validate → apply from tomorrow; Week 1 bloc
   const tracks = await rpc(USER, 'apm_draft_os_change', ['tracks', JSON.stringify(['body_foundation', 'resilience']), null]);
   await rpc(USER, 'apm_apply_os_change', [tracks.id]);
   assert.deepEqual((await admin(`select key from public.tracks where user_id = '${USER}' order by key`)).rows.map((r) => r.key), ['body_foundation', 'resilience']);
-  const pillar = await rpc(USER, 'apm_draft_os_change', ['pillar', JSON.stringify({ name: 'body', critical: true, minimumFloor: 'Walk 10 minutes' }), null]);
+  const pillar = await rpc(USER, 'apm_draft_os_change', ['pillar', JSON.stringify({ name: 'movement', critical: true, minimumFloor: 'Walk 10 minutes' }), null]);
   await rpc(USER, 'apm_apply_os_change', [pillar.id]);
-  assert.deepEqual((await admin(`select critical, minimum_floor from public.pillar_settings where user_id = '${USER}' and name = 'body'`)).rows[0], { critical: true, minimum_floor: 'Walk 10 minutes' });
+  assert.deepEqual((await admin(`select critical, minimum_floor from public.pillar_settings where user_id = '${USER}' and name = 'movement'`)).rows[0], { critical: true, minimum_floor: 'Walk 10 minutes' });
   // 0037: the plans pick the change up on its effective date, once, through the service path.
   const pendingNow = await svc('apm_service_pending_pillar_rebuilds', [USER]);
   assert.deepEqual(pendingNow.changes, [], 'not before the effective date');
-  assert.deepEqual(Object.keys(pendingNow.effective), ['body'], 'today still runs on the pre-change body pillar');
+  assert.deepEqual(Object.keys(pendingNow.effective), ['movement'], 'today still runs on the pre-change movement area');
   await rejects(rpc(USER, 'apm_service_pending_pillar_rebuilds', [USER]), /permission denied/);
   await rejects(rpc(USER, 'apm_service_mark_pillar_rebuilt', [USER, pillar.id]), /permission denied/);
   assert.equal(await svc('apm_service_mark_pillar_rebuilt', [USER, pillar.id]), false, 'cannot be marked early');
   await admin(`update public.os_change_requests set effective_from = private.apm_local_today($1) where id = $2`, [USER, pillar.id]);
   const due = await svc('apm_service_pending_pillar_rebuilds', [USER]);
-  assert.deepEqual(due.changes, [{ id: pillar.id, pillar: 'body' }]);
+  assert.deepEqual(due.changes, [{ id: pillar.id, pillar: 'movement' }]);
   assert.deepEqual(due.effective, {}, 'no later change: the current pillar row is the effective one');
   assert.equal(await svc('apm_service_mark_pillar_rebuilt', [USER, pillar.id]), true);
   assert.deepEqual((await svc('apm_service_pending_pillar_rebuilds', [USER])).changes, [], 'rebuilt once');

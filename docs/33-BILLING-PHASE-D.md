@@ -139,6 +139,13 @@ Cancellation, billing issue, expiration, refund and product-change events about 
 
 ## 8. What is not done (Phase E)
 
+**Named stops from the first-run build (docs/34 §14, 7 Oct 2026).** The Management API token used for migrations does not carry `auth_config_read` / `auth_config_write` (PATCH `/config/auth` answered 403), so these Supabase Auth settings are the owner's, in the dashboard (Authentication → Sign In / Providers, Emails, Rate limits, Attack protection):
+- **Email code:** OTP length **6**, and the Magic Link / Confirm signup / Change email templates use `{{ .Token }}` (a code, not a link); custom SMTP (the built-in sender is rate-limited).
+- **Anonymous sign-ins: on**, with **CAPTCHA (Turnstile)** and the per-IP anonymous rate limit; **manual identity linking: on**. Until then the app keeps the draft on the device only and asks for an account before install (no data is lost).
+- **Sign in with Apple:** Services ID, key and team id in the Apple provider; the App ID's Sign in with Apple capability (EAS). **Google:** web + iOS + Android OAuth client ids in the Google provider; the redirect `aplayermode://auth/callback` in the allow-list.
+- **App Review reviewer account** (one fixed address whose static code works only for it, audited, disabled outside review) and its note in App Store Connect / Play Console.
+- **Closed-beta builds** set `EXPO_PUBLIC_CLOSED_BETA=true` (shows "Start with the closed beta" on the plan choice); store builds never do.
+
 - Creating the App Store / Play products, the RevenueCat project, offerings, entitlements and webhook (checklist §3).
 - Setting `REVENUECAT_WEBHOOK_SECRET`, the public SDK keys and the terms / privacy URLs.
 - A sandbox purchase receipt per store, the webhook receipt on staging, and a restore on a second device.

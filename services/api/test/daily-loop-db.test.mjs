@@ -101,14 +101,26 @@ test.before(async () => {
 });
 test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
 
-test('the four life pillars stay LOCKED; family exists only as a plan pillar (0022 reverts 0021)', async () => {
-  await rejects(admin(`insert into public.pillar_settings (user_id, name) values ('${USER_A}', 'family')`), /pillar_settings_name_check/);
+test('three pillars, areas inside (0060): legacy pillar keys are refused everywhere; areas roll up to their pillar', async () => {
+  for (const legacy of ['execution', 'wealth', 'body', 'spirit']) {
+    await rejects(admin(`insert into public.pillar_settings (user_id, name) values ('${USER_A}', '${legacy}')`), /pillar_settings_name_check/);
+    await rejects(admin(`insert into public.routines (user_id, title, pillar) values ('${USER_A}', 'x', '${legacy}')`), /routines_pillar_check/);
+    await rejects(admin(`update public.goals set pillar = '${legacy}' where id = '${GOAL_A}'`), /goals_pillar_check/);
+  }
   // 0043: a client cannot write pillar settings at all (only the governed intake / OS change flow can).
-  await rejects(as(USER_A, "insert into public.pillar_settings (user_id, name) values ($1, 'body')", [USER_A]), /permission denied/);
-  await rejects(admin(`insert into public.routines (user_id, title, pillar) values ('${USER_A}', 'School run', 'family')`), /routines_pillar_check/);
-  await rejects(admin(`update public.goals set pillar = 'family' where id = '${GOAL_A}'`), /goals_pillar_check/);
+  await rejects(as(USER_A, "insert into public.pillar_settings (user_id, name) values ($1, 'movement')", [USER_A]), /permission denied/);
+  // Family is a real area now (Spirit), no longer a plan-only floor.
+  await admin(`insert into public.pillar_settings (user_id, name, critical) values ('${USER_A}', 'family', true) on conflict (user_id, name) do update set critical = true`);
+  await admin(`insert into public.pillar_settings (user_id, name) values ('${USER_A}', 'learning') on conflict do nothing`);
+  const rows = (await admin(`select name, pillar from public.pillar_settings where user_id = '${USER_A}' and name in ('family', 'learning') order by name`)).rows;
+  assert.deepEqual(rows, [{ name: 'family', pillar: 'spirit' }, { name: 'learning', pillar: 'mind' }], 'the pillar is generated from the area');
+  await rejects(admin(`update public.pillar_settings set pillar = 'body' where user_id = '${USER_A}' and name = 'family'`), /can only be updated to DEFAULT|generated/);
+  await admin(`update public.goals set pillar = 'family' where id = '${GOAL_A}'`);
+  await admin(`update public.goals set pillar = null where id = '${GOAL_A}'`);
+  await admin(`delete from public.pillar_settings where user_id = '${USER_A}' and name in ('family', 'learning')`);
   const check = (await admin("select pg_get_constraintdef(oid) d from pg_constraint where conname = 'goal_plans_foreground_pillar_check'")).rows[0].d;
-  assert.match(check, /family/, 'a parent+ plan may still carry the Home Front family floor');
+  for (const area of ['work', 'money', 'movement', 'family', 'faith']) assert.match(check, new RegExp(area));
+  assert.doesNotMatch(check, /execution|wealth/);
 });
 
 test('the local day follows the profile timezone and falls back to UTC for an unknown zone', async () => {
@@ -120,7 +132,7 @@ test('the local day follows the profile timezone and falls back to UTC for an un
 test('no direct writes: plans, completions and day records only move through governed functions', async () => {
   const today = await localToday(USER_A);
   await rejects(as(USER_A, `insert into public.goal_plans (user_id, goal_id, plan_key, template_key, persona, foreground_pillar, start_date, end_date, plan)
-    values ($1, $2, 'x', 'x', 'generic', 'body', $3::date, $3::date + 89, '{}')`, [USER_A, GOAL_A, today]), /permission denied/);
+    values ($1, $2, 'x', 'x', 'generic', 'movement', $3::date, $3::date + 89, '{}')`, [USER_A, GOAL_A, today]), /permission denied/);
   await rejects(as(USER_A, 'insert into public.day_records (user_id, day, mode, verdict) values ($1, $2::date, $3, $4)', [USER_A, today, 'standard', 'full_day']), /permission denied/);
   await rejects(as(USER_A, 'update public.day_records set verdict = $1', ['full_day']), /permission denied/);
   await rejects(as(USER_A, 'delete from public.day_records'), /permission denied/);
@@ -136,7 +148,7 @@ test('plans are shape-checked, audited and one-live-per-goal; reads need owner +
 
   const first = await svc('apm_service_save_goal_plan', [USER_A, GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'intake']);
   assert.equal(first.persona, 'weight_loss');
-  assert.equal(first.foreground_pillar, 'body');
+  assert.equal(first.foreground_pillar, 'movement');
   const second = await svc('apm_service_save_goal_plan', [USER_A, GOAL_A, JSON.stringify(plan('lose 30 lbs', today)), 'goals']);
   const live = (await admin(`select id, status from public.goal_plans where goal_id = '${GOAL_A}' order by created_at`)).rows;
   assert.deepEqual(live.map((row) => row.status), ['superseded', 'active']);
@@ -256,7 +268,7 @@ test('Week 1 blocks new projects and foreground changes; after it, a goal is cre
   await rejects(svc('apm_service_create_goal', [USER_B, JSON.stringify({ title: 'Run a 10k' }), JSON.stringify(plan('Run a 10k', todayB))]), /loop_week_one_lock/);
   const todayA = await localToday(USER_A);
   await rejects(svc('apm_service_create_goal', [USER_A, JSON.stringify({ title: 'Run a 10k', user_id: USER_B }), JSON.stringify(plan('Run a 10k', todayA))]), /loop_field_not_allowed/);
-  const created = await svc('apm_service_create_goal', [USER_A, JSON.stringify({ title: 'Build a 3-month emergency fund', pillar: 'wealth' }), JSON.stringify(plan('Build a 3-month emergency fund', todayA))]);
+  const created = await svc('apm_service_create_goal', [USER_A, JSON.stringify({ title: 'Build a 3-month emergency fund', pillar: 'money' }), JSON.stringify(plan('Build a 3-month emergency fund', todayA))]);
   assert.equal(created.goal.priority, 2, 'a new project goes to the background');
   assert.equal(created.plan.persona, 'wealth_building');
   await admin(`update public.personal_os set foreground_goal_id = '${GOAL_A}' where user_id = '${USER_A}'`);
@@ -455,6 +467,8 @@ test('next_actions are RPC-only (0035): no direct owner writes, intake still see
   await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   // Onboarding (SECURITY INVOKER) seeds its first action through the governed writer.
   await rpc(USER_F, 'apm_save_onboarding', ['Ana', ['parent'], 'Run a 10k in spring', null, null, 'body']);
+  // An older client's legacy pillar key is mapped to its area (0060), never refused.
+  assert.equal((await admin(`select pillar from public.goals where user_id = $1`, [USER_F])).rows[0].pillar, 'movement');
   const seeded = (await admin(`select id, status, goal_id from public.next_actions where user_id = $1`, [USER_F])).rows;
   assert.equal(seeded.length, 1);
   assert.equal(seeded[0].status, 'open');

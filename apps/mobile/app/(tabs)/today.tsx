@@ -31,6 +31,8 @@ import {
   type ReplanReason,
 } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
+import { areaDisplay } from '../../src/content/areas';
+import { BedRoutineToday, CoachingModeChips, PillarRollUpLine, PracticesToday, QuickTaps, SaveAccountBanner } from '../../src/components/today/FirstRunCards';
 import { useSession } from '../../src/state/session';
 
 function timeLabel(value?: string) {
@@ -98,7 +100,7 @@ export default function TodayScreen() {
       <View style={uiStyles.row}>
         <Pill tone={item.status === 'done' ? 'success' : 'neutral'}>{item.status === 'done' ? 'Done' : item.scope === 'mvd' ? 'Minimum version' : item.kind.replace('_', ' ')}</Pill>
         {item.durationMinutes ? <Pill>{`${item.durationMinutes} min`}</Pill> : null}
-        {item.pillar ? <Pill>{item.pillar}</Pill> : null}
+        {item.pillar ? <Pill>{areaDisplay(item.pillar)}</Pill> : null}
       </View>
       <CardTitle>{item.title}</CardTitle>
       {item.output ? <Body muted>{`Done means: ${item.output}`}</Body> : null}
@@ -146,6 +148,7 @@ export default function TodayScreen() {
   const restart = () => run('return', () => perform((token) => returnAndReset(token)));
   const clearance = () => run('clearance', () => perform((token) => recordClinicianClearance(token)));
   const reviewRows = todayLoop?.closePreview.pillarReview ?? [];
+  const closedRecord = graph.dayRecords.find((record) => record.closedAt && record.day === todayLoop?.agenda.date);
   const scoreOf = (pillar: string) => pillarScores[pillar] ?? reviewRows.find((row) => row.pillar === pillar)?.score ?? 'miss';
   const submitClose = async () => {
     if (!accessToken || closing || !todayLoop) return;
@@ -153,7 +156,7 @@ export default function TodayScreen() {
     try {
       const pillarReview = reviewRows.map((row) => ({ pillar: row.pillar, score: scoreOf(row.pillar), ...(row.completed ? { completed: row.completed } : {}) }));
       await perform((token) => closeToday({
-        pillarReview: pillarReview.length ? pillarReview : [{ pillar: 'execution', score: 'miss' }],
+        pillarReview: pillarReview.length ? pillarReview : [{ pillar: 'work', score: 'miss' }],
         ...(!todayLoop.checkedIn ? { verdict: 'miss' as const } : verdictOverride ? { verdict: verdictOverride } : {}),
         ...(closeNote.trim() ? { note: closeNote.trim() } : {}),
         ...(carry.trim() ? { carryForward: carry.trim() } : {}),
@@ -176,6 +179,8 @@ export default function TodayScreen() {
         {todayPlan ? <Pill>{todayPlan.completionState.replace('_', ' ')}</Pill> : null}
       </View>
 
+      <SaveAccountBanner />
+
       {!isDurable ? <Card tone="warning"><CardTitle>APM is not pretending local state is durable.</CardTitle><Body muted>{syncError ?? 'Reconnect the authenticated APM API before changing private Life Graph state.'}</Body></Card> : null}
 
       {modeState?.todayEffect && (mode === 'sprint' || mode === 'deep_work') ? <Card tone="accent"><Label>{mode === 'sprint' ? 'Sprint' : 'Deep Work'}</Label><CardTitle>{modeState.todayEffect.summary}</CardTitle>{modeState.todayEffect.heldBlocks.length ? <Body muted>{modeState.todayEffect.heldBlocks.length} item(s) held {mode === 'sprint' ? 'in maintenance' : 'until the block ends'}.</Body> : null}</Card> : null}
@@ -186,7 +191,7 @@ export default function TodayScreen() {
         <Card tone="accent">
           <Label>Start here</Label>
           <CardTitle>Build your Personal OS so APM can plan around your actual game.</CardTitle>
-          <Button label="Build my APM" onPress={() => router.push('/onboarding')} />
+          <Button label="Build my APM" onPress={() => router.push('/intake')} />
         </Card>
       ) : null}
 
@@ -207,6 +212,10 @@ export default function TodayScreen() {
               {todayLoop.firstWeek.rules.map((rule) => <Body key={rule} muted>{`• ${rule}`}</Body>)}
             </Card>
           ) : null}
+          <BedRoutineToday graph={graph} />
+          <CoachingModeChips graph={graph} activeMode={mode} />
+          <QuickTaps graph={graph} />
+          <PracticesToday graph={graph} />
           {todayLoop.bodyReferral ? (
             <Card tone="danger">
               <Label>Body coaching paused</Label>
@@ -348,19 +357,21 @@ export default function TodayScreen() {
         <Card tone="accent">
           <Label>Day closed</Label>
           <CardTitle>{todayLoop.day?.verdict === 'full_day' ? '✅ Full Day' : todayLoop.day?.verdict === 'mvd' ? '⚡ Minimum Viable Day' : '❌ Miss — it is data, not a verdict on you'}</CardTitle>
+          {closedRecord?.pillarReview?.length ? <PillarRollUpLine graph={graph} review={closedRecord.pillarReview} recovery={closedRecord.mode === 'recovery'} /> : null}
           {todayLoop.day?.insight ? <Body>{todayLoop.day.insight}</Body> : null}
           {todayLoop.day?.carryForward ? <KeyValue label="Carrying to tomorrow" value={todayLoop.day.carryForward} /> : null}
         </Card>
       ) : todayLoop ? (
         <Card>
-          <Body muted>What did you complete today? Score each pillar. Closing records evidence for continuity; nothing becomes debt for tomorrow.</Body>
+          <Body muted>What did you complete today? Score each area; the line below rolls them up to Mind, Body and Spirit. Closing records evidence for continuity; nothing becomes debt for tomorrow.</Body>
           {todayLoop.closePreview.evidence.length ? <><Label>Completion evidence</Label>{todayLoop.closePreview.evidence.map((line) => <Body key={line}>{`• ${line}`}</Body>)}</> : <Body muted>No completion evidence yet today.</Body>}
           {reviewRows.map((row) => (
             <Card key={row.pillar} tone="muted">
-              <Label>{row.pillar}</Label>
+              <Label>{areaDisplay(row.pillar)}</Label>
               <ChoiceRow options={[{ id: 'hit', label: '✅ Hit' }, { id: 'partial', label: '⚡ Partial' }, { id: 'miss', label: '❌ Missed' }]} value={scoreOf(row.pillar)} onChange={(score) => setPillarScores((current) => ({ ...current, [row.pillar]: score }))} />
             </Card>
           ))}
+          {reviewRows.length ? <PillarRollUpLine graph={graph} review={reviewRows.map((row) => ({ ...row, score: scoreOf(row.pillar) }))} recovery={recovery} /> : null}
           <KeyValue label="APM's verdict from the evidence" value={todayLoop.closePreview.computedVerdict.replace('_', ' ')} />
           {todayLoop.checkedIn ? (
             <>

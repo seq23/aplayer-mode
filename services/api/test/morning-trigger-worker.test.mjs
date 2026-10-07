@@ -53,10 +53,10 @@ function harness({ os = {}, prefs = {}, dayRecords = [], lifeAdmin = [], plan = 
   const goalPlan = planning.generateGoalPlan('lose 30 lbs', { roles: [], startDate: '2026-10-01', timezone: TZ });
   const store = {
     user_profiles: [{ user_id: USER, display_name: 'Ana', timezone: TZ }],
-    goals: [{ id: GOAL, title: 'lose 30 lbs', outcome: null, status: 'active', health: 'unknown', pillar: 'body', target_date: null, priority: 1, provenance_kind: 'stated', source_type: 'manual', source_ref: null, confidence: 1, created_at: '2026-09-01T00:00:00Z' }],
+    goals: [{ id: GOAL, title: 'lose 30 lbs', outcome: null, status: 'active', health: 'unknown', pillar: 'movement', target_date: null, priority: 1, provenance_kind: 'stated', source_type: 'manual', source_ref: null, confidence: 1, created_at: '2026-09-01T00:00:00Z' }],
     personal_os: [osRow(os)],
     subscription_entitlements: [{ user_id: USER, plan, status: 'active' }],
-    goal_plans: [{ id: '00000000-0000-4000-8000-0000000000b1', user_id: USER, goal_id: GOAL, plan_key: goalPlan.id, template_key: goalPlan.provenance.templateKey, persona: 'weight_loss', foreground_pillar: 'body', start_date: '2026-10-01', end_date: goalPlan.endDate, timezone: TZ, plan: goalPlan, status: 'active', decision: null, decision_reason: null, decided_at: null, gate_reviews: {}, created_at: '2026-10-01T00:00:00Z' }],
+    goal_plans: [{ id: '00000000-0000-4000-8000-0000000000b1', user_id: USER, goal_id: GOAL, plan_key: goalPlan.id, template_key: goalPlan.provenance.templateKey, persona: 'weight_loss', foreground_pillar: 'movement', start_date: '2026-10-01', end_date: goalPlan.endDate, timezone: TZ, plan: goalPlan, status: 'active', decision: null, decision_reason: null, decided_at: null, gate_reviews: {}, created_at: '2026-10-01T00:00:00Z' }],
     day_records: dayRecords,
     life_admin_items: lifeAdmin,
     notification_preferences: [{ enabled: true, quiet_hours: {}, lock_screen_detail: 'minimal', morning_push_enabled: true, ...prefs }],

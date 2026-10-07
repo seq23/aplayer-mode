@@ -2,12 +2,18 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'react-native';
 import { SessionProvider } from '../src/state/session';
 import { LifeGraphProvider } from '../src/state/lifeGraph';
+import { IntakeProvider } from '../src/intake/store';
+import * as WebBrowser from 'expo-web-browser';
+
+// Web: completes the Google sign-in popup (no-op on native).
+WebBrowser.maybeCompleteAuthSession();
 import { colors } from '../src/theme';
 
 export default function RootLayout() {
   return (
     <SessionProvider>
       <LifeGraphProvider>
+        <IntakeProvider>
         <StatusBar barStyle="dark-content" />
         <Stack
           screenOptions={{
@@ -18,9 +24,9 @@ export default function RootLayout() {
         >
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="welcome" options={{ headerShown: false }} />
-          <Stack.Screen name="privacy-primer" options={{ title: 'Privacy' }} />
-          <Stack.Screen name="sign-in" options={{ title: 'Your APM account' }} />
-          <Stack.Screen name="onboarding" options={{ title: 'Build your APM' }} />
+          {/* The one setup route: no header, no swipe-back; Android back is handled in-screen (docs/34 §6). */}
+          <Stack.Screen name="intake" options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }} />
+          <Stack.Screen name="account" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="settings/index" options={{ title: 'Settings' }} />
           <Stack.Screen name="settings/plan" options={{ title: 'Your plan' }} />
@@ -37,6 +43,7 @@ export default function RootLayout() {
           <Stack.Screen name="settings/privacy/export-delete" options={{ title: 'Export & Delete' }} />
           <Stack.Screen name="radar/why" options={{ title: 'Why APM saw this' }} />
         </Stack>
+        </IntakeProvider>
       </LifeGraphProvider>
     </SessionProvider>
   );

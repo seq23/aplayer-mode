@@ -7,6 +7,8 @@ import type {
   NextAction,
   OperatingMode,
   OperatingModeKey,
+  AreaKey,
+  IntakeProfile,
   PersonalOS,
   PillarName,
   PillarSetting,
@@ -16,7 +18,7 @@ import type {
   UserIdentity,
   WeeklyCadence,
 } from '@apm/domain';
-import { TRACK_DISPLAY_NAMES } from '@apm/domain';
+import { AREA_PILLAR, TRACK_DISPLAY_NAMES, toAreaKey } from '@apm/domain';
 import type { ApiEnv } from './env';
 import { TRACK_LIBRARY } from './coach/tracks';
 import { supabaseRest } from './db';
@@ -29,7 +31,8 @@ export interface OnboardingPayload {
   primaryGoal: string;
   currentSeason?: string;
   becoming?: string;
-  pillar?: PillarName;
+  /** The goal's area (legacy pillar keys are mapped before they get here). */
+  pillar?: AreaKey;
 }
 
 export interface MethodologyIntakePayload extends OnboardingPayload {
@@ -47,8 +50,13 @@ export interface MethodologyIntakePayload extends OnboardingPayload {
   weeklyCadence: WeeklyCadence;
   coachingStyle: CoachingStyle;
   accountability: AccountabilityPolicy;
-  criticalPillars: PillarName[];
-  minimumFloors: Partial<Record<PillarName, string>>;
+  /** Critical AREAS (field name kept for older clients). */
+  criticalPillars: AreaKey[];
+  minimumFloors: Partial<Record<AreaKey, string>>;
+  activeAreas?: AreaKey[];
+  pillarsEnabled?: PillarName[];
+  intakeProfile?: IntakeProfile;
+  idempotencyKey?: string;
   trackKeys: ActiveTrackKey[];
   activeMode?: OperatingModeKey;
   morningSequence?: string[];
@@ -85,7 +93,7 @@ interface GoalRow {
   outcome: string | null;
   status: Goal['status'];
   health: Goal['health'];
-  pillar: PillarName | null;
+  pillar: AreaKey | null;
   target_date: string | null;
   priority: number;
   provenance_kind: Goal['provenance']['kind'];
@@ -137,6 +145,8 @@ interface PersonalOSRow {
   scoring_config: PersonalOS['scoringConfig'];
   stabilization_started_at: string | null;
   track_settings?: PersonalOS['trackSettings'] | null;
+  pillars_enabled?: PillarName[] | null;
+  intake_profile?: IntakeProfile | null;
   body_referral_at?: string | null;
   body_referral_source?: string | null;
   clinician_cleared_at?: string | null;
@@ -145,7 +155,8 @@ interface PersonalOSRow {
 }
 
 interface PillarSettingRow {
-  name: PillarName;
+  name: AreaKey;
+  pillar?: PillarName | null;
   active: boolean;
   critical: boolean;
   minimum_floor: string | null;
@@ -277,7 +288,8 @@ export async function getLifeGraph(
 
   const pillarSettings: PillarSetting[] = pillarRows.map((row) => ({
     userId,
-    name: row.name,
+    name: toAreaKey(row.name, row.minimum_floor ?? undefined) ?? row.name,
+    pillar: row.pillar ?? AREA_PILLAR[toAreaKey(row.name, row.minimum_floor ?? undefined) ?? row.name] ?? 'mind',
     active: row.active,
     critical: row.critical,
     minimumFloor: row.minimum_floor ?? undefined,
@@ -344,6 +356,8 @@ export async function getLifeGraph(
         scoringConfig: osRow.scoring_config ?? { enabled: true, showSevenDaySnapshot: true },
         stabilizationStartedAt: osRow.stabilization_started_at ?? undefined,
         trackSettings: osRow.track_settings ?? {},
+        pillarsEnabled: osRow.pillars_enabled ?? ['mind', 'body', 'spirit'],
+        ...(osRow.intake_profile ? { intakeProfile: osRow.intake_profile } : {}),
         ...(osRow.body_referral_at ? { bodyReferral: { since: osRow.body_referral_at, ...(osRow.body_referral_source ? { source: osRow.body_referral_source } : {}) } } : {}),
         ...(osRow.clinician_cleared_at ? { clinicianClearedAt: osRow.clinician_cleared_at } : {}),
         installedAt: new Date(osRow.installed_at).toISOString(),
@@ -441,6 +455,9 @@ export async function saveMethodologyIntake(
         accountability: input.accountability,
         critical_pillars: input.criticalPillars,
         minimum_floors: input.minimumFloors,
+        ...(input.activeAreas ? { active_areas: input.activeAreas } : {}),
+        ...(input.pillarsEnabled ? { pillars_enabled: input.pillarsEnabled } : {}),
+        ...(input.intakeProfile ? { intake_profile: input.intakeProfile } : {}),
         // The full Track set, named from the one display-name map (@apm/domain).
         tracks: input.trackKeys.map((key) => ({ key, name: TRACK_LIBRARY[key].name })),
         active_mode: input.activeMode ?? 'standard',

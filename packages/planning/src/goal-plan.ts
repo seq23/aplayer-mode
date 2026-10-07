@@ -1,3 +1,4 @@
+import { lifePillarOf } from '@apm/domain';
 import { isExecutableActionTitle, reviewGateVerdict } from './methodology.js';
 import type {
   CompletedEvidence,
@@ -97,7 +98,9 @@ function userFloorMvd(floor: string | undefined): MvdAction | undefined {
 
 function toPlanAction(spec: ActionSpec, context: GoalPlanContext, referral: boolean): PlanAction {
   const [mvdTitle, mvdOutput, mvdMinutes] = spec.mvd;
-  const userMvd = referral && spec.pillar === 'body' ? undefined : userFloorMvd(context.minimumFloors?.[spec.pillar]);
+  const floorMvd = referral && lifePillarOf(spec.pillar) === 'body' ? undefined : userFloorMvd(context.minimumFloors?.[spec.pillar]);
+  // Her floor is the MVD only where it fits inside the action (never longer than the full step).
+  const userMvd = floorMvd && floorMvd.durationMinutes <= spec.minutes ? floorMvd : undefined;
   const mvd: MvdAction = userMvd ?? { title: mvdTitle, output: mvdOutput, durationMinutes: mvdMinutes };
   const durationMinutes = capMinutes(spec.minutes, mvd.durationMinutes, availableMinutes(context));
   const templated = spec.title.includes('{m}');
@@ -140,6 +143,28 @@ export function generateGoalPlan(goalText: string, context: GoalPlanContext): Go
     mvd: { title: 'Write Promote, Maintain or Park and one reason', output: 'Verdict recorded', durationMinutes: 5 },
   };
 
+  // Generated Mind / Spirit practices: one plan action + one daily floor each (at most one
+  // per area, never an area the template already floors).
+  const practiceFloors: string[] = [];
+  const flooredAreas = new Set(template.floors.map((key) => actions[key]?.pillar));
+  for (const practice of context.practices ?? []) {
+    if (flooredAreas.has(practice.area) || !isExecutableActionTitle(practice.floor.title)) continue;
+    flooredAreas.add(practice.area);
+    const key = `practice:${practice.key}`;
+    actions[key] = {
+      key,
+      title: practice.title,
+      output: practice.output,
+      durationMinutes: Math.min(practice.minutes, ACTION_MAX_MINUTES),
+      pillar: practice.area,
+      satisfiesFloors: [],
+      mvd: { ...practice.floor, durationMinutes: Math.min(practice.floor.durationMinutes, MVD_MAX_MINUTES) },
+      ...(practice.rotation?.length ? { rotation: practice.rotation.slice(0, 31) } : {}),
+      ...(practice.steps?.length ? { steps: practice.steps.slice(0, 8) } : {}),
+    };
+    practiceFloors.push(key);
+  }
+
   for (const [pillar, floor] of Object.entries(context.minimumFloors ?? {})) {
     if (floor && !isExecutableActionTitle(floor)) {
       if (!safety.reasonCodes.includes('floor.needs_clarifying')) safety.reasonCodes.push('floor.needs_clarifying');
@@ -181,7 +206,7 @@ export function generateGoalPlan(goalText: string, context: GoalPlanContext): Go
     gates,
     actions,
     setup: template.setup.map((actionKey, i) => ({ day: i + 1, actionKey })),
-    floors: [...template.floors],
+    floors: [...template.floors, ...practiceFloors],
     decision: {
       day: 90,
       date: addDays(context.startDate, PLAN_LENGTH_DAYS - 1),
@@ -231,6 +256,11 @@ function actionProblems(action: PlanAction): string[] {
     if (ambiguity) problems.push(`${action.key}: ${ambiguity}`);
     const unsafe = actionSafetyProblem(candidate);
     if (unsafe) problems.push(`${action.key}: ${unsafe}`);
+  }
+  for (const title of action.rotation ?? []) {
+    const rotated = { title, output: action.output, durationMinutes: action.durationMinutes };
+    const problem = actionAmbiguityProblem(rotated) ?? actionSafetyProblem(rotated);
+    if (problem) problems.push(`${action.key}: rotation ${problem}`);
   }
   if (action.mvd.durationMinutes > MVD_MAX_MINUTES) problems.push(`${action.key}: MVD is longer than ${MVD_MAX_MINUTES} minutes.`);
   if (action.mvd.durationMinutes > action.durationMinutes) problems.push(`${action.key}: MVD is longer than the full action.`);
@@ -303,8 +333,9 @@ function supplied(
     return { ...base, scope: 'mvd', title: action.mvd.title, output: action.mvd.output, durationMinutes: action.mvd.durationMinutes };
   }
   const minutes = capMinutes(action.durationMinutes, action.mvd.durationMinutes, input.available);
-  const title = action.titleTemplate ? renderTitle(action.titleTemplate, minutes) : action.title;
-  return { ...base, scope: 'standard', title, output: action.output, durationMinutes: minutes };
+  const rotated = action.rotation?.length ? action.rotation[((planDayIndex(plan, input.date) % action.rotation.length) + action.rotation.length) % action.rotation.length] : undefined;
+  const title = rotated ?? (action.titleTemplate ? renderTitle(action.titleTemplate, minutes) : action.title);
+  return { ...base, scope: 'standard', title, output: action.output, durationMinutes: minutes, ...(action.steps ? { steps: action.steps } : {}) };
 }
 
 /**

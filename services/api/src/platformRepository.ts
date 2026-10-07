@@ -280,15 +280,14 @@ export async function getLifeOsExportState(
   };
 }
 
-export async function upsertPermission(env: ApiEnv, accessToken: string, userId: string, input: { domain: string; actionType: string; autonomyLevel: Permission['autonomyLevel']; constraints?: Record<string, unknown>; enabled?: boolean }): Promise<Permission> {
-  const rows = await supabaseRest<PermissionRow[]>(env, accessToken, '/rest/v1/permissions?on_conflict=user_id,domain,action_type&select=*', {
+/** Permissions are written only through the governed RPC (0064): own row, plan ceiling, audited. */
+export async function upsertPermission(env: ApiEnv, accessToken: string, _userId: string, input: { domain: string; actionType: string; autonomyLevel: Permission['autonomyLevel']; constraints?: Record<string, unknown>; enabled?: boolean }): Promise<Permission> {
+  const row = await supabaseRest<PermissionRow | null>(env, accessToken, '/rest/v1/rpc/apm_set_permission', {
     method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-    body: JSON.stringify([{ user_id: userId, domain: input.domain, action_type: input.actionType, autonomy_level: input.autonomyLevel, constraints: input.constraints ?? {}, enabled: input.enabled ?? true, granted_at: input.autonomyLevel > 0 ? new Date().toISOString() : null, updated_at: new Date().toISOString() }]),
+    body: JSON.stringify({ p_domain: input.domain, p_action_type: input.actionType, p_autonomy_level: input.autonomyLevel, p_constraints: input.constraints ?? {}, p_enabled: input.enabled ?? true }),
   });
-  const row = rows[0];
   if (!row) throw new Error('permission_write_failed');
-  return { id: row.id, userId, domain: row.domain, actionType: row.action_type, autonomyLevel: row.autonomy_level, constraints: row.constraints ?? {}, enabled: row.enabled, grantedAt: row.granted_at ?? undefined, updatedAt: row.updated_at };
+  return { id: row.id, userId: _userId, domain: row.domain, actionType: row.action_type, autonomyLevel: row.autonomy_level, constraints: row.constraints ?? {}, enabled: row.enabled, grantedAt: row.granted_at ?? undefined, updatedAt: row.updated_at };
 }
 
 export async function registerPushSubscription(env: ApiEnv, _accessToken: string, userId: string, input: { expoPushToken: string; deviceId?: string; platform?: 'ios' | 'android' | 'web' }): Promise<void> {

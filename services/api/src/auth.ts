@@ -6,6 +6,8 @@ export interface AuthenticatedUser {
   id: string;
   accessToken: string;
   email?: string;
+  /** A Supabase anonymous session (the intake before an account exists). */
+  isAnonymous?: boolean;
 }
 
 declare const __APM_RUNTIME_ENVIRONMENT__: string | undefined;
@@ -49,12 +51,19 @@ export async function authenticateRequest(
 
   if (!response.ok) return null;
 
-  const user = (await response.json()) as { id?: string; email?: string };
+  const user = (await response.json()) as { id?: string; email?: string; is_anonymous?: boolean };
   if (!user.id) return null;
 
   return {
     id: user.id,
     accessToken,
     email: user.email,
+    isAnonymous: user.is_anonymous === true,
   };
+}
+
+/** Verifies a second access token (the anonymous session being merged into an account). */
+export async function verifyAccessToken(token: string, env: ApiEnv): Promise<AuthenticatedUser | null> {
+  if (!token || env.AUTH_DEV_BYPASS_USER_ID) return null;
+  return authenticateRequest(new Request('https://apm.invalid/', { headers: { authorization: `Bearer ${token}` } }), { ...env, AUTH_DEV_BYPASS_USER_ID: undefined });
 }

@@ -1,8 +1,8 @@
 # A Player Mode: First-Run Experience Spec (welcome to first morning)
 
-**Status:** PROPOSED, audited 7 Oct 2026 (§13). This is the flow-approval spec. Visual design comes after it.
+**Status:** APPROVED and BUILT (source-complete), 7 Oct 2026. The owner decisions made after the audit, and how each one is built, are in **§14**; where §1 to §13 and §14 differ, §14 wins. Runtime proof (a real device, the auth providers) is Phase E (docs/33 §8).
 **Date:** 2026-10-07
-**Scope:** first open, sign-up, the full intake, the AI-generated profile reveal, the first Today. Nothing here changes code. Step 2 (the build) starts once Phase D billing has merged and this flow is approved.
+**Scope:** first open, sign-up, the full intake, the AI-generated profile reveal, the plan choice, the first Today. The question bank, gates and synthesis are code in `packages/planning/src/intake/` (ported from the approved prototype v2's DATA object); the app is `apps/mobile/app/{welcome,intake,account}.tsx`.
 **Clickable prototype:** `apm-experience-prototype.html` (shared for review, not committed). Every screen and every question in this document can be clicked through in order.
 **Sources:** `docs/reference/BHPC-v2.1/` (all of it), `apps/mobile/app/**`, `packages/planning`, docs/29, docs/32, ADR-0004, the live site that aplayermode.com redirects to, and the onboarding research in §11.
 
@@ -78,7 +78,21 @@ BHPC splits the system into three chats: **A** is the rulebook and source of tru
 
 ## 3. Welcome page: the sell (first open)
 
-Plain, scrollable, one primary button that stays visible: **"Start: reduce my load"**. Under it, a secondary link: "I already have an account". Above the fold, one line for the person with nothing left: **"Running on empty? Tap Start. You can stop after 3 minutes with a plan that already works."** On a phone the two grids render as one card per row (no 4-column tables at 390 pt, no horizontal scroll), and text scales with Dynamic Type.
+**Built (§14):** the page carries the full aplayermode.com pitch, adapted from "a download you paste into an AI" to the app, in this scannable order with section headers, expandable cards and a sticky **"Start: reduce my load"** button (repeated at the end), all copy in one typed module (`apps/mobile/src/content/sell.ts`, pinned by `apps/mobile/test/first-run.test.mjs`):
+
+1. Hero: **Reduce your cognitive load.** + what A-player mode means (clearer priorities, cleaner execution, faster recovery after imperfect days, less self-renegotiation; not perfection, not hustle cosplay) + "Running on empty?".
+2. "You don't have a knowledge problem. You have a continuity problem." + the restart loop + "You are not lazy. You are overloaded."
+3. Five jobs in one: the five roles, one line each on what they take off your plate, with the "support stack elite performers pay for" framing.
+4. The five personas + the broader list (creatives, students, athletes, career-switchers, executives in a new seat, anyone at 2 a.m.).
+5. Inside the system: daily agenda engine, morning trigger, Never Miss Twice, Minimum Viable Day, Arbitration engine, end-of-day check-in.
+6. Coaching modes: High-Pressure, Executive Review, Recovery, Sprint, Deep Work, Standard.
+7. Tracks: all seven by their display names, with a **spotlight** on the Billionaire High Performance Coach Track.
+8. Situations it handles automatically (resistance → Morning Start … urge to rebuild → No-Redesign).
+9. Advice versus a system (the short before/after exchange).
+10. A one-line teaser only: "Chief of Staff decides the day · Life OS remembers and prepares · Autopilot does" and "Introductory offer: start at $9.99/month". **The tier grids, prices, annual and autonomy lines moved to the plan choice screen (§9).**
+11. Privacy line + "How APM protects your data"; CTA again.
+
+The original wording below (§3.1 to §3.8) is kept as the source the module was written from.
 
 ### 3.1 Hero
 
@@ -197,16 +211,19 @@ The chips offered are those for each of her games plus the "Everyone" row.
 
 ### 4.4 Questions shown per path
 
+Counted by the engine (`packages/planning/test/intake.test.mjs` walks every persona; bank = 70 questions after the Spirit question was added):
+
 | Path | Full setup | Quick start (to a working plan) |
 |---|---:|---:|
-| Weight loss | 49 | 20 |
-| Wealth building | 45 | 19 |
-| Founder / entrepreneur | 53 | 19 |
-| Operator | 47 | 18 |
-| Parent+ (parent + founder) | 55 | 20 |
-| Shortest path (one game, most "none" answers) | 39 | 18 |
-| Longest path (every game) | 68 | 22 |
+| Weight loss | 52 | 21 |
+| Wealth building | 51 | 20 |
+| Founder / entrepreneur | 53 | 20 |
+| Operator | 53 | 19 |
+| Parent+ (parent + founder) | 57 | 21 |
+| Shortest path (one game, most "none" answers) | 40 | 19 |
+| Longest path (every game) | 70 | 23 |
 
+The quick start is one longer than before because the bed question is now asked of everyone.
 
 ### 4.5 Every question, by section
 
@@ -313,9 +330,9 @@ _Family time gets defended like the biggest meeting of the week._
 | Q38 | Which family moments are protected? | multi | School run · Dinner · Bedtime · Weekend mornings · Their sports / activities · Date night | Protected touchpoints are scheduled first. | App Home Front Track; D red lines | `familyContext.protected[] (NEW)` | track-rules HOME_TOUCHPOINT | always | These get booked first. Work fits around them. |
 | Q39 | Who shares the load? | single | A partner shares it · Mostly me · A co-parent · Paid or family help | Capacity on hard days. | E: constraints | `familyContext.shared (NEW)` | MVD sizing | always | APM sizes your day to the help you actually have. |
 
-#### S8 · Mind & learning
+#### S8 · Mind
 
-_Optional practices APM can protect._
+_APM supplies the prompt, the pages and the plan. You never design a practice._ (Built: "Mind & learning" split into Mind and Spirit, §14.)
 
 | # | Question | Type | Options | Why it is asked | BHPC element | Data field | Engine consumer | Shown when | Taken off your plate |
 |---|---|---|---|---|---|---|---|---|---|
@@ -323,6 +340,12 @@ _Optional practices APM can protect._
 | Q41 | How often? | single | Daily · A few times a week · Weekly (recommended: Daily) | Cadence. | H: cadence | `mindSpiritLearningContext.cadence` | recurrence | picked a practice | It repeats on its own. |
 | Q42 | What do you most want to learn this season? | single | Leadership · Money / investing · Health · A craft or skill · Faith · Parenting · Nothing right now | Learning priority. | H: learning priorities | `mindSpiritLearningContext.learning` | pillar proposal | always | APM picks the next thing to learn, so you don't browse for it. |
 | Q43 | How do you learn best? | single | Reading · Audio · Video · By doing · A structured course | Preferred learning modality. | H: preferred modality | `mindSpiritLearningContext.modality` | action wording | picked a learning topic | Learning steps come in the format you'll actually use. |
+
+#### S8b · Spirit (shown when the Spirit pillar is on)
+
+| # | Question | Type | Options | Why it is asked | BHPC element | Data field | Engine consumer | Shown when | Taken off your plate |
+|---|---|---|---|---|---|---|---|---|---|
+| Q43b | What feeds your spirit? | multi (one tap) | Faith: prayer, scripture, worship, community · Meditation or mindfulness · Gratitude · Nature and stillness · Service and giving · Nothing right now (pre-ticked from Q40: prayer → Faith, meditation, gratitude; worship in fixed commitments → Faith) | Spirit pillar content: each choice becomes one generated daily action, a cadence and a floor. Faith wording only if she picks Faith or welcomes faith language. | H: practices (spirit) | `spiritPractices[]` | generatePractices, pillar proposal | Spirit pillar on | APM turns each one into one small daily action, with the words written for you. |
 
 #### S9 · Your week
 
@@ -372,7 +395,7 @@ _Up to 5 physical steps that start the day for you._
 | # | Question | Type | Options | Why it is asked | BHPC element | Data field | Engine consumer | Shown when | Taken off your plate |
 |---|---|---|---|---|---|---|---|---|---|
 | Q62 | Pick your morning launch. | single | Quick: glass of water, then my first task · Calm: feet down, 1 minute of breathing, water, first task · Faith: 1 minute of prayer, water, first task · Build my own (5 quick taps) (recommended: Calm: feet down, 1 minute of breathing, water, first task) | Three ready-made BHPC Morning Sequences; M1 to M5 only for people who want to design their own. | M1 to M5 (preset); IV Step 5D | `morningSequence[≤5]` | normalizeMorningSequence | always | Your first minutes are designed for you. No thinking at 6 AM. |
-| Q63 | Do you struggle to get out of bed once awake? | single | Yes · Sometimes · No | Decides whether step 1 happens in bed. | M1 | `morningSequence (design input)` | normalizeMorningSequence | picked "Build my own" morning launch | APM designs the first 60 seconds for you. |
+| Q63 (now the FIRST question of S12, asked of everyone, essential) | Is getting out of bed hard for you? | single | Yes · Sometimes · No | Decides whether step 1 happens in bed. | M1 | `morningSequence (design input)` | normalizeMorningSequence | picked "Build my own" morning launch | APM designs the first 60 seconds for you. |
 | Q64 | Would 30 to 60 seconds of movement in bed help? Pick one. | single | No thanks · Shoulder rolls · Leg raises · Seated twists · Feet to the floor | In-bed wake-up movement. | M2 | `morningSequence[step]` | normalizeMorningSequence | picked "Build my own" morning launch | Your body gets moving before your brain argues. |
 | Q65 | How do you want to start mentally? | single | Silence · Breathing · Gratitude · Prayer · Visualisation | Mental start. | M3 | `morningSequence[step]` | normalizeMorningSequence | picked "Build my own" morning launch | Your mind has one job for one minute. |
 | Q66 | Where should that happen? | single | In bed · Sitting up · After standing | Placement in sequence. | M4 | `morningSequence order` | normalizeMorningSequence | picked "Build my own" morning launch | The order is set. No thinking at 6 AM. |
@@ -592,7 +615,7 @@ S1 Your game → **I1** → S2 Your goal → **I2** → **Save your plan (accoun
 
 ---
 
-## 12. Out of scope here (Step 2 and after)
+## 12. Out of scope here (Step 2 and after; now built except the visual design pass, see §14)
 
 - Building any of this (Step 2, after Phase D billing merges): the draft store (`expo-sqlite/kv-store`) and endpoint, `intake_drafts` migration, the native sign-in modules in §5.1, the quick start and the Today "2 quick taps" card, the draft-merge path (§5 row 9c), the new fields marked NEW in §4.5, the `family` pillar, `intake_profile_synthesis` with its eval suite, the welcome page, the account flow, and the AT1 to AT13 tests.
 - Visual design (after this flow is approved).
@@ -633,3 +656,23 @@ Two passes over this spec and the prototype before the owner sees it: a senior m
 | Owner decision | Coaching modes were buried in Settings | S11 asks "How hard do you want to be pushed?"; **High-Pressure Coaching is pre-selected, one tap to confirm, when the Billionaire High Performance Coach Track is suggested** (never forced; BHPC User Authority); it is essential on the quick start too. The OS summary names the chosen mode; Today shows one-tap chips: High-Pressure, Executive Review, Recovery, and Sprint / Deep Work when they apply |
 
 **Question count after the audit:** 69 in the bank; full setup 39 to 68 (marketed personas 45 to 55); quick start 18 to 22.
+
+---
+
+## 14. Owner decisions after the audit, and how they are built (7 Oct 2026)
+
+| # | Decision | Built as |
+|---|---|---|
+| 1 | **Three pillars: Mind, Body, Spirit**, all on by default (untick to opt out); everything else is an AREA inside one of them. Engine works at area level; the user sees the roll-up ("Mind ✓ Body ✓ Spirit –"). Family lives in Spirit. | `@apm/domain` `PillarName` = mind/body/spirit, `AreaKey` (16 areas), `AREA_PILLAR`, `LEGACY_AREA_MAP`. Migration **0060** maps every stored legacy key without loss (execution→work, wealth→money, body→movement, family→family, spirit→area read from the floor text) in settings, goals, routines, plans, agendas, day reviews and OS changes; every pillar check takes the area list; `pillar_settings.pillar` is generated; `personal_os.pillars_enabled`. Opting out of a pillar switches its areas off except the foreground area. `rollUpPillars` / `formatPillarRollUp` show the day by pillar. |
+| 2 | Suggested pillars are auto-classified into an area; LLM only behind the candidate route gate; one tap to move. | `classifySuggestedArea` (ordered keyword rules, default Learning), "Suggest a pillar" on the summary with Move-to-Mind/Body/Spirit chips; `/v1/intake/synthesis` may only reclassify into a valid area. |
+| 3 | **"Is getting out of bed hard for you?"** for everyone, first question of the morning section. Yes/Sometimes → a ready 10-minute Pilates-style in-bed routine as morning step 1; gentle range on a body-safety yes / prefer-not-to-say; "stop anything that hurts". Shown on the morning screen, the summary and Today. | `bed-routine.ts` (`BED_ROUTINE`, `BED_ROUTINE_GENTLE`, `generateBedRoutine`); the bed question is essential; `compileMorning` puts the routine first (≤ 5 steps); `intakeProfile.bedRoutine`; Today's `BedRoutineToday`. |
+| 4 | **High-Pressure Coaching pre-selected** when the Billionaire High Performance Coach Track is suggested (one tap to confirm, can change); Today has one-tap mode chips. | `prefillFor('tone')` + the "Pre-selected for your game" note; `coachingModeChips` (High-Pressure, Executive Review, Recovery always; Sprint with a deadline; Deep Work for founder/operator/creator/student) wired to `POST /v1/methodology/mode`. |
+| 5 | **Paywall** = the Phase D plan screen, after the OS summary and before Day 1. No free trial. | `src/billing/PlanChoice.tsx`, the ONE paywall used by Settings and the setup's `plan` screen (registry: summary → plan → Today). |
+| 6 | The welcome page sells (full pitch, organised); tier grids move to the plan screen; the offer reads as an **introductory offer** everywhere. | §3. Plan screen: offer banner (ribbon; "$9.99/month instead of ~~$24.99~~", "Save 60%"; "For our first 100 members only…"; "N of 100 spots left" only from the server count, migration **0062**, hidden when unknown; otherwise the 3-month introductory offer), both grids with the recommended tier highlighted, prices from `PLAN_PRICES`, annual = 2 months free, "buying a tier never grants autonomy", then the purchase options and the exact store disclosures. |
+| 7 | **Design principle:** reducing cognitive load = APM GENERATES the concrete thing (routine, steps, order, prompt). | Applied in the practice libraries, the bed routine, the learning plan, the morning compile and the floors (always a physical action ≤ 15 min). |
+| 8 | **Mind and Spirit content.** | `packages/planning/src/practices.ts` (typed, tested). **Mind:** journaling (28 rotating prompts, never a blank page; floor "write one line"), reading (10 pages / one chapter in her modality: read, audio, video, doing, course), a 4-week learning plan per topic, focus hygiene from her screen/phone lines, therapy/counselling sessions kept booked (tracked, never treatment), weekly reflection (3 fixed questions). **Spirit:** "What feeds your spirit?" → faith (prayer time, short scripture/devotional reading, worship and community placed in the week; floor "1 minute of prayer or silence"), meditation (secular guided breath scripts with counts; floor "3 slow breaths: in for 4, out for 6"), gratitude (3 prompted lines), nature & stillness (10 phone-free minutes with what to notice), service & giving (one concrete kind act), family time (from Home front). Daily practices join the plan as floors (one per area, rotating titles, validated like every floor); weekly ones appear on Today on their day. |
+| 9 | Intake → OS synthesis is deterministic first; the LLM step is NOT approved for production. | `synthesizeProfile` / `toInstallPayload`. `intake_profile_synthesis` needs the `extraction` capability, which no approved route carries (0091 dropped it), so it returns the deterministic profile (`route_not_promoted`); with a promoted route the output is re-validated field by field and only adds; 8 s cap; install never waits. |
+
+**Persistence and accounts (as §5/§6):** `expo-sqlite/kv-store` synchronous device writes (web: guarded localStorage), the server draft in `intake_drafts` (migration **0061**: RPC-only writes, owner-only reads, per-question last-write-wins merge, install idempotency, anonymous-draft merge by rule, 30-day cleanup), Android back and iOS swipe-back handled on the one `/intake` route, "Finish later", 44/48 pt targets, screen-reader mode without auto-advance. Google sign-in uses the browser OAuth flow (PKCE) instead of a native module, so it needs no extra native config and works on web. Answers given after a quick start update the profile from Day 8 (migration **0063**); the body-safety answer applies at once. Migration **0064** closes the last client-writable autonomy table: `permissions` rows are written only through `apm_set_permission` (own row, plan ceiling re-checked in the database, audited).
+
+**Named stops (Phase E, docs/33 §8):** Supabase Auth settings (6-digit OTP + `{{ .Token }}` templates, anonymous sign-ins with CAPTCHA, manual linking, SMTP) could not be set with the migration token (403); Apple and Google provider credentials; the App Review reviewer account.

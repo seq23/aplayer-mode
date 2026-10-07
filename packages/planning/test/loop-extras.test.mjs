@@ -24,7 +24,7 @@ test('Body Foundation: a day with no body item gets the movement floor; MVD only
   const day = composeAgenda({ date: shift(START, 3), state: 'normal', plans: [plan], goals, completions: [], morningSequence: [], tracks: tracks(['body_foundation'], { settings: { movementFloor: 'Walk 12 minutes after lunch' } }) });
   const floor = day.dailyStack.find((item) => item.actionKey === 'track:body_floor');
   assert.equal(floor.title, 'Walk 12 minutes after lunch');
-  assert.equal(floor.pillar, 'body');
+  assert.equal(floor.pillar, 'movement');
   assert.ok(day.reasons.includes('body.floor_missing'));
   assert.deepEqual(day.problems, []);
   const low = composeAgenda({ date: shift(START, 3), state: 'normal', mood: 1, plans: [plan], goals, completions: [], morningSequence: [], tracks: tracks(['body_foundation']) });

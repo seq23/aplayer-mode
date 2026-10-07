@@ -1,5 +1,4 @@
 import type {
-  AccountabilityPolicy,
   ActionRecord,
   AutopilotActionClass,
   AutopilotDoneItem,
@@ -8,7 +7,6 @@ import type {
   AutopilotRuleConstraints,
   AutopilotState,
   AutonomyLevel,
-  CoachingStyle,
   DailyPlan,
   LifeAdminItem,
   LifeAdminKind,
@@ -17,48 +15,14 @@ import type {
   LifeRelationship,
   OperatingModeKey,
   Permission,
-  PillarName,
+  AreaKey,
   ActiveTrackKey,
-  WeeklyCadence,
 } from '@apm/domain';
-import type { DailyAgenda } from '@apm/planning';
+import type { DailyAgenda, IntakeInstallPayload } from '@apm/planning';
 
-export interface ApiOnboardingInput {
-  displayName: string;
-  roles: string[];
-  primaryGoal: string;
-  currentSeason?: string;
-  becoming?: string;
-  pillar?: PillarName;
-}
+/** The first-run install payload (packages/planning toInstallPayload). */
+export type ApiIntakeInstallInput = IntakeInstallPayload;
 
-export interface ApiMethodologyIntakeInput extends ApiOnboardingInput {
-  timezone?: string;
-  goalOutcome?: string;
-  goalTargetDate?: string;
-  firstNextAction?: string;
-  northStar?: string;
-  values: string[];
-  nonNegotiables: string[];
-  failurePatterns: string[];
-  bodyContext?: string;
-  workMoneyContext?: string;
-  mindSpiritLearningContext?: string;
-  weeklyCadence: WeeklyCadence;
-  coachingStyle: CoachingStyle;
-  accountability: AccountabilityPolicy;
-  criticalPillars: PillarName[];
-  minimumFloors: Partial<Record<PillarName, string>>;
-  trackKeys: ActiveTrackKey[];
-  activeMode?: OperatingModeKey;
-  morningSequence?: string[];
-  schedulingPreference?: 'strict_blocks' | 'loose_dayparts' | 'ordered_stack';
-  hardBoundaries?: string[];
-  scoringConfig?: { enabled: boolean; showSevenDaySnapshot: boolean };
-  foregroundProjectName?: string;
-  foregroundProjectObjective?: string;
-  reviewGateDays?: 30 | 60 | 90;
-}
 
 export interface ModeDefinitionView { key: OperatingModeKey; name: string; purpose: string; rules: string[]; exitProtocol: string; todayEffect: string }
 export interface ModeStateView {
@@ -114,10 +78,10 @@ export type OsChangeInput =
   | { field: 'show_seven_day_snapshot'; value: boolean }
   | { field: 'review_day' | 'recovery_day'; value: string }
   | { field: 'north_star'; value: string }
-  | { field: 'pillar'; value: { name: PillarName; critical: boolean; minimumFloor?: string } }
+  | { field: 'pillar'; value: { name: AreaKey; critical: boolean; minimumFloor?: string } }
   | { field: 'tracks'; value: ActiveTrackKey[] }
   | { field: 'track_settings'; value: { hardStop?: string; homeTouchpoint?: string; movementFloor?: string; bufferMonths?: number; bufferTarget?: number; highInterestDebt?: boolean; debtOrder?: string[] } };
-export interface PillarReviewInput { pillar: PillarName | 'family'; score: 'hit' | 'partial' | 'miss'; completed?: string }
+export interface PillarReviewInput { pillar: AreaKey; score: 'hit' | 'partial' | 'miss'; completed?: string }
 export interface NotificationPreferences {
   enabled: boolean;
   morning_push_enabled: boolean;
@@ -128,7 +92,7 @@ export interface NotificationPreferences {
 }
 export interface TodayState { graph: LifeGraphSnapshot; plan: DailyPlan; mode?: ModeStateView; today?: TodayLoopView }
 export type ReplanReason = 'external_change' | 'safety' | 'permission' | 'mood' | 'discomfort';
-export interface NewGoalInput { title: string; outcome?: string; pillar?: PillarName; targetDate?: string }
+export interface NewGoalInput { title: string; outcome?: string; pillar?: AreaKey; targetDate?: string }
 export interface CreatedGoalState extends TodayState {
   goalId: string;
   arbitration: { winnerId?: string; ranked: Array<{ id: string; score: number }> } | null;
@@ -242,6 +206,30 @@ export interface BillingOfferingResponse {
   founding: boolean;
   reservedUntil: string | null;
   appUserId: string;
+  /** Live Founding 100 count from the server (0062); null when unknown. Never invented. */
+  spotsLeft?: number | null;
+}
+
+export interface ApiIntakeDraft {
+  bankVersion: number;
+  version: number;
+  answers: Record<string, string | number | boolean | string[]>;
+  answeredAt: Record<string, number>;
+  cursor: string;
+  status?: 'open' | 'installed' | 'pending_edit';
+  updatedAt: number;
+  installedVersion?: number | null;
+}
+
+export interface IntakeSynthesisResult {
+  source: 'deterministic' | 'model';
+  fallbackReason?: string;
+  proposal: {
+    trackKeys: string[];
+    floors: Record<string, string>;
+    extracted: { boundaries: string[]; deadlines: string[]; commitments: string[]; radarSeeds: string[] };
+    suggestedAreas: Array<{ label: string; area: string; by: string }>;
+  };
 }
 
 
@@ -303,11 +291,30 @@ export async function completeLifeOsItem(itemId: string, accessToken: string): P
   return request<TodayState>(`/v1/life-os/items/${encodeURIComponent(itemId)}/complete`, accessToken, { method: 'POST' });
 }
 
-export async function persistOnboarding(input: ApiOnboardingInput, accessToken: string): Promise<TodayState> {
-  return request<TodayState>('/v1/onboarding', accessToken, { method: 'PUT', body: JSON.stringify(input) });
-}
-export async function persistMethodologyIntake(input: ApiMethodologyIntakeInput, accessToken: string): Promise<TodayState> {
+export async function installIntake(input: ApiIntakeInstallInput, accessToken: string): Promise<TodayState> {
   return request<TodayState>('/v1/methodology/intake', accessToken, { method: 'PUT', body: JSON.stringify(input) });
+}
+/** Answers given after install: body safety at once, the rest from Day 8 (`held: 'week_one'` before). */
+export async function updateIntakeProfile(intakeProfile: unknown, accessToken: string): Promise<TodayState & { held?: 'week_one' }> {
+  return request<TodayState & { held?: 'week_one' }>('/v1/intake/profile', accessToken, { method: 'PUT', body: JSON.stringify({ intakeProfile }) });
+}
+export async function fetchIntakeDraft(accessToken: string): Promise<ApiIntakeDraft | null> {
+  return (await request<{ draft: ApiIntakeDraft | null }>('/v1/intake/draft', accessToken)).draft;
+}
+export async function saveIntakeDraft(draft: ApiIntakeDraft, accessToken: string): Promise<ApiIntakeDraft> {
+  const { status: _status, installedVersion: _installed, ...body } = draft;
+  void _status; void _installed;
+  return (await request<{ draft: ApiIntakeDraft }>('/v1/intake/draft', accessToken, { method: 'PUT', body: JSON.stringify(body) })).draft;
+}
+export async function mergeAnonymousIntakeDraft(anonymousAccessToken: string, accessToken: string): Promise<{ outcome: string; draft: ApiIntakeDraft | null }> {
+  return request('/v1/intake/draft/merge', accessToken, { method: 'POST', body: JSON.stringify({ anonymousAccessToken }) });
+}
+export async function synthesizeIntake(input: { catchAll?: string; games: string[]; ownership?: boolean; trackKeys: string[]; floors: Record<string, string>; suggestedAreas?: string[] }, accessToken: string): Promise<IntakeSynthesisResult> {
+  return request<IntakeSynthesisResult>('/v1/intake/synthesis', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+/** Product analytics: event ids and timings only (the server refuses anything else for intake events). */
+export async function trackEvent(eventName: string, properties: Record<string, string | number | boolean | null>, accessToken: string): Promise<void> {
+  await request('/v1/analytics/event', accessToken, { method: 'POST', body: JSON.stringify({ eventName, properties }) });
 }
 export async function persistOperatingMode(modeRequest: ModeChangeRequest, accessToken: string): Promise<TodayState> {
   return request<TodayState>('/v1/methodology/mode', accessToken, { method: 'POST', body: JSON.stringify(modeRequest) });

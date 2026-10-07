@@ -48,7 +48,7 @@ function personalOsRow() {
 function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}) {
   const store = {
     user_profiles: [{ user_id: USER, display_name: 'Ana', timezone: TZ, current_season: null, becoming: null }],
-    goals: [{ id: GOAL, title: 'lose 30 lbs', outcome: null, status: 'active', health: 'unknown', pillar: 'body', target_date: null, priority: 1, provenance_kind: 'stated', source_type: 'manual', source_ref: null, confidence: 1, created_at: '2026-09-01T00:00:00Z' }],
+    goals: [{ id: GOAL, title: 'lose 30 lbs', outcome: null, status: 'active', health: 'unknown', pillar: 'movement', target_date: null, priority: 1, provenance_kind: 'stated', source_type: 'manual', source_ref: null, confidence: 1, created_at: '2026-09-01T00:00:00Z' }],
     personal_os: installed ? [{ ...personalOsRow(), ...os }] : [],
     tracks: tracks.map((key) => ({ id: `t-${key}`, user_id: USER, key, name: key, active: true, foreground: false, provenance_kind: 'stated', source_type: 'manual', source_ref: null, confidence: 1, created_at: '2026-09-01T00:00:00Z' })),
     subscription_entitlements: [{ user_id: USER, plan: 'beta', status: 'active', provider: null, current_period_end: null }],
@@ -219,10 +219,10 @@ test('the opening step and agenda membership come back as 409s from the database
   }
 });
 
-test('the four LOCKED pillars: family is refused as a life pillar at the API', async () => {
+test('three pillars, areas inside: an unknown area is refused at the API; family is a real Spirit area now', async () => {
   const h = harness();
   try {
-    const goal = await request('/v1/goals', { method: 'POST', body: JSON.stringify({ title: 'Be home for dinner', pillar: 'family' }) });
+    const goal = await request('/v1/goals', { method: 'POST', body: JSON.stringify({ title: 'Be home for dinner', pillar: 'career' }) });
     assert.equal(goal.status, 400);
     assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_create_goal').length, 0);
   } finally { h.restore(); }
@@ -290,27 +290,27 @@ test('end-of-day close: pillar review → computed verdict, user authority kept,
   const h = harness();
   try {
     await request('/v1/me/today');
-    const refused = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'miss' }], carryForward: 'Double session tomorrow to make up for it' }) });
+    const refused = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'movement', score: 'miss' }], carryForward: 'Double session tomorrow to make up for it' }) });
     assert.equal(refused.status, 400);
     assert.equal((await refused.json()).error, 'invalid_carry_forward');
-    const vague = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'miss' }], carryForward: 'Work on fitness' }) });
+    const vague = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'movement', score: 'miss' }], carryForward: 'Work on fitness' }) });
     assert.equal(vague.status, 400, 'Ambiguity Stop applies to the carry item');
-    const duplicate = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit' }, { pillar: 'body', score: 'miss' }] }) });
+    const duplicate = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'movement', score: 'hit' }, { pillar: 'movement', score: 'miss' }] }) });
     assert.equal(duplicate.status, 400);
     assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').length, 0);
 
-    const noCheckIn = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit' }], verdict: 'full_day' }) });
+    const noCheckIn = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'movement', score: 'hit' }], verdict: 'full_day' }) });
     assert.equal(noCheckIn.status, 409, 'evidence before verdict');
-    await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit' }] }) });
+    await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'movement', score: 'hit' }] }) });
     assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').at(-1).args.p_verdict, 'miss', 'no check-in closes as a Miss');
     const checkedIn = await (await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) })).json();
-    const noEvidence = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit' }], verdict: 'full_day' }) });
+    const noEvidence = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'movement', score: 'hit' }], verdict: 'full_day' }) });
     assert.equal(noEvidence.status, 409, 'a win needs completion evidence');
     assert.equal((await noEvidence.json()).error, 'verdict_needs_evidence');
     const priority = checkedIn.today.agenda.firstHour.priority;
     h.store.plan_action_completions.push({ id: 'c1', user_id: USER, plan_id: priority.planId, day: localToday(), action_key: priority.actionKey, instance_id: 'i', scope: 'standard', role: 'foreground', note: null, created_at: new Date().toISOString() });
 
-    const response = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'hit', completed: 'Walked 15 minutes' }], note: 'Felt good', carryForward: 'Book the gym induction for Thursday' }) });
+    const response = await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'movement', score: 'hit', completed: 'Walked 15 minutes' }], note: 'Felt good', carryForward: 'Book the gym induction for Thursday' }) });
     assert.equal(response.status, 200);
     const close = h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').at(-1);
     assert.equal(close.args.p_verdict, 'full_day');
@@ -321,7 +321,7 @@ test('end-of-day close: pillar review → computed verdict, user authority kept,
     assert.equal(body.continuity.length, 7);
     assert.equal(body.continuity[6].symbol, '✅');
 
-    await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'body', score: 'miss' }], verdict: 'mvd' }) });
+    await request('/v1/today/close', { method: 'POST', body: JSON.stringify({ pillarReview: [{ pillar: 'movement', score: 'miss' }], verdict: 'mvd' }) });
     const override = h.calls.rpc.filter((c) => c.fn === 'apm_close_day_review').at(-1);
     // The user decides; the computed verdict is kept beside it, computed from the agenda's
     // evidence (engine P1-1) — a self-scored "miss" does not turn done work into a Miss.
@@ -367,7 +367,7 @@ test('Diary: "Logged." with no coaching; a red flag pauses body coaching and reb
 test('the Drafting Room validates before drafting and applies explicitly', async () => {
   const h = harness();
   try {
-    assert.equal((await request('/v1/os/changes', { method: 'POST', body: JSON.stringify({ field: 'pillar', value: { name: 'family', critical: true } }) })).status, 400);
+    assert.equal((await request('/v1/os/changes', { method: 'POST', body: JSON.stringify({ field: 'pillar', value: { name: 'career', critical: true } }) })).status, 400);
     assert.equal((await request('/v1/os/changes', { method: 'POST', body: JSON.stringify({ field: 'track_settings', value: { salary: 1 } }) })).status, 400);
     const drafted = await request('/v1/os/changes', { method: 'POST', body: JSON.stringify({ field: 'day_start', value: 'hard', reason: 'Mornings drift' }) });
     assert.equal(drafted.status, 201);
@@ -444,13 +444,13 @@ test('a Drafting Room pillar-floor change reaches its plans on the effective dat
     backdate(h.store);
     const saves = () => h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan');
     const before = saves().length;
-    h.store.pillar_settings = [{ name: 'body', active: true, critical: true, minimum_floor: 'Walk 15 minutes after lunch' }];
-    h.store.applyResult = { id: 'chg2', field: 'pillar', status: 'applied', effective_from: '2099-01-01', proposed: { name: 'body', critical: true, minimumFloor: 'Walk 15 minutes after lunch' } };
+    h.store.pillar_settings = [{ name: 'movement', active: true, critical: true, minimum_floor: 'Walk 15 minutes after lunch' }];
+    h.store.applyResult = { id: 'chg2', field: 'pillar', status: 'applied', effective_from: '2099-01-01', proposed: { name: 'movement', critical: true, minimumFloor: 'Walk 15 minutes after lunch' } };
     assert.equal((await request('/v1/os/changes/chg2/apply', { method: 'POST' })).status, 200);
     assert.equal(saves().length, before, 'applying never rewrites today: nothing rebuilds before the effective date');
 
     // The effective date arrives: the next read rebuilds the affected plan in place, once.
-    h.store.pendingPillar = [{ id: 'chg2', pillar: 'body' }];
+    h.store.pendingPillar = [{ id: 'chg2', pillar: 'movement' }];
     h.store.rpcErrorOnce = { apm_service_save_goal_plan: 'loop_service_unavailable' };
     await request('/v1/me/today');
     assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_mark_pillar_rebuilt').length, 0, 'a failed rebuild stays pending');
@@ -491,7 +491,7 @@ test('a decided plan still in execution (promote/maintain) gets the pillar rebui
       backdate(h.store);
       for (const row of h.store.goal_plans) Object.assign(row, { status: 'decided', decision, decision_reason: 'Day 90', decided_at: '2026-10-01T00:00:00Z' });
       const before = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').length;
-      h.store.pendingPillar = [{ id: 'chg9', pillar: 'body' }];
+      h.store.pendingPillar = [{ id: 'chg9', pillar: 'movement' }];
       await request('/v1/me/today');
       assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan' && c.args.p_source === 'os_change').length - 0, expected, decision);
       assert.ok(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').length >= before);
@@ -505,16 +505,16 @@ test('rebuilds use the pillar state in effect today, and a check-in waits while 
     await request('/v1/me/today');
     backdate(h.store);
     // The body change is due; a LATER body change (effective tomorrow) is already in pillar_settings.
-    h.store.pillar_settings = [{ name: 'body', active: true, critical: true, minimum_floor: 'Walk 25 minutes from tomorrow' }];
-    h.store.effectivePillars = { body: { name: 'body', active: true, critical: true, minimum_floor: 'Walk 15 minutes after lunch' } };
-    h.store.pendingPillar = [{ id: 'chg4', pillar: 'body' }];
+    h.store.pillar_settings = [{ name: 'movement', active: true, critical: true, minimum_floor: 'Walk 25 minutes from tomorrow' }];
+    h.store.effectivePillars = { movement: { name: 'movement', active: true, critical: true, minimum_floor: 'Walk 15 minutes after lunch' } };
+    h.store.pendingPillar = [{ id: 'chg4', pillar: 'movement' }];
     await request('/v1/me/today');
     const rebuilt = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan' && c.args.p_source === 'os_change').at(-1);
     const actions = JSON.stringify(rebuilt.args.p_plan.actions);
     assert.match(actions, /Walk 15 minutes after lunch/, 'today’s floor');
     assert.doesNotMatch(actions, /Walk 25 minutes from tomorrow/, 'never tomorrow’s');
 
-    h.store.pendingPillar = [{ id: 'chg5', pillar: 'body' }];
+    h.store.pendingPillar = [{ id: 'chg5', pillar: 'movement' }];
     h.store.rpcErrorOnce = { apm_service_save_goal_plan: 'loop_service_unavailable' };
     const blocked = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
     assert.equal(blocked.status, 503, 'no agenda is locked from a plan still missing an in-effect change');

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { TRACK_DISPLAY_NAMES, type ActiveTrackKey, type OsChangeField, type PillarName } from '@apm/domain';
+import { AREA_OPTIONS } from '../../src/content/areas';
+import { TRACK_DISPLAY_NAMES, type ActiveTrackKey, type OsChangeField, type AreaKey } from '@apm/domain';
 import { Body, Button, Card, CardTitle, ChoiceRow, KeyValue, Label, Screen, SectionTitle, TextField } from '../../src/components/ui';
 import { applyOsChange, discardOsChange, draftOsChange, type OsChangeInput } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
@@ -21,7 +22,7 @@ const FIELDS: Array<{ id: OsChangeField; label: string }> = [
   { id: 'show_seven_day_snapshot', label: '7-day snapshot' },
 ];
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => ({ id: day, label: day.slice(0, 3) }));
-const PILLARS: Array<{ id: PillarName; label: string }> = [{ id: 'wealth', label: 'Wealth' }, { id: 'body', label: 'Body' }, { id: 'spirit', label: 'Spirit' }, { id: 'execution', label: 'Execution' }];
+const PILLARS = [...AREA_OPTIONS];
 const lines = (text: string) => text.split(/\n|,/).map((line) => line.trim()).filter(Boolean);
 
 /** BHPC Chat C, the Drafting Room: draft → review → apply. Nothing is real until applied. */
@@ -30,7 +31,7 @@ export default function DraftingRoomScreen() {
   const [field, setField] = useState<OsChangeField>('morning_sequence');
   const [text, setText] = useState('');
   const [choice, setChoice] = useState<string>();
-  const [pillar, setPillar] = useState<PillarName>('body');
+  const [pillar, setPillar] = useState<AreaKey>('movement');
   const [critical, setCritical] = useState(true);
   const [tracks, setTracks] = useState<ActiveTrackKey[]>(graph.tracks.filter((t) => t.active).map((t) => t.key));
   const [hardStop, setHardStop] = useState(graph.personalOS?.trackSettings.hardStop ?? '');
