@@ -100,7 +100,9 @@ test.before(async () => {
 test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
 
 test('the four life pillars stay LOCKED; family exists only as a plan pillar (0022 reverts 0021)', async () => {
-  await rejects(as(USER_A, "insert into public.pillar_settings (user_id, name) values ($1, 'family')", [USER_A]), /pillar_settings_name_check/);
+  await rejects(admin(`insert into public.pillar_settings (user_id, name) values ('${USER_A}', 'family')`), /pillar_settings_name_check/);
+  // 0043: a client cannot write pillar settings at all (only the governed intake / OS change flow can).
+  await rejects(as(USER_A, "insert into public.pillar_settings (user_id, name) values ($1, 'body')", [USER_A]), /permission denied/);
   await rejects(admin(`insert into public.routines (user_id, title, pillar) values ('${USER_A}', 'School run', 'family')`), /routines_pillar_check/);
   await rejects(admin(`update public.goals set pillar = 'family' where id = '${GOAL_A}'`), /goals_pillar_check/);
   const check = (await admin("select pg_get_constraintdef(oid) d from pg_constraint where conname = 'goal_plans_foreground_pillar_check'")).rows[0].d;

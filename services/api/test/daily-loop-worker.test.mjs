@@ -64,6 +64,12 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
     const body = init.body ? JSON.parse(init.body) : undefined;
     const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
     const rpc = path.match(/^\/rest\/v1\/rpc\/([a-z_]+)/)?.[1];
+    if (rpc === 'apm_service_record_audit') {
+      // Audits go through the service-role allow-list, with the server-only key.
+      assert.equal(new Headers(init.headers).get('apikey'), env.SUPABASE_SECRET_KEY);
+      calls.audits.push({ user_id: body.p_user_id, event_type: body.p_event_type, actor_type: body.p_actor_type, object_type: body.p_object_type, object_id: body.p_object_id, metadata: body.p_metadata });
+      return new Response(null, { status: 204 });
+    }
     if (rpc) {
       calls.rpc.push({ fn: rpc, args: body });
       if (rpcErrors[rpc]) return json({ message: rpcErrors[rpc] }, 400);
@@ -98,11 +104,18 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
       if (rpc === 'apm_daily_loop_data_rights_export') return json({ goalPlans: store.goal_plans, planActionCompletions: [], dayRecords: store.day_records });
       if (rpc === 'apm_life_os_data_rights_export') return json({ lifeRelationships: [], lifeAdminItems: [] });
       if (rpc === 'apm_autopilot_data_rights_export') return json({ rules: [], executions: [], masterPaused: false });
+      if (rpc === 'apm_request_data_rights') { calls.jobs = (calls.jobs ?? []).concat(body.p_job_type); return json({ id: 'job1', status: 'requested', job_type: body.p_job_type }); }
+      if (rpc === 'apm_data_rights_export') return json({ coaching_turns: [{ id: 't1', role: 'user', content: 'my words' }], audit_events: [{ id: 'a1' }], day_records: store.day_records });
+      if (rpc === 'apm_service_data_rights_complete_export') {
+        assert.equal(new Headers(init.headers).get('apikey'), env.SUPABASE_SECRET_KEY, 'only the server completes a job');
+        calls.completed = body; return json({ id: body.p_job_id, status: 'complete' });
+      }
       return json(null);
     }
-    if (path.startsWith('/rest/v1/audit_events') && method === 'POST') { calls.audits.push(...body); return new Response(null, { status: 201 }); }
+    if (path.startsWith('/rest/v1/audit_events') && method === 'POST') throw new Error('0043: the Worker never writes audit_events directly');
     if (method !== 'GET') calls.writes.push({ path, method, body });
-    if (method !== 'GET') return method === 'POST' && path.startsWith('/rest/v1/data_rights_jobs') ? json([{ id: 'job1', status: 'requested' }]) : new Response(null, { status: 204 });
+    if (path.startsWith('/rest/v1/data_rights_jobs') && method !== 'GET') throw new Error('0043: data-rights jobs are never written directly');
+    if (method !== 'GET') return new Response(null, { status: 204 });
     const table = path.match(/^\/rest\/v1\/([a-z_]+)/)?.[1];
     return json(store[table] ?? []);
   };
@@ -253,6 +266,12 @@ test('the data-rights export includes plans, completions and day records', async
     assert.equal(body.export.dailyLoop.goalPlans.length, 1);
     assert.ok(Array.isArray(body.export.dailyLoop.planActionCompletions));
     assert.ok(Array.isArray(body.export.dailyLoop.dayRecords));
+    // 0043: the complete registry export, coaching transcripts included, completed by the server.
+    assert.deepEqual(body.export.tables.coaching_turns.map((t) => t.content), ['my words']);
+    assert.deepEqual(body.export.activity, [{ id: 'a1' }]);
+    assert.deepEqual(h.calls.jobs, ['export']);
+    assert.deepEqual(h.calls.completed, { p_user_id: USER, p_job_id: 'job1' });
+    assert.equal(body.job.status, 'complete');
   } finally { h.restore(); }
 });
 

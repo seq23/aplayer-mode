@@ -406,23 +406,15 @@ export async function saveOnboarding(
   return getLifeGraph(env, accessToken, userId);
 }
 
-/** Track keys the 0004 intake RPC still inserts itself; every other Track is upserted after it (see below). */
-const intakeRpcTrackKeys = new Set<ActiveTrackKey>([
-  'billionaire_mindset',
-  'operator_discipline',
-  'strategic_patience',
-]);
-const legacyModeKeys = new Set<OperatingModeKey>(['standard', 'recovery', 'high_pressure', 'executive_review']);
-
 export async function saveMethodologyIntake(
   env: ApiEnv,
   accessToken: string,
   userId: string,
   input: MethodologyIntakePayload,
 ): Promise<LifeGraphSnapshot> {
-  const legacyMode = input.activeMode && legacyModeKeys.has(input.activeMode) ? input.activeMode : 'standard';
-  const legacyTracks = input.trackKeys.filter((key) => intakeRpcTrackKeys.has(key));
-
+  // One governed SECURITY DEFINER write (0043): clients have no direct write access to
+  // personal_os, tracks or pillar_settings, so nothing here can skip the Week-1 lock,
+  // the body referral stop or the OS change flow.
   await supabaseRest<void>(env, accessToken, '/rest/v1/rpc/apm_save_methodology_intake', {
     method: 'POST',
     body: JSON.stringify({
@@ -449,44 +441,15 @@ export async function saveMethodologyIntake(
         accountability: input.accountability,
         critical_pillars: input.criticalPillars,
         minimum_floors: input.minimumFloors,
-        track_keys: legacyTracks,
-        active_mode: legacyMode,
+        // The full Track set, named from the one display-name map (@apm/domain).
+        tracks: input.trackKeys.map((key) => ({ key, name: TRACK_LIBRARY[key].name })),
+        active_mode: input.activeMode ?? 'standard',
+        morning_sequence: (input.morningSequence ?? []).slice(0, 5),
+        scheduling_preference: input.schedulingPreference ?? 'ordered_stack',
+        hard_boundaries: input.hardBoundaries ?? [],
+        scoring_config: input.scoringConfig ?? { enabled: true, showSevenDaySnapshot: true },
       },
     }),
-  });
-
-  await supabaseRest(env, accessToken, `/rest/v1/personal_os?user_id=eq.${qs(userId)}`, {
-    method: 'PATCH',
-    headers: { Prefer: 'return=minimal' },
-    body: JSON.stringify({
-      morning_sequence: (input.morningSequence ?? []).slice(0, 5),
-      scheduling_preference: input.schedulingPreference ?? 'ordered_stack',
-      hard_boundaries: input.hardBoundaries ?? [],
-      scoring_config: input.scoringConfig ?? { enabled: true, showSevenDaySnapshot: true },
-      active_mode: input.activeMode ?? legacyMode,
-      updated_at: new Date().toISOString(),
-    }),
-  });
-
-  // The intake RPC replaces the user's Track set and only knows the original
-  // three keys; Resilience and the app-only Tracks are upserted here so the
-  // final set is exactly what the user chose.
-  const upsertTracks = input.trackKeys.filter((key) => !intakeRpcTrackKeys.has(key));
-  if (upsertTracks.length) {
-    await supabaseRest(env, accessToken, '/rest/v1/tracks?on_conflict=user_id,key', {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify(upsertTracks.map((key) => ({ user_id: userId, key, name: TRACK_LIBRARY[key].name, active: true, foreground: false, provenance_kind: 'stated', source_type: 'manual', confidence: 1 }))),
-    });
-  }
-
-  const modeNames: Record<OperatingModeKey, string> = {
-    standard: 'Standard', recovery: 'Recovery', high_pressure: 'High-Pressure Coaching', executive_review: 'Executive Review', sprint: 'Sprint', deep_work: 'Deep Work',
-  };
-  await supabaseRest(env, accessToken, '/rest/v1/operating_modes?on_conflict=user_id,key', {
-    method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify((Object.keys(modeNames) as OperatingModeKey[]).map((key) => ({ user_id: userId, key, name: modeNames[key], active: key === (input.activeMode ?? legacyMode), provenance_kind: 'system', source_type: 'system', confidence: 1 }))),
   });
 
   const graphAfterBase = await getLifeGraph(env, accessToken, userId);

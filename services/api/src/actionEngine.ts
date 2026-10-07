@@ -2,7 +2,7 @@ import type { ActionRecord, AutonomyLevel, Permission, SubscriptionEntitlement }
 import { decideAuthority, maxAutonomyForPlan, type ActionDomain, type Entitlement, type PermissionGrant } from '@apm/policy';
 import type { ApiEnv } from './env';
 import { actionDomainEnabled, actionsGloballyEnabled } from './env';
-import { supabaseRest } from './db';
+import { restErrorMessage, serviceRpc } from './db';
 import { getValidConnectorToken } from './connectors/oauth';
 
 interface ActionRow {
@@ -59,26 +59,33 @@ export function authorizeAction(input: {
   });
 }
 
+/** Maps the action ledger's refusals (0043) and policy refusals to HTTP. */
+export function actionErrorResponse(error: unknown): { error: string; status: 400 | 403 | 409 | 503 } | undefined {
+  const message = restErrorMessage(error) ?? (error instanceof Error ? error.message : '');
+  if (message === 'action_idempotency_conflict') return { error: 'idempotency_conflict', status: 409 };
+  if (message === 'action_invalid_state') return { error: 'invalid_action_state', status: 409 };
+  if (message === 'action_key_reserved' || message === 'action_invalid_request') return { error: 'invalid_request', status: 400 };
+  if (message === 'action_needs_user') return { error: 'needs_user', status: 409 };
+  if (message.startsWith('action_not_authorized:')) return { error: 'action_not_authorized', status: 403 };
+  if (message === 'service_unavailable') return { error: 'service_unavailable', status: 503 };
+  return undefined;
+}
+
 export async function prepareAction(input: {
   env: ApiEnv; accessToken: string; userId: string; domain: ActionDomain; actionType: string;
   payload: Record<string, unknown>; reason: string; idempotencyKey: string; permission?: Permission; entitlement?: SubscriptionEntitlement;
-}): Promise<ActionRecord> {
+}): Promise<{ action: ActionRecord; replayed: boolean }> {
   const decision = authorizeAction({ ...input, requestedLevel: 3, forExecution: false });
   if (!decision.allowed) throw new Error(`action_not_authorized:${decision.reason}`);
-  const rows = await supabaseRest<ActionRow[]>(input.env, input.accessToken, '/rest/v1/actions?on_conflict=user_id,idempotency_key&select=*', {
-    method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-    body: JSON.stringify([{
-      user_id: input.userId, domain: input.domain, action_type: input.actionType, status: 'prepared', payload: input.payload,
-      reason: input.reason, permission_id: input.permission?.id ?? null, idempotency_key: input.idempotencyKey,
-      // Level 5 is reachable only through an Autopilot standing rule (migration
-      // 0018 / autopilotRepository). A prepared action always needs its own
-      // explicit approval, whatever the permission level.
-      requires_approval: true, updated_at: new Date().toISOString(),
-    }]),
+  // Service-role ledger write (0043): insert-or-return, never a reset of an existing row.
+  // A prepared action always needs its own explicit approval, whatever the permission level;
+  // level 5 is reachable only through an Autopilot standing rule (0018).
+  const result = await serviceRpc<{ action: ActionRow; replayed: boolean }>(input.env, 'apm_service_action_prepare', {
+    p_user_id: input.userId, p_domain: input.domain, p_action_type: input.actionType, p_payload: input.payload,
+    p_reason: input.reason, p_permission_id: input.permission?.id ?? null, p_idempotency_key: input.idempotencyKey,
   });
-  if (!rows[0]) throw new Error('action_prepare_failed');
-  return mapAction(rows[0], input.userId);
+  if (!result?.action) throw new Error('action_prepare_failed');
+  return { action: mapAction(result.action, input.userId), replayed: Boolean(result.replayed) };
 }
 
 async function executeCalendar(action: ActionRecord, input: { env: ApiEnv; accessToken: string; userId: string }): Promise<string> {
@@ -320,33 +327,23 @@ export async function approveAndMaybeExecuteAction(input: {
   const decision = authorizeAction({ ...input, domain, requestedLevel, forExecution: true });
   if (!decision.allowed) throw new Error(`action_not_authorized:${decision.reason}`);
 
-  const now = new Date().toISOString();
-  await supabaseRest(input.env, input.accessToken, `/rest/v1/actions?id=eq.${encodeURIComponent(input.action.id)}`, {
-    method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'executing', approved_at: now, updated_at: now }),
-  });
-
+  // Atomic claim: `update … where status in ('prepared','approved') returning`. A second
+  // concurrent approval gets no row (action_invalid_state) and never reaches the provider.
+  const claimed = mapAction(await serviceRpc<ActionRow>(input.env, 'apm_service_action_claim', { p_user_id: input.userId, p_action_id: input.action.id }), input.userId);
+  const provider = String(claimed.payload.provider ?? '');
   let externalRef = '';
   try {
-    externalRef = await executeConnectorAction(input.action, input);
-    await supabaseRest(input.env, input.accessToken, `/rest/v1/actions?id=eq.${encodeURIComponent(input.action.id)}&select=*`, {
-      method: 'PATCH', headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({ status: 'verified', executed_at: now, verified_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
-    });
-    await supabaseRest(input.env, input.accessToken, '/rest/v1/action_attempts', {
-      method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ user_id: input.userId, action_id: input.action.id, attempt: 1, status: 'succeeded', provider: String(input.action.payload.provider ?? ''), external_ref: externalRef || null, completed_at: new Date().toISOString() }]),
-    });
+    externalRef = await executeConnectorAction(claimed, input);
   } catch (error) {
     const failureCode = error instanceof Error ? error.message.slice(0, 120) : 'unknown_failure';
-    await supabaseRest(input.env, input.accessToken, `/rest/v1/actions?id=eq.${encodeURIComponent(input.action.id)}`, {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'failed', failure_code: failureCode, updated_at: new Date().toISOString() }),
-    });
-    await supabaseRest(input.env, input.accessToken, '/rest/v1/action_attempts', {
-      method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ user_id: input.userId, action_id: input.action.id, attempt: 1, status: 'failed', error_code: failureCode, completed_at: new Date().toISOString() }]),
+    // The failed execution is recorded and audited too.
+    await serviceRpc(input.env, 'apm_service_action_result', {
+      p_user_id: input.userId, p_action_id: claimed.id, p_outcome: 'failed', p_provider: provider, p_external_ref: null, p_failure_code: failureCode,
     }).catch(() => undefined);
     throw error;
   }
-
-  const rows = await supabaseRest<ActionRow[]>(input.env, input.accessToken, `/rest/v1/actions?id=eq.${encodeURIComponent(input.action.id)}&select=*&limit=1`);
-  if (!rows[0]) throw new Error('action_disappeared');
-  return mapAction(rows[0], input.userId);
+  const row = await serviceRpc<ActionRow>(input.env, 'apm_service_action_result', {
+    p_user_id: input.userId, p_action_id: claimed.id, p_outcome: 'verified', p_provider: provider, p_external_ref: externalRef || null, p_failure_code: null,
+  });
+  return mapAction(row, input.userId);
 }
