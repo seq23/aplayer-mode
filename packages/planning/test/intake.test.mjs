@@ -458,3 +458,15 @@ test('every persona installs end to end, full and quick, back and forth included
   }
 });
 
+
+test('the questionnaire is questions only: no screen that asks nothing sits between questions (owner ruling 7 Oct 2026)', () => {
+  for (const mode of [undefined, 'quick', 'full']) {
+    for (const a of [{}, { games: ['founder', 'parent', 'athlete'], bed: 'yes', mode }]) {
+      const p = path(a, mode);
+      assert.equal(p.filter((s) => s.kind === 'interstitial').length, 0, `no interstitials in the ${mode ?? 'default'} path`);
+      const firstReveal = p.findIndex((s) => s.id === 'building');
+      assert.ok(firstReveal > 0, 'the reveal still follows the questions');
+      assert.ok(p.slice(0, firstReveal).every((s) => ['question', 'account', 'express'].includes(s.kind)), 'only questions (and the account/choice steps) before the reveal');
+    }
+  }
+});
