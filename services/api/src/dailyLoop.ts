@@ -242,7 +242,7 @@ export function redactForHardStart(state: TodayLoopState): TodayLoopState {
  * with the referral stop (book / confirm the clinician) through the governed RPC.
  */
 export async function pauseBodyCoachingIfFlagged(
-  env: ApiEnv, accessToken: string, userId: string, texts: Array<string | undefined>, source: 'intake' | 'diary' | 'day_close' | 'check_in', now: Date,
+  env: ApiEnv, accessToken: string, userId: string, texts: Array<string | undefined>, source: 'intake' | 'diary' | 'day_close' | 'goal', now: Date,
 ): Promise<boolean> {
   const flags = bodyRedFlags(texts.filter((text): text is string => Boolean(text?.trim())));
   if (!flags.length) return false;

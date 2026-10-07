@@ -291,10 +291,16 @@ export async function upsertPermission(env: ApiEnv, accessToken: string, userId:
   return { id: row.id, userId, domain: row.domain, actionType: row.action_type, autonomyLevel: row.autonomy_level, constraints: row.constraints ?? {}, enabled: row.enabled, grantedAt: row.granted_at ?? undefined, updatedAt: row.updated_at };
 }
 
-export async function registerPushSubscription(env: ApiEnv, accessToken: string, userId: string, input: { expoPushToken: string; deviceId?: string; platform?: 'ios' | 'android' | 'web' }): Promise<void> {
-  await supabaseRest(env, accessToken, '/rest/v1/push_subscriptions?on_conflict=user_id,expo_push_token', {
-    method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify([{ user_id: userId, expo_push_token: input.expoPushToken, device_id: input.deviceId ?? null, platform: input.platform ?? null, active: true, updated_at: new Date().toISOString() }]),
+export async function registerPushSubscription(env: ApiEnv, _accessToken: string, userId: string, input: { expoPushToken: string; deviceId?: string; platform?: 'ios' | 'android' | 'web' }): Promise<void> {
+  // Service role (0045): the same device token is deactivated for every other account,
+  // so a shared phone never shows the previous account's notifications.
+  await serviceRpc(env, 'apm_service_register_push_token', { p_user_id: userId, p_token: input.expoPushToken, p_device_id: input.deviceId ?? null, p_platform: input.platform ?? null });
+}
+
+/** Sign-out: this account stops receiving on this device. */
+export async function unregisterPushSubscription(env: ApiEnv, accessToken: string, userId: string, expoPushToken: string): Promise<void> {
+  await supabaseRest(env, accessToken, `/rest/v1/push_subscriptions?user_id=eq.${qs(userId)}&expo_push_token=eq.${qs(expoPushToken)}`, {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ active: false, updated_at: new Date().toISOString() }),
   });
 }
 
@@ -317,7 +323,7 @@ export async function completeDataExportJob(env: ApiEnv, userId: string, jobId: 
 }
 
 export async function getAuditEvents(env: ApiEnv, accessToken: string, userId: string, limit = 100) {
-  return supabaseRest<Array<{ id: string; event_type: string; actor_type: string; object_type: string | null; object_id: string | null; metadata: Record<string, unknown>; created_at: string }>>(env, accessToken, `/rest/v1/audit_events?user_id=eq.${qs(userId)}&select=id,event_type,actor_type,object_type,object_id,metadata,created_at&order=created_at.desc&limit=${Math.min(250, Math.max(1, limit))}`);
+  return supabaseRest<Array<{ id: string; event_type: string; actor_type: string; object_type: string | null; object_id: string | null; metadata: Record<string, unknown>; created_at: string }>>(env, accessToken, `/rest/v1/audit_events?user_id=eq.${qs(userId)}&select=id,event_type,actor_type,object_type,object_id,metadata,created_at&order=created_at.desc&limit=${Number.isInteger(limit) ? Math.min(250, Math.max(1, limit)) : 100}`);
 }
 
 export async function listModelRoutes(env: ApiEnv, accessToken: string) {
@@ -372,15 +378,3 @@ export async function setHouseholdInterest(
   return { interested: row.status === 'interested', updatedAt: row.updated_at };
 }
 
-export async function listHouseholds(env: ApiEnv, accessToken: string): Promise<{ households: Household[]; members: HouseholdMember[]; items: HouseholdItem[] }> {
-  const [households, members, items] = await Promise.all([
-    supabaseRest<HouseholdRow[]>(env, accessToken, '/rest/v1/households?select=*&order=created_at.asc'),
-    supabaseRest<HouseholdMemberRow[]>(env, accessToken, '/rest/v1/household_members?select=*&order=joined_at.asc'),
-    supabaseRest<HouseholdItemRow[]>(env, accessToken, '/rest/v1/household_items?select=*&order=created_at.desc'),
-  ]);
-  return {
-    households: households.map((row) => ({ id: row.id, createdBy: row.created_by, name: row.name, createdAt: row.created_at })),
-    members: members.map((row) => ({ householdId: row.household_id, userId: row.user_id, role: row.role, status: row.status, joinedAt: row.joined_at })),
-    items: items.map((row) => ({ id: row.id, householdId: row.household_id, createdBy: row.created_by, itemType: row.item_type, title: row.title, details: row.details ?? {}, assignedUserId: row.assigned_user_id ?? undefined, status: row.status, dueAt: row.due_at ?? undefined })),
-  };
-}

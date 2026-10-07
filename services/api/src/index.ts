@@ -4,7 +4,7 @@ import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, cont
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
 import { autonomyLabels, BILLING_PRODUCTS, capabilitiesForPlan, formatUsdCents, PLAN_PRICES, REVENUECAT_CONFIG, type PaidPlan, forbiddenStandingActions, localMoment, maxAutonomyForPlan, planHasCapability, planPriceLabels, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
-import { authenticateRequest } from './auth';
+import { authenticateRequest, devBypassMisconfigured } from './auth';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
 import { billingOfferingFor, handleRevenueCatWebhook } from './billing';
@@ -22,6 +22,7 @@ import {
   listModelRoutes,
   recordAnalyticsEvent,
   registerPushSubscription,
+  unregisterPushSubscription,
   requestDataRightsJob,
   getDataRightsExport,
   completeDataExportJob,
@@ -63,6 +64,8 @@ import {
 } from './autopilotRepository';
 import { notifyRadarItems } from './push';
 import { recordAudit, type SystemAuditEvent, type UserAuditEvent } from './audit';
+import { entitlementIsUsable } from './entitlement';
+import { CLIENT_ANALYTICS_EVENT_NAMES, sanitizeAnalyticsProperties } from './analytics';
 import { workPushHold } from './morningTrigger';
 import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, pillarRebuildsPending, rebuildBodyPlans, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
@@ -125,9 +128,6 @@ const onboardingSchema = z.object({
 
 
 
-function entitlementIsUsable(entitlement: SubscriptionEntitlement | undefined): boolean {
-  return Boolean(entitlement && (entitlement.status === 'active' || entitlement.status === 'trialing'));
-}
 
 function hasLifeOsAccess(entitlement: SubscriptionEntitlement | undefined): boolean {
   return Boolean(
@@ -139,7 +139,8 @@ function hasLifeOsAccess(entitlement: SubscriptionEntitlement | undefined): bool
 }
 
 function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: string) {
-  const raw: SubscriptionEntitlement = entitlement ?? { userId, plan: 'beta', status: 'active' };
+  // No entitlement row means no plan: never an implicit active beta.
+  const raw: SubscriptionEntitlement = entitlement ?? { userId, plan: 'beta', status: 'expired' };
   const resolved: SubscriptionEntitlement = raw.plan === 'household' ? { ...raw, plan: 'autopilot' } : raw;
   const usable = entitlementIsUsable(resolved);
   const policy = productPlanPolicies[resolved.plan];
@@ -510,7 +511,12 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-app.get('/v1/health', (c) => c.json({ ok: true, service: 'aplayer-mode-api', dataPlatform: 'supabase', time: new Date().toISOString() }));
+app.get('/v1/health', (c) => {
+  if (devBypassMisconfigured(c.env as ApiEnv)) {
+    return c.json({ ok: false, service: 'aplayer-mode-api', error: 'dev_auth_bypass_configured', message: 'AUTH_DEV_BYPASS_USER_ID must never be set on a deployed Worker; it is ignored, remove it.' }, 503);
+  }
+  return c.json({ ok: true, service: 'aplayer-mode-api', dataPlatform: 'supabase', time: new Date().toISOString() });
+});
 
 app.get('/v1/me/life-graph', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
@@ -707,8 +713,11 @@ app.post('/v1/methodology/day/close', async (c) => {
   const parsed = z.object({ verdict: z.enum(['full_day','mvd','miss']), note: z.string().trim().max(1000).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   let row;
-  try { row = await closeDay(c.env, user.accessToken, parsed.data.verdict, parsed.data.note); }
-  catch (error) { return loopFailure(c, error); }
+  try {
+    row = await closeDay(c.env, user.accessToken, parsed.data.verdict, parsed.data.note);
+    // Every free-text route runs the body red-flag check (as /v1/today/close does).
+    await pauseBodyCoachingIfFlagged(c.env, user.accessToken, user.id, [parsed.data.note], 'day_close', new Date());
+  } catch (error) { return loopFailure(c, error); }
   return c.json({ day: row, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });
 
@@ -974,7 +983,15 @@ app.post('/v1/goals', async (c) => {
   }
   const { confirmPivot: _confirm, ...goalInput } = parsed.data;
   void _confirm;
-  const plan = buildGoalPlan(graph, goalInput, now);
+  // A red flag in the goal text pauses body coaching BEFORE the plan is built, so a
+  // body plan made from it carries the referral stop.
+  let planGraph = graph;
+  try {
+    if (await pauseBodyCoachingIfFlagged(c.env, user.accessToken, user.id, [goalInput.title, goalInput.outcome], 'goal', now)) {
+      planGraph = await getLifeGraph(c.env, user.accessToken, user.id);
+    }
+  } catch (error) { return loopFailure(c, error); }
+  const plan = buildGoalPlan(planGraph, goalInput, now);
   let created;
   try { created = await createGoalWithPlan(c.env, user.id, goalInput, plan); }
   catch (error) { return loopFailure(c, error); }
@@ -1089,7 +1106,9 @@ app.post('/v1/connections/oauth/exchange', async (c) => {
 
 app.post('/v1/calendar/device/sync', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ from: z.string().datetime(), to: z.string().datetime(), events: z.array(deviceCalendarEventSchema).max(5000) }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ from: z.string().datetime(), to: z.string().datetime(), events: z.array(deviceCalendarEventSchema).max(5000)
+    // Every occurrence needs its own id (a recurring EventKit event repeats its eventIdentifier).
+    .refine((events) => new Set(events.map((event) => event.externalEventId)).size === events.length, { message: 'duplicate externalEventId' }) }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   const result = await syncDeviceCalendar({ env: c.env, accessToken: user.accessToken, userId: user.id, ...parsed.data });
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'calendar_synced', { provider: 'device', count: result.count });
@@ -1335,7 +1354,16 @@ app.post('/v1/push/register', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ expoPushToken: z.string().min(10).max(500), deviceId: z.string().max(300).optional(), platform: z.enum(['ios','android','web']).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  await registerPushSubscription(c.env, user.accessToken, user.id, parsed.data);
+  try { await registerPushSubscription(c.env, user.accessToken, user.id, parsed.data); }
+  catch (error) { if (error instanceof Error && error.message === 'service_unavailable') return c.json({ error: 'service_unavailable' }, 503); throw error; }
+  return c.json({ ok: true });
+});
+
+app.post('/v1/push/unregister', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ expoPushToken: z.string().min(10).max(500) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  await unregisterPushSubscription(c.env, user.accessToken, user.id, parsed.data.expoPushToken);
   return c.json({ ok: true });
 });
 
@@ -1381,7 +1409,9 @@ app.get('/v1/trust/model-routes', async (c) => {
 });
 app.get('/v1/trust/activity', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  return c.json({ events: await getAuditEvents(c.env, user.accessToken, user.id, Number(c.req.query('limit') ?? 100)) });
+  // A malformed limit falls back to the default instead of a NaN that PostgREST rejects.
+  const limit = z.coerce.number().int().min(1).max(250).catch(100).parse(c.req.query('limit') ?? 100);
+  return c.json({ events: await getAuditEvents(c.env, user.accessToken, user.id, limit) });
 });
 
 app.get('/v1/privacy/life-os', async (c) => {
@@ -1433,9 +1463,10 @@ app.post('/v1/households/:id/items', async (c) => {
 
 app.post('/v1/analytics/event', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ eventName: z.enum(['daily_plan_viewed','radar_item_viewed','radar_item_acted','radar_item_corrected','radar_item_dismissed','privacy_center_viewed','provider_transparency_viewed','notification_opened','integration_disconnected','household_interest_changed','product_plan_viewed','life_os_relationship_saved','life_os_item_created','life_os_item_completed']), properties: z.record(z.string(), z.union([z.string(),z.number(),z.boolean(),z.null()])).optional() }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ eventName: z.enum(CLIENT_ANALYTICS_EVENT_NAMES), properties: z.record(z.string(), z.union([z.string(),z.number(),z.boolean(),z.null()])).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  await recordAnalyticsEvent(c.env, user.accessToken, user.id, parsed.data.eventName, parsed.data.properties ?? {});
+  // Per-event allow-list: no free text from the client ever reaches analytics_events.
+  await recordAnalyticsEvent(c.env, user.accessToken, user.id, parsed.data.eventName, sanitizeAnalyticsProperties(parsed.data.eventName, parsed.data.properties ?? {}));
   return c.json({ ok: true });
 });
 

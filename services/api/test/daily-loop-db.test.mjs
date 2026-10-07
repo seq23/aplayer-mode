@@ -89,6 +89,8 @@ test.before(async () => {
   assert.ok(files.includes('0021_goal_plans_and_daily_loop.sql'));
   for (const name of files) await db.exec(await migration(name));
   await admin(`insert into auth.users (id) values ('${USER_A}'), ('${USER_B}')`);
+  // 0044: no account gets beta by default; these users hold a paid plan.
+  await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`update public.user_profiles set timezone = 'America/Chicago' where user_id = '${USER_A}'`);
   await admin(`update public.user_profiles set timezone = 'Not/AZone' where user_id = '${USER_B}'`);
   // Installed 10 days ago: past Week 1.
@@ -337,6 +339,8 @@ test('the database checks the day’s supply, the Mood Gate and Never Miss Twice
   const USER_C = '00000000-0000-4000-8000-0000000000c1';
   const GOAL_C = '00000000-0000-4000-8000-00000000c0c1';
   await admin(`insert into auth.users (id) values ('${USER_C}')`);
+  // 0044: no account gets beta by default; these users hold a paid plan.
+  await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`update public.user_profiles set timezone = 'Europe/London' where user_id = '${USER_C}'`);
   await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_C}', 'standard', current_date - 10)`);
   await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL_C}', '${USER_C}', 'lose 30 lbs', 'active', 'unknown', 1, 'stated', 'manual')`);
@@ -383,6 +387,8 @@ test('a Full Day needs the whole locked agenda done; setup days supply only setu
   const USER_D = '00000000-0000-4000-8000-0000000000d1';
   const GOAL_D = '00000000-0000-4000-8000-00000000d0d1';
   await admin(`insert into auth.users (id) values ('${USER_D}')`);
+  // 0044: no account gets beta by default; these users hold a paid plan.
+  await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_D}', 'standard', current_date - 10)`);
   await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL_D}', '${USER_D}', 'Launch my business', 'active', 'unknown', 1, 'stated', 'manual')`);
   const today = await localToday(USER_D);
@@ -418,6 +424,8 @@ test('a locked agenda must carry the floors the supply requires; the day-90 deci
   const USER_E = '00000000-0000-4000-8000-0000000000e1';
   const GOAL_E = '00000000-0000-4000-8000-00000000e0e1';
   await admin(`insert into auth.users (id) values ('${USER_E}')`);
+  // 0044: no account gets beta by default; these users hold a paid plan.
+  await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_E}', 'standard', current_date - 100)`);
   await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL_E}', '${USER_E}', 'Launch my business', 'active', 'unknown', 1, 'stated', 'manual')`);
   const today = await localToday(USER_E);
@@ -443,7 +451,8 @@ test('a locked agenda must carry the floors the supply requires; the day-90 deci
 test('next_actions are RPC-only (0035): no direct owner writes, intake still seeds, completion stays governed', async () => {
   const USER_F = '00000000-0000-4000-8000-0000000000f1';
   await admin(`insert into auth.users (id) values ('${USER_F}')`);
-  await admin(`insert into public.subscription_entitlements (user_id, plan, status) values ('${USER_F}', 'beta', 'active') on conflict (user_id) do nothing`);
+  // 0044: no account gets beta by default; these users hold a paid plan.
+  await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   // Onboarding (SECURITY INVOKER) seeds its first action through the governed writer.
   await rpc(USER_F, 'apm_save_onboarding', ['Ana', ['parent'], 'Run a 10k in spring', null, null, 'body']);
   const seeded = (await admin(`select id, status, goal_id from public.next_actions where user_id = $1`, [USER_F])).rows;

@@ -122,7 +122,8 @@ async function deliverMorningTrigger(env: ApiEnv, candidate: MorningCandidate, n
   const response = await sendExpoPush(env, subscriptions.map((subscription) => ({
     to: subscription.expo_push_token, title: copy.title, body: copy.body, sound: 'default', data: { type: 'morning_trigger', deepLink: '/today', day: today.date },
   })));
-  if (!response.ok) { await finish('failed', `expo_http_${response.status}`); return done('failed', printed); }
+  // Expo's per-message tickets decide (HTTP 200 can carry only errors); a failed push stays retryable.
+  if (!response.delivered) { await finish('failed', response.error ?? 'expo_failed'); return done('failed', printed); }
   await finish('sent', null);
   return done('sent', printed);
 }

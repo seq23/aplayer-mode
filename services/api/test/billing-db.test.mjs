@@ -125,8 +125,13 @@ test('clients never write entitlements or reach any billing function or table', 
     where p.schemaname = 'private' and p.tablename = c.relname) as quals from pg_class c join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'private' and c.relname like 'billing%' and c.relkind = 'r' order by c.relname`)).rows;
   assert.deepEqual(tables.map((t) => [t.relname, t.relrowsecurity, t.quals]), [
-    ['billing_events', true, ['false']], ['billing_founding_slots', true, ['false']], ['billing_products', true, ['false']],
+    ['billing_events', true, ['false']], ['billing_founding_lapsed', true, ['false']], ['billing_founding_slots', true, ['false']], ['billing_products', true, ['false']],
   ]);
+  // 0044: the beta allowlist is server-only too.
+  for (const role of ['authenticated', 'anon']) {
+    await rejects(asRole(role, A, 'select * from private.beta_allowlist'), /permission denied/);
+    await rejects(asRole(role, A, "select public.apm_service_beta_grant('a@x.com', now() + interval '1 day', null)"), /permission denied/);
+  }
 });
 
 test('initial purchase grants the mapped plan, audited, and never a permission', async () => {
@@ -247,12 +252,72 @@ test('every event type moves the entitlement as documented', async () => {
 
 test('events about a product the user is no longer on change nothing', async () => {
   const u = await newUser();
-  await apply(ev('INITIAL_PURCHASE', u, 'apm_lifeos_monthly'));
+  await apply(ev('INITIAL_PURCHASE', u, 'apm_cos_monthly'));
+  await apply(ev('PRODUCT_CHANGE', u, 'apm_cos_monthly', { new_product_id: 'apm_lifeos_monthly' }));
+  // Late events for the product they crossgraded away from are final no-ops.
   for (const type of ['EXPIRATION', 'CANCELLATION', 'BILLING_ISSUE', 'REFUND']) {
     assert.equal((await apply(ev(type, u, 'apm_cos_monthly'))).outcome, 'ignored_other_product', type);
   }
+  // A terminal event for a product never applied to them is kept (deferred), not dropped,
+  // and changes nothing now.
+  for (const type of ['EXPIRATION', 'CANCELLATION', 'REFUND']) {
+    assert.equal((await apply(ev(type, u, 'apm_autopilot_monthly'))).outcome, 'deferred', type);
+  }
+  assert.equal((await apply(ev('BILLING_ISSUE', u, 'apm_autopilot_monthly'))).outcome, 'ignored_other_product');
   const row = await ent(u);
   assert.deepEqual([row.plan, row.status, row.cancel_at_period_end], ['life_os', 'active', false]);
+});
+
+test('a refund delivered before its purchase still ends access when the purchase lands (and on redelivery)', async () => {
+  const u = await newUser();
+  const purchase = ev('INITIAL_PURCHASE', u, 'apm_autopilot_monthly');
+  const refund = ev('CANCELLATION', u, 'apm_autopilot_monthly', { cancel_reason: 'CUSTOMER_SUPPORT' }); // t + 1s
+  assert.equal((await apply(refund)).outcome, 'deferred');
+  const out = await apply(purchase);
+  assert.deepEqual([out.outcome, out.status], ['applied', 'expired']);
+  assert.deepEqual(await access(u), { core: false, life: false, auto: false });
+  assert.equal((await apply(refund)).outcome, 'applied_deferred', 'redelivery returns the resolved outcome');
+  assert.equal((await ent(u)).status, 'expired');
+  assert.equal((await admin("select count(*)::int as n from public.audit_events where user_id = $1 and event_type = 'billing.refund' and metadata->>'deferred' = 'true'", [u])).rows[0].n, 1);
+  // An auto-renew-off cancellation that came first only sets cancel-at-period-end.
+  const v = await newUser();
+  const p2 = ev('INITIAL_PURCHASE', v, 'apm_cos_monthly');
+  await apply(ev('CANCELLATION', v, 'apm_cos_monthly', { cancel_reason: 'UNSUBSCRIBE' }));
+  await apply(p2);
+  assert.deepEqual([(await ent(v)).status, (await ent(v)).cancel_at_period_end], ['active', true]);
+  // A deferred refund OLDER than the grant (e.g. a refunded earlier purchase) does not end a newer one.
+  const w = await newUser();
+  const oldRefund = ev('REFUND', w, 'apm_cos_monthly');
+  await apply(oldRefund);
+  await apply(ev('INITIAL_PURCHASE', w, 'apm_cos_monthly'));
+  assert.equal((await ent(w)).status, 'active');
+});
+
+test('beta is an explicit allowlist with an end date, and never outranks a paid or lapsed state', async () => {
+  const never = U(5001); const tester = U(5002); const payer = U(5003);
+  await service("select public.apm_service_beta_grant('tester@example.com', now() + interval '30 days', 'invited')");
+  await rejects(service("select public.apm_service_beta_grant('x@example.com', now() + interval '400 days', null)"), /billing_invalid_request/);
+  await rejects(service("select public.apm_service_beta_grant('x@example.com', null, null)"), /billing_invalid_request/);
+  await admin("insert into auth.users (id, email) values ($1, 'never@example.com'), ($2, 'Tester@Example.com'), ($3, 'payer@example.com')", [never, tester, payer]);
+  // A fresh, never-paid, non-allowlisted account has no access.
+  assert.deepEqual([(await ent(never)).plan, (await ent(never)).status], ['beta', 'expired']);
+  assert.equal((await access(never)).core, false);
+  // An allowlisted account has beta access until its end date.
+  assert.equal((await access(tester)).core, true);
+  assert.ok(new Date((await ent(tester)).current_period_end) > new Date());
+  await admin("update public.subscription_entitlements set current_period_end = now() - interval '1 minute' where user_id = $1", [tester]);
+  assert.equal((await access(tester)).core, false, 'the end date is enforced at the access check, not only by the sweep');
+  await service('select public.apm_service_billing_expire_lapsed()');
+  assert.equal((await ent(tester)).status, 'expired');
+  // Paid, then lapsed: the lapsed state governs, an allowlist entry never restores beta.
+  await apply(ev('INITIAL_PURCHASE', payer, 'apm_cos_monthly'));
+  await apply(ev('EXPIRATION', payer, 'apm_cos_monthly'));
+  await service("select public.apm_service_beta_grant('payer@example.com', now() + interval '30 days', 'should not apply')");
+  const row = await ent(payer);
+  assert.deepEqual([row.plan, row.status], ['chief_of_staff', 'expired']);
+  assert.equal((await access(payer)).core, false);
+  // The never-paid user gets nothing the lapsed payer lacks.
+  assert.equal((await access(never)).core, (await access(payer)).core);
 });
 
 test('never trusts identity, product, store or environment it cannot verify', async () => {
@@ -288,92 +353,63 @@ test('never trusts identity, product, store or environment it cannot verify', as
   for (const event of bad) await rejects(apply(event), /billing_invalid_event/);
 });
 
-test('Founding 100: decided atomically by the server — 99 gives one, 100 gives none, never 101', async () => {
+test('Founding 100: only paid founding subscriptions hold a slot — 99 gives one, 100 gives none, never 101', async () => {
   await admin('delete from private.billing_founding_slots');
-  // 98 claimed founders + 1 reservation = 99 slots in use.
-  await admin(`insert into private.billing_founding_slots (slot_no, status, claimed_at) select n, 'claimed', now() from generate_series(1, 98) n`);
-  const holder = await newUser();
-  assert.equal((await offering(holder)).offering, 'founding');
-  assert.equal((await admin('select count(*)::int as n from private.billing_founding_slots')).rows[0].n, 99);
+  const claimedSlots = async () => (await admin('select count(*)::int as n from private.billing_founding_slots')).rows[0].n;
+  const founders = [];
+  for (let i = 0; i < 99; i += 1) founders.push(await newUser());
+  await admin(`insert into private.billing_founding_slots (slot_no, user_id, status, claimed_at)
+    select row_number() over (), u, 'claimed', now() from unnest($1::uuid[]) u`, [founders]);
+  // Viewing the paywall reserves nothing: any number of views hold no slot.
+  const viewers = [];
+  for (let i = 0; i < 5; i += 1) { const v = await newUser(); viewers.push(v); assert.equal((await offering(v)).offering, 'founding'); }
+  assert.equal(await claimedSlots(), 99);
+  assert.equal((await offering(viewers[0])).reservedUntil, null);
 
-  // Two new users race for the last slot: exactly one wins.
-  const [x, y] = [await newUser(), await newUser()];
-  const raced = await Promise.all([offering(x), offering(y)]);
-  assert.deepEqual(raced.map((r) => r.offering).sort(), ['default', 'founding']);
-  assert.equal((await admin('select count(*)::int as n from private.billing_founding_slots')).rows[0].n, 100);
-
-  // At 100 nobody new gets it; asking again is stable for the reserved user.
-  const late = await newUser();
-  assert.equal((await offering(late)).offering, 'default');
-  const winner = raced[0].offering === 'founding' ? x : y;
-  const loser = winner === x ? y : x;
-  assert.equal((await offering(winner)).offering, 'founding');
-
-  // The holder buys: reservation becomes a claim, the lock is on the entitlement.
-  await apply(ev('INITIAL_PURCHASE', holder, 'apm_cos_monthly_founding'));
-  assert.equal((await slot(holder)).status, 'claimed');
-  assert.equal((await ent(holder)).offer, 'founding');
-
-  // The 101st founding purchase (bought outside the app, no slot): access is honoured
-  // because the store charged, but no lock and no slot 101.
-  await apply(ev('INITIAL_PURCHASE', loser, 'apm_cos:founding-monthly'));
-  assert.equal(await slot(loser), undefined);
-  const row = await ent(loser);
-  assert.deepEqual([row.plan, row.status, row.offer], ['chief_of_staff', 'active', 'standard']);
+  // Two buyers race for the last slot: exactly one gets the lock; the other keeps access at standard.
+  const [x, y] = viewers;
+  await Promise.all([apply(ev('INITIAL_PURCHASE', x, 'apm_cos_monthly_founding')), apply(ev('INITIAL_PURCHASE', y, 'apm_cos:founding-monthly'))]);
+  const offers = [(await ent(x)).offer, (await ent(y)).offer].sort();
+  assert.deepEqual(offers, ['founding', 'standard']);
+  assert.equal(await claimedSlots(), 100);
+  const loser = (await ent(x)).offer === 'founding' ? y : x;
+  assert.deepEqual([(await ent(loser)).plan, (await ent(loser)).status], ['chief_of_staff', 'active']);
   assert.equal((await admin("select count(*)::int as n from public.audit_events where user_id = $1 and event_type = 'billing.founding_without_slot'", [loser])).rows[0].n, 1);
-  assert.equal((await admin('select max(slot_no)::int as m, count(*)::int as n from private.billing_founding_slots')).rows[0].m, 100);
-  await rejects(admin("insert into private.billing_founding_slots (slot_no, status) values (101, 'claimed')"), /check constraint/);
+  // At 100 nobody new is offered it.
+  assert.equal((await offering(viewers[2])).offering, 'default');
+  assert.equal((await admin('select max(slot_no)::int as m from private.billing_founding_slots')).rows[0].m, 100);
+  await rejects(admin("insert into private.billing_founding_slots (slot_no, user_id, status) values (101, $1, 'claimed')", [viewers[3]]), /check constraint/);
+  await rejects(admin("insert into private.billing_founding_slots (slot_no, user_id, status) values (50, $1, 'reserved')", [viewers[3]]), /check constraint|duplicate key/);
 
-  // A client cannot claim eligibility: a former subscriber is never offered founding,
-  // and buying the founding product directly (a tampered client) never takes a slot,
-  // even while slots are free (0042).
-  assert.equal((await offering(A)).offering, 'default');
-  await admin("delete from private.billing_founding_slots where slot_no = 100");
+  // A lapse frees the slot for someone else and the lapsed founder never gets it back.
+  const lapsed = founders[0];
+  await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active', provider = 'app_store', store_product_id = 'apm_cos_monthly_founding', offer = 'founding' where user_id = $1", [lapsed]);
+  await apply(ev('EXPIRATION', lapsed, 'apm_cos_monthly_founding'));
+  assert.equal(await slot(lapsed), undefined);
+  assert.equal(await claimedSlots(), 99);
+  assert.equal((await offering(lapsed)).offering, 'default');
+  await apply(ev('INITIAL_PURCHASE', lapsed, 'apm_cos_monthly_founding'));
+  assert.equal((await ent(lapsed)).offer, 'standard', 're-subscribing never restores the lock');
+  const next = viewers[3];
+  assert.equal((await offering(next)).offering, 'founding', 'the freed slot is offered again');
+  await apply(ev('INITIAL_PURCHASE', next, 'apm_cos_monthly_founding'));
+  assert.equal((await slot(next)).status, 'claimed');
+
+  // A former subscriber is never offered founding and never takes a slot, even when one is free.
+  await admin('delete from private.billing_founding_slots where user_id = $1', [next]);
   const former = await newUser();
   await apply(ev('INITIAL_PURCHASE', former, 'apm_cos_annual'));
   await apply(ev('PRODUCT_CHANGE', former, 'apm_cos_annual', { new_product_id: 'apm_cos_monthly_founding' }));
   await apply(ev('RENEWAL', former, 'apm_cos_monthly_founding'));
-  assert.equal(await slot(former), undefined, 'former subscriber took no slot');
-  assert.equal((await ent(former)).offer, 'standard');
-  await apply(ev('INITIAL_PURCHASE', A, 'apm_cos_monthly_founding'));
-  assert.equal(await slot(A), undefined);
-  assert.equal((await admin('select count(*)::int as n from private.billing_founding_slots')).rows[0].n, 99, 'slot 100 is still free');
-  const firstTimer = await newUser();
-  await apply(ev('INITIAL_PURCHASE', firstTimer, 'apm_cos:founding-monthly'));
-  assert.equal((await slot(firstTimer)).status, 'claimed', 'a first-time subscriber may still claim a free slot without a reservation');
-
-  // Lapse loses the lock for good, and the slot stays consumed.
-  await apply(ev('EXPIRATION', holder, 'apm_cos_monthly_founding'));
-  assert.equal((await slot(holder)).status, 'lapsed');
-  assert.equal((await offering(holder)).offering, 'default');
-  await apply(ev('INITIAL_PURCHASE', holder, 'apm_cos_monthly_founding'));
-  assert.equal((await ent(holder)).offer, 'standard', 're-subscribing never restores the lock');
-});
-
-test('Founding 100: an expired reservation frees its slot; moving off the founding product lapses the lock', async () => {
-  await admin('delete from private.billing_founding_slots');
-  await admin(`insert into private.billing_founding_slots (slot_no, status, claimed_at) select n, 'claimed', now() from generate_series(1, 99) n`);
-  const sleeper = await newUser();
-  assert.equal((await offering(sleeper)).offering, 'founding');
-  await admin("update private.billing_founding_slots set reserved_until = now() - interval '1 minute' where user_id = $1", [sleeper]);
-  const next = await newUser();
-  assert.equal((await offering(next)).offering, 'founding', 'the expired reservation was reused');
-  assert.equal(await slot(sleeper), undefined);
-  assert.equal((await offering(sleeper)).offering, 'default', 'the sleeper lost it: all 100 in use');
-
-  await apply(ev('INITIAL_PURCHASE', next, 'apm_cos_monthly_founding'));
-  assert.equal((await slot(next)).status, 'claimed');
-  await apply(ev('PRODUCT_CHANGE', next, 'apm_cos_monthly_founding', { new_product_id: 'apm_autopilot_monthly' }));
-  assert.equal((await slot(next)).status, 'lapsed');
-  const row = await ent(next);
-  assert.deepEqual([row.plan, row.offer], ['autopilot', 'standard']);
-
-  // Buying a standard product releases an unused reservation.
-  await admin("delete from private.billing_founding_slots where slot_no = 99");
-  const reserver = await newUser();
-  assert.equal((await offering(reserver)).offering, 'founding');
-  await apply(ev('INITIAL_PURCHASE', reserver, 'apm_lifeos_annual'));
-  assert.equal(await slot(reserver), undefined);
+  assert.equal(await slot(former), undefined);
+  assert.equal((await offering(former)).offering, 'default');
+  // Moving off the founding product lapses the lock.
+  const mover = viewers[4];
+  await apply(ev('INITIAL_PURCHASE', mover, 'apm_cos_monthly_founding'));
+  assert.equal((await slot(mover)).status, 'claimed');
+  await apply(ev('PRODUCT_CHANGE', mover, 'apm_cos_monthly_founding', { new_product_id: 'apm_autopilot_monthly' }));
+  assert.equal(await slot(mover), undefined);
+  assert.deepEqual([(await ent(mover)).plan, (await ent(mover)).offer], ['autopilot', 'standard']);
 });
 
 test('the sweep expires store entitlements past period end + 1 day, and a late renewal restores them', async () => {
@@ -387,7 +423,8 @@ test('the sweep expires store entitlements past period end + 1 day, and a late r
   assert.ok(swept >= 1);
   assert.equal((await ent(u)).status, 'expired');
   assert.equal((await ent(fresh)).status, 'active', 'inside the one-day slack');
-  assert.equal((await ent(C)).status, 'active', 'non-store (beta) rows are never swept');
+  // C was never allowlisted: no beta access to sweep (0044); store rows are swept as before.
+  assert.deepEqual([(await ent(C)).plan, (await ent(C)).status], ['beta', 'expired']);
   await apply(ev('RENEWAL', u, 'apm_cos_monthly'));
   assert.equal((await ent(u)).status, 'active');
 });

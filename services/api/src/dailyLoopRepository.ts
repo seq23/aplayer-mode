@@ -265,5 +265,5 @@ export const discardOsChange = (env: ApiEnv, accessToken: string, id: string) =>
 export const setDayPhase = (env: ApiEnv, accessToken: string, phase: 'first_hour' | 'executing') => loopRpc<DayRow>(env, accessToken, 'apm_set_day_phase', { p_phase: phase });
 export const returnResetDay = (env: ApiEnv, accessToken: string) => loopRpc<DayRow>(env, accessToken, 'apm_day_return_reset', {});
 export const reprintDay = (env: ApiEnv, userId: string, input: { day: string; agenda: DailyAgenda }) => loopRpc<DayRow>(env, serviceToken(env), 'apm_service_day_reprint', { p_user_id: userId, p_day: input.day, p_agenda: input.agenda });
-export const flagBodyReferral = (env: ApiEnv, accessToken: string, source: 'intake' | 'diary' | 'day_close' | 'check_in' | 'os_change') => loopRpc<Record<string, unknown>>(env, accessToken, 'apm_flag_body_referral', { p_source: source });
+export const flagBodyReferral = (env: ApiEnv, accessToken: string, source: 'intake' | 'diary' | 'day_close' | 'goal' | 'os_change') => loopRpc<Record<string, unknown>>(env, accessToken, 'apm_flag_body_referral', { p_source: source });
 export const recordClinicianClearance = (env: ApiEnv, accessToken: string) => loopRpc<Record<string, unknown>>(env, accessToken, 'apm_record_clinician_clearance', {});

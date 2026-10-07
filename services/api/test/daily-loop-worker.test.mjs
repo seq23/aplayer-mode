@@ -116,6 +116,7 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
     if (method !== 'GET') calls.writes.push({ path, method, body });
     if (path.startsWith('/rest/v1/data_rights_jobs') && method !== 'GET') throw new Error('0043: data-rights jobs are never written directly');
     if (method !== 'GET') return new Response(null, { status: 204 });
+    (calls.reads ??= []).push(path);
     const table = path.match(/^\/rest\/v1\/([a-z_]+)/)?.[1];
     return json(store[table] ?? []);
   };
@@ -520,5 +521,44 @@ test('rebuilds use the pillar state in effect today, and a check-in waits while 
     assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 0);
     const ok = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
     assert.ok(ok.status < 300, 'once the retry lands, the check-in proceeds');
+  } finally { h.restore(); }
+});
+
+test('every free-text route runs the body red-flag check: the older day close and a new goal (plan carries the referral stop)', async () => {
+  const h = harness();
+  try {
+    await request('/v1/me/today');
+    backdate(h.store);
+    await request('/v1/methodology/day/close', { method: 'POST', body: JSON.stringify({ verdict: 'mvd', note: 'Good walk' }) });
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_flag_body_referral').length, 0, 'no flag without a red flag');
+    await request('/v1/methodology/day/close', { method: 'POST', body: JSON.stringify({ verdict: 'mvd', note: 'fasting, 600 calories a day' }) });
+    assert.equal(h.calls.rpc.find((c) => c.fn === 'apm_flag_body_referral')?.args.p_source, 'day_close');
+  } finally { h.restore(); }
+  const g = harness();
+  try {
+    await request('/v1/me/today');
+    const response = await request('/v1/goals', { method: 'POST', body: JSON.stringify({ title: 'Lose weight fast by fasting', outcome: 'Eat 600 calories a day until I am thin', pillar: 'body', confirmPivot: true }) });
+    assert.equal(response.status, 201);
+    const flagIndex = g.calls.rpc.findIndex((c) => c.fn === 'apm_flag_body_referral');
+    const createIndex = g.calls.rpc.findIndex((c) => c.fn === 'apm_service_create_goal');
+    assert.ok(flagIndex >= 0 && flagIndex < createIndex, 'flagged before the plan is built');
+    assert.equal(g.calls.rpc[flagIndex].args.p_source, 'goal');
+    assert.equal(g.calls.rpc[createIndex].args.p_plan.safety.referral, true, 'the new body plan carries the referral stop');
+  } finally { g.restore(); }
+});
+
+test('trust activity: a malformed limit falls back to 100; analytics keeps only allow-listed properties', async () => {
+  const h = harness();
+  try {
+    const activity = await request('/v1/trust/activity?limit=abc');
+    assert.equal(activity.status, 200);
+    assert.match(h.calls.reads.find((p) => p.startsWith('/rest/v1/audit_events')), /&limit=100$/);
+    const analytics = await request('/v1/analytics/event', { method: 'POST', body: JSON.stringify({ eventName: 'life_os_item_created', properties: { kind: 'bill', goalTitle: 'Leave my husband', note: 'private words' } }) });
+    assert.equal(analytics.status, 200);
+    const write = h.calls.writes.find((w) => w.path.startsWith('/rest/v1/analytics_events'));
+    assert.deepEqual(write.body[0].properties, { kind: 'bill' });
+    const free = await request('/v1/analytics/event', { method: 'POST', body: JSON.stringify({ eventName: 'radar_item_viewed', properties: { radarItemId: 'a sentence with spaces that is private', severity: 'high' } }) });
+    assert.equal(free.status, 200);
+    assert.deepEqual(h.calls.writes.filter((w) => w.path.startsWith('/rest/v1/analytics_events')).at(-1).body[0].properties, { severity: 'high' });
   } finally { h.restore(); }
 });

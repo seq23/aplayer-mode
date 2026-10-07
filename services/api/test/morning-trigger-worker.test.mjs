@@ -189,11 +189,13 @@ test('the Radar push path holds non-critical pushes during Deep Work and family 
   const posted = [];
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
-    if (href.startsWith('https://exp.host/')) { posted.push(JSON.parse(init.body)); return new Response('{}', { status: 200 }); }
+    if (href.startsWith('https://exp.host/')) { posted.push(JSON.parse(init.body)); return new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }); }
     if (href.includes('/rest/v1/notification_preferences')) return new Response(JSON.stringify([{ enabled: true, quiet_hours: {}, lock_screen_detail: 'minimal', minimum_severity: 'low' }]), { status: 200 });
     if (href.includes('/rest/v1/push_subscriptions')) return new Response(JSON.stringify([{ expo_push_token: 'ExponentPushToken[abc]' }]), { status: 200 });
-    if (href.includes('/rest/v1/notifications?')) return new Response('[]', { status: 200 });
-    return new Response(null, { status: 201 });
+    // Claim-first (insert-or-nothing on the dedupe key), then finish by id.
+    if (href.includes('/rest/v1/notifications?on_conflict=user_id,dedupe_key') && init.method === 'POST') return new Response(JSON.stringify([{ id: `n-${posted.length}` }]), { status: 201 });
+    if (href.includes('/rest/v1/notifications?id=eq.') && init.method === 'PATCH') return new Response(null, { status: 204 });
+    throw new Error(`unexpected ${init.method ?? 'GET'} ${href}`);
   };
   try {
     const item = (id, severity, reasonCodes) => ({ id, status: 'open', severity, confidence: 0.9, headline: id, reasonCodes });

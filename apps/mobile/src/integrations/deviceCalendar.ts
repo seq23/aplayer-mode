@@ -41,7 +41,8 @@ export async function syncConfiguredDeviceCalendars(accessToken: string) {
       const calendar = calendarById.get(event.calendarId);
       return {
         provider: 'device',
-        externalEventId: event.id,
+        // EventKit gives every occurrence of a recurring event the same id: key the occurrence.
+        externalEventId: `${event.id}:${new Date(event.startDate).toISOString()}`,
         calendarExternalId: event.calendarId,
         title: event.title ?? '',
         location: event.location || undefined,

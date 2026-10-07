@@ -68,6 +68,8 @@ test.before(async () => {
   await admin(`update public.notification_preferences set wake_time = '06:30', quiet_hours = '{"start":"22:00","end":"07:00"}' where user_id = '${QUIETDEV}'`);
   await admin(`update public.notification_preferences set wake_time = '06:30', morning_push_enabled = false where user_id = '${OFF}'`);
   await admin(`update public.notification_preferences set wake_time = '06:30' where user_id in ('${NODEVICE}', '${CANCELLED}')`);
+  // 0044: beta is no longer granted to every account; these users hold a paid plan.
+  await admin(`update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active'`);
   await admin(`update public.subscription_entitlements set status = 'cancelled' where user_id = '${CANCELLED}'`);
 });
 test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
