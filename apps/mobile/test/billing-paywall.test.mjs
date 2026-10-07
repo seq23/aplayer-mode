@@ -1,6 +1,6 @@
 // The paywall's pure logic (src/billing/catalog.ts) and the client trust boundary:
 //   * tier cards show exactly the ADR-0004 / ADR-0005 prices (store price wins when known);
-//   * Founding 100 appears ONLY when the server said so, and only on Chief of Staff monthly;
+//   * Founding 100 appears ONLY when the server said so, and only on Executive Roundtable monthly;
 //   * the store-required disclosure states price, period, auto-renewal, charge timing,
 //     how to cancel, no free trial, and the intro / founding terms;
 //   * no app code reports a purchase to the APM API or decides Founding eligibility.
@@ -43,7 +43,7 @@ test('tier cards carry exactly the decided prices for each period', () => {
   assert.equal(localized[0].note, 'New subscribers: 9,99 €/month for the first 3 months, then 24,99 €/month.');
 });
 
-test('Founding 100 shows only on the server\'s word, only on Chief of Staff monthly', () => {
+test('Founding 100 shows only on the server\'s word, only on Executive Roundtable monthly', () => {
   const founding = catalog.tierOffers('monthly', true);
   assert.deepEqual(founding.map((o) => o.founding), [true, false, false]);
   assert.equal(founding[0].priceLabel, '$9.99/month');

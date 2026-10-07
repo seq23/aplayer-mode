@@ -91,18 +91,23 @@ export const SCREEN_PLATES: Readonly<Record<string, string>> = {
   today: 'Do only the first item. Then stop. This is relief, not productivity.',
 };
 
-/** What APM does with each thing she taps on "What are you carrying", and which plan does it. */
-export const CARRY_DO: Readonly<Record<string, readonly [label: string, does: string, plan: string]>> = {
-  deadlines: ['Deadlines', 'Radar counts down each date and warns you a week out.', 'Chief of Staff'],
-  money: ['Money worries', 'One money move a week, in the right order: buffer, then debt, then investing.', 'Chief of Staff'],
-  family_logistics: ['Family logistics', 'Protected family moments are booked before work.', 'Chief of Staff'],
-  health: ['Health goals', 'One small body step a day at a safe pace.', 'Chief of Staff'],
-  replies: ['Messages I owe', 'Radar lists who is waiting on you once you connect email (offered on Day 2). Life OS drafts the replies.', 'Chief of Staff + email'],
-  big_decision: ['A big decision', 'Parked on Radar with a decide-by date, so it stops looping.', 'Chief of Staff'],
-  too_many: ['Too many projects', 'One foreground. Everything else is parked or maintained, in writing.', 'Chief of Staff'],
-  restarting: ['Restarting (again)', 'No catch-up, ever. A miss shrinks the next day instead of resetting you.', 'Chief of Staff'],
-  appointments: ['Appointments and forms', 'Tracked and prepared ahead of time.', 'Life OS'],
-  bills: ['Bills and renewals', 'Due dates and renewals watched; price rises flagged.', 'Life OS'],
+/**
+ * What APM does with each thing she taps on "What are you carrying", and which plan does it.
+ * The plan is the INTERNAL key; the app renders its ONE display name from @apm/policy
+ * PLAN_PRICES (ADR-0006), so a plan name is never retyped here. `needs` names a connection.
+ */
+export type CarryPlan = 'chief_of_staff' | 'life_os';
+export const CARRY_DO: Readonly<Record<string, readonly [label: string, does: string, plan: CarryPlan, needs?: string]>> = {
+  deadlines: ['Deadlines', 'Radar counts down each date and warns you a week out.', 'chief_of_staff'],
+  money: ['Money worries', 'One money move a week, in the right order: buffer, then debt, then investing.', 'chief_of_staff'],
+  family_logistics: ['Family logistics', 'Protected family moments are booked before work.', 'chief_of_staff'],
+  health: ['Health goals', 'One small body step a day at a safe pace.', 'chief_of_staff'],
+  replies: ['Messages I owe', 'Radar lists who is waiting on you once you connect email (offered on Day 2). Higher plans draft the replies.', 'chief_of_staff', 'email'],
+  big_decision: ['A big decision', 'Parked on Radar with a decide-by date, so it stops looping.', 'chief_of_staff'],
+  too_many: ['Too many projects', 'One foreground. Everything else is parked or maintained, in writing.', 'chief_of_staff'],
+  restarting: ['Restarting (again)', 'No catch-up, ever. A miss shrinks the next day instead of resetting you.', 'chief_of_staff'],
+  appointments: ['Appointments and forms', 'Tracked and prepared ahead of time.', 'life_os'],
+  bills: ['Bills and renewals', 'Due dates and renewals watched; price rises flagged.', 'life_os'],
 };
 
 /** The full screen registry for these answers (every screen, gated ones marked `on: false`). */

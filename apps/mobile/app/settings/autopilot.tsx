@@ -268,7 +268,7 @@ export default function AutopilotScreen() {
             <Pill tone={item.kind === 'stopped' || item.status === 'failed' ? 'warning' : undefined}>{item.kind === 'stopped' ? 'needs you' : item.status}</Pill>
           </View>
           <KeyValue label="When" value={new Date(item.at).toLocaleTimeString()} />
-          {item.stoppedReason === 'payment_required' ? <Body muted>It asked for a card or deposit, so APM stopped. It is waiting in Life OS for your decision.</Body> : null}
+          {item.stoppedReason === 'payment_required' ? <Body muted>It asked for a card or deposit, so APM stopped. It is waiting in your life areas for your decision.</Body> : null}
           {item.stoppedReason === 'needs_user' ? <Body muted>This provider has no emailed cancellation route. APM prepared it; finishing it is yours.</Body> : null}
           {item.failureCode ? <KeyValue label="Failure" value={item.failureCode} /> : null}
           {item.canUndo && item.executionId

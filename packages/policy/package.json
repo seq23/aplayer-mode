@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test test/product-plans.test.mjs test/autopilot.test.mjs test/pricing.test.mjs && rm -rf .test-dist"
+    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test test/product-plans.test.mjs test/autopilot.test.mjs test/pricing.test.mjs test/plan-names.test.mjs && rm -rf .test-dist"
   },
   "devDependencies": {
     "typescript": "~6.0.3"

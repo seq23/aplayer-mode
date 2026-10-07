@@ -184,7 +184,7 @@ Do not describe permissions more broadly than the OAuth scopes and application b
 
 ### Page F — Permissions & Autonomy
 
-This is essential to the Chief of Staff → Life OS → Autopilot model.
+This is essential to the Executive Roundtable → Executive Suite → Autopilot model.
 
 ```mermaid
 flowchart LR

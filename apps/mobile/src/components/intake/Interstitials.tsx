@@ -8,6 +8,7 @@ import {
   type IntakeAnswers,
   type InterstitialDef,
 } from '@apm/planning';
+import { PLAN_PRICES } from '@apm/policy';
 import { Body, Card, CardTitle, Label } from '../ui';
 import { colors, radius, spacing } from '../../theme';
 import { intakeStyles } from './primitives';
@@ -30,8 +31,10 @@ export function Interstitial({ it, answers }: { it: InterstitialDef; answers: In
         <Card>
           <CardTitle>Moving out of your head, and what APM does with it</CardTitle>
           {arr(answers, 'carry').map((key) => {
-            const [label, does, plan] = CARRY_DO[key] ?? [key, '', ''];
-            return <Body key={key}>{`• ${label}: ${does} (${plan})`}</Body>;
+            const carry = CARRY_DO[key];
+            if (!carry) return <Body key={key}>{`• ${key}`}</Body>;
+            const [label, does, plan, needs] = carry;
+            return <Body key={key}>{`• ${label}: ${does} (${PLAN_PRICES[plan].displayName}${needs ? ` + ${needs}` : ''})`}</Body>;
           })}
         </Card>
         <Body>{`Your head is at ${answers.load ?? 7}/10. We'll ask again on Day 5.`}</Body>

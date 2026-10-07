@@ -30,7 +30,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="settings/index" options={{ title: 'Settings' }} />
           <Stack.Screen name="settings/plan" options={{ title: 'Your plan' }} />
-          <Stack.Screen name="settings/life" options={{ title: 'Life OS' }} />
+          <Stack.Screen name="settings/life" options={{ title: 'Life areas' }} />
           <Stack.Screen name="settings/autopilot" options={{ title: 'Autopilot' }} />
           <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="settings/privacy/index" options={{ title: 'Privacy & AI' }} />

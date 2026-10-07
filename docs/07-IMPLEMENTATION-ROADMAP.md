@@ -19,7 +19,7 @@ flowchart LR
   F --> G[Email / commitments]
   G --> H[Proactive push]
   H --> T[Three-tier contract]
-  T --> L[Life OS]
+  T --> L[Executive Suite]
   L --> N[Autopilot]
   N --> I[Three-tier beta]
   I --> J[Commercial launch]
@@ -272,7 +272,7 @@ Exit: APM can reach the user when something genuinely matters.
 
 ## Phase 9 — Three-tier product contract
 
-- Chief of Staff / Life OS / Autopilot capability matrix;
+- Executive Roundtable / Executive Suite / Autopilot capability matrix;
 - server-side plan ceilings;
 - plan/upgrade explanation UX;
 - subscription entitlement remains separate from user permission;
@@ -280,9 +280,9 @@ Exit: APM can reach the user when something genuinely matters.
 
 Exit: the individual product has one canonical tier contract and Household cannot accidentally activate.
 
-## Phase 10 — Life OS
+## Phase 10 — Life areas
 
-Build the previously identified life-management domains now rather than waiting for a Chief-of-Staff-only paid launch:
+Build the previously identified life-management domains now rather than waiting for a Executive-Roundtable-only paid launch:
 
 - relationships / birthdays;
 - appointments;
@@ -294,7 +294,7 @@ Build the previously identified life-management domains now rather than waiting 
 
 These domains use the same Life Graph, Today, Radar, privacy and action primitives.
 
-Exit: Life OS materially carries mental load beyond awareness/planning.
+Exit: life areas materially carry mental load beyond awareness/planning.
 
 ## Phase 11 — Autopilot
 
@@ -327,9 +327,9 @@ Measure:
 
 ## Phase 13 — Three-tier paid launch
 
-Expose Chief of Staff, Life OS, and Autopilot only when the capabilities shown for each tier have the required runtime/provider/store/billing receipts.
+Expose Executive Roundtable, Executive Suite, and Autopilot only when the capabilities shown for each tier have the required runtime/provider/store/billing receipts.
 
-Final pricing (ADR-0004): Chief of Staff $24.99/mo, Life OS $39.99/mo, Autopilot $79.99/mo, cumulative. Chief of Staff intro offers: Founding 100 at $9.99/mo locked while continuously subscribed; everyone else $9.99/mo for the first 3 months, then $24.99/mo. Annual plans (ADR-0005, 2 months free): Chief of Staff $249.99/yr, Life OS $399.99/yr, Autopilot $799.99/yr. Billing is App Store + Google Play in-app subscriptions via RevenueCat (Phase D, docs/33).
+Final pricing (ADR-0004): Executive Roundtable $24.99/mo, Executive Suite $39.99/mo, Autopilot $79.99/mo, cumulative. Executive Roundtable intro offers: Founding 100 at $9.99/mo locked while continuously subscribed; everyone else $9.99/mo for the first 3 months, then $24.99/mo. Annual plans (ADR-0005, 2 months free): Executive Roundtable $249.99/yr, Executive Suite $399.99/yr, Autopilot $799.99/yr. Billing is App Store + Google Play in-app subscriptions via RevenueCat (Phase D, docs/33).
 
 ## Phase 14 — Household waitlist only
 

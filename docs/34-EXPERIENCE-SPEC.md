@@ -89,7 +89,7 @@ BHPC splits the system into three chats: **A** is the rulebook and source of tru
 7. Tracks: all seven by their display names, with a **spotlight** on the Billionaire High Performance Coach Track.
 8. Situations it handles automatically (resistance → Morning Start … urge to rebuild → No-Redesign).
 9. Advice versus a system (the short before/after exchange).
-10. A one-line teaser only: "Chief of Staff decides the day · Life OS remembers and prepares · Autopilot does" and "Introductory offer: start at $9.99/month". **The tier grids, prices, annual and autonomy lines moved to the plan choice screen (§9).**
+10. A one-line teaser only: "Executive Roundtable plans and coaches you · Executive Suite acts when you tap yes · Autopilot handles it inside your rules" and "Introductory offer: start at $9.99/month". **The tier grids, prices, annual and autonomy lines moved to the plan choice screen (§9).**
 11. Privacy line + "How APM protects your data"; CTA again.
 
 The original wording below (§3.1 to §3.8) is kept as the source the module was written from.
@@ -125,7 +125,7 @@ Executive Coach · Executive Assistant · Chief of Staff · Accountability Partn
 
 ### 3.5 Tier grid 1: who carries it (every tier lifts load; each includes the one below)
 
-| | Chief of Staff | Life OS | Autopilot |
+| | Executive Roundtable | Executive Suite | Autopilot |
 |---|---|---|---|
 | **You stop having to…** | **decide** | **remember and prepare** | **do the routine work** |
 | **It carries** | What to do, when, and what matters most | Everything else in your life, ready to approve | The repeat work, done inside your rules |
@@ -134,7 +134,7 @@ Executive Coach · Executive Assistant · Chief of Staff · Accountability Partn
 
 ### 3.6 Tier grid 2: what you no longer think about
 
-| What's in your head today | Chief of Staff (decides it) | Life OS (prepares it) | Autopilot (does it) |
+| What's in your head today | Executive Roundtable (plans it) | Executive Suite (acts on your yes) | Autopilot (handles it) |
 |---|---|---|---|
 | "What should I do today?" | Agenda arrives, already prioritised | + covers family, home, health, money | + books the time on your calendar |
 | "Am I forgetting something?" | Radar catches dropped promises and deadlines | + birthdays, bills, appointments, renewals | + sends the follow-ups and confirmations |
@@ -147,10 +147,10 @@ Executive Coach · Executive Assistant · Chief of Staff · Accountability Partn
 
 ### 3.7 Prices (ADR-0004; one source of truth is `packages/policy`)
 
-- **Chief of Staff** decides the day: $24.99/mo. **Founding 100:** $9.99/mo, locked while you stay subscribed. Everyone else: $9.99/mo for the first 3 months.
-- **Life OS** remembers and prepares: $39.99/mo, everything in Chief of Staff included.
-- **Autopilot** does: $79.99/mo, everything in Life OS included.
-- **Annual = 2 months free:** Chief of Staff $249.99/yr · Life OS $399.99/yr · Autopilot $799.99/yr.
+- **Executive Roundtable** plans and coaches you: $24.99/mo. **Founding 100:** $9.99/mo, locked while you stay subscribed. Everyone else: $9.99/mo for the first 3 months.
+- **Executive Suite** acts when you tap yes: $39.99/mo, everything in Executive Roundtable included.
+- **Autopilot** handles it inside your rules: $79.99/mo, everything in Executive Suite included.
+- **Annual = 2 months free:** Executive Roundtable $249.99/yr · Executive Suite $399.99/yr · Autopilot $799.99/yr.
 - Billed through the App Store and Google Play. Buying a tier never grants autonomy; you switch on each permission yourself.
 - During the closed beta the price grid is shown but nothing is charged.
 
@@ -303,7 +303,7 @@ _Behaviour only. APM never gives diet or medical advice._
 | Q25 | How often do you want to weigh in? | single | Weekly · Every 2 weeks · Never, track habits only | The app never insists on daily weighing. | App Body Foundation Track | `BodyContext.weighInCadence` | supplyDailyActions | weight loss | No daily scale stress. |
 | Q26 | Do any of these apply to you right now? _(essential)_<br>_Pregnancy, diabetes medication, a heart condition, or a history of disordered eating. If yes, or if you would rather not say, APM keeps body steps to habits only until a clinician clears a pace._ | single | None of these · Yes, one or more · Prefer not to say | Safety stop: yes or prefer-not-to-say pauses pace targets until cleared. Asked even on the quick start. | I: coaching is not medical advice | `BodyContext.referralActive` | actionSafetyProblem, referral stop | weight loss | APM keeps you safe without you having to research it. |
 | Q27 | Is a clinician supervising your plan? | yes/no | Yes · No | Only supervision allows a faster pace. | App Body Foundation Track | `BodyContext.clinicianSupervised` | generateGoalPlan (pace ceiling) | weight loss + "Yes, one or more" on the safety question | The pace limit is handled for you. |
-| Q28 | Do you have a daily health routine to remember (vitamins, medication, physio)? | yes/no | Yes · No | A reminder only. APM never stores medication names. | F: supplements | `healthRoutineReminder (NEW)` | Life OS health routines | weight loss or athlete, or said yes to Body | You stop remembering it. APM reminds you. |
+| Q28 | Do you have a daily health routine to remember (vitamins, medication, physio)? | yes/no | Yes · No | A reminder only. APM never stores medication names. | F: supplements | `healthRoutineReminder (NEW)` | Life areas health routines | weight loss or athlete, or said yes to Body | You stop remembering it. APM reminds you. |
 
 #### S6 · Work & money (shown only if: founder, operator, wealth, creator or transition)
 
@@ -563,7 +563,7 @@ A real wait, about 3 to 6 seconds (hard stop at 8 s), that does real work. Five 
 | Plan choice | "Every tier lifts load. Higher tiers lift more." |
 | Today, Day 1 | "Do only the first item. Then stop. This is relief, not productivity." |
 
-- **I1 shows what APM does with each item, not just the list:** e.g. "Messages I owe: Radar lists who is waiting on you once you connect email (Day 2). Life OS drafts the replies." Each line names the plan that does it, so nothing is promised that her tier does not deliver.
+- **I1 shows what APM does with each item, not just the list:** e.g. "Messages I owe: Radar lists who is waiting on you once you connect email (Day 2). Higher plans draft the replies." Each line names the plan that does it, so nothing is promised that her tier does not deliver.
 - **A running counter** on the progress bar: "**14** things APM is now holding for you". It counts the tapped `carry` items plus the commitments, deadlines, boundaries and floors captured so far. It never goes down while she moves forward.
 - **Load check-backs:** the `load` slider (S1) is shown again on Day 5 and in the Day 7 review: "Day 1 you said 8/10. Today?" This is the BHPC Day 5 "Lower mental load" outcome, measured.
 - **Words to use:** holds, carries, catches, already decided, arrives on its own, no catch-up, no guilt, one thing.
@@ -582,7 +582,7 @@ A real wait, about 3 to 6 seconds (hard stop at 8 s), that does real work. Five 
 | **R5 Your morning** | Morning Sequence (≤ 5 steps) + "Agenda arrives at 6:45" | Reorder or swap a step; the time. The push permission ask (BHPC Step 5D) sits on the summary card, with a one-line reason before the system dialog |
 | **R6 Your first 7 days** | The BHPC Part XIII table: Day 1 Installation (the OS exists) · Day 2 First full day · Day 3 Continuity test · Day 4 Failure practice (a miss isn't punished) · Day 5 Stability (load check) · Day 6 Light reflection · Day 7 First review | Nothing. Week-1 rules: no optimising, customising or new projects; edits are drafted for Day 8 |
 | **Your OS summary (on the path; R1 to R6 are its detail screens)** | One screen: your one priority, pillars, Tracks, **how APM coaches you (names the chosen mode, e.g. High-Pressure Coaching)**, rules, morning time, the push permission ask, first 7 days, name chips ("Billionaire Executive Roundtable" only for founders and equity holders) + **Install my OS**. If she chose "Not now" for the account, a Save card | Change on any card opens its detail screen; Done returns here |
-| **Plan choice** | Grid 1 (§3.5) with a recommended tier ("Most parents start with Life OS") and the Founding 100 offer | Pick a tier or "Start with the beta" (free during the closed beta). Purchase is handled by the Phase D billing screens |
+| **Plan choice** | Grid 1 (§3.5) with a recommended tier ("Most parents start with Executive Suite") and the Founding 100 offer | Pick a tier or "Start with the beta" (free during the closed beta). Purchase is handled by the Phase D billing screens |
 | **Today, Day 1** | "Day 1 of 7: Installation Day." **Foreground** · **First Hour** (Morning Sequence, then the one highest-leverage task) · **Daily Stack** (collapsed: "Do only the first item today") · Phase Bridge: "Want coaching to clear any friction, or are you ready for your First Hour?" | Mark done, Coach me; **one-tap coaching mode chips:** High-Pressure (when stuck or avoiding), Executive Review (head full: no new ideas, organise 3 to 7 items), Recovery, plus Sprint (deadline close) and Deep Work (founder, operator, creator, student) when they apply. Quick-start users also see "2 quick taps to sharpen your plan" from Day 2 |
 
 ---

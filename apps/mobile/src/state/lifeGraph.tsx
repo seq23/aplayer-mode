@@ -174,17 +174,17 @@ export function LifeGraphProvider({ children }: { children: ReactNode }) {
     createLifeItem: async (input) => {
       const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
       try { applyServerState(await createLifeOsItem(input, token)); }
-      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to save Life OS item'); throw error; }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to save this life-area item'); throw error; }
     },
     updateLifeItem: async (itemId, input) => {
       const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
       try { applyServerState(await updateLifeOsItem(itemId, input, token)); }
-      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to update Life OS item'); throw error; }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to update this life-area item'); throw error; }
     },
     completeLifeItem: async (itemId) => {
       const { token } = requireDurableSession(); setSyncStatus('saving'); setSyncError(undefined);
       try { applyServerState(await completeLifeOsItem(itemId, token)); }
-      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to complete Life OS item'); throw error; }
+      catch (error) { setSyncStatus('error'); setSyncError(error instanceof Error ? error.message : 'Unable to complete this life-area item'); throw error; }
     },
   }), [accessToken, graph, isDurable, modeState, todayLoop, sessionStatus, syncError, syncStatus, todayPlan, user]);
 

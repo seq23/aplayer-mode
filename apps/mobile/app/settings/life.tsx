@@ -5,6 +5,7 @@ import type { LifeAdminItem, LifeAdminKind, LifeRelationship } from '@apm/domain
 import { Body, Button, Card, CardTitle, KeyValue, Pill, Screen, SectionTitle, uiStyles } from '../../src/components/ui';
 import { colors, radius, spacing } from '../../src/theme';
 import { useLifeGraph } from '../../src/state/lifeGraph';
+import { PLAN_PRICES } from '@apm/policy';
 
 const kinds: Array<{ id: LifeAdminKind; label: string }> = [
   { id: 'appointment', label: 'Appointment' },
@@ -297,7 +298,7 @@ export default function LifeOsScreen() {
       }
       resetItemForm();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to save Life OS item.');
+      setError(cause instanceof Error ? cause.message : 'Unable to save this life-area item.');
     } finally {
       setBusy(false);
     }
@@ -339,10 +340,10 @@ export default function LifeOsScreen() {
 
   if (!hasAccess) {
     return (
-      <Screen eyebrow="Life OS" title="Carry more of the mental load." subtitle="Life OS manages the recurring personal obligations that should not have to live in your head.">
+      <Screen eyebrow="Life areas" title="Carry more of the mental load." subtitle={`${PLAN_PRICES.life_os.displayName} runs the recurring personal obligations that should not have to live in your head.`}>
         <Card tone="warning">
-          <CardTitle>Life OS is not active on this account.</CardTitle>
-          <Body muted>Your current plan can still use the core APM system. Life OS domains require an active Life OS or Autopilot entitlement, enforced by the server and database.</Body>
+          <CardTitle>{`Life areas need ${PLAN_PRICES.life_os.displayName} or ${PLAN_PRICES.autopilot.displayName}.`}</CardTitle>
+          <Body muted>{`Your current plan still runs the core APM system and all five jobs. Life areas need an active ${PLAN_PRICES.life_os.displayName} or ${PLAN_PRICES.autopilot.displayName} plan, enforced by the server and database.`}</Body>
           <Button label="View plans" onPress={() => router.push('/settings/plan')} />
         </Card>
       </Screen>
@@ -350,14 +351,14 @@ export default function LifeOsScreen() {
   }
 
   return (
-    <Screen eyebrow="Life OS" title="The stuff your brain should not have to carry." subtitle="Relationships, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations feed the same Today + Radar system.">
+    <Screen eyebrow="Life areas" title="The stuff your brain should not have to carry." subtitle="Relationships, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations feed the same Today + Radar system.">
       {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
       {syncStatus === 'saving' ? <Pill tone="warning">Saving…</Pill> : null}
 
       <SectionTitle>Relationships</SectionTitle>
       <Card tone="accent">
         <CardTitle>{editingRelationshipId ? 'Correct relationship' : 'Protect a relationship'}</CardTitle>
-        <Body muted>{editingRelationshipId ? 'Update the canonical state that drives Radar.' : 'Birthdays and contact cadence become proactive Radar signals. This is individual Life OS state—not Household sharing.'}</Body>
+        <Body muted>{editingRelationshipId ? 'Update the canonical state that drives Radar.' : 'Birthdays and contact cadence become proactive Radar signals. This is your own life-area state—not Household sharing.'}</Body>
         <TextInput value={personName} onChangeText={setPersonName} placeholder="Person’s name" placeholderTextColor={colors.inkMuted} style={styles.input} />
         <TextInput value={relationshipLabel} onChangeText={setRelationshipLabel} placeholder="Relationship (friend, parent, mentor…)" placeholderTextColor={colors.inkMuted} style={styles.input} />
         <TextInput value={birthday} onChangeText={setBirthday} placeholder="Birthday · YYYY-MM-DD" placeholderTextColor={colors.inkMuted} style={styles.input} />
@@ -390,7 +391,7 @@ export default function LifeOsScreen() {
 
       <SectionTitle>Life administration</SectionTitle>
       <Card>
-        <CardTitle>{editingItemId ? 'Correct Life OS item' : 'Add something APM should carry'}</CardTitle>
+        <CardTitle>{editingItemId ? 'Correct life-area item' : 'Add something APM should carry'}</CardTitle>
         {editingItemId ? <Body muted>Corrections update the canonical record that drives Today and Radar.</Body> : null}
         <View style={styles.choiceGrid}>
           {kinds.map((item) => (
@@ -422,7 +423,7 @@ export default function LifeOsScreen() {
             </View>
           </>
         ) : null}
-        <Button label={busy ? 'Saving…' : editingItemId ? 'Save corrections' : 'Add to Life OS'} onPress={() => void saveItem()} />
+        <Button label={busy ? 'Saving…' : editingItemId ? 'Save corrections' : 'Add to life areas'} onPress={() => void saveItem()} />
         {editingItemId ? <Button label="Cancel edit" variant="secondary" onPress={resetItemForm} /> : null}
       </Card>
 
@@ -447,7 +448,7 @@ export default function LifeOsScreen() {
           ))}
         </View>
       ) : (
-        <Card tone="muted"><Body muted>No open Life OS items yet.</Body></Card>
+        <Card tone="muted"><Body muted>No open life-area items yet.</Body></Card>
       )}
     </Screen>
   );

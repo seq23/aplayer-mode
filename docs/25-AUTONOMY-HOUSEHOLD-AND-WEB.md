@@ -55,9 +55,9 @@ Every new action type needs schema, permission, constraints, idempotency, connec
 
 Autopilot (level 5) classes, by the owner's ruling of 6 Oct 2026, are listed with their guardrails in docs/31: calendar blocks, drafts, rule-bound sending (scheduling replies, follow-ups, confirmations, templates), moving/declining flexible meetings inside declared boundaries, FREE appointment requests, and subscription cancellations. Each has a daily done-list entry with Undo, or a clear "can't undo". Purchases, payments, upgrades, clinical/healthcare decisions and money movement are never on Autopilot.
 
-## Life OS expansion
+## Life-area expansion
 
-ADR-0002 authorizes Life OS as the next source implementation phase. It is still not "add every life-admin feature": build the agreed high-value domains on the same Life Graph/Today/Radar/action primitives, then refine breadth from beta evidence.
+ADR-0002 authorizes life areas as the next source implementation phase. It is still not "add every life-admin feature": build the agreed high-value domains on the same Life Graph/Today/Radar/action primitives, then refine breadth from beta evidence.
 
 Candidate domains already discussed:
 
@@ -74,7 +74,7 @@ These domains use the same Life Graph, Radar, Today, permission and action primi
 
 ## Autopilot implementation + activation gate
 
-ADR-0002 authorizes building the Autopilot standing-rule engine and UX after Life OS. **Activation remains evidence-gated**: standing authority is only usable for supported action classes that pass security/runtime proof and only after the user explicitly grants it.
+ADR-0002 authorizes building the Autopilot standing-rule engine and UX after Executive Suite. **Activation remains evidence-gated**: standing authority is only usable for supported action classes that pass security/runtime proof and only after the user explicitly grants it.
 
 Standing rules must define scope such as:
 

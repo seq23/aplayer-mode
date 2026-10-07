@@ -1,6 +1,10 @@
 import { router } from 'expo-router';
 import { Body, Button, Card, CardTitle, KeyValue, Screen, SectionTitle } from '../../src/components/ui';
 import { useSession } from '../../src/state/session';
+import { PLAN_PRICES } from '@apm/policy';
+
+/** The three plans by their ONE display name (ADR-0006); never retyped here. */
+const PLAN_TITLES = (['chief_of_staff', 'life_os', 'autopilot'] as const).map((plan) => PLAN_PRICES[plan].displayName).join(' · ');
 
 export default function SettingsScreen() {
   const { user, status, signOut } = useSession();
@@ -21,7 +25,7 @@ export default function SettingsScreen() {
 
       <SectionTitle>Plan</SectionTitle>
       <Card>
-        <CardTitle>Chief of Staff · Life OS · Autopilot</CardTitle>
+        <CardTitle>{PLAN_TITLES}</CardTitle>
         <Body muted>Choose how much responsibility APM carries. Household OS is later and has an interest list instead of access.</Body>
         <Button label="View plans" onPress={() => router.push('/settings/plan')} />
       </Card>
@@ -55,9 +59,9 @@ export default function SettingsScreen() {
         <Button label="Weekly debrief" variant="secondary" onPress={() => router.push('/review')} />
       </Card>
       <Card>
-        <CardTitle>Life OS</CardTitle>
+        <CardTitle>Life areas</CardTitle>
         <Body muted>Relationships, birthdays, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations—managed in the same private Life Graph.</Body>
-        <Button label="Open Life OS" onPress={() => router.push('/settings/life')} />
+        <Button label="Open life areas" onPress={() => router.push('/settings/life')} />
       </Card>
       <Card>
         <CardTitle>Autopilot</CardTitle>

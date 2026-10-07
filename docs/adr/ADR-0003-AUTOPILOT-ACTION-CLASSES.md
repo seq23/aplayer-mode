@@ -10,7 +10,7 @@ The Autopilot standing-action allow-list (Phase C, docs/31) grows from two class
 
 1. **Send emails/messages** (`email.send`) — only rule-defined kinds: scheduling replies, follow-ups/chasers on what others owe the user, confirmations, and pre-approved templates (e.g. birthday). Recipient and domain allow-lists and rate caps per rule; header-injection guards stay.
 2. **Move and decline meetings** (`calendar.reschedule`, `calendar.decline`) — only events the user marked flexible or that match the rule's criteria. Foreground/Deep Work blocks are protected; a decline happens only when the meeting violates a boundary the user declared, and carries a polite note.
-3. **Book appointments** (`appointment.book`) — FREE bookings only, through flows supported today (an emailed booking request). Anything that asks for a card or a deposit stops and becomes a prepared Life OS action. Medical appointments are scheduling logistics only, never clinical choices.
+3. **Book appointments** (`appointment.book`) — FREE bookings only, through flows supported today (an emailed booking request). Anything that asks for a card or a deposit stops and becomes a prepared life areas action. Medical appointments are scheduling logistics only, never clinical choices.
 4. **Cancel subscriptions** (`subscription.cancel`) — Autopilot may save money but never spend it: an emailed cancellation or a prepared cancellation request. It never signs up, upgrades, pays or enters payment data.
 
 ## What this supersedes

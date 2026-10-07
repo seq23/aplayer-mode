@@ -5,7 +5,7 @@
 
 ## Purpose
 
-APM is a mobile-first personal operating system. The architecture must support Chief of Staff → Life OS → Autopilot without rebuilding the core platform.
+APM is a mobile-first personal operating system. The architecture must support Executive Roundtable → Executive Suite → Autopilot without rebuilding the core platform.
 
 ## System map
 

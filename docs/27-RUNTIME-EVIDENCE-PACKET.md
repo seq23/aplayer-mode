@@ -73,4 +73,4 @@ Once the technical gates are green, closed beta measures:
 - variable cost / active user;
 - willingness to pay.
 
-Life OS modules and standing Autopilot expand from this evidence, not from speculative feature accumulation.
+Life-area modules and standing Autopilot expand from this evidence, not from speculative feature accumulation.

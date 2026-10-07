@@ -19,7 +19,7 @@ flowchart TD
   ACTION --> BETA
   COACH --> BETA
   BETA --> STORE[Paid store release]
-  STORE --> PROD[Chief of Staff launch]
+  STORE --> PROD[Executive Roundtable launch]
 ```
 
 ## 1. Cloudflare runtime
@@ -181,7 +181,7 @@ Qualified review must cover final product behavior—not aspirational docs—inc
 
 ## 12. Beta gate
 
-Do not call Chief of Staff product-market fit proven until real users establish:
+Do not call Executive Roundtable product-market fit proven until real users establish:
 
 - valuable proactive interventions;
 - acceptable false-positive/correction rate;

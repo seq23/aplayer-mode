@@ -52,7 +52,7 @@ export interface TierOffer {
   packageId: string;
   /** e.g. "$24.99/month" (store price when known). */
   priceLabel: string;
-  /** Annual saving line, or the Chief of Staff monthly intro line. */
+  /** Annual saving line, or the Executive Roundtable monthly intro line. */
   note?: string;
   founding: boolean;
 }

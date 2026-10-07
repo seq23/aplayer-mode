@@ -11,13 +11,13 @@
 
 | Tier | Monthly | Annual | Includes |
 |---|---:|---:|---|
-| Chief of Staff | $24.99 | $249.99 | — |
-| Life OS | $39.99 | $399.99 | everything in Chief of Staff |
-| Autopilot | $79.99 | $799.99 | everything in Life OS |
+| Executive Roundtable | $24.99 | $249.99 | — |
+| Executive Suite | $39.99 | $399.99 | everything in Executive Roundtable |
+| Autopilot | $79.99 | $799.99 | everything in Executive Suite |
 
-- **Chief of Staff monthly intro offers** (none on annual, none on Life OS / Autopilot):
+- **Executive Roundtable monthly intro offers** (none on annual, none on Executive Suite / Autopilot):
   - **Founding 100:** the first 100 subscribers pay $9.99/mo, locked while continuously subscribed. A separate store product, shown only while the server holds a Founding 100 slot for that user. A lapse loses the lock for good.
-  - **Everyone else:** $9.99/mo for the first 3 months, then $24.99/mo — the store's introductory offer on the standard Chief of Staff monthly product.
+  - **Everyone else:** $9.99/mo for the first 3 months, then $24.99/mo — the store's introductory offer on the standard Executive Roundtable monthly product.
 - **RevenueCat app user id = Supabase user id.** The app logs RevenueCat in with the signed-in user's id; anonymous RevenueCat ids are never credited.
 - **Buying a tier never grants autonomy.** Effective authority = min(entitlement, user permission, server policy, kill switch). The billing code never writes `public.permissions`.
 
@@ -27,11 +27,11 @@ One App Store subscription group, **"A Player Mode"**, holds all seven App Store
 
 | Tier | Period | Offer | App Store product id | Google Play `subscription:base plan` | Price |
 |---|---|---|---|---|---:|
-| Chief of Staff | monthly | standard + 3-month intro | `apm_cos_monthly` | `apm_cos:monthly` (offer `intro-3m`) | $24.99/mo (intro $9.99 × 3) |
-| Chief of Staff | monthly | **Founding 100** | `apm_cos_monthly_founding` | `apm_cos:founding-monthly` | $9.99/mo |
-| Chief of Staff | annual | standard | `apm_cos_annual` | `apm_cos:annual` | $249.99/yr |
-| Life OS | monthly | standard | `apm_lifeos_monthly` | `apm_lifeos:monthly` | $39.99/mo |
-| Life OS | annual | standard | `apm_lifeos_annual` | `apm_lifeos:annual` | $399.99/yr |
+| Executive Roundtable | monthly | standard + 3-month intro | `apm_cos_monthly` | `apm_cos:monthly` (offer `intro-3m`) | $24.99/mo (intro $9.99 × 3) |
+| Executive Roundtable | monthly | **Founding 100** | `apm_cos_monthly_founding` | `apm_cos:founding-monthly` | $9.99/mo |
+| Executive Roundtable | annual | standard | `apm_cos_annual` | `apm_cos:annual` | $249.99/yr |
+| Executive Suite | monthly | standard | `apm_lifeos_monthly` | `apm_lifeos:monthly` | $39.99/mo |
+| Executive Suite | annual | standard | `apm_lifeos_annual` | `apm_lifeos:annual` | $399.99/yr |
 | Autopilot | monthly | standard | `apm_autopilot_monthly` | `apm_autopilot:monthly` | $79.99/mo |
 | Autopilot | annual | standard | `apm_autopilot_annual` | `apm_autopilot:annual` | $799.99/yr |
 
@@ -42,7 +42,7 @@ One App Store subscription group, **"A Player Mode"**, holds all seven App Store
 ### App Store Connect
 1. Paid Applications agreement, banking and tax complete.
 2. Subscription group **A Player Mode**; add the seven products above with the prices above (USD base; let Apple derive other storefronts).
-3. Group levels (highest first): Autopilot annual, Autopilot monthly, Life OS annual, Life OS monthly, Chief of Staff annual, Chief of Staff monthly, Chief of Staff monthly founding.
+3. Group levels (highest first): Autopilot annual, Autopilot monthly, Executive Suite annual, Executive Suite monthly, Executive Roundtable annual, Executive Roundtable monthly, Executive Roundtable monthly founding.
 4. `apm_cos_monthly` introductory offer: **Pay as you go, $9.99, 3 periods of 1 month**, new subscribers. No free trial anywhere.
 5. Billing Grace Period: **on (16 days)** — the server keeps access through grace (BILLING_ISSUE handling below).
 6. App Store Server Notifications V2 → the RevenueCat-provided URL; in-app purchase key (`.p8`) uploaded to RevenueCat.
@@ -57,7 +57,7 @@ One App Store subscription group, **"A Player Mode"**, holds all seven App Store
 ### RevenueCat
 1. Project **A Player Mode**; apps for iOS (`com.aplayermode.app`) and Android (`com.aplayermode.app`).
 2. Products: import all 14 ids above.
-3. Entitlements: `chief_of_staff` (all Chief of Staff products), `life_os` (Life OS products), `autopilot` (Autopilot products). Informational only — the server maps product ids itself.
+3. Entitlements: `chief_of_staff` (all Executive Roundtable products), `life_os` (Executive Suite products), `autopilot` (Autopilot products). Informational only — the server maps product ids itself.
 4. Offerings (package ids are `REVENUECAT_CONFIG.packages`):
    - `default` (current): `cos_monthly` → `apm_cos_monthly` / `apm_cos:monthly`; `cos_annual`; `lifeos_monthly`; `lifeos_annual`; `autopilot_monthly`; `autopilot_annual`.
    - `founding`: identical, except `cos_monthly` → `apm_cos_monthly_founding` / `apm_cos:founding-monthly`.

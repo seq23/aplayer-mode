@@ -65,7 +65,9 @@ test('all 7 Tracks by their ONE display name, with the Billionaire High Performa
 });
 
 test('the welcome page only teases the tiers; the grids and every price live on the plan screen', () => {
-  assert.equal(sell.WELCOME_TIERS_TEASER.line, 'Chief of Staff decides the day · Life OS remembers and prepares · Autopilot does');
+  assert.equal(sell.WELCOME_TIERS_TEASER.line, 'Executive Roundtable plans and coaches you · Executive Suite acts when you tap yes · Autopilot handles it inside your rules');
+  assert.equal(sell.WELCOME_TIERS_TEASER.line, ['chief_of_staff', 'life_os', 'autopilot'].map((p) => `${policy.PLAN_PRICES[p].displayName} ${policy.PLAN_PRICES[p].tagline}`).join(' · '), 'derived from PLAN_PRICES');
+  assert.deepEqual(sell.TIER_GRID_WHO.columns, ['Executive Roundtable', 'Executive Suite', 'Autopilot']);
   assert.equal(sell.WELCOME_TIERS_TEASER.offer, `Introductory offer: start at ${usd(policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents)}/month`);
   const welcome = sell.welcomeText();
   for (const plan of ['chief_of_staff', 'life_os', 'autopilot']) {

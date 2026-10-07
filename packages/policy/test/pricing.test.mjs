@@ -36,11 +36,26 @@ test('price constants are the owner-decided final prices (ADR-0004)', () => {
   assert.deepEqual(
     Object.values(PLAN_PRICES).map(({ plan, displayName, tagline, monthlyUsdCents, annualUsdCents, includes }) => [plan, displayName, tagline, monthlyUsdCents, annualUsdCents, includes]),
     [
-      ['chief_of_staff', 'Chief of Staff', 'decides the day', 2499, 24999, null],
-      ['life_os', 'Life OS', 'remembers and prepares', 3999, 39999, 'chief_of_staff'],
-      ['autopilot', 'Autopilot', 'does', 7999, 79999, 'life_os'],
+      ['chief_of_staff', 'Executive Roundtable', 'plans and coaches you', 2499, 24999, null],
+      ['life_os', 'Executive Suite', 'acts when you tap yes', 3999, 39999, 'chief_of_staff'],
+      ['autopilot', 'Autopilot', 'handles it inside your rules', 7999, 79999, 'life_os'],
     ],
   );
+  // ADR-0006: display names changed, internal keys did not. "Chief of Staff" is a job, never a plan.
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(productPlanPolicies).map(([key, policy]) => [key, policy.displayName])),
+    { beta: 'Executive Roundtable Beta', chief_of_staff: 'Executive Roundtable', life_os: 'Executive Suite', autopilot: 'Autopilot', household: 'Household OS' },
+  );
+  assert.match(productPlanPolicies.chief_of_staff.promise, /^Your five-person executive team, in one app\. .*you do the last step\.$/);
+  for (const area of ['relationships', 'appointments and travel', 'bills and subscriptions', 'meals', 'health and life admin', 'one-tap approve-and-execute']) {
+    assert.ok(productPlanPolicies.life_os.promise.includes(area), `Executive Suite promise covers ${area}`);
+  }
+  assert.match(productPlanPolicies.life_os.promise, /acts when you tap yes/);
+  assert.match(productPlanPolicies.autopilot.promise, /inside rules you set.*saves money, never spends it/);
+  for (const policy of Object.values(productPlanPolicies)) {
+    assert.doesNotMatch(`${policy.displayName} ${policy.promise}`, /Chief of Staff|Life OS/, `${policy.plan}: no retired plan name`);
+  }
+  for (const plan of Object.values(PLAN_PRICES)) assert.doesNotMatch(`${plan.displayName} ${plan.tagline}`, /Chief of Staff|Life OS/);
   for (const plan of Object.values(PLAN_PRICES)) {
     assert.deepEqual(Object.keys(plan).sort(), ['annualUsdCents', 'displayName', 'includes', 'monthlyUsdCents', 'plan', 'tagline'], 'no other price fields');
     // ADR-0005 "2 months free": the annual price is ten months, rounded to the .99 price point.
@@ -74,8 +89,9 @@ test('API plan labels are derived from the constants, never typed by hand', () =
   assert.ok(planPriceLabels.chief_of_staff.includes(`founding 100: ${founding}/mo locked`));
   assert.ok(planPriceLabels.chief_of_staff.includes(`${intro}/mo for the first 3 months`));
   assert.ok(planPriceLabels.chief_of_staff.startsWith(`${cos}/mo or ${cosYear}/yr · `));
-  assert.equal(planPriceLabels.life_os, `${lifeOs}/mo or ${lifeOsYear}/yr · includes Chief of Staff`);
-  assert.equal(planPriceLabels.autopilot, `${autopilot}/mo or ${autopilotYear}/yr · includes Life OS`);
+  assert.equal(planPriceLabels.life_os, `${lifeOs}/mo or ${lifeOsYear}/yr · includes Executive Roundtable`);
+  assert.equal(planPriceLabels.autopilot, `${autopilot}/mo or ${autopilotYear}/yr · includes Executive Suite`);
+  for (const label of Object.values(planPriceLabels)) assert.doesNotMatch(label, /Chief of Staff|Life OS/, `retired plan name in API label: ${label}`);
   assert.equal(cosYear, '$249.99');
   assert.equal(lifeOsYear, '$399.99');
   assert.equal(autopilotYear, '$799.99');
@@ -101,7 +117,7 @@ test('buying Autopilot never grants autonomy without permission', () => {
 
 // Every markdown doc outside docs/reference: on any line that names a tier or an
 // intro offer, every dollar amount must be one of the constants above.
-const TIER_LINE = /Chief of Staff|Life OS|Autopilot|[Ff]ounding|intro offer|\bIntro\b/;
+const TIER_LINE = /Executive Roundtable|Executive Suite|Chief of Staff|Life OS|Autopilot|[Ff]ounding|intro offer|\bIntro\b/;
 const ALLOWED = new Set([cos, lifeOs, autopilot, founding, intro, cosYear, lifeOsYear, autopilotYear, '$0']);
 const markdownDocs = () => {
   const files = ['README.md', 'AGENTS.md'];
@@ -136,9 +152,10 @@ test('the pricing docs each state the full final price list', () => {
   const tableRow = (text, name, amount, includes) => new RegExp(`^\\| \\**${name}\\** \\| \\**[a-z ]+\\** \\| \\**\\${amount}\\** \\| ${includes} \\|$`, 'm').test(text);
   for (const file of ['docs/02-PRICING-STRATEGY.md', 'docs/29-THREE-TIER-PRODUCT-CONTRACT.md', 'docs/adr/ADR-0004-FINAL-PRICING.md']) {
     const text = doc(file);
-    assert.ok(tableRow(text, 'Chief of Staff', cos, '—'), `${file} Chief of Staff row`);
-    assert.ok(tableRow(text, 'Life OS', lifeOs, 'everything in Chief of Staff'), `${file} Life OS row`);
-    assert.ok(tableRow(text, 'Autopilot', autopilot, 'everything in Life OS'), `${file} Autopilot row`);
+    assert.ok(tableRow(text, 'Executive Roundtable', cos, '—'), `${file} Executive Roundtable row`);
+    assert.ok(tableRow(text, 'Executive Suite', lifeOs, 'everything in Executive Roundtable'), `${file} Executive Suite row`);
+    assert.ok(tableRow(text, 'Autopilot', autopilot, 'everything in Executive Suite'), `${file} Autopilot row`);
+    assert.ok(!tableRow(text, 'Chief of Staff', cos, '—') && !tableRow(text, 'Life OS', lifeOs, '[^|]+'), `${file} still prices a retired plan name`);
     for (const plan of Object.values(PLAN_PRICES)) assert.ok(text.includes(plan.tagline), `${file} states "${plan.tagline}"`);
   }
   assert.match(doc('docs/adr/ADR-0002-THREE-TIER-LAUNCH.md'), /## Pricing\n\n\*\*Superseded by ADR-0004/);
@@ -153,7 +170,7 @@ test('annual plans: exactly the ADR-0005 prices, stated in every pricing doc', (
   assert.match(adr, /no intro offer|No intro offer/i);
   for (const file of ['docs/02-PRICING-STRATEGY.md', 'docs/29-THREE-TIER-PRODUCT-CONTRACT.md', 'docs/adr/ADR-0005-ANNUAL-PLANS.md', 'docs/33-BILLING-PHASE-D.md']) {
     const text = doc(file);
-    for (const [name, monthly, annual] of [['Chief of Staff', cos, cosYear], ['Life OS', lifeOs, lifeOsYear], ['Autopilot', autopilot, autopilotYear]]) {
+    for (const [name, monthly, annual] of [['Executive Roundtable', cos, cosYear], ['Executive Suite', lifeOs, lifeOsYear], ['Autopilot', autopilot, autopilotYear]]) {
       const row = text.split('\n').find((line) => line.startsWith('|') && line.includes(name) && line.includes(annual));
       assert.ok(row, `${file} has a ${name} row with ${annual}`);
       assert.ok(row.includes(monthly), `${file} ${name} annual row also states the monthly ${monthly}`);
