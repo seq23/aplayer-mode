@@ -7,12 +7,19 @@
   "observability": {
     "enabled": true
   },
+  // BHPC Morning Trigger: every 15 minutes the scheduled handler (src/entry.ts) prints the
+  // agenda for users whose local wake time has arrived and sends one push per user per day.
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "env": {
     "staging": {
-      "name": "aplayer-mode-api-staging"
+      "name": "aplayer-mode-api-staging",
+      "triggers": { "crons": ["*/15 * * * *"] }
     },
     "production": {
-      "name": "aplayer-mode-api"
+      "name": "aplayer-mode-api",
+      "triggers": { "crons": ["*/15 * * * *"] }
     }
   }
 
@@ -26,6 +33,9 @@
   // Required for authenticated Life Graph routes:
   // SUPABASE_URL
   // SUPABASE_PUBLISHABLE_KEY
+  //
+  // Server-only, for the scheduled Morning Trigger (no user JWT exists in a cron run):
+  // SUPABASE_SECRET_KEY
   //
   // Server-only inference secret when OpenRouter goes live:
   // OPENROUTER_API_KEY

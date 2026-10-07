@@ -81,7 +81,19 @@ export interface TodayLoopView {
   checkedIn: boolean;
   closed: boolean;
   dayStart: 'guided' | 'hard';
-  day?: { mood?: number; verdict?: 'full_day' | 'mvd' | 'miss'; replans: Array<{ reason: string; detail?: string; at: string }> };
+  day?: { mood?: number; verdict?: 'full_day' | 'mvd' | 'miss'; computedVerdict?: 'full_day' | 'mvd' | 'miss'; carryForward?: string; insight?: string; note?: string; replans: Array<{ reason: string; detail?: string; at: string }> };
+  continuity: Array<{ day: string; verdict?: 'full_day' | 'mvd' | 'miss'; symbol: string }>;
+  showContinuity: boolean;
+  closePreview: { pillarReview: PillarReviewInput[]; computedVerdict: 'full_day' | 'mvd' | 'miss'; evidence: string[] };
+}
+export interface PillarReviewInput { pillar: PillarName | 'family'; score: 'hit' | 'partial' | 'miss'; completed?: string }
+export interface NotificationPreferences {
+  enabled: boolean;
+  morning_push_enabled: boolean;
+  wake_time: string;
+  lock_screen_detail: 'minimal' | 'normal';
+  quiet_hours: { start?: string; end?: string };
+  minimum_severity: string;
 }
 export interface TodayState { graph: LifeGraphSnapshot; plan: DailyPlan; mode?: ModeStateView; today?: TodayLoopView }
 export type ReplanReason = 'external_change' | 'safety' | 'permission' | 'mood' | 'discomfort';
@@ -266,6 +278,16 @@ export async function reviewPlanGate(planId: string, input: { gate: 'foundation'
 }
 export async function decideGoalPlan(planId: string, input: { decision: 'promote' | 'maintain' | 'park'; reason: string }, accessToken: string): Promise<TodayState> {
   return request<TodayState>(`/v1/goal-plans/${encodeURIComponent(planId)}/decision`, accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function closeToday(input: { pillarReview: PillarReviewInput[]; verdict?: 'full_day' | 'mvd' | 'miss'; note?: string; carryForward?: string }, accessToken: string) {
+  return request<TodayState & { verdict: string; computedVerdict: string; insight: string; carryForward: string | null }>('/v1/today/close', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function fetchNotificationPreferences(accessToken: string) {
+  return request<{ preferences: NotificationPreferences | null }>('/v1/notifications/preferences', accessToken);
+}
+export async function saveNotificationPreferences(input: { enabled?: boolean; morningPushEnabled?: boolean; wakeTime?: string; lockScreenDetail?: 'minimal' | 'normal'; quietHours?: { start: string; end: string } | Record<string, never> }, accessToken: string) {
+  return request<{ preferences: NotificationPreferences | null }>('/v1/notifications/preferences', accessToken, { method: 'PUT', body: JSON.stringify(input) });
 }
 
 export async function sendCoachMessage(input: { message?: string; choice?: CoachChoice; sessionId?: string }, accessToken: string): Promise<CoachReplyView> {

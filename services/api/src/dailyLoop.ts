@@ -2,14 +2,19 @@ import type { DayRecord, Goal, LifeGraphSnapshot, StoredGoalPlan } from '@apm/do
 import {
   calendarDateInTimezone,
   composeAgenda,
+  continuityView,
   deriveDayState,
+  suggestPillarReview,
+  verdictFromReview,
   generateGoalPlan,
   isPlanEligible,
   planContextFromGraph,
   validatePlan,
   withCompletionStatus,
+  type ContinuityDay,
   type DailyAgenda,
   type DayStateResult,
+  type PillarReviewEntry,
   type GoalPlan,
   type PlanEntry,
 } from '@apm/planning';
@@ -77,6 +82,24 @@ export interface TodayLoopState {
   closed: boolean;
   dayStart: 'guided' | 'hard';
   day?: DayRecord;
+  /** The 7-day continuity snapshot (✅ / ⚡ / ❌), shown when the user's scoring config allows it. */
+  continuity: ContinuityDay[];
+  showContinuity: boolean;
+  /** What the end-of-day close starts from: evidence, a suggested pillar review and the computed verdict. */
+  closePreview: { pillarReview: PillarReviewEntry[]; computedVerdict: 'full_day' | 'mvd' | 'miss'; evidence: string[] };
+}
+
+export function criticalPillars(graph: Pick<LifeGraphSnapshot, 'pillarSettings'>) {
+  return graph.pillarSettings.filter((pillar) => pillar.active && pillar.critical).map((pillar) => pillar.name);
+}
+
+export function closePreview(graph: LifeGraphSnapshot, agenda: DailyAgenda): TodayLoopState['closePreview'] {
+  const critical = criticalPillars(graph);
+  // Every active pillar is reviewed; only the critical ones decide the verdict.
+  const active = graph.pillarSettings.filter((pillar) => pillar.active).map((pillar) => pillar.name);
+  const pillarReview = suggestPillarReview(agenda, active.length ? active : critical);
+  const evidence = [agenda.firstHour.priority, ...agenda.dailyStack].filter((item) => item?.status === 'done').map((item) => item!.title);
+  return { pillarReview, computedVerdict: verdictFromReview(pillarReview, critical, agenda.mode === 'recovery'), evidence };
 }
 
 function firstActiveDay(entries: PlanEntry[]): string | undefined {
@@ -97,8 +120,15 @@ export function dayStateFor(graph: LifeGraphSnapshot, date: string, recoveryMode
 }
 
 /** A fresh agenda for `date` from the persisted plans and evidence (used at check-in and declared replans). */
+function carriedInto(graph: LifeGraphSnapshot, date: string) {
+  const yesterday = graph.dayRecords.find((record) => record.day < date && record.closedAt && record.carryForward);
+  return yesterday?.carryForward ? { text: yesterday.carryForward, fromDay: yesterday.day } : undefined;
+}
+
 export function freshAgenda(graph: LifeGraphSnapshot, input: { date: string; state: DayStateResult['state']; mood?: number }): DailyAgenda {
+  const carryForward = carriedInto(graph, input.date);
   return composeAgenda({
+    ...(carryForward ? { carryForward } : {}),
     date: input.date,
     state: input.state,
     ...(input.mood !== undefined ? { mood: input.mood } : {}),
@@ -132,5 +162,8 @@ export function todayLoopState(graph: LifeGraphSnapshot, input: { now: Date; rec
     closed: Boolean(day?.closedAt),
     dayStart: graph.personalOS?.accountability.dayStart ?? 'guided',
     ...(day ? { day } : {}),
+    continuity: continuityView(graph.dayRecords, date),
+    showContinuity: graph.personalOS?.scoringConfig.showSevenDaySnapshot ?? true,
+    closePreview: closePreview(graph, agenda),
   };
 }

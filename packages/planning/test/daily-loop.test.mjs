@@ -193,3 +193,32 @@ test('plan context comes from the Personal OS: roles, floors, recovery day, heal
   const floors = supplyDailyActions(plan, { date: shift(START, 2), state: 'normal' }).floors;
   assert.deepEqual(floors.map((f) => f.pillar), ['family'], 'the family pillar floor is protected every day for a parent+ plan');
 });
+
+test('carry-forward joins a normal next day once, is held on a recovery day, and refuses catch-up', async () => {
+  const { carryForwardProblem, continuityView, dayInsight, suggestPillarReview, verdictFromReview } = await import('../.test-dist/index.js');
+  const day2 = shift(START, 1);
+  const carried = composeAgenda({ date: day2, state: 'normal', plans: [body], goals, completions: [], morningSequence: [], carryForward: { text: 'Book the gym induction for Thursday', fromDay: START } });
+  const item = carried.dailyStack.find((i) => i.kind === 'carry_forward');
+  assert.equal(item.planId, 'p-body');
+  assert.equal(item.actionKey, 'carry_forward');
+  assert.equal(composeAgenda({ date: shift(START, 2), state: 'normal', plans: [body], goals, completions: [], morningSequence: [], carryForward: { text: 'Book the gym induction for Thursday', fromDay: START } }).dailyStack.some((i) => i.kind === 'carry_forward'), false, 'only the next day');
+  const held = composeAgenda({ date: day2, state: 'missed_yesterday', plans: [body], goals, completions: [], morningSequence: [], carryForward: { text: 'Book the gym induction for Thursday', fromDay: START } });
+  assert.equal(held.dailyStack.some((i) => i.kind === 'carry_forward'), false);
+  assert.ok(held.reasons.includes('carry_forward_held'));
+
+  assert.equal(carryForwardProblem('Book the gym induction for Thursday'), null);
+  for (const bad of ['Double workout tomorrow', 'Skip lunch to make up', 'Catch up on all the missed sessions', 'Work on fitness', 'Hi']) assert.ok(carryForwardProblem(bad), bad);
+
+  const agenda = composeAgenda({ date: START, state: 'normal', plans: [body], goals, completions: [], morningSequence: [] });
+  const doneAgenda = withCompletionStatus(agenda, [{ planId: 'p-body', actionKey: agenda.firstHour.priority.actionKey, day: START }]);
+  const review = suggestPillarReview(doneAgenda, ['body', 'wealth']);
+  assert.deepEqual(review.map((r) => [r.pillar, r.score]), [['body', 'hit'], ['wealth', 'miss']]);
+  assert.equal(verdictFromReview(review, ['body'], false), 'full_day');
+  assert.equal(verdictFromReview(review, ['body', 'wealth'], false), 'miss');
+  assert.equal(verdictFromReview([{ pillar: 'body', score: 'partial' }], ['body'], true), 'mvd');
+
+  const continuity = continuityView([{ day: START, verdict: 'full_day' }, { day: shift(START, -1), verdict: 'mvd' }, { day: shift(START, -2), verdict: 'miss' }], START);
+  assert.deepEqual(continuity.map((d) => d.symbol), ['·', '·', '·', '·', '❌', '⚡', '✅']);
+  assert.match(dayInsight(continuity, 'miss'), /data/);
+  assert.doesNotMatch(dayInsight(continuity, 'miss'), /fail|lazy|should have/i, 'no shame language');
+});
