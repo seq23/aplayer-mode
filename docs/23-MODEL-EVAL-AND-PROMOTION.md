@@ -69,6 +69,8 @@ Each route in the suite carries its own request shape (`COACHING_CANDIDATE_ROUTE
 | `or_mistral_small_3_2_24b_deepinfra` | 100 % | 100 % | 100 % | 0.22 s | $0.042 | eligible for human review |
 | `or_gemma_4_31b_it_deepinfra` | 87.5 % | 83 % | 87.5 % | 0.20 s | $0.043 | fail (empty synthesis output) |
 
+Run 2 (Model Eval workflow on `main`, run 37561039809): apodex 71 % / 78 %; mistral 96 % / 94 % (one negated "no pressure to catch up" rejected by the strict judge); gemma 100 % / 100 %. Combined over both runs neither paid route holds 100 % safety-critical; mistral is 47/48 with zero errors, gemma 45/48 with three empty outputs.
+
 **Recommended: `or_mistral_small_3_2_24b_deepinfra`** (DeepInfra: ZDR-listed on OpenRouter; no storage of inference inputs, no training, per its data-privacy page as checked 2026-10-06). All three stay `candidate`. Full evidence and the reviewer checklist: [coaching route eval evidence](reference/coaching-route-eval-2026-10-06.md).
 
 Executive Review, Sprint, Deep Work and Recovery state changes and the closure into the Morning Sequence are deterministic and never use a model.
