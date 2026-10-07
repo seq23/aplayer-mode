@@ -6,6 +6,7 @@ import type {
   PillarName,
   TrackKey,
 } from '@apm/domain';
+import { TRACK_DISPLAY_NAMES } from '@apm/domain';
 
 export const CORE_LAWS = [
   { key: 'never_miss_twice', label: 'Never Miss Twice' },
@@ -16,41 +17,24 @@ export const CORE_LAWS = [
   { key: 'minimum_viable_day', label: 'Minimum Viable Day' },
 ] as const;
 
+/**
+ * The installable Track library: exactly the four BHPC Tracks and the three app-only
+ * Tracks (migration 0020, docs research of 6 Oct 2026). Display names come from the ONE
+ * shared map in @apm/domain (TRACK_DISPLAY_NAMES) because the owner is still naming them.
+ */
 export const BUILTIN_TRACKS: ReadonlyArray<{
   key: TrackKey;
   name: string;
+  origin: 'bhpc' | 'app';
   description: string;
 }> = [
-  {
-    key: 'billionaire_mindset',
-    name: 'Billionaire Mindset',
-    description: 'Ownership, leverage, compounding and asymmetric upside.',
-  },
-  {
-    key: 'operator_discipline',
-    name: 'Operator Discipline',
-    description: 'Follow-through, reduced renegotiation and execution consistency.',
-  },
-  {
-    key: 'strategic_patience',
-    name: 'Strategic Patience',
-    description: 'Prevents premature pivots before evidence and gates justify change.',
-  },
-  {
-    key: 'manifestation_mastery',
-    name: 'Manifestation Mastery',
-    description: 'Identity, expectancy and alignment without overriding evidence or execution.',
-  },
-  {
-    key: 'investor_ai_leverage',
-    name: 'Investor + AI Leverage',
-    description: 'Opportunity recognition, capital allocation and AI as a force multiplier.',
-  },
-  {
-    key: 'resilience',
-    name: 'Resilience',
-    description: 'Protect recovery capacity and continuity during volatility.',
-  },
+  { key: 'billionaire_mindset', name: TRACK_DISPLAY_NAMES.billionaire_mindset, origin: 'bhpc', description: 'Ownership, leverage, compounding and asymmetric upside for business and venture decisions.' },
+  { key: 'operator_discipline', name: TRACK_DISPLAY_NAMES.operator_discipline, origin: 'bhpc', description: 'Follow-through: the morning plan is executed as written; changes are declared, not drifted into.' },
+  { key: 'strategic_patience', name: TRACK_DISPLAY_NAMES.strategic_patience, origin: 'bhpc', description: 'No premature pivots before the evidence and the gates justify change.' },
+  { key: 'resilience', name: TRACK_DISPLAY_NAMES.resilience, origin: 'bhpc', description: 'Protect recovery capacity and continuity during volatility.' },
+  { key: 'body_foundation', name: TRACK_DISPLAY_NAMES.body_foundation, origin: 'app', description: 'Small tracked body behaviours at a safe pace; never diet or medical advice.' },
+  { key: 'wealth_foundation', name: TRACK_DISPLAY_NAMES.wealth_foundation, origin: 'app', description: 'Save by default, one debt at a time, buffer before bets; never product advice.' },
+  { key: 'home_front', name: TRACK_DISPLAY_NAMES.home_front, origin: 'app', description: 'Family time is scheduled and defended like the most important meeting of the week.' },
 ];
 
 export const BUILTIN_MODES: ReadonlyArray<{
@@ -110,18 +94,39 @@ export function adaptivePrimaryGoalPrompt(roles: string[]): string {
   return 'What are you trying to make happen in the next 90 days?';
 }
 
-export function recommendTrackKeys(roles: string[], failurePatterns: string[] = []): TrackKey[] {
+const PARENT_ROLE = /(parent|caregiv|mom|dad|mother|father|family)/i;
+const WORK_ROLE = /(business|entrepreneur|founder|career|leadership|professional|manager|operator|startup|work)/i;
+const HEALTH_GOAL = /\b(lose|weight|lbs?|pounds|kg|fitness|fit|health(ier|y)?|body|run|gym|strength|walk)\b/i;
+const WEALTH_GOAL = /\b(sav(e|ing|ings)|debt|emergency fund|net worth|invest(ing|ment)?|wealth|money|financ\w*|credit card|budget)\b/i;
+
+/**
+ * Persona → Track defaults (docs research "Persona → Track map"):
+ *   weight loss → Body Foundation (+ Strategic Patience, Resilience);
+ *   wealth building → Wealth Foundation + Strategic Patience; Billionaire High
+ *     Performance Coach only when a business or ownership role is also present;
+ *   founder → all four BHPC Tracks; operator → Operator Discipline, Strategic
+ *     Patience, Resilience; parent+ (parent AND a work game) → Home Front.
+ * Operator Discipline is the universal default. Every key is one of the seven Tracks.
+ */
+export function recommendTrackKeys(roles: string[], failurePatterns: string[] = [], goalText = ''): TrackKey[] {
   const normalized = roles.map((role) => role.toLowerCase());
   const failures = failurePatterns.join(' ').toLowerCase();
   const recommendations: TrackKey[] = ['operator_discipline'];
+  // Billionaire High Performance Coach fits ownership games (founders, equity), not every career.
+  const business = normalized.some((role) => /(business|entrepreneur|founder|startup|owner)/.test(role));
+  const work = normalized.some((role) => WORK_ROLE.test(role));
+  const parent = normalized.some((role) => PARENT_ROLE.test(role));
+  const health = HEALTH_GOAL.test(goalText) || normalized.some((role) => /(health|rebuilding|fitness|weight)/.test(role));
+  const wealth = WEALTH_GOAL.test(goalText);
 
-  if (normalized.some((role) => BUSINESS_ROLE_MARKERS.some((marker) => role.includes(marker)))) {
-    recommendations.push('billionaire_mindset', 'strategic_patience');
-  }
-  if (/(burnout|all.or.nothing|recovery|crash|overwhelm)/.test(failures)) {
-    recommendations.push('resilience');
-  }
-  return [...new Set(recommendations)];
+  if (business) recommendations.push('billionaire_mindset', 'strategic_patience', 'resilience');
+  if (health) recommendations.push('body_foundation', 'strategic_patience', 'resilience');
+  if (wealth) recommendations.push('wealth_foundation', 'strategic_patience');
+  if (parent && work) recommendations.push('home_front', 'resilience');
+  if (normalized.some((role) => /(career|professional|leader|manager|operator)/.test(role))) recommendations.push('strategic_patience', 'resilience');
+  if (/(burnout|all.or.nothing|recovery|crash|overwhelm)/.test(failures)) recommendations.push('resilience');
+  const allowed = new Set(BUILTIN_TRACKS.map((track) => track.key));
+  return [...new Set(recommendations)].filter((key) => allowed.has(key));
 }
 
 export interface RuntimeModeSignals {

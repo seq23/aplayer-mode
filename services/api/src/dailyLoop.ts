@@ -1,11 +1,16 @@
 import type { DayRecord, Goal, LifeGraphSnapshot, StoredGoalPlan } from '@apm/domain';
 import {
   calendarDateInTimezone,
+  coachingCheckIn,
   composeAgenda,
   continuityView,
+  detectDrift,
+  firstWeekProgramme,
+  weeklyReviewDue,
   deriveDayState,
   suggestPillarReview,
   verdictFromReview,
+  bodyRedFlags,
   generateGoalPlan,
   isPlanEligible,
   planContextFromGraph,
@@ -17,9 +22,11 @@ import {
   type PillarReviewEntry,
   type GoalPlan,
   type PlanEntry,
+  type TrackRuleContext,
 } from '@apm/planning';
 import type { ApiEnv } from './env';
-import { getGoalPlans, saveGoalPlan } from './dailyLoopRepository';
+import { flagBodyReferral, getGoalPlans, saveGoalPlan } from './dailyLoopRepository';
+import { getLifeGraph } from './lifeGraphRepository';
 
 /**
  * Server side of the BHPC daily loop. Deterministic: the planning package owns every
@@ -87,6 +94,15 @@ export interface TodayLoopState {
   showContinuity: boolean;
   /** What the end-of-day close starts from: evidence, a suggested pillar review and the computed verdict. */
   closePreview: { pillarReview: PillarReviewEntry[]; computedVerdict: 'full_day' | 'mvd' | 'miss'; evidence: string[] };
+  /** Phase Bridge: the Daily Stack opens after the First Hour begins. */
+  phase?: 'first_hour' | 'executing';
+  /** Hard Start: nothing but the opening step is served before the check-in. */
+  redacted: boolean;
+  drift: ReturnType<typeof detectDrift>;
+  firstWeek?: ReturnType<typeof firstWeekProgramme>;
+  coachingCheckIn: ReturnType<typeof coachingCheckIn>;
+  weeklyReview: ReturnType<typeof weeklyReviewDue>;
+  bodyReferral?: { since: string; source?: string };
 }
 
 export function criticalPillars(graph: Pick<LifeGraphSnapshot, 'pillarSettings'>) {
@@ -125,9 +141,36 @@ function carriedInto(graph: LifeGraphSnapshot, date: string) {
   return yesterday?.carryForward ? { text: yesterday.carryForward, fromDay: yesterday.day } : undefined;
 }
 
+function sameLocalDay(iso: string | undefined, date: string, timezone?: string): boolean {
+  return Boolean(iso && calendarDateInTimezone(iso, timezone) === date);
+}
+
+/** What the active Tracks' rules need for `date` (packages/planning track-rules). */
+export function trackContext(graph: LifeGraphSnapshot, date: string): TrackRuleContext {
+  const timezone = graph.identity.timezone;
+  return {
+    active: graph.tracks.filter((track) => track.active).map((track) => track.key),
+    roles: graph.roles.filter((role) => role.active).map((role) => role.name),
+    settings: graph.personalOS?.trackSettings ?? {},
+    referral: Boolean(graph.personalOS?.bodyReferral),
+    ...(timezone ? { timezone } : {}),
+    calendar: graph.calendarEvents
+      .filter((event) => !event.deleted && !event.allDay && event.availability !== 'free' && sameLocalDay(event.startsAt, date, timezone))
+      .map((event) => ({ title: event.title, startsAt: event.startsAt, endsAt: event.endsAt })),
+    familyBlocks: (graph.lifeAdminItems ?? [])
+      .filter((item) => item.kind === 'family_obligation' && item.startsAt && item.endsAt && !['completed', 'cancelled', 'paused'].includes(item.status) && sameLocalDay(item.startsAt, date, timezone))
+      .map((item) => ({ title: item.title, startsAt: item.startsAt!, endsAt: item.endsAt! })),
+    recentVerdicts: graph.dayRecords
+      .filter((record) => record.day < date && record.verdict)
+      .sort((a, b) => b.day.localeCompare(a.day))
+      .map((record) => record.verdict!),
+  };
+}
+
 export function freshAgenda(graph: LifeGraphSnapshot, input: { date: string; state: DayStateResult['state']; mood?: number }): DailyAgenda {
   const carryForward = carriedInto(graph, input.date);
   return composeAgenda({
+    tracks: trackContext(graph, input.date),
     ...(carryForward ? { carryForward } : {}),
     date: input.date,
     state: input.state,
@@ -141,7 +184,7 @@ export function freshAgenda(graph: LifeGraphSnapshot, input: { date: string; sta
   });
 }
 
-export function todayLoopState(graph: LifeGraphSnapshot, input: { now: Date; recoveryMode: boolean }): TodayLoopState {
+export function todayLoopState(graph: LifeGraphSnapshot, input: { now: Date; recoveryMode: boolean; lastCoachingAt?: string }): TodayLoopState {
   const date = localToday(graph, input.now);
   const day = graph.dayRecords.find((record) => record.day === date);
   const derived = dayStateFor(graph, date, input.recoveryMode);
@@ -165,5 +208,53 @@ export function todayLoopState(graph: LifeGraphSnapshot, input: { now: Date; rec
     continuity: continuityView(graph.dayRecords, date),
     showContinuity: graph.personalOS?.scoringConfig.showSevenDaySnapshot ?? true,
     closePreview: closePreview(graph, agenda),
+    ...(day?.phase ? { phase: day.phase } : {}),
+    redacted: false,
+    drift: detectDrift({ date, dayRecords: graph.dayRecords, completions: graph.planCompletions, firstActiveDay: firstActiveDay(planEntries(graph).filter((entry) => isPlanEligible(entry.record))) }),
+    ...(firstWeekProgramme(graph.personalOS?.stabilizationStartedAt, date) ? { firstWeek: firstWeekProgramme(graph.personalOS?.stabilizationStartedAt, date) } : {}),
+    coachingCheckIn: coachingCheckIn({ lastCoachingAt: input.lastCoachingAt, installedAt: graph.personalOS?.installedAt, today: date, afterDays: graph.personalOS?.accountability.coachingReminderAfterDays }),
+    weeklyReview: weeklyReviewDue({ today: date, reviewDay: graph.personalOS?.weeklyCadence.reviewDay, reviews: graph.weeklyReviews }),
+    ...(graph.personalOS?.bodyReferral ? { bodyReferral: graph.personalOS.bodyReferral } : {}),
   };
+}
+
+/**
+ * Hard Start (BHPC accountability choice): before the opening step is confirmed the
+ * server serves no execution detail at all — only the foreground's name and the check-in.
+ */
+export function redactForHardStart(state: TodayLoopState): TodayLoopState {
+  if (state.dayStart !== 'hard' || state.checkedIn || state.closed) return state;
+  return {
+    ...state,
+    redacted: true,
+    agenda: { ...state.agenda, firstHour: { sequence: [] }, dailyStack: [], background: [], gateReviews: [], decisions: [], trackFlags: [] },
+    closePreview: { ...state.closePreview, pillarReview: [], evidence: [] },
+  };
+}
+
+/**
+ * Body Foundation red-flag stop: a red flag in a diary entry, a day-close note or the
+ * intake pauses body coaching until clinician clearance. Weight-loss plans are rebuilt
+ * with the referral stop (book / confirm the clinician) through the governed RPC.
+ */
+export async function pauseBodyCoachingIfFlagged(
+  env: ApiEnv, accessToken: string, userId: string, texts: Array<string | undefined>, source: 'intake' | 'diary' | 'day_close' | 'check_in', now: Date,
+): Promise<boolean> {
+  const flags = bodyRedFlags(texts.filter((text): text is string => Boolean(text?.trim())));
+  if (!flags.length) return false;
+  await flagBodyReferral(env, accessToken, source);
+  await rebuildBodyPlans(env, accessToken, userId, 'referral', now);
+  return true;
+}
+
+/** Rebuilds every live weight-loss plan from the current Personal OS (referral or clearance). */
+export async function rebuildBodyPlans(env: ApiEnv, accessToken: string, userId: string, source: 'referral' | 'clearance', now: Date): Promise<void> {
+  const graph = await getLifeGraph(env, accessToken, userId);
+  for (const entry of planEntries(graph)) {
+    if (entry.plan.persona.foregroundPersona !== 'weight_loss' || entry.record.status !== 'active') continue;
+    const goal = graph.goals.find((candidate) => candidate.id === entry.record.goalId);
+    if (!goal) continue;
+    const plan = generateGoalPlan(goalText(goal), planContextFromGraph(graph, { startDate: localToday(graph, now), goal, ...(source === 'clearance' ? { clinicianCleared: true } : {}) }));
+    await saveGoalPlan(env, userId, goal.id, plan, source);
+  }
 }

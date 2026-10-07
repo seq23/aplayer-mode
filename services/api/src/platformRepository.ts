@@ -14,6 +14,9 @@ import type {
   Permission,
   Person,
   PlanActionCompletion,
+  DiaryEntry,
+  WeeklyReview,
+  OsChangeRequest,
   Preference,
   Project,
   Routine,
@@ -26,6 +29,9 @@ import { supabaseRest } from './db';
 import { mapCompletion, mapDayRecord, mapGoalPlan, type CompletionRow, type DayRow, type GoalPlanRow } from './dailyLoopRepository';
 
 const qs = (value: string) => encodeURIComponent(value);
+interface DiaryRow { id: string; kind: DiaryEntry['kind']; body: string; local_day: string; created_at: string }
+interface WeeklyReviewRow { id: string; week_start: string; summary: Record<string, unknown> | null; adjustment: string | null; completed_at: string }
+interface OsChangeRow { id: string; field: OsChangeRequest['field']; proposed: unknown; previous: unknown; reason: string | null; status: OsChangeRequest['status']; created_at: string; applied_at: string | null; effective_from: string | null }
 
 interface ProjectRow {
   id: string; goal_id: string | null; title: string; objective: string | null;
@@ -125,6 +131,9 @@ export interface PlatformState {
   dayRecords: DayRecord[];
   goalPlans: StoredGoalPlan[];
   planCompletions: PlanActionCompletion[];
+  diaryEntries: DiaryEntry[];
+  weeklyReviews: WeeklyReview[];
+  osChanges: OsChangeRequest[];
   entitlement?: SubscriptionEntitlement;
 }
 
@@ -134,7 +143,7 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
   const from = new Date(now.getTime() - 14 * 86_400_000).toISOString();
   const to = new Date(now.getTime() + 90 * 86_400_000).toISOString();
   const completionsSince = new Date(now.getTime() - 120 * 86_400_000).toISOString().slice(0, 10);
-  const [projects, milestones, commitments, routines, people, lifeRelationships, lifeAdminItems, preferences, rules, connections, calendar, signals, permissions, actions, days, entitlements, goalPlans, completions] = await Promise.all([
+  const [projects, milestones, commitments, routines, people, lifeRelationships, lifeAdminItems, preferences, rules, connections, calendar, signals, permissions, actions, days, entitlements, goalPlans, completions, diary, reviews, changes] = await Promise.all([
     supabaseRest<ProjectRow[]>(env, accessToken, `/rest/v1/projects?${filter}&select=*&order=foreground.desc,updated_at.desc`),
     supabaseRest<MilestoneRow[]>(env, accessToken, `/rest/v1/milestones?${filter}&select=*&order=due_at.asc.nullslast`),
     supabaseRest<CommitmentRow[]>(env, accessToken, `/rest/v1/commitments?${filter}&select=*&order=due_at.asc.nullslast,created_at.desc`),
@@ -153,6 +162,9 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
     supabaseRest<EntitlementRow[]>(env, accessToken, `/rest/v1/subscription_entitlements?${filter}&select=user_id,plan,status,provider,current_period_end&limit=1`),
     supabaseRest<GoalPlanRow[]>(env, accessToken, `/rest/v1/goal_plans?${filter}&status=neq.superseded&select=*&order=created_at.asc`),
     supabaseRest<CompletionRow[]>(env, accessToken, `/rest/v1/plan_action_completions?${filter}&day=gte.${qs(completionsSince)}&select=*&order=day.asc,created_at.asc`),
+    supabaseRest<DiaryRow[]>(env, accessToken, `/rest/v1/diary_entries?${filter}&select=*&order=created_at.desc&limit=60`),
+    supabaseRest<WeeklyReviewRow[]>(env, accessToken, `/rest/v1/weekly_reviews?${filter}&select=*&order=week_start.desc&limit=8`),
+    supabaseRest<OsChangeRow[]>(env, accessToken, `/rest/v1/os_change_requests?${filter}&select=*&order=created_at.desc&limit=20`),
   ]);
 
   const provenance = <T extends { provenance_kind: any; source_type: any; source_ref: string | null; confidence?: number | null; created_at: string }>(row: T) => ({
@@ -189,6 +201,9 @@ export async function getPlatformState(env: ApiEnv, accessToken: string, userId:
     dayRecords: days.map((row) => mapDayRecord(row, userId)),
     goalPlans: goalPlans.map(mapGoalPlan) as unknown as StoredGoalPlan[],
     planCompletions: completions.map(mapCompletion),
+    diaryEntries: diary.map((row) => ({ id: row.id, userId, kind: row.kind, body: row.body, localDay: row.local_day, createdAt: row.created_at })),
+    weeklyReviews: reviews.map((row) => ({ id: row.id, userId, weekStart: row.week_start, summary: row.summary ?? {}, ...(row.adjustment ? { adjustment: row.adjustment } : {}), completedAt: row.completed_at })),
+    osChanges: changes.map((row) => ({ id: row.id, userId, field: row.field, proposed: row.proposed, ...(row.previous != null ? { previous: row.previous } : {}), ...(row.reason ? { reason: row.reason } : {}), status: row.status, createdAt: row.created_at, ...(row.applied_at ? { appliedAt: row.applied_at } : {}), ...(row.effective_from ? { effectiveFrom: row.effective_from } : {}) })),
     entitlement: entitlements[0] ? { userId, plan: entitlements[0].plan, status: entitlements[0].status, provider: entitlements[0].provider ?? undefined, currentPeriodEnd: entitlements[0].current_period_end ?? undefined } : undefined,
   };
 }

@@ -23,7 +23,11 @@ import {
   completeAgendaAction,
   decideGoalPlan,
   replanToday,
+  recordClinicianClearance,
+  reprintToday,
+  returnAndReset,
   reviewPlanGate,
+  setTodayPhase,
   type ReplanReason,
 } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
@@ -55,7 +59,11 @@ export default function TodayScreen() {
   const planItems = [agenda?.firstHour.priority, ...(agenda?.dailyStack ?? [])].filter((item): item is AgendaItem => Boolean((item?.planId && item.actionKey) || item?.nextActionId));
   const planItemCount = planItems.length;
   const doneCount = planItems.filter((item) => item.status === 'done').length;
-  const hideAgenda = todayLoop?.dayStart === 'hard' && !todayLoop.checkedIn;
+  const hideAgenda = (todayLoop?.dayStart === 'hard' && !todayLoop.checkedIn) || Boolean(todayLoop?.redacted);
+  // Phase Bridge: the First Hour starts on the user's word; the Daily Stack opens after it.
+  const phaseOpen = Boolean(todayLoop?.phase);
+  const stackOpen = todayLoop?.phase === 'executing';
+  const drifting = Boolean(todayLoop?.drift.drifting && !todayLoop.drift.acknowledged);
 
   const run = async (label: string, call: (token: string) => Promise<unknown>) => {
     if (busy) return;
@@ -94,7 +102,8 @@ export default function TodayScreen() {
       </View>
       <CardTitle>{item.title}</CardTitle>
       {item.output ? <Body muted>{`Done means: ${item.output}`}</Body> : null}
-      {item.status === 'open' && executionOpen ? <Button label={busy ? 'Recording…' : 'Mark done'} onPress={() => void completeItem(item)} /> : null}
+      {item.status === 'open' && executionOpen && phaseOpen ? <Button label={busy ? 'Recording…' : 'Mark done'} onPress={() => void completeItem(item)} /> : null}
+      {item.status === 'open' && executionOpen && phaseOpen && todayLoop?.locked ? <Button label="Not a physical action — REPRINT" variant="secondary" onPress={() => void reprint([item.id])} /> : null}
       {item.status === 'open' && !executionOpen && !todayLoop?.closed ? <Body muted>Execution starts after your check-in.</Body> : null}
     </Card>
   );
@@ -129,6 +138,13 @@ export default function TodayScreen() {
     } finally { setBusyActionId(undefined); }
   };
 
+  const beginPhase = (phase: 'first_hour' | 'executing') => run('phase', () => perform((token) => setTodayPhase(phase, token)));
+  const reprint = (itemIds: string[]) => run('reprint', async () => {
+    const state = await perform((token) => reprintToday(itemIds, token));
+    setNotice(state.replaced.length ? `Reprinted: ${state.replaced.map((r) => r.to ?? `${r.from} (removed)`).join('; ')}` : undefined);
+  });
+  const restart = () => run('return', () => perform((token) => returnAndReset(token)));
+  const clearance = () => run('clearance', () => perform((token) => recordClinicianClearance(token)));
   const reviewRows = todayLoop?.closePreview.pillarReview ?? [];
   const scoreOf = (pillar: string) => pillarScores[pillar] ?? reviewRows.find((row) => row.pillar === pillar)?.score ?? 'miss';
   const submitClose = async () => {
@@ -176,6 +192,31 @@ export default function TodayScreen() {
 
       {todayLoop && graph.personalOS ? (
         <>
+          {drifting ? (
+            <Card tone="accent">
+              <Label>Return / Reset</Label>
+              <CardTitle>{todayLoop.drift.message ?? "Welcome back. Want me to print today's agenda and restart the day?"}</CardTitle>
+              <Button label="Yes — restart the day" onPress={() => void restart()} />
+            </Card>
+          ) : null}
+          {todayLoop.firstWeek ? (
+            <Card>
+              <Label>{`First 7 days · Day ${todayLoop.firstWeek.day}: ${todayLoop.firstWeek.objective}`}</Label>
+              <CardTitle>{`Success = ${todayLoop.firstWeek.success}`}</CardTitle>
+              <Body>{todayLoop.firstWeek.loop}</Body>
+              {todayLoop.firstWeek.rules.map((rule) => <Body key={rule} muted>{`• ${rule}`}</Body>)}
+            </Card>
+          ) : null}
+          {todayLoop.bodyReferral ? (
+            <Card tone="danger">
+              <Label>Body coaching paused</Label>
+              <CardTitle>A red flag was recorded. Talk to a doctor before body goals continue.</CardTitle>
+              <Body muted>APM never prescribes diet, calories or medication. When a clinician has cleared you, record it here and your body plan restarts.</Body>
+              <Button label="A clinician has cleared me" variant="secondary" onPress={() => void clearance()} />
+            </Card>
+          ) : null}
+          {todayLoop.coachingCheckIn.due ? <Card tone="muted"><Label>Coaching check-in</Label><Body>{todayLoop.coachingCheckIn.message}</Body><Button label="Open APM Coach" variant="secondary" onPress={() => router.push('/(tabs)/apm')} /></Card> : null}
+          {todayLoop.weeklyReview.due ? <Card tone="accent"><Label>{`Weekly debrief · ${todayLoop.weeklyReview.reviewDay}`}</Label><CardTitle>Run your weekly debrief.</CardTitle><Button label="Open the debrief" onPress={() => router.push('/review')} /></Card> : null}
           {todayLoop.dayState.state === 'missed_yesterday' ? <Card tone="warning"><Label>Never Miss Twice</Label><CardTitle>Yesterday is closed. Today is a Recovery Day.</CardTitle><Body muted>One small thing, then close the day. Nothing from yesterday is owed.</Body></Card> : null}
 
           {!todayLoop.checkedIn && !todayLoop.closed ? (
@@ -205,11 +246,23 @@ export default function TodayScreen() {
                 <Card tone="accent"><Label>The first hour</Label>{agenda.firstHour.sequence.map((step, index) => <KeyValue key={`${index}-${step}`} label={`${index + 1}`} value={step} />)}</Card>
               ) : null}
               {agenda.firstHour.priority ? itemCard(agenda.firstHour.priority, 'Priority execution') : <Card><Body>No foreground action is available. Add a goal in Goals.</Body></Card>}
-              {agenda.dailyStack.length ? <SectionTitle>The daily stack</SectionTitle> : null}
-              {agenda.dailyStack.map((item) => itemCard(item))}
-              {agenda.problems.length ? <Card tone="warning"><Label>Invalid agenda</Label>{agenda.problems.map((problem) => <Body key={problem}>{problem}</Body>)}</Card> : null}
+              {!phaseOpen && todayLoop.checkedIn && !todayLoop.closed ? (
+                <Card tone="accent">
+                  <Label>Phase Bridge</Label>
+                  <CardTitle>{agenda.bridge}</CardTitle>
+                  <Button label="Begin my First Hour" onPress={() => void beginPhase('first_hour')} />
+                  <Button label="Coaching first" variant="secondary" onPress={() => router.push('/(tabs)/apm')} />
+                </Card>
+              ) : null}
+              {phaseOpen && !stackOpen && agenda.dailyStack.length ? (
+                <Card tone="muted"><Body>First Hour first. When it is done, open the rest of the day.</Body><Button label="Open the daily stack" variant="secondary" onPress={() => void beginPhase('executing')} /></Card>
+              ) : null}
+              {(stackOpen || !todayLoop.checkedIn) && agenda.dailyStack.length ? <SectionTitle>The daily stack</SectionTitle> : null}
+              {(stackOpen || !todayLoop.checkedIn) ? agenda.dailyStack.map((item) => itemCard(item)) : null}
+              {(agenda.trackFlags ?? []).length ? <Card tone="warning"><Label>Your Tracks</Label>{(agenda.trackFlags ?? []).map((flag) => <Body key={`${flag.code}-${flag.message}`}>{`• ${flag.message}`}</Body>)}</Card> : null}
+              {agenda.problems.length ? <Card tone="warning"><Label>Invalid agenda</Label>{agenda.problems.map((problem) => <Body key={problem}>{problem}</Body>)}{todayLoop.locked ? <Button label="REPRINT" onPress={() => void reprint([])} /> : null}</Card> : null}
               {agenda.safety.referral ? <Card tone="danger"><Label>Body coaching paused</Label><Body>{agenda.safety.doctorLine ?? 'Talk to a clinician before body goals continue.'}</Body></Card> : null}
-              <Card tone="muted"><Body>{agenda.bridge}</Body><Button label="Coaching first" variant="secondary" onPress={() => router.push('/(tabs)/apm')} /></Card>
+              <Card tone="muted"><Body>Something to file without coaching?</Body><Button label="Open the Diary" variant="secondary" onPress={() => router.push('/diary')} /></Card>
             </>
           ) : null}
 

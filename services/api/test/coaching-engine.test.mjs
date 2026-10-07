@@ -540,7 +540,7 @@ test('Track library: the 4 BHPC + 3 app Tracks with rules; retired Tracks are no
 test('Active Track RULES reach coaching and are enforced in the scripted flow; inactive and retired ones are not', () => {
   const installed = [track('strategic_patience'), track('wealth_foundation'), track('home_front', false), track('manifestation_mastery')];
   const context = tracks.trackRulesForCoaching(installed);
-  assert.deepEqual(context.map((t) => t.name), ['Strategic Patience', 'Wealth Foundation']);
+  assert.deepEqual(context.map((t) => t.name), ['Strategic Patience Track', 'Wealth Foundation Track'], 'names come from the one shared display-name map');
   assert.ok(context[0].rules.includes('No pivot before the evaluation gate.'));
   assert.ok(context[1].filters.includes('If this goes to zero, is my buffer intact?'));
 

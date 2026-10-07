@@ -8,12 +8,13 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test test/*.test.mjs && rm -rf .test-dist"
+    "test": "rm -rf .test-dist && node scripts/build-test.mjs && node --test test/*.test.mjs && rm -rf .test-dist"
   },
   "dependencies": {
     "@apm/domain": "0.1.0"
   },
   "devDependencies": {
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "esbuild": "^0.28.1"
   }
 }

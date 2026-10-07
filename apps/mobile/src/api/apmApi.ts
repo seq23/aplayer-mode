@@ -85,7 +85,37 @@ export interface TodayLoopView {
   continuity: Array<{ day: string; verdict?: 'full_day' | 'mvd' | 'miss'; symbol: string }>;
   showContinuity: boolean;
   closePreview: { pillarReview: PillarReviewInput[]; computedVerdict: 'full_day' | 'mvd' | 'miss'; evidence: string[] };
+  phase?: 'first_hour' | 'executing';
+  redacted: boolean;
+  drift: { drifting: boolean; daysAway: number; acknowledged: boolean; message?: string };
+  firstWeek?: { day: number; objective: string; success: string; loop: string; rules: string[]; locked: boolean };
+  coachingCheckIn: { due: boolean; afterDays: number; daysSince: number; message?: string };
+  weeklyReview: { due: boolean; weekStart: string; reviewDay: string };
+  bodyReferral?: { since: string; source?: string };
 }
+export interface WeeklyDebriefView {
+  weekStart: string;
+  weekEnd: string;
+  executionScore: { counted: number; fullDays: number; mvdDays: number; misses: number; unclosed: number; of: 7; percent: number };
+  foregroundFocus: { label?: string; daysWithForegroundDone: number; of: 7 };
+  friction: string[];
+  trackSignals: Array<{ code: string; message: string }>;
+  diary: Array<{ kind: string; body: string; localDay: string }>;
+  diaryQuestion: string;
+  executiveReview: { open: string; close: string };
+  adjustmentPrompt: string;
+}
+export type OsChangeInput =
+  | { field: 'morning_sequence' | 'hard_boundaries' | 'non_negotiables' | 'core_values'; value: string[] }
+  | { field: 'coaching_firmness'; value: 'gentle' | 'direct' | 'high_pressure' }
+  | { field: 'day_start'; value: 'guided' | 'hard' }
+  | { field: 'coaching_reminder_days'; value: number }
+  | { field: 'show_seven_day_snapshot'; value: boolean }
+  | { field: 'review_day' | 'recovery_day'; value: string }
+  | { field: 'north_star'; value: string }
+  | { field: 'pillar'; value: { name: PillarName; critical: boolean; minimumFloor?: string } }
+  | { field: 'tracks'; value: ActiveTrackKey[] }
+  | { field: 'track_settings'; value: { hardStop?: string; homeTouchpoint?: string; movementFloor?: string; bufferMonths?: number; bufferTarget?: number; highInterestDebt?: boolean; debtOrder?: string[] } };
 export interface PillarReviewInput { pillar: PillarName | 'family'; score: 'hit' | 'partial' | 'miss'; completed?: string }
 export interface NotificationPreferences {
   enabled: boolean;
@@ -288,6 +318,37 @@ export async function fetchNotificationPreferences(accessToken: string) {
 }
 export async function saveNotificationPreferences(input: { enabled?: boolean; morningPushEnabled?: boolean; wakeTime?: string; lockScreenDetail?: 'minimal' | 'normal'; quietHours?: { start: string; end: string } | Record<string, never> }, accessToken: string) {
   return request<{ preferences: NotificationPreferences | null }>('/v1/notifications/preferences', accessToken, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export async function logDiaryEntry(input: { kind: 'diary' | 'breakthrough' | 'slip'; body: string }, accessToken: string) {
+  return request<TodayState & { reply: string }>('/v1/diary', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function setTodayPhase(phase: 'first_hour' | 'executing', accessToken: string) {
+  return request<TodayState>('/v1/today/phase', accessToken, { method: 'POST', body: JSON.stringify({ phase }) });
+}
+export async function returnAndReset(accessToken: string) {
+  return request<TodayState>('/v1/today/return', accessToken, { method: 'POST' });
+}
+export async function reprintToday(itemIds: string[], accessToken: string) {
+  return request<TodayState & { replaced: Array<{ from: string; to?: string }>; stillInvalid: string[] }>('/v1/today/reprint', accessToken, { method: 'POST', body: JSON.stringify({ itemIds }) });
+}
+export async function fetchWeeklyDebrief(accessToken: string) {
+  return request<{ debrief: WeeklyDebriefView; due: { due: boolean; weekStart: string; reviewDay: string } }>('/v1/reviews/weekly', accessToken);
+}
+export async function completeWeeklyReview(adjustment: string | undefined, accessToken: string) {
+  return request<TodayState & { debrief: WeeklyDebriefView }>('/v1/reviews/weekly', accessToken, { method: 'POST', body: JSON.stringify(adjustment ? { adjustment } : {}) });
+}
+export async function draftOsChange(input: OsChangeInput & { reason?: string }, accessToken: string) {
+  return request<TodayState & { change: { id: string } }>('/v1/os/changes', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function applyOsChange(changeId: string, accessToken: string) {
+  return request<TodayState & { message: string }>(`/v1/os/changes/${encodeURIComponent(changeId)}/apply`, accessToken, { method: 'POST' });
+}
+export async function discardOsChange(changeId: string, accessToken: string) {
+  return request<TodayState>(`/v1/os/changes/${encodeURIComponent(changeId)}/discard`, accessToken, { method: 'POST' });
+}
+export async function recordClinicianClearance(accessToken: string) {
+  return request<TodayState>('/v1/body/clearance', accessToken, { method: 'POST', body: JSON.stringify({ confirm: true }) });
 }
 
 export async function sendCoachMessage(input: { message?: string; choice?: CoachChoice; sessionId?: string }, accessToken: string): Promise<CoachReplyView> {

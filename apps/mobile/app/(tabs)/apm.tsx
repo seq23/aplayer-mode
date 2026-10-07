@@ -99,6 +99,14 @@ export default function ApmScreen() {
 
   return (
     <Screen eyebrow="APM Coach" title="Your system changes with your state—not your standards." subtitle="Modes change how APM holds the day. Your Personal OS remains the source of truth.">
+      <Card>
+        <Label>Rulebook</Label>
+        <View style={uiStyles.row}>
+          <Button label="Diary" variant="secondary" onPress={() => router.push('/diary')} />
+          <Button label="Weekly debrief" variant="secondary" onPress={() => router.push('/review')} />
+          <Button label="Drafting Room" variant="secondary" onPress={() => router.push('/settings/os')} />
+        </View>
+      </Card>
       <Card tone="accent">
         <Label>Current mode</Label>
         <CardTitle>{definition?.name ?? MODE_LABEL[activeMode]}</CardTitle>

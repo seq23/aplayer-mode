@@ -51,6 +51,8 @@ export interface BodyContext {
   clinicianSupervised?: boolean;
   /** User confirms clinician clearance after a red flag; lifts the referral stop. */
   clinicianCleared?: boolean;
+  /** A red flag recorded earlier (diary, check-in, close) is still active: the pause persists. */
+  referralActive?: boolean;
   /** Free-text health notes from intake / check-ins (scanned for red flags). */
   healthNotes?: string[];
 }

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { buildDailyPlan, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, selectForeground, verdictFromReview } from '@apm/planning';
+import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, selectForeground, verdictFromReview } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
 import { autonomyLabels, capabilitiesForPlan, forbiddenStandingActions, maxAutonomyForPlan, planHasCapability, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
@@ -58,9 +58,18 @@ import {
 } from './autopilotRepository';
 import { notifyRadarItems } from './push';
 import { workPushHold } from './morningTrigger';
-import { buildGoalPlan, criticalPillars, ensureGoalPlans, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
+import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, rebuildBodyPlans, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
+  applyOsChange,
   asLoopError,
+  discardOsChange,
+  draftOsChange,
+  logDiary,
+  recordClinicianClearance,
+  reprintDay,
+  returnResetDay,
+  saveWeeklyReview,
+  setDayPhase,
   checkInDay,
   closeDayReview,
   completePlanAction,
@@ -372,7 +381,10 @@ async function buildUserState(env: ApiEnv, accessToken: string, userId: string) 
     radarItems: buildRadarItems(persistedGraph),
   };
   const projected = applyModeToPlan(buildDailyPlan(graph, { mode: modeState.mode === 'recovery' ? 'recovery' : undefined, now }), graph, modeState);
-  const today = todayLoopState(graph, { now, recoveryMode: modeState.mode === 'recovery' });
+  const lastCoaching = persistedGraph.personalOS
+    ? await supabaseRest<Array<{ started_at: string }>>(env, accessToken, `/rest/v1/coaching_sessions?user_id=eq.${encodeURIComponent(userId)}&select=started_at&order=started_at.desc&limit=1`).catch(() => [])
+    : [];
+  const today = redactForHardStart(todayLoopState(graph, { now, recoveryMode: modeState.mode === 'recovery', lastCoachingAt: lastCoaching[0]?.started_at }));
   return { graph, plan: projected.plan, mode: { ...modeView(modeState, now), todayEffect: projected.effect }, today };
 }
 
@@ -541,8 +553,11 @@ app.put('/v1/methodology/intake', async (c) => {
   const primary = installed.goals.find((goal) => goal.id === installed.personalOS?.foregroundGoalId)
     ?? installed.goals.find((goal) => goal.status === 'active' && goal.priority === 1);
   if (primary) {
-    try { await saveGoalPlan(c.env, user.id, primary.id, buildGoalPlan(installed, primary, new Date()), 'intake'); }
-    catch (error) { return loopFailure(c, error); }
+    try {
+      await saveGoalPlan(c.env, user.id, primary.id, buildGoalPlan(installed, primary, new Date()), 'intake');
+      // A red flag in the intake's body context persists the pause until clinician clearance.
+      await pauseBodyCoachingIfFlagged(c.env, user.accessToken, user.id, [parsed.data.bodyContext], 'intake', new Date());
+    } catch (error) { return loopFailure(c, error); }
   }
   return c.json(await buildUserState(c.env, user.accessToken, user.id));
 });
@@ -620,6 +635,13 @@ app.post('/v1/today/replan', async (c) => {
   const parsed = z.object({ reason: replanReasonSchema, detail: z.string().trim().max(300).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   const decision = midDayReplanDecision(parsed.data.reason);
+  if (decision.allowed && !parsed.data.detail) {
+    const graph = await getLifeGraph(c.env, user.accessToken, user.id);
+    // Operator Discipline: a change is declared with a reason, never drifted into.
+    if (graph.tracks.some((track) => track.active && track.key === 'operator_discipline')) {
+      return c.json({ error: 'declare_the_change', message: 'Operator Discipline is active: say in one line what changed before the plan is reopened.' }, 409);
+    }
+  }
   if (!decision.allowed) {
     await audit(c.env, user.accessToken, user.id, 'day.replan_refused', { reason: parsed.data.reason }, 'day_record');
     return c.json({ error: decision.code, message: decision.message }, 409);
@@ -673,8 +695,147 @@ app.post('/v1/today/close', async (c) => {
   const insight = dayInsight(continuity, verdict);
   try {
     await closeDayReview(c.env, user.accessToken, { verdict, computedVerdict: cappedComputed, pillarReview: parsed.data.pillarReview, note: parsed.data.note, carryForward: carry, insight });
+    await pauseBodyCoachingIfFlagged(c.env, user.accessToken, user.id, [parsed.data.note], 'day_close', new Date());
   } catch (error) { return loopFailure(c, error); }
   return c.json({ verdict, computedVerdict: cappedComputed, insight, continuity, carryForward: carry ?? null, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+// ---------------------------------------------------------------- BHPC loop, part 3 (migration 0028)
+app.post('/v1/diary', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ kind: z.enum(['diary', 'breakthrough', 'slip']).default('diary'), body: z.string().trim().min(1).max(4000) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  let logged;
+  try {
+    logged = await logDiary(c.env, user.accessToken, parsed.data);
+    // Silent logging still keeps people safe: a red flag pauses body coaching.
+    await pauseBodyCoachingIfFlagged(c.env, user.accessToken, user.id, [parsed.data.body], 'diary', new Date());
+  } catch (error) { return loopFailure(c, error); }
+  return c.json({ reply: logged.reply, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+app.post('/v1/today/phase', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ phase: z.enum(['first_hour', 'executing']) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  try { await setDayPhase(c.env, user.accessToken, parsed.data.phase); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
+});
+
+app.post('/v1/today/return', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  try { await returnResetDay(c.env, user.accessToken); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
+});
+
+app.post('/v1/today/reprint', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ itemIds: z.array(z.string().min(1).max(300)).max(20).optional() }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const state = await buildUserState(c.env, user.accessToken, user.id);
+  if (!state.today.locked) return c.json({ error: 'opening_step_required', message: 'Check in first; REPRINT works on the printed agenda.' }, 409);
+  const result = reprintAgenda(state.today.agenda, planEntries(state.graph), parsed.data.itemIds ?? []);
+  if (!result.replaced.length) return c.json({ error: 'nothing_to_reprint', message: 'Every item on today’s agenda is a physical action with an output and a time box.' }, 409);
+  try { await reprintDay(c.env, user.id, { day: state.today.date, agenda: result.agenda }); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json({ replaced: result.replaced, stillInvalid: result.stillInvalid, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+function debriefFor(state: Awaited<ReturnType<typeof buildUserState>>) {
+  const foreground = state.today.agenda.foregroundPriority;
+  return weeklyDebrief({
+    today: state.today.date,
+    dayRecords: state.graph.dayRecords,
+    completions: state.graph.planCompletions,
+    ...(foreground ? { foreground: { planId: foreground.planId, label: foreground.label } } : {}),
+    diary: state.graph.diaryEntries,
+    trackFlags: state.today.agenda.trackFlags ?? [],
+  });
+}
+
+app.get('/v1/reviews/weekly', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const state = await buildUserState(c.env, user.accessToken, user.id);
+  return c.json({ debrief: debriefFor(state), due: state.today.weeklyReview });
+});
+
+app.post('/v1/reviews/weekly', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ adjustment: z.string().trim().min(3).max(500).optional() }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const state = await buildUserState(c.env, user.accessToken, user.id);
+  const debrief = debriefFor(state);
+  try {
+    await saveWeeklyReview(c.env, user.accessToken, {
+      weekStart: debrief.weekStart,
+      summary: { executionScore: debrief.executionScore, foregroundFocus: debrief.foregroundFocus, friction: debrief.friction, trackSignals: debrief.trackSignals.map((signal) => signal.code) },
+      ...(parsed.data.adjustment ? { adjustment: parsed.data.adjustment } : {}),
+    });
+  } catch (error) { return loopFailure(c, error); }
+  return c.json({ debrief, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+const osChangeSchema = z.discriminatedUnion('field', [
+  z.object({ field: z.literal('morning_sequence'), value: z.array(z.string().trim().min(1).max(240)).max(5) }),
+  z.object({ field: z.enum(['hard_boundaries', 'non_negotiables', 'core_values']), value: z.array(z.string().trim().min(1).max(300)).max(20) }),
+  z.object({ field: z.literal('coaching_firmness'), value: z.enum(['gentle', 'direct', 'high_pressure']) }),
+  z.object({ field: z.literal('day_start'), value: z.enum(['guided', 'hard']) }),
+  z.object({ field: z.literal('coaching_reminder_days'), value: z.number().int().min(1).max(60) }),
+  z.object({ field: z.literal('show_seven_day_snapshot'), value: z.boolean() }),
+  z.object({ field: z.enum(['review_day', 'recovery_day']), value: z.enum(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']) }),
+  z.object({ field: z.literal('north_star'), value: z.string().trim().max(1000) }),
+  z.object({ field: z.literal('pillar'), value: z.object({ name: pillarSchema, critical: z.boolean(), minimumFloor: z.string().trim().max(300).optional() }) }),
+  z.object({ field: z.literal('tracks'), value: z.array(trackSchema).max(7) }),
+  z.object({ field: z.literal('track_settings'), value: z.object({
+    hardStop: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).optional(),
+    homeTouchpoint: z.string().trim().min(5).max(200).optional(),
+    movementFloor: z.string().trim().min(5).max(200).optional(),
+    bufferMonths: z.number().min(0).max(120).optional(),
+    bufferTarget: z.number().min(0).max(120).optional(),
+    highInterestDebt: z.boolean().optional(),
+    debtOrder: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  }).strict() }),
+]);
+
+// BHPC Chat C, the Drafting Room: draft a change, then apply it. Nothing is real until applied.
+app.post('/v1/os/changes', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const body = await c.req.json().catch(() => null) as { reason?: unknown } | null;
+  const parsed = osChangeSchema.safeParse(body);
+  const reason = typeof body?.reason === 'string' ? body.reason.trim().slice(0, 500) : undefined;
+  if (!parsed.success) return c.json({ error: 'invalid_request', fields: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) }, 400);
+  let draft;
+  try { draft = await draftOsChange(c.env, user.accessToken, { field: parsed.data.field, value: parsed.data.value, reason }); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json({ change: draft, ...(await buildUserState(c.env, user.accessToken, user.id)) }, 201);
+});
+
+app.post('/v1/os/changes/:id/apply', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  let applied;
+  try { applied = await applyOsChange(c.env, user.accessToken, c.req.param('id')); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json({ change: applied, message: `Applied. It takes effect from ${applied.effective_from}: today's locked agenda is not rewritten.`, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+app.post('/v1/os/changes/:id/discard', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  try { await discardOsChange(c.env, user.accessToken, c.req.param('id')); }
+  catch (error) { return loopFailure(c, error); }
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
+});
+
+app.post('/v1/body/clearance', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ confirm: z.literal(true) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'confirmation_required', message: 'Confirm that a clinician has cleared you to continue body goals.' }, 400);
+  try {
+    await recordClinicianClearance(c.env, user.accessToken);
+    await rebuildBodyPlans(c.env, user.accessToken, user.id, 'clearance', new Date());
+  } catch (error) { return loopFailure(c, error); }
+  return c.json(await buildUserState(c.env, user.accessToken, user.id));
 });
 
 app.post('/v1/goals', async (c) => {
@@ -684,13 +845,23 @@ app.post('/v1/goals', async (c) => {
     outcome: z.string().trim().max(800).optional(),
     pillar: pillarSchema.optional(),
     targetDate: dateOnlySchema.optional(),
+    confirmPivot: z.boolean().optional(),
   }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request', fields: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) }, 400);
   const now = new Date();
   const graph = await getLifeGraph(c.env, user.accessToken, user.id);
-  const plan = buildGoalPlan(graph, parsed.data, now);
+  const activeTracks = new Set(graph.tracks.filter((track) => track.active).map((track) => track.key));
+  // Strategic Patience: no new project before the foreground reaches its 30-day gate, unless declared.
+  const foregroundPlan = planEntries(graph).find((entry) => entry.record.goalId === graph.personalOS?.foregroundGoalId && entry.record.status === 'active');
+  const foregroundDay = foregroundPlan ? Math.floor((Date.parse(`${localToday(graph, now)}T00:00:00Z`) - Date.parse(`${foregroundPlan.plan.startDate}T00:00:00Z`)) / 86_400_000) + 1 : undefined;
+  if (activeTracks.has('strategic_patience') && foregroundDay !== undefined && foregroundDay < 30 && !parsed.data.confirmPivot) {
+    return c.json({ error: 'patience_gate', reasonCode: 'patience.premature_pivot', message: `Strategic Patience is active: your foreground is on day ${foregroundDay} of 30. Add this anyway only as a declared choice.` }, 409);
+  }
+  const { confirmPivot: _confirm, ...goalInput } = parsed.data;
+  void _confirm;
+  const plan = buildGoalPlan(graph, goalInput, now);
   let created;
-  try { created = await createGoalWithPlan(c.env, user.id, parsed.data, plan); }
+  try { created = await createGoalWithPlan(c.env, user.id, goalInput, plan); }
   catch (error) { return loopFailure(c, error); }
   const state = await buildUserState(c.env, user.accessToken, user.id);
   // BHPC: a new project is run through the Arbitration Engine against the current foreground.
@@ -705,6 +876,7 @@ app.post('/v1/goals', async (c) => {
     goalId: created.goal.id,
     arbitration: arbitration.arbitration ?? null,
     recommendedForegroundGoalId: arbitration.foreground?.record.goalId ?? null,
+    ...(activeTracks.has('billionaire_mindset') ? { filters: ['Long-horizon: is this still right in 10 years?', 'Asymmetry: what is the upside vs downside?', 'Downside containment: is the worst case survivable?', 'Leverage: does this scale without you?'] } : {}),
     ...state,
   }, 201);
 });

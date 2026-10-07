@@ -51,6 +51,9 @@ function emptyGraph(userId = 'unassigned'): LifeGraphSnapshot {
     dayRecords: [],
     goalPlans: [],
     planCompletions: [],
+    diaryEntries: [],
+    weeklyReviews: [],
+    osChanges: [],
     entitlement: undefined,
   };
 }

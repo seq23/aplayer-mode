@@ -1,5 +1,7 @@
 import type { CalendarEvent, Commitment, Goal, LifeAdminItem, LifeGraphSnapshot, LifeRelationship, RadarItem } from '@apm/domain';
 
+import { trackRadarItems } from './tracks.js';
+
 const DAY_MS = 86_400_000;
 
 export interface RadarBuildOptions {
@@ -280,7 +282,10 @@ export function buildRadarItems(graph: LifeGraphSnapshot, options: RadarBuildOpt
   const items: RadarItem[] = [];
 
   for (const goal of graph.goals.filter((candidate) => candidate.status === 'active')) {
-    const actionable = graph.nextActions.find((action) => action.goalId === goal.id && (action.status === 'open' || action.status === 'scheduled'));
+    // A live goal plan supplies an action every day, so the goal always has an executable path.
+    const planned = (graph.goalPlans ?? []).some((plan) => plan.goalId === goal.id && plan.status !== 'superseded' && plan.decision !== 'park');
+    const actionable = graph.nextActions.find((action) => action.goalId === goal.id && (action.status === 'open' || action.status === 'scheduled'))
+      ?? (planned ? { id: `plan:${goal.id}`, title: 'today’s plan action' } : undefined);
     const remainingDays = daysUntilDate(goal.targetDate, now);
     if (remainingDays !== undefined && remainingDays <= 7) {
       const overdue = remainingDays < 0;
@@ -343,6 +348,7 @@ export function buildRadarItems(graph: LifeGraphSnapshot, options: RadarBuildOpt
   }
 
   items.push(...calendarConflictItems(graph, now));
+  items.push(...trackRadarItems(graph, now));
 
   const unique = new Map<string, RadarItem>();
   for (const item of items) if (!unique.has(item.id)) unique.set(item.id, item);

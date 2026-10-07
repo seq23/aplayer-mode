@@ -173,3 +173,5 @@ export function buildDailyPlan(
 export * from './recurrence.js';
 export * from './goal-plan.js';
 export * from './daily-loop.js';
+export * from './track-rules.js';
+export * from './loop-extras.js';

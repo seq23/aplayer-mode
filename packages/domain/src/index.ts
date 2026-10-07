@@ -70,13 +70,13 @@ export type ActiveTrackKey =
 
 /**
  * Retired in migration 0020 (rows removed, each recorded as a `track.retired`
- * audit event). No API, mobile or database path accepts these keys any more.
- * @deprecated kept in `TrackKey` only until packages/planning's BUILTIN_TRACKS drops them.
+ * audit event). Kept only so the retirement itself can be described; it is NOT a
+ * TrackKey and no API, mobile, planning or database path accepts these keys.
  */
 export type RetiredTrackKey = 'manifestation_mastery' | 'investor_ai_leverage';
 
-/** @deprecated use ActiveTrackKey; this wider union exists only for packages/planning compatibility. */
-export type TrackKey = ActiveTrackKey | RetiredTrackKey;
+/** The Track key: exactly the seven installable Tracks. */
+export type TrackKey = ActiveTrackKey;
 
 /**
  * THE single Track display-name map, shared by mobile and API. The owner is still
@@ -147,6 +147,21 @@ export interface ScoringConfig {
   showSevenDaySnapshot: boolean;
 }
 
+/** Track settings on the Personal OS (migration 0027), edited through the OS change flow. */
+export interface TrackSettings {
+  /** Home Front: the declared end of the workday, HH:MM local. */
+  hardStop?: string;
+  homeTouchpoint?: string;
+  /** Body Foundation: the movement floor (never zero). */
+  movementFloor?: string;
+  /** Wealth Foundation: months of expenses held, target, and whether high-interest debt remains. */
+  bufferMonths?: number;
+  bufferTarget?: number;
+  highInterestDebt?: boolean;
+  /** Wealth Foundation: debts in the user's chosen payoff order. */
+  debtOrder?: string[];
+}
+
 export interface PersonalOS {
   userId: UUID;
   northStar?: string;
@@ -166,6 +181,10 @@ export interface PersonalOS {
   hardBoundaries: string[];
   scoringConfig: ScoringConfig;
   stabilizationStartedAt?: string;
+  trackSettings: TrackSettings;
+  /** Body red-flag pause: set until the user records clinician clearance. */
+  bodyReferral?: { since: ISODateTime; source?: string };
+  clinicianClearedAt?: ISODateTime;
   installedAt: ISODateTime;
   updatedAt: ISODateTime;
 }
@@ -568,6 +587,48 @@ export interface DayRecord {
   computedVerdict?: 'full_day' | 'mvd' | 'miss';
   carryForward?: string;
   insight?: string;
+  /** Phase Bridge: First Hour begun, then the Daily Stack (migration 0027). */
+  phase?: 'first_hour' | 'executing';
+  /** Return / Reset re-entry acknowledged today. */
+  returnedAt?: ISODateTime;
+  reprintCount?: number;
+}
+
+export interface DiaryEntry {
+  id: UUID;
+  userId: UUID;
+  kind: 'diary' | 'breakthrough' | 'slip';
+  body: string;
+  localDay: string;
+  createdAt: ISODateTime;
+}
+
+export interface WeeklyReview {
+  id: UUID;
+  userId: UUID;
+  weekStart: string;
+  summary: Record<string, unknown>;
+  adjustment?: string;
+  completedAt: ISODateTime;
+}
+
+export type OsChangeField =
+  | 'morning_sequence' | 'coaching_firmness' | 'day_start' | 'coaching_reminder_days' | 'show_seven_day_snapshot'
+  | 'review_day' | 'recovery_day' | 'hard_boundaries' | 'non_negotiables' | 'core_values' | 'north_star'
+  | 'pillar' | 'tracks' | 'track_settings';
+
+/** BHPC Chat C (the Drafting Room): a change is drafted, then applied explicitly. */
+export interface OsChangeRequest {
+  id: UUID;
+  userId: UUID;
+  field: OsChangeField;
+  proposed: unknown;
+  previous?: unknown;
+  reason?: string;
+  status: 'draft' | 'applied' | 'discarded';
+  createdAt: ISODateTime;
+  appliedAt?: ISODateTime;
+  effectiveFrom?: string;
 }
 
 /** Evidence that one supplied goal-plan action was done on a local day. */
@@ -752,5 +813,8 @@ export interface LifeGraphSnapshot {
   dayRecords: DayRecord[];
   goalPlans: StoredGoalPlan[];
   planCompletions: PlanActionCompletion[];
+  diaryEntries: DiaryEntry[];
+  weeklyReviews: WeeklyReview[];
+  osChanges: OsChangeRequest[];
   entitlement?: SubscriptionEntitlement;
 }
