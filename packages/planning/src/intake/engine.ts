@@ -123,7 +123,9 @@ export function registry(a: IntakeAnswers, mode: IntakeMode | undefined = str(a,
       const on = sectionOn && (question.gate ? question.gate(a, helpers) : true) && (!quick || !past || question.essential === true);
       out.push({ id: question.id, kind: 'question', group: section.name, question, section, on });
     }
-    if (section.after) out.push({ id: section.after.id, kind: 'interstitial', group: section.name, section, interstitial: section.after, on: !(quick && past) });
+    // Owner ruling (7 Oct 2026): the questionnaire is questions only. Breaks that ask nothing are never
+    // in the path; their content lives in the summary and its detail screens at the end.
+    if (section.after) out.push({ id: section.after.id, kind: 'interstitial', group: section.name, section, interstitial: section.after, on: false });
   }
   for (const screen of REVEAL_SCREENS) out.push({ id: screen.id, kind: screen.kind, group: 'Your OS', on: !screen.detail, detail: screen.detail === true });
   return out;

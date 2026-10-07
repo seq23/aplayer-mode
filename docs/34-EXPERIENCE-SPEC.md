@@ -240,6 +240,8 @@ _Tap everything that applies. One life, many games._
 | Q4 | How full does your head feel right now? | slider | slider 1 to 10 | Baseline for the promise. Asked again on Day 5 and Day 7. | I: zero cognitive load; XIII Day 5 "Lower mental load" | `loadBaseline (NEW)` | first-week review (stabilizationDay) | always | We measure the load so you can watch it drop. |
 | Q5 | What are you carrying in your head right now? | multi | Deadlines · Money worries · Family logistics · Health goals · Messages I owe · A big decision · Too many projects · Restarting (again) · Appointments and forms · Bills and renewals | The "dump all my stuff" list. Seeds Radar and the reveal. | I: decision fatigue; Radar seeding | `mentalLoadItems[] (NEW)` | Radar seed + reveal copy | always | Everything you tap here moves from your head into APM. |
 
+> **Owner ruling, 7 Oct 2026 — interstitials removed from the flow.** After clicking through the real app the owner rejected screens that pause the questionnaire without asking anything ("several breaks from the questions that require me to continue… this is stupid"). I1–I5 are no longer in the path (`registry()` marks them `on: false`); the questionnaire is questions only, and their content is shown once, in the summary and its detail screens at the end. Pinned by `packages/planning/test/intake.test.mjs` ("the questionnaire is questions only"). The I1–I5 text below is kept as the source for that end-of-flow content.
+
 **Interstitial I1: Here's what we heard.** From now on APM holds this list. You don't have to.
 
 #### S2 · Your goal
