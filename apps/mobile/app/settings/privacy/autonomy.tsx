@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   CardTitle,
+  ErrorState,
   Flow,
   KeyValue,
   Pill,
@@ -72,7 +73,7 @@ export default function AutonomyScreen() {
         <Flow steps={['Observe','Remind','Recommend','Prepare','Approve & execute','Autopilot']} />
       </Card>
 
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
 
       <SectionTitle>Live domain permissions</SectionTitle>
       <View style={uiStyles.stack}>

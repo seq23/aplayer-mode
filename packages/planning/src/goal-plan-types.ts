@@ -178,7 +178,7 @@ export interface GoalPlan {
   /** Availability from the context; the supplier caps durations by weekday with it. */
   availability?: GoalPlanAvailability;
   gates: [PlanGate, PlanGate, PlanGate];
-  /** Catalogue of every action the plan can supply, by key. */
+  /** Catalog of every action the plan can supply, by key. */
   actions: Record<string, PlanAction>;
   /** One-off actions for the first days of the plan (override the weekly cadence). */
   setup: Array<{ day: number; actionKey: string }>;

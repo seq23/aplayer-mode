@@ -52,7 +52,7 @@ test('five roles, five personas (plus the broader list), six modes, eight situat
   for (const extra of ['Creatives and makers', 'Students and researchers', 'Athletes and competitors', 'Career-switchers', 'Executives in a new seat', 'Anyone at 2 a.m. trying to get their life together']) assert.ok(sell.PERSONAS.alsoFor.includes(extra), extra);
   assert.deepEqual(sell.INSIDE.parts.map((p) => p.title), ['Daily agenda engine', 'Morning trigger', 'Never Miss Twice', 'Minimum Viable Day', 'Arbitration engine', 'End-of-day check-in']);
   assert.deepEqual(sell.MODES.modes.map((m) => m.title), ['High-Pressure Coaching', 'Executive Review', 'Recovery', 'Sprint', 'Deep Work', 'Standard']);
-  assert.deepEqual(sell.SITUATIONS.rows.map((r) => r[1]), ['Morning Start Sequence', 'Recovery Day', 'No-Catch-Up reset', 'Stabilisation', 'Arbitration', 'Minimum Viable Day', 'Re-entry', 'No-Redesign stabilisation']);
+  assert.deepEqual(sell.SITUATIONS.rows.map((r) => r[1]), ['Morning Start Sequence', 'Recovery Day', 'No-Catch-Up reset', 'Stabilization', 'Arbitration', 'Minimum Viable Day', 'Re-entry', 'No-Redesign stabilization']);
   assert.ok(sell.WITHOUT_WITH.without.lines.length >= 3 && sell.WITHOUT_WITH.with.lines.length >= 3);
 });
 

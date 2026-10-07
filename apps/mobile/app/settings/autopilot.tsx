@@ -1,9 +1,9 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { View } from 'react-native';
 import type { AutopilotActionClass, AutopilotDoneItem, AutopilotRule, AutopilotRuleConstraints } from '@apm/domain';
-import { Body, Button, Card, CardTitle, KeyValue, ListItem, Pill, Screen, SectionTitle, uiStyles } from '../../src/components/ui';
-import { colors, radius, spacing } from '../../src/theme';
+import { Body, Button, Card, CardTitle, Chip, ErrorState, KeyValue, ListItem, Pill, Screen, SectionTitle, TextField, uiStyles } from '../../src/components/ui';
+import { TimePicker } from '../../src/components/TimePickerField';
 import {
   fetchAutopilot,
   fetchAutopilotDone,
@@ -246,7 +246,7 @@ export default function AutopilotScreen() {
 
   return (
     <Screen eyebrow="Autopilot" title="Standing authority, inside your rules." subtitle="APM acts without asking each time only where you have written a rule. Every run is audited and revocable; each one tells you whether it can be undone.">
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
 
       <Card tone={autopilot.masterPaused ? 'warning' : 'accent'}>
         <View style={uiStyles.row}>
@@ -326,57 +326,53 @@ export default function AutopilotScreen() {
               <Card>
                 <CardTitle>Write a standing rule</CardTitle>
                 <Body muted>Days</Body>
-                <View style={styles.choiceGrid}>
+                <View style={uiStyles.row}>
                   {WEEKDAYS.map((day) => {
                     const on = draft.weekdays.includes(day.id);
                     return (
-                      <Pressable key={day.id} onPress={() => patchDraft(policy.actionClass, { weekdays: on ? draft.weekdays.filter((d) => d !== day.id) : [...draft.weekdays, day.id] })} style={[styles.choice, on && styles.choiceActive]}>
-                        <Text style={[styles.choiceText, on && styles.choiceTextActive]}>{day.label}</Text>
-                      </Pressable>
+                      <Chip key={day.id} label={day.label} selected={on} onPress={() => patchDraft(policy.actionClass, { weekdays: on ? draft.weekdays.filter((d) => d !== day.id) : [...draft.weekdays, day.id] })} />
                     );
                   })}
                 </View>
                 <Body muted>{policy.actionClass === 'calendar.decline' ? 'Your boundary: invitations in this window on these days are declined' : 'When APM may act'}</Body>
                 {(WINDOWED.includes(policy.actionClass) || policy.actionClass === 'calendar.decline') ? (
                   <>
-                    <TextInput value={draft.windowStart} onChangeText={(v) => patchDraft(policy.actionClass, { windowStart: v })} placeholder="Window start · HH:MM" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.windowEnd} onChangeText={(v) => patchDraft(policy.actionClass, { windowEnd: v })} placeholder="Window end · HH:MM" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TimePicker label="Window start" value={draft.windowStart} onChange={(v) => patchDraft(policy.actionClass, { windowStart: v })} placeholder="Choose a start time" />
+                    <TimePicker label="Window end" value={draft.windowEnd} onChange={(v) => patchDraft(policy.actionClass, { windowEnd: v })} placeholder="Choose an end time" />
                   </>
                 ) : null}
-                <TextInput value={draft.maxPerDay} onChangeText={(v) => patchDraft(policy.actionClass, { maxPerDay: v })} placeholder="Most per day" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                <TextField value={draft.maxPerDay} onChangeText={(v) => patchDraft(policy.actionClass, { maxPerDay: v })} placeholder="Most per day" keyboardType="number-pad" />
                 {policy.actionClass === 'calendar.create' ? (
                   <>
-                    <TextInput value={draft.maxDurationMinutes} onChangeText={(v) => patchDraft(policy.actionClass, { maxDurationMinutes: v })} placeholder="Longest block · minutes" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.horizonDays} onChangeText={(v) => patchDraft(policy.actionClass, { horizonDays: v })} placeholder="How far ahead · days" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextField value={draft.maxDurationMinutes} onChangeText={(v) => patchDraft(policy.actionClass, { maxDurationMinutes: v })} placeholder="Longest block · minutes" keyboardType="number-pad" />
+                    <TextField value={draft.horizonDays} onChangeText={(v) => patchDraft(policy.actionClass, { horizonDays: v })} placeholder="How far ahead · days" keyboardType="number-pad" />
                     <Body muted>APM will never place a block over busy, tentative or out-of-office time.</Body>
                   </>
                 ) : null}
                 {policy.actionClass === 'email.draft' ? (
                   <>
-                    <TextInput value={draft.domains} onChangeText={(v) => patchDraft(policy.actionClass, { domains: v })} autoCapitalize="none" placeholder="Allowed recipient domains · comma separated" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextField value={draft.domains} onChangeText={(v) => patchDraft(policy.actionClass, { domains: v })} autoCapitalize="none" placeholder="Allowed recipient domains · comma separated" />
                     <Body muted>Drafts only: they wait in your mailbox for you.</Body>
                   </>
                 ) : null}
                 {policy.actionClass === 'email.send' ? (
                   <>
-                    <View style={styles.choiceGrid}>
+                    <View style={uiStyles.row}>
                       {SEND_KINDS.map((kind) => {
                         const on = draft.kinds.includes(kind.id);
                         return (
-                          <Pressable key={kind.id} onPress={() => patchDraft(policy.actionClass, { kinds: on ? draft.kinds.filter((k) => k !== kind.id) : [...draft.kinds, kind.id] })} style={[styles.choice, on && styles.choiceActive]}>
-                            <Text style={[styles.choiceText, on && styles.choiceTextActive]}>{kind.label}</Text>
-                          </Pressable>
+                          <Chip key={kind.id} label={kind.label} selected={on} onPress={() => patchDraft(policy.actionClass, { kinds: on ? draft.kinds.filter((k) => k !== kind.id) : [...draft.kinds, kind.id] })} />
                         );
                       })}
                     </View>
-                    <TextInput value={draft.recipients} onChangeText={(v) => patchDraft(policy.actionClass, { recipients: v })} autoCapitalize="none" placeholder="Allowed people · email addresses, comma separated" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.domains} onChangeText={(v) => patchDraft(policy.actionClass, { domains: v })} autoCapitalize="none" placeholder="Allowed domains · comma separated (optional)" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.maxPerRecipientPerDay} onChangeText={(v) => patchDraft(policy.actionClass, { maxPerRecipientPerDay: v })} placeholder="Most per person per day (1–3)" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextField value={draft.recipients} onChangeText={(v) => patchDraft(policy.actionClass, { recipients: v })} autoCapitalize="none" placeholder="Allowed people · email addresses, comma separated" />
+                    <TextField value={draft.domains} onChangeText={(v) => patchDraft(policy.actionClass, { domains: v })} autoCapitalize="none" placeholder="Allowed domains · comma separated (optional)" />
+                    <TextField value={draft.maxPerRecipientPerDay} onChangeText={(v) => patchDraft(policy.actionClass, { maxPerRecipientPerDay: v })} placeholder="Most per person per day (1–3)" keyboardType="number-pad" />
                     {draft.kinds.includes('template') ? (
                       <>
-                        <TextInput value={draft.templateLabel} onChangeText={(v) => patchDraft(policy.actionClass, { templateLabel: v })} placeholder="Template name · e.g. Birthday" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                        <TextInput value={draft.templateSubject} onChangeText={(v) => patchDraft(policy.actionClass, { templateSubject: v })} placeholder="Template subject" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                        <TextInput value={draft.templateBody} onChangeText={(v) => patchDraft(policy.actionClass, { templateBody: v })} placeholder="Template message · sent exactly as written" multiline placeholderTextColor={colors.inkMuted} style={styles.input} />
+                        <TextField value={draft.templateLabel} onChangeText={(v) => patchDraft(policy.actionClass, { templateLabel: v })} placeholder="Template name · e.g. Birthday" />
+                        <TextField value={draft.templateSubject} onChangeText={(v) => patchDraft(policy.actionClass, { templateSubject: v })} placeholder="Template subject" />
+                        <TextField value={draft.templateBody} onChangeText={(v) => patchDraft(policy.actionClass, { templateBody: v })} placeholder="Template message · sent exactly as written" multiline />
                       </>
                     ) : null}
                     <Body muted>Only these kinds, only to these people. Follow-ups chase only what someone else owes you. A sent message can't be undone.</Body>
@@ -384,32 +380,32 @@ export default function AutopilotScreen() {
                 ) : null}
                 {policy.actionClass === 'calendar.reschedule' || policy.actionClass === 'calendar.decline' ? (
                   <>
-                    <TextInput value={draft.keywords} onChangeText={(v) => patchDraft(policy.actionClass, { keywords: v })} autoCapitalize="none" placeholder="Also match titles containing · e.g. 1:1, sync" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.maxAttendees} onChangeText={(v) => patchDraft(policy.actionClass, { maxAttendees: v })} placeholder="Only meetings with at most N attendees" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.protectedKeywords} onChangeText={(v) => patchDraft(policy.actionClass, { protectedKeywords: v })} autoCapitalize="none" placeholder="Never touch titles containing · e.g. board, interview" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.horizonDays} onChangeText={(v) => patchDraft(policy.actionClass, { horizonDays: v })} placeholder="How far ahead · days" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextField value={draft.keywords} onChangeText={(v) => patchDraft(policy.actionClass, { keywords: v })} autoCapitalize="none" placeholder="Also match titles containing · e.g. 1:1, sync" />
+                    <TextField value={draft.maxAttendees} onChangeText={(v) => patchDraft(policy.actionClass, { maxAttendees: v })} placeholder="Only meetings with at most N attendees" keyboardType="number-pad" />
+                    <TextField value={draft.protectedKeywords} onChangeText={(v) => patchDraft(policy.actionClass, { protectedKeywords: v })} autoCapitalize="none" placeholder="Never touch titles containing · e.g. board, interview" />
+                    <TextField value={draft.horizonDays} onChangeText={(v) => patchDraft(policy.actionClass, { horizonDays: v })} placeholder="How far ahead · days" keyboardType="number-pad" />
                     {policy.actionClass === 'calendar.reschedule'
-                      ? <TextInput value={draft.maxShiftDays} onChangeText={(v) => patchDraft(policy.actionClass, { maxShiftDays: v })} placeholder="Move at most N days" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                      : <TextInput value={draft.declineNote} onChangeText={(v) => patchDraft(policy.actionClass, { declineNote: v })} placeholder="Your polite note (optional; a kind default is used)" multiline placeholderTextColor={colors.inkMuted} style={styles.input} />}
+                      ? <TextField value={draft.maxShiftDays} onChangeText={(v) => patchDraft(policy.actionClass, { maxShiftDays: v })} placeholder="Move at most N days" keyboardType="number-pad" />
+                      : <TextField value={draft.declineNote} onChangeText={(v) => patchDraft(policy.actionClass, { declineNote: v })} placeholder="Your polite note (optional; a kind default is used)" multiline />}
                     <Body muted>Only events you mark flexible or that match these words. Deep Work, focus and foreground blocks are never moved or declined.</Body>
                   </>
                 ) : null}
                 {policy.actionClass === 'appointment.book' ? (
                   <>
-                    <TextInput value={draft.providerLabel} onChangeText={(v) => patchDraft(policy.actionClass, { providerLabel: v })} placeholder="Provider · e.g. Riverside Clinic" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.providerEmail} onChangeText={(v) => patchDraft(policy.actionClass, { providerEmail: v })} autoCapitalize="none" placeholder="Their booking email" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.appointmentTypes} onChangeText={(v) => patchDraft(policy.actionClass, { appointmentTypes: v })} placeholder="Appointment types you allow · e.g. annual check-up" placeholderTextColor={colors.inkMuted} style={styles.input} />
-                    <TextInput value={draft.horizonDays} onChangeText={(v) => patchDraft(policy.actionClass, { horizonDays: v })} placeholder="How far ahead · days" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextField value={draft.providerLabel} onChangeText={(v) => patchDraft(policy.actionClass, { providerLabel: v })} placeholder="Provider · e.g. Riverside Clinic" />
+                    <TextField value={draft.providerEmail} onChangeText={(v) => patchDraft(policy.actionClass, { providerEmail: v })} autoCapitalize="none" placeholder="Their booking email" />
+                    <TextField value={draft.appointmentTypes} onChangeText={(v) => patchDraft(policy.actionClass, { appointmentTypes: v })} placeholder="Appointment types you allow · e.g. annual check-up" />
+                    <TextField value={draft.horizonDays} onChangeText={(v) => patchDraft(policy.actionClass, { horizonDays: v })} placeholder="How far ahead · days" keyboardType="number-pad" />
                     <Body muted>FREE bookings only. Anything asking for a card or deposit stops and waits for you. Medical visits are scheduling only — APM never makes a clinical choice.</Body>
                   </>
                 ) : null}
                 {policy.actionClass === 'subscription.cancel' ? (
                   <>
-                    <TextInput value={draft.domains} onChangeText={(v) => patchDraft(policy.actionClass, { domains: v })} autoCapitalize="none" placeholder="Provider domains · e.g. streamco.com" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                    <TextField value={draft.domains} onChangeText={(v) => patchDraft(policy.actionClass, { domains: v })} autoCapitalize="none" placeholder="Provider domains · e.g. streamco.com" />
                     <Body muted>Saves money, never spends it: a fixed cancellation email, or a prepared request when the provider has no emailed route. Never signs up, upgrades or enters payment details.</Body>
                   </>
                 ) : null}
-                <TextInput value={draft.expiresInDays} onChangeText={(v) => patchDraft(policy.actionClass, { expiresInDays: v })} placeholder="Rule lasts · days (max 90)" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                <TextField value={draft.expiresInDays} onChangeText={(v) => patchDraft(policy.actionClass, { expiresInDays: v })} placeholder="Rule lasts · days (max 90)" keyboardType="number-pad" />
                 <Body muted>Granting sets this permission to level 5 and creates the rule. Your plan alone never does this.</Body>
                 <Button
                   label={busy ? 'Saving…' : 'Grant standing authority'}
@@ -449,28 +445,3 @@ export default function AutopilotScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: colors.ink,
-    fontSize: 16,
-  },
-  choiceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  choice: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  choiceActive: { backgroundColor: colors.ink, borderColor: colors.ink },
-  choiceText: { color: colors.ink, fontSize: 14 },
-  choiceTextActive: { color: colors.surface },
-});

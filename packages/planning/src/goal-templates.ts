@@ -12,9 +12,9 @@ import type {
  * Deterministic persona templates for the goal → plan engine.
  *
  * Safety rules (docs: app-only Tracks Body Foundation / Wealth Foundation / Home Front):
- * - weight loss is behavioural only: pace ≤1% bodyweight/week and ≤2 lb/week, no diet,
+ * - weight loss is behavioral only: pace ≤1% bodyweight/week and ≤2 lb/week, no diet,
  *   calorie, supplement or medication prescriptions, a doctor line for red flags;
- * - wealth is behavioural only: no securities, crypto, tax, insurance or allocation advice;
+ * - wealth is behavioral only: no securities, crypto, tax, insurance or allocation advice;
  * - parent+ keeps a non-zero family floor every day.
  */
 
@@ -154,7 +154,7 @@ export function genericKindFor(goalText: string): GenericKind {
   return GENERIC_PATTERNS.find(({ pattern }) => pattern.test(goalText))?.kind ?? 'other';
 }
 
-/** Recognise the persona from free text first, then roles; parent+ wraps a second game. */
+/** Recognize the persona from free text first, then roles; parent+ wraps a second game. */
 export function recognizePersona(goalText: string, roles: string[] = []): PersonaMatch {
   const matchedBy: string[] = [];
   let foreground: ForegroundPersonaKey | undefined;
@@ -227,7 +227,7 @@ const scoreWeek = (key: string, what: string, pillar: PlanPillar): ActionSpec =>
 });
 
 // ---------------------------------------------------------------------------
-// Weight loss (Body Foundation rules; behaviour only)
+// Weight loss (Body Foundation rules; behavior only)
 // ---------------------------------------------------------------------------
 
 interface WeightTarget {
@@ -262,7 +262,7 @@ function weightLossSafety(goalText: string, context: GoalPlanContext): PlanSafet
   const safety = emptySafety();
   safety.doctorLine = DOCTOR_LINE;
   safety.reasonCodes.push('body.no_prescription');
-  safety.notes.push('Behaviour only: no diet plans, calorie numbers, supplements or medication. Those belong to your clinician.');
+  safety.notes.push('Behavior only: no diet plans, calorie numbers, supplements or medication. Those belong to your clinician.');
   const flags = bodyRedFlags([goalText, ...(context.body?.healthNotes ?? []), ...(context.constraints ?? [])]);
   if ((flags.length > 0 || context.body?.referralActive) && !context.body?.clinicianCleared) {
     safety.referral = true;
@@ -363,11 +363,11 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       title:
         weighIn === 'weekly'
           ? 'Weigh in once after waking, log the start number, and set a weekly Sunday reminder'
-          : 'Write your three tracked behaviours (movement, planned meals, sleep window) at the top of your log',
-      output: weighIn === 'weekly' ? 'Start number logged and weekly reminder set' : 'Three behaviours written in your log',
+          : 'Write your three tracked behaviors (movement, planned meals, sleep window) at the top of your log',
+      output: weighIn === 'weekly' ? 'Start number logged and weekly reminder set' : 'Three behaviors written in your log',
       minutes: 5,
       pillar: 'movement',
-      mvd: ['Write "movement, meals, sleep" at the top of your log', 'Behaviour list saved', 2],
+      mvd: ['Write "movement, meals, sleep" at the top of your log', 'Behavior list saved', 2],
     },
     {
       key: 'setup_sleep',
@@ -409,7 +409,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
         weighIn === 'weekly'
           ? 'Weigh in once after waking and log it beside this week\'s movement days (x/7)'
           : 'Log this week\'s movement days (x/7), planned-meal days and sleep-window nights',
-      output: 'Weekly behaviour count logged',
+      output: 'Weekly behavior count logged',
       minutes: 5,
       pillar: 'movement',
       mvd: ['Log how many days you moved this week', 'Movement count logged', 2],
@@ -481,7 +481,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
     gates: [
       {
         outcome:
-          'Foundation: movement on 24 of 30 days, meals planned weekly, a fixed sleep window, and the weigh-in cadence you chose. The behaviours are the scoreboard.',
+          'Foundation: movement on 24 of 30 days, meals planned weekly, a fixed sleep window, and the weigh-in cadence you chose. The behaviors are the scoreboard.',
         milestones: [
           [7, 'Movement slot fixed and used on 5 of 7 days'],
           [14, 'First 3-day meal list written and shopped'],
@@ -509,7 +509,7 @@ function weightLossTemplate(goalText: string, context: GoalPlanContext): Templat
       },
     ],
     decisionCriteria: [
-      'Movement days per week across the 90 days (the behaviour, not the number on the scale)',
+      'Movement days per week across the 90 days (the behavior, not the number on the scale)',
       'Could you keep this routine for 12 months?',
       'Still aligned with what your clinician advised, if you see one',
     ],
@@ -526,7 +526,7 @@ const SPECULATION = /\b(crypto|bitcoin|stocks?|options|day[- ]trad\w*|forex|nft|
 function wealthTemplate(goalText: string): TemplateSpec {
   const safety = emptySafety();
   safety.reasonCodes.push('wealth.no_product_advice');
-  safety.notes.push('Behaviour only: no securities, crypto, tax, insurance or allocation advice. Those belong to a licensed professional.');
+  safety.notes.push('Behavior only: no securities, crypto, tax, insurance or allocation advice. Those belong to a licensed professional.');
   if (SPECULATION.test(goalText)) {
     safety.reasonCodes.push('wealth.buffer_gate');
     safety.notes.push('Speculative moves stay flagged until your emergency buffer target is met and high-interest debt is cleared.');
@@ -719,7 +719,7 @@ function founderTemplate(): TemplateSpec {
     actions: [
       a('setup_list', 'Write the list of 30 people or companies who fit your customer profile, with how you will reach each', '30-name customer list saved', 45),
       a('setup_offer', 'Write your offer in three lines: who it is for, the result, and the price', 'Three-line offer with a price saved', 20),
-      a('outreach', 'Spend {m} minutes sending personalised outreach messages to people on your customer list', 'Sent messages logged by name', 30),
+      a('outreach', 'Spend {m} minutes sending personalized outreach messages to people on your customer list', 'Sent messages logged by name', 30),
       a('conversation', 'Hold or book one customer conversation and write three lines of notes', 'Conversation held or booked, with notes', 45),
       a('offer_sent', 'Send a written offer with a price to one qualified prospect', 'One priced offer sent', 30),
       a('follow_ups', 'Follow up every open conversation from this week with one clear ask', 'Every open thread has a dated follow-up', 30),
@@ -925,7 +925,7 @@ function examTemplate(): TemplateSpec {
     gates: [
       {
         outcome: 'Foundation: a weighted topic list, a booked exam date, and a baseline score from one timed section.',
-        milestones: [[3, 'Exam booked and topics weighted'], [14, 'Baseline timed section scored'], [30, 'Every topic practised at least once']],
+        milestones: [[3, 'Exam booked and topics weighted'], [14, 'Baseline timed section scored'], [30, 'Every topic practiced at least once']],
         week: ['weekly_score', 'practice', 'flashcards', 'practice', 'teach_back', 'practice', 'timed_section'],
       },
       {

@@ -1,9 +1,8 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { View } from 'react-native';
 import type { LifeAdminItem, LifeAdminKind, LifeRelationship } from '@apm/domain';
-import { Body, Button, Card, CardTitle, KeyValue, Pill, Screen, SectionTitle, uiStyles } from '../../src/components/ui';
-import { colors, radius, spacing } from '../../src/theme';
+import { Body, Button, Card, CardTitle, ChoiceRow, ErrorState, Fill, KeyValue, Muted, Pill, Row, Screen, SectionTitle, TextField, uiStyles } from '../../src/components/ui';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { PLAN_PRICES } from '@apm/policy';
 
@@ -352,18 +351,18 @@ export default function LifeOsScreen() {
 
   return (
     <Screen eyebrow="Life areas" title="The stuff your brain should not have to carry." subtitle="Relationships, appointments, travel, bills, subscriptions, meals, shopping, health routines and recurring obligations feed the same Today + Radar system.">
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
       {syncStatus === 'saving' ? <Pill tone="warning">Saving…</Pill> : null}
 
       <SectionTitle>Relationships</SectionTitle>
       <Card tone="accent">
         <CardTitle>{editingRelationshipId ? 'Correct relationship' : 'Protect a relationship'}</CardTitle>
         <Body muted>{editingRelationshipId ? 'Update the canonical state that drives Radar.' : 'Birthdays and contact cadence become proactive Radar signals. This is your own life-area state—not Household sharing.'}</Body>
-        <TextInput value={personName} onChangeText={setPersonName} placeholder="Person’s name" placeholderTextColor={colors.inkMuted} style={styles.input} />
-        <TextInput value={relationshipLabel} onChangeText={setRelationshipLabel} placeholder="Relationship (friend, parent, mentor…)" placeholderTextColor={colors.inkMuted} style={styles.input} />
-        <TextInput value={birthday} onChangeText={setBirthday} placeholder="Birthday · YYYY-MM-DD" placeholderTextColor={colors.inkMuted} style={styles.input} />
-        <TextInput value={nextContact} onChangeText={setNextContact} placeholder="Next contact · YYYY-MM-DD" placeholderTextColor={colors.inkMuted} style={styles.input} />
-        <TextInput value={cadence} onChangeText={setCadence} placeholder="Cadence in days · optional" keyboardType="number-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
+        <TextField value={personName} onChangeText={setPersonName} placeholder="Person’s name" />
+        <TextField value={relationshipLabel} onChangeText={setRelationshipLabel} placeholder="Relationship (friend, parent, mentor…)" />
+        <TextField value={birthday} onChangeText={setBirthday} placeholder="Birthday · YYYY-MM-DD" />
+        <TextField value={nextContact} onChangeText={setNextContact} placeholder="Next contact · YYYY-MM-DD" />
+        <TextField value={cadence} onChangeText={setCadence} placeholder="Cadence in days · optional" keyboardType="number-pad" />
         <Button label={busy ? 'Saving…' : editingRelationshipId ? 'Save corrections' : 'Save relationship'} onPress={() => void saveRelationship()} />
         {editingRelationshipId ? <Button label="Cancel edit" variant="secondary" onPress={resetRelationshipForm} /> : null}
       </Card>
@@ -374,10 +373,10 @@ export default function LifeOsScreen() {
             const person = peopleById.get(relationship.personId);
             return (
               <Card key={relationship.id}>
-                <View style={uiStyles.row}>
-                  <CardTitle>{person?.name ?? 'Relationship'}</CardTitle>
+                <Row justify="space-between" gap="xs">
+                  <Fill><CardTitle>{person?.name ?? 'Relationship'}</CardTitle></Fill>
                   <Pill>{person?.relationship ?? 'relationship'}</Pill>
-                </View>
+                </Row>
                 <KeyValue label="Birthday" value={relationship.birthday ?? 'Not set'} />
                 <KeyValue label="Next contact" value={formatDate(relationship.nextContactAt, timezone) || 'Not set'} />
                 <KeyValue label="Cadence" value={relationship.cadenceDays ? `Every ${relationship.cadenceDays} days` : 'Not set'} />
@@ -393,34 +392,22 @@ export default function LifeOsScreen() {
       <Card>
         <CardTitle>{editingItemId ? 'Correct life-area item' : 'Add something APM should carry'}</CardTitle>
         {editingItemId ? <Body muted>Corrections update the canonical record that drives Today and Radar.</Body> : null}
-        <View style={styles.choiceGrid}>
-          {kinds.map((item) => (
-            <Pressable key={item.id} onPress={() => { setKind(item.id); if (!recurringKinds.has(item.id)) setFrequency('none'); }} style={[styles.choice, kind === item.id && styles.choiceActive]}>
-              <Text style={[styles.choiceText, kind === item.id && styles.choiceTextActive]}>{item.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <TextInput value={title} onChangeText={setTitle} placeholder="What needs to be handled?" placeholderTextColor={colors.inkMuted} style={styles.input} />
+        <ChoiceRow options={kinds} value={kind} onChange={(next) => { setKind(next); if (!recurringKinds.has(next)) setFrequency('none'); }} />
+        <TextField value={title} onChangeText={setTitle} placeholder="What needs to be handled?" />
         {editingItem?.startsAt ? (
-          <TextInput value={scheduledDate} onChangeText={setScheduledDate} placeholder="Scheduled date · YYYY-MM-DD" placeholderTextColor={colors.inkMuted} style={styles.input} />
+          <TextField value={scheduledDate} onChangeText={setScheduledDate} placeholder="Scheduled date · YYYY-MM-DD" />
         ) : null}
-        <TextInput value={dueDate} onChangeText={setDueDate} placeholder="Due date · YYYY-MM-DD · optional" placeholderTextColor={colors.inkMuted} style={styles.input} />
+        <TextField value={dueDate} onChangeText={setDueDate} placeholder="Due date · YYYY-MM-DD · optional" />
         {kind === 'bill' || kind === 'subscription' ? (
           <View style={uiStyles.stackSm}>
-            <TextInput value={amount} onChangeText={setAmount} placeholder="Amount · optional" keyboardType="decimal-pad" placeholderTextColor={colors.inkMuted} style={styles.input} />
-            <TextInput value={currency} onChangeText={setCurrency} autoCapitalize="characters" placeholder="Currency · e.g. USD" placeholderTextColor={colors.inkMuted} style={styles.input} />
+            <TextField value={amount} onChangeText={setAmount} placeholder="Amount · optional" keyboardType="decimal-pad" />
+            <TextField value={currency} onChangeText={setCurrency} autoCapitalize="characters" placeholder="Currency · e.g. USD" />
           </View>
         ) : null}
         {recurringKinds.has(kind) ? (
           <>
-            <Body muted>Repeat after completion</Body>
-            <View style={styles.choiceGrid}>
-              {(['none','daily','weekly','monthly','yearly'] as const).map((item) => (
-                <Pressable key={item} onPress={() => setFrequency(item)} style={[styles.choice, frequency === item && styles.choiceActive]}>
-                  <Text style={[styles.choiceText, frequency === item && styles.choiceTextActive]}>{item}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <Muted>Repeat after completion</Muted>
+            <ChoiceRow options={(['none','daily','weekly','monthly','yearly'] as const).map((item) => ({ id: item, label: item[0]!.toUpperCase() + item.slice(1) }))} value={frequency} onChange={setFrequency} />
           </>
         ) : null}
         <Button label={busy ? 'Saving…' : editingItemId ? 'Save corrections' : 'Add to life areas'} onPress={() => void saveItem()} />
@@ -453,28 +440,3 @@ export default function LifeOsScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: colors.ink,
-    fontSize: 16,
-  },
-  choiceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  choice: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  choiceActive: { backgroundColor: colors.ink, borderColor: colors.ink },
-  choiceText: { color: colors.ink, fontSize: 13, fontWeight: '700', textTransform: 'capitalize' },
-  choiceTextActive: { color: '#FFFFFF' },
-});

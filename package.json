@@ -18,7 +18,8 @@
     "model:eval": "node scripts/evaluate-openrouter-routes.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "presubmit:ios": "node scripts/presubmit-ios.mjs"
+    "presubmit:ios": "node scripts/presubmit-ios.mjs",
+    "lint:design": "npm run lint:design -w @apm/mobile"
   },
   "engines": {
     "node": ">=22.13.0"

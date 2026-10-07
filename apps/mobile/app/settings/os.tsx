@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { AREA_OPTIONS } from '../../src/content/areas';
 import { TRACK_DISPLAY_NAMES, type ActiveTrackKey, type OsChangeField, type AreaKey } from '@apm/domain';
-import { Body, Button, Card, CardTitle, ChoiceRow, KeyValue, Label, Screen, SectionTitle, TextField } from '../../src/components/ui';
+import { Body, Button, Card, CardTitle, Chip, ChoiceRow, EmptyState, ErrorState, KeyValue, Label, Screen, SectionTitle, TextField, Toast, uiStyles } from '../../src/components/ui';
+import { TimePicker } from '../../src/components/TimePickerField';
+import { View } from 'react-native';
 import { applyOsChange, discardOsChange, draftOsChange, type OsChangeInput } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { describeOsChange } from '../../src/content/osChange';
@@ -72,8 +74,8 @@ export default function DraftingRoomScreen() {
 
   return (
     <Screen eyebrow="Drafting Room" title="Change a rule without redoing the intake." subtitle="Draft first. Nothing becomes real until you apply it, and an applied change starts tomorrow — today's locked agenda stands.">
-      {message ? <Card tone="accent"><Body>{message}</Body></Card> : null}
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      <Toast tone="success" message={message} />
+      {error ? <ErrorState message={error} /> : null}
       <Card>
         <Label>What do you want to change?</Label>
         <ChoiceRow options={FIELDS} value={field} onChange={(value) => { setField(value); setChoice(undefined); setText(''); }} />
@@ -92,14 +94,15 @@ export default function DraftingRoomScreen() {
           </>
         ) : null}
         {field === 'tracks' ? (
-          <ChoiceRow
-            options={(Object.keys(TRACK_DISPLAY_NAMES) as ActiveTrackKey[]).map((key) => ({ id: key, label: `${tracks.includes(key) ? '✓ ' : ''}${TRACK_DISPLAY_NAMES[key]}` }))}
-            onChange={(key) => setTracks((current) => current.includes(key) ? current.filter((k) => k !== key) : [...current, key])}
-          />
+          <View style={uiStyles.row}>
+            {(Object.keys(TRACK_DISPLAY_NAMES) as ActiveTrackKey[]).map((key) => (
+              <Chip key={key} label={TRACK_DISPLAY_NAMES[key]} selected={tracks.includes(key)} onPress={() => setTracks((current) => current.includes(key) ? current.filter((k) => k !== key) : [...current, key])} />
+            ))}
+          </View>
         ) : null}
         {field === 'track_settings' ? (
           <>
-            <TextField label="Home Front hard stop (HH:MM)" value={hardStop} onChangeText={setHardStop} placeholder="18:00" />
+            <TimePicker label="Home Front hard stop" value={hardStop} onChange={setHardStop} placeholder="No hard stop" allowClear />
             <TextField label="Home Front daily touchpoint" value={touchpoint} onChangeText={setTouchpoint} placeholder="Bedtime story, phone in another room" />
             <TextField label="Body Foundation movement floor" value={movement} onChangeText={setMovement} placeholder="Walk 10 minutes" />
           </>
@@ -117,7 +120,7 @@ export default function DraftingRoomScreen() {
           <Button label="Apply (starts tomorrow)" onPress={() => void run(async () => { const state = await perform((token) => applyOsChange(change.id, token)); setMessage(state.message); })} />
           <Button label="Discard" variant="secondary" onPress={() => void run(async () => { await perform((token) => discardOsChange(change.id, token)); })} />
         </Card>
-      )) : <Card tone="muted"><Body muted>No drafts. In Week 1 changes can be drafted but not applied: the system stabilises first.</Body></Card>}
+      )) : <EmptyState icon="edit-3" title="No drafts" body="In Week 1 changes can be drafted but not applied: the system stabilizes first." />}
 
       {history.length ? <SectionTitle>History</SectionTitle> : null}
       {history.map((change) => (

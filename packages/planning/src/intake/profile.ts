@@ -71,7 +71,7 @@ export function trackRecommendations(a: IntakeAnswers): TrackProposal[] {
     add('resilience', 'Founders burn out; recovery is part of execution.');
   }
   if (helpers.any(a, 'weight', 'athlete')) {
-    add('body_foundation', 'Small body behaviours at a safe pace.');
+    add('body_foundation', 'Small body behaviors at a safe pace.');
     add('strategic_patience', 'Plateaus are data, not a reason to switch programs.');
     add('resilience', 'One slip never becomes a lost week.');
   }
@@ -131,8 +131,8 @@ const GOAL_TEXT: Readonly<Record<string, (n?: number) => string>> = {
   new_role: () => 'Move up: land a new role or company',
   calm_mornings: () => 'Calmer school mornings with my kids',
   present_time: () => 'More present time with my kids',
-  household: () => 'Get the household organised for my family',
-  newborn: () => 'Stabilise a newborn routine for my baby',
+  household: () => 'Get the household organized for my family',
+  newborn: () => 'Stabilize a newborn routine for my baby',
   race: () => 'Train for a race or event',
   stronger: () => 'Get stronger',
   return_injury: () => 'Return from injury safely',
@@ -148,7 +148,7 @@ const GOAL_TEXT: Readonly<Record<string, (n?: number) => string>> = {
   new_job: () => 'Land a new job',
   move: () => 'Settle into a move',
   rebuild: () => 'Rebuild after a loss or breakup',
-  stabilise_money: () => 'Stabilise my savings after a change',
+  stabilise_money: () => 'Stabilize my savings after a change',
 };
 
 export function goalText(a: IntakeAnswers): string {
@@ -424,7 +424,7 @@ export function coachingModeChips(a: IntakeAnswers | { deadlines: string[]; game
   const games = Array.isArray((a as IntakeAnswers).games) ? ((a as IntakeAnswers).games as string[]) : [];
   const chips: IntakeSynthesis['modeChips'] = [
     { mode: 'high_pressure', label: 'High-Pressure', when: 'when stuck or avoiding' },
-    { mode: 'executive_review', label: 'Executive Review', when: 'head full: no new ideas, organise 3 to 7 items' },
+    { mode: 'executive_review', label: 'Executive Review', when: 'head full: no new ideas, organize 3 to 7 items' },
     { mode: 'recovery', label: 'Recovery', when: 'bad day: minimum day, no catch-up' },
   ];
   if (deadlines.some((d) => d !== 'none')) chips.push({ mode: 'sprint', label: 'Sprint', when: 'a deadline is close' });

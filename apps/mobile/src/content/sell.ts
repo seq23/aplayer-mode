@@ -18,7 +18,7 @@ export interface Card { title: string; body: string }
 export const HERO = {
   eyebrow: 'A Player Mode',
   headline: 'Reduce your cognitive load.',
-  sub: 'Whatever game you\'re in, get into A Player Mode. Your personal executive operating system plans, sequences, prioritises and catches you after bad days, so your brain stops holding every project, role, rule and restart alone.',
+  sub: 'Whatever game you\'re in, get into A Player Mode. Your personal executive operating system plans, sequences, prioritizes and catches you after bad days, so your brain stops holding every project, role, rule and restart alone.',
   emptyLine: 'Running on empty? Tap Start. You can stop after 3 minutes with a plan that already works.',
   definitionTitle: 'What A-player mode means',
   definition: [
@@ -77,8 +77,8 @@ export const INSIDE = {
 export const MODES = {
   title: 'Coaching modes, one tap away',
   modes: [
-    { key: 'high_pressure', title: 'High-Pressure Coaching', body: 'When you are stuck or avoiding: cuts through the noise and ends with one stabilising directive.' },
-    { key: 'executive_review', title: 'Executive Review', body: 'When your head is full: no new ideas, no re-diagnosis. Organises the 3 to 7 things you already know.' },
+    { key: 'high_pressure', title: 'High-Pressure Coaching', body: 'When you are stuck or avoiding: cuts through the noise and ends with one stabilizing directive.' },
+    { key: 'executive_review', title: 'Executive Review', body: 'When your head is full: no new ideas, no re-diagnosis. Organizes the 3 to 7 things you already know.' },
     { key: 'recovery', title: 'Recovery', body: 'After a bad day or in a low season: a minimum day, no catch-up, no guilt.' },
     { key: 'sprint', title: 'Sprint', body: 'When a deadline is close: a short, declared push with one foreground only.' },
     { key: 'deep_work', title: 'Deep Work', body: 'Protects one uninterrupted focus block for one hard task.' },
@@ -91,7 +91,7 @@ const TRACK_PURPOSES: Readonly<Record<ActiveTrackKey, string>> = {
   operator_discipline: 'The morning plan is executed as written; changes are declared, never drifted into.',
   strategic_patience: 'No premature pivots before the evidence and the 30/60/90 gates justify a change.',
   resilience: 'Protects recovery capacity so a volatile season never breaks continuity.',
-  body_foundation: 'Small, tracked body behaviours at a safe pace. Never diet or medical advice.',
+  body_foundation: 'Small, tracked body behaviors at a safe pace. Never diet or medical advice.',
   wealth_foundation: 'Save by default, one debt at a time, buffer before bets. Never product advice.',
   home_front: 'Family time is scheduled and defended like the most important meeting of the week.',
 };
@@ -114,11 +114,11 @@ export const SITUATIONS = {
     ['You wake up with resistance', 'Morning Start Sequence'],
     ['You missed yesterday', 'Recovery Day'],
     ['You missed a day and feel shame', 'No-Catch-Up reset'],
-    ['You are overwhelmed', 'Stabilisation'],
+    ['You are overwhelmed', 'Stabilization'],
     ['Too many priorities', 'Arbitration'],
     ['You are burned out', 'Minimum Viable Day'],
     ['You lost momentum', 'Re-entry'],
-    ['You want to rebuild your whole system', 'No-Redesign stabilisation'],
+    ['You want to rebuild your whole system', 'No-Redesign stabilization'],
   ] as ReadonlyArray<readonly [string, string]>,
   close: 'No guessing. No negotiating with yourself. No rebuilding systems.',
 } as const;
@@ -137,8 +137,8 @@ export const WITHOUT_WITH = {
   with: {
     label: 'A Player Mode',
     lines: [
-      'You: "I\'m avoiding everything and want to reorganise my whole system."',
-      'APM: "Don\'t reorganise. Today is a stabilisation day: one 20-minute action on one project. Name the step."',
+      'You: "I\'m avoiding everything and want to reorganize my whole system."',
+      'APM: "Don\'t reorganize. Today is a stabilization day: one 20-minute action on one project. Name the step."',
       'You: "The investor follow-ups I\'ve been avoiding."',
       'APM: "Send 2, not all of them. Then tell me done."',
     ],
@@ -223,7 +223,7 @@ export const TIER_GRID_WHAT = {
   title: 'What you no longer think about',
   columns: PAID.map((plan) => `${PLAN_PRICES[plan].displayName} (${plan === 'chief_of_staff' ? 'plans it' : plan === 'life_os' ? 'acts on your yes' : 'handles it'})`),
   rows: [
-    { label: '"What should I do today?"', cells: ['Agenda arrives, already prioritised', '+ covers family, home, health, money', '+ books the time on your calendar'] },
+    { label: '"What should I do today?"', cells: ['Agenda arrives, already prioritized', '+ covers family, home, health, money', '+ books the time on your calendar'] },
     { label: '"Am I forgetting something?"', cells: ['Radar catches dropped promises and deadlines', '+ birthdays, bills, appointments, renewals', '+ sends the follow-ups and confirmations'] },
     { label: '"How do I even start this goal?"', cells: ['Turns the goal into a plan and daily steps', '+ the supporting logistics', '+ books it and keeps it booked'] },
     { label: '"I missed yesterday, now I\'m behind"', cells: ['Minimum day, no catch-up, no guilt', '+ pushes back non-urgent life tasks', '+ reschedules and sends the "need to move" notes'] },

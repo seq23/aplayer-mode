@@ -158,7 +158,7 @@ const PERSONA_COMPOUNDING: Record<string, number> = {
 
 /**
  * Billionaire High Performance Coach Track (BHPC v2.1 Appendix A, Track 1) shapes
- * project prioritisation: "prefer ownership to income", "favor asymmetric upside over
+ * project prioritization: "prefer ownership to income", "favor asymmetric upside over
  * linear effort", "default to long-term compounding". Ownership plans gain leverage and
  * compounding; a linear-income plan loses leverage. The user's pinned foreground still wins.
  */
@@ -649,7 +649,7 @@ export function continuityView(dayRecords: Pick<DayRecord, 'day' | 'verdict'>[],
   });
 }
 
-/** One behavioural pattern, named without judgement (no gap analysis, no shame). */
+/** One behavioral pattern, named without judgment (no gap analysis, no shame). */
 export function dayInsight(continuity: ContinuityDay[], verdict: 'full_day' | 'mvd' | 'miss'): string {
   const shown = continuity.filter((day) => day.verdict);
   const counted = shown.filter((day) => day.verdict !== 'miss').length;

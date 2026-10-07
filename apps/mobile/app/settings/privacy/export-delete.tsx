@@ -4,8 +4,10 @@ import {
   Button,
   Card,
   CardTitle,
+  ErrorState,
   Screen,
   SectionTitle,
+  Toast,
 } from '../../../src/components/ui';
 import { exportMyData, requestDeletion } from '../../../src/api/apmApi';
 import { router } from 'expo-router';
@@ -48,8 +50,8 @@ export default function ExportDeleteScreen() {
       title="Your data should not be trapped."
       subtitle="Take a copy of everything APM holds, or delete your account and all of it."
     >
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
-      {message ? <Card tone="accent"><Body>{message}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
+      <Toast tone="success" message={message} />
 
       <SectionTitle>Export</SectionTitle>
       <Card>

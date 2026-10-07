@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { router } from 'expo-router';
-import { Body, Button, Card, CardTitle, KeyValue, Label, Screen, SectionTitle, TextField } from '../src/components/ui';
+import { Body, Button, Card, CardTitle, ErrorState, KeyValue, Label, Screen, SectionTitle, TextField } from '../src/components/ui';
 import { completeWeeklyReview, fetchWeeklyDebrief, type WeeklyDebriefView } from '../src/api/apmApi';
 import { useLifeGraph } from '../src/state/lifeGraph';
 import { useSession } from '../src/state/session';
@@ -35,7 +35,7 @@ export default function WeeklyReviewScreen() {
 
   return (
     <Screen eyebrow="Weekly debrief" title="Executive Review." subtitle={debrief?.executiveReview.open ?? "Here's what you already know that still makes you better:"}>
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      {error ? <ErrorState message={error} /> : null}
       {debrief ? (
         <>
           <Card tone="accent">

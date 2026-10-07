@@ -1,4 +1,4 @@
-import { Text, View, StyleSheet } from 'react-native';
+import { View } from 'react-native';
 import {
   CARRY_DO,
   bedRoutineFor,
@@ -9,8 +9,7 @@ import {
   type InterstitialDef,
 } from '@apm/planning';
 import { PLAN_PRICES } from '@apm/policy';
-import { Body, Card, CardTitle, Label } from '../ui';
-import { colors, radius, spacing } from '../../theme';
+import { Body, Card, CardTitle, Fill, Label, Pill, QuestionTitle, Row } from '../ui';
 import { intakeStyles } from './primitives';
 
 const WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -18,7 +17,7 @@ const arr = (a: IntakeAnswers, id: string) => (Array.isArray(a[id]) ? (a[id] as 
 
 /** Playback interstitials (docs/34 §10): each one shows her own answers back, and what APM now does. */
 export function Interstitial({ it, answers }: { it: InterstitialDef; answers: IntakeAnswers }) {
-  const heading = <Text accessibilityRole="header" style={intakeStyles.heading}>{it.title}</Text>;
+  const heading = <QuestionTitle>{it.title}</QuestionTitle>;
   if (it.kind === 'heard') {
     return (
       <View style={intakeStyles.stack}>
@@ -80,16 +79,18 @@ export function Interstitial({ it, answers }: { it: InterstitialDef; answers: In
     return (
       <View style={intakeStyles.stack}>
         {heading}
-        <View style={styles.week}>
+        <Card>
           {WEEK.map((day) => (
-            <View key={day} style={styles.day} accessible accessibilityLabel={`${day}: ${arr(answers, 'heavy').includes(day) ? 'heavy' : arr(answers, 'light').includes(day) ? 'light' : 'normal'}`}>
-              <Text style={styles.dayName}>{day}</Text>
-              <Text style={styles.dayKind}>{arr(answers, 'heavy').includes(day) ? 'Heavy' : arr(answers, 'light').includes(day) ? 'Light' : 'Normal'}</Text>
-              {answers.review === day ? <Text style={styles.dayTag}>Review</Text> : null}
-              {answers.recovery === day ? <Text style={styles.dayTag}>Recovery</Text> : null}
+            <View key={day} accessible accessibilityLabel={`${day}: ${arr(answers, 'heavy').includes(day) ? 'heavy' : arr(answers, 'light').includes(day) ? 'light' : 'normal'}`}>
+              <Row gap="sm">
+                <Fill><Body strong>{day}</Body></Fill>
+                <Pill tone={arr(answers, 'heavy').includes(day) ? 'warning' : arr(answers, 'light').includes(day) ? 'success' : 'neutral'}>{arr(answers, 'heavy').includes(day) ? 'Heavy' : arr(answers, 'light').includes(day) ? 'Light' : 'Normal'}</Pill>
+                {answers.review === day ? <Pill tone="accent">Review</Pill> : null}
+                {answers.recovery === day ? <Pill tone="accent">Recovery</Pill> : null}
+              </Row>
             </View>
           ))}
-        </View>
+        </Card>
         <Body muted>Big tasks land on heavy days, light days stay light, and the review shows up on its own.</Body>
       </View>
     );
@@ -125,11 +126,3 @@ export function BedRoutineCard({ moves, gentle, note }: { moves: ReadonlyArray<{
     </Card>
   );
 }
-
-const styles = StyleSheet.create({
-  week: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  day: { width: '13%', minWidth: 44, padding: spacing.xs, borderRadius: radius.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', gap: 2 },
-  dayName: { fontWeight: '800', color: colors.ink },
-  dayKind: { fontSize: 12, color: colors.inkMuted },
-  dayTag: { fontSize: 11, color: colors.accent, fontWeight: '800' },
-});

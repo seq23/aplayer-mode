@@ -1,5 +1,4 @@
 import { router } from 'expo-router';
-import { View } from 'react-native';
 import {
   Body,
   Button,
@@ -7,8 +6,9 @@ import {
   CardTitle,
   Pill,
   Screen,
+  Row,
   SectionTitle,
-  uiStyles,
+  EmptyState,
 } from '../../src/components/ui';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 
@@ -23,17 +23,14 @@ export default function RadarScreen() {
       title="What APM sees coming."
       subtitle="Deterministic signals only for now. If APM cannot explain the signal from your state, it should not surface it."
     >
-      <View style={uiStyles.row}>
-        <Pill tone={highAttention.length > 0 ? 'warning' : 'success'}>{highAttention.length} high attention</Pill>
-        <Pill>{items.length} open</Pill>
-      </View>
+      <Row wrap gap="xs">
+        <Pill tone={highAttention.length > 0 ? 'warning' : 'success'}>{`${highAttention.length} high attention`}</Pill>
+        <Pill>{`${items.length} open`}</Pill>
+      </Row>
 
       <SectionTitle>Needs attention</SectionTitle>
       {items.length === 0 ? (
-        <Card tone="muted">
-          <CardTitle>Nothing justified right now.</CardTitle>
-          <Body muted>Radar is intentionally quiet until durable state gives APM a reason to interrupt you.</Body>
-        </Card>
+        <EmptyState icon="compass" title="Nothing justified right now." body="Radar is intentionally quiet until durable state gives APM a reason to interrupt you." />
       ) : (
         items.map((item) => (
           <Card key={item.id} tone={item.severity === 'critical' || item.severity === 'high' ? 'warning' : 'default'}>

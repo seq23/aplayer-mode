@@ -2,7 +2,7 @@
  * The 10-minute in-bed mobility routine (owner decision 7 Oct 2026). Asked of everyone:
  * "Is getting out of bed hard for you?" Yes or Sometimes → APM generates this routine as
  * morning step 1. APM picks the moves and the order; she follows the prompts with her eyes
- * half open. Pilates-style, no equipment. Behavioural only, never treatment.
+ * half open. Pilates-style, no equipment. Behavioral only, never treatment.
  *
  * Gentle variant: when the body safety question was answered "Yes, one or more" or
  * "Prefer not to say", every move runs in a small, pain-free range and the two loaded
