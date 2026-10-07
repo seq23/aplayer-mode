@@ -247,14 +247,39 @@ export async function pauseBodyCoachingIfFlagged(
   return true;
 }
 
-/** Rebuilds every live weight-loss plan from the current Personal OS (referral or clearance). */
-export async function rebuildBodyPlans(env: ApiEnv, accessToken: string, userId: string, source: 'referral' | 'clearance', now: Date): Promise<void> {
+/**
+ * Rebuilds live plans from the current Personal OS WITHOUT restarting them: the plan keeps
+ * its original start date, so its 90 days, gates and day index continue (the database
+ * refuses a rebuild that moves the start: loop_plan_restart_refused, 0035).
+ */
+async function rebuildPlans(
+  env: ApiEnv, accessToken: string, userId: string, source: 'referral' | 'clearance' | 'os_change',
+  affected: (entry: ReturnType<typeof planEntries>[number]) => boolean, extra: { clinicianCleared?: boolean } = {},
+): Promise<number> {
   const graph = await getLifeGraph(env, accessToken, userId);
+  let rebuilt = 0;
   for (const entry of planEntries(graph)) {
-    if (entry.plan.persona.foregroundPersona !== 'weight_loss' || entry.record.status !== 'active') continue;
+    if (entry.record.status !== 'active' || !affected(entry)) continue;
     const goal = graph.goals.find((candidate) => candidate.id === entry.record.goalId);
     if (!goal) continue;
-    const plan = generateGoalPlan(goalText(goal), planContextFromGraph(graph, { startDate: localToday(graph, now), goal, ...(source === 'clearance' ? { clinicianCleared: true } : {}) }));
+    const plan = generateGoalPlan(goalText(goal), planContextFromGraph(graph, { startDate: entry.record.startDate, goal, ...extra }));
     await saveGoalPlan(env, userId, goal.id, plan, source);
+    rebuilt += 1;
   }
+  return rebuilt;
+}
+
+/** Rebuilds every live weight-loss plan (referral or clearance), keeping its 90 days. */
+export async function rebuildBodyPlans(env: ApiEnv, accessToken: string, userId: string, source: 'referral' | 'clearance', _now: Date): Promise<void> {
+  await rebuildPlans(env, accessToken, userId, source, (entry) => entry.plan.persona.foregroundPersona === 'weight_loss',
+    source === 'clearance' ? { clinicianCleared: true } : {});
+}
+
+/**
+ * A Drafting Room pillar change (its minimum floor) regenerates the floors of every live
+ * plan that has actions in that pillar, keeping each plan's 90 days.
+ */
+export async function rebuildPlansForPillar(env: ApiEnv, accessToken: string, userId: string, pillar: string): Promise<number> {
+  return rebuildPlans(env, accessToken, userId, 'os_change', (entry) =>
+    entry.plan.foreground.pillar === pillar || Object.values(entry.plan.actions).some((action) => action.pillar === pillar));
 }

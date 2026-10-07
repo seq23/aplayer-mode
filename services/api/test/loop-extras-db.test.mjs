@@ -124,17 +124,29 @@ test('the Drafting Room: draft → validate → apply from tomorrow; Week 1 bloc
 
 test('the Body red-flag pause persists until clearance; a body plan saved meanwhile must carry it', async () => {
   const today = await localToday(USER);
-  const unpaused = planning.generateGoalPlan('lose 30 lbs', { roles: [], startDate: today });
+  // The plan started 10 days ago; a referral or clearance rebuild must not restart it (0035).
+  const started = shift(today, -10);
+  const original = planning.generateGoalPlan('lose 30 lbs', { roles: [], startDate: started });
+  const live = await svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(original), 'goals']);
+  await admin(`update public.goal_plans set gate_reviews = '{"foundation": {"verdict": "maintain"}}' where id = $1`, [live.id]);
+  const unpaused = planning.generateGoalPlan('lose 30 lbs', { roles: [], startDate: started });
   await rpc(USER, 'apm_flag_body_referral', ['diary']);
   await rejects(svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(unpaused), 'goals']), /loop_body_referral_active/);
-  const paused = planning.generateGoalPlan('lose 30 lbs', { roles: [], startDate: today, body: { referralActive: true } });
+  const restarted = planning.generateGoalPlan('lose 30 lbs', { roles: [], startDate: today, body: { referralActive: true } });
+  await rejects(svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(restarted), 'referral']), /loop_plan_restart_refused/, 'a referral rebuild never restarts the 90 days');
+  const paused = planning.generateGoalPlan('lose 30 lbs', { roles: [], startDate: started, body: { referralActive: true } });
   const stored = await svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(paused), 'referral']);
   assert.equal(stored.plan.safety.referral, true);
+  assert.deepEqual([stored.start_date, stored.end_date], [started, shift(started, 89)], 'same 90 days');
+  assert.deepEqual(stored.gate_reviews, { foundation: { verdict: 'maintain' } }, 'gate reviews survive the rebuild');
   assert.equal((await admin('select private.apm_loop_track_floor_allowed($1, $2) a', [USER, 'track:body_floor'])).rows[0].a, false, 'no body floor while paused');
   const cleared = await rpc(USER, 'apm_record_clinician_clearance', []);
   assert.ok(cleared.clinicianClearedAt);
   await rejects(rpc(USER, 'apm_record_clinician_clearance', []), /loop_no_referral/);
-  await svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(unpaused), 'clearance']);
+  await rejects(svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(planning.generateGoalPlan('lose 30 lbs', { roles: [], startDate: today })), 'clearance']), /loop_plan_restart_refused/);
+  await rejects(svc('apm_service_save_goal_plan', [USER, '00000000-0000-4000-8000-00000000dead', JSON.stringify(unpaused), 'os_change']), /loop_plan_restart_refused|loop_goal_not_found/);
+  const clearedPlan = await svc('apm_service_save_goal_plan', [USER, GOAL, JSON.stringify(unpaused), 'clearance']);
+  assert.equal(clearedPlan.start_date, started, 'clearance keeps the 90 days too');
   assert.equal((await admin('select private.apm_loop_track_floor_allowed($1, $2) a', [USER, 'track:body_floor'])).rows[0].a, true);
   assert.equal((await admin('select private.apm_loop_track_floor_allowed($1, $2) a', [USER, 'track:home_touchpoint'])).rows[0].a, false, 'Home Front is not active');
 });
@@ -145,15 +157,17 @@ test('Phase Bridge, Return/Reset and REPRINT on the day record', async () => {
   const back = await rpc(USER, 'apm_day_return_reset', []);
   assert.ok(back.returned_at);
   const stored = (await admin(`select * from public.goal_plans where goal_id = '${GOAL}' and status = 'active'`)).rows[0];
-  const entry = { record: { id: stored.id, goalId: GOAL, status: 'active', gateReviews: {}, startDate: stored.start_date }, plan: stored.plan };
-  const agenda = planning.composeAgenda({ date: today, state: 'normal', plans: [entry], goals: [{ id: GOAL, title: 'lose 30 lbs', status: 'active', priority: 1 }], completions: [], morningSequence: [] });
-  await svc('apm_service_day_check_in', [USER, today, 7, 'normal', JSON.stringify(agenda)]);
+  const entry = { record: { id: stored.id, goalId: GOAL, status: 'active', gateReviews: stored.gate_reviews ?? {}, startDate: stored.plan.startDate }, plan: stored.plan };
+  // The plan kept its original start (day 11), and nothing was done yesterday: Never Miss Twice.
+  const agenda = planning.composeAgenda({ date: today, state: 'missed_yesterday', plans: [entry], goals: [{ id: GOAL, title: 'lose 30 lbs', status: 'active', priority: 1 }], completions: [], morningSequence: [] });
+  await svc('apm_service_day_check_in', [USER, today, 7, 'missed_yesterday', JSON.stringify(agenda)]);
+  await rejects(rpc(USER, 'apm_set_day_phase', ['executing']), /loop_first_hour_not_started/, 'the stack opens only after the First Hour begins');
   assert.equal((await rpc(USER, 'apm_set_day_phase', ['first_hour'])).phase, 'first_hour');
   assert.equal((await rpc(USER, 'apm_set_day_phase', ['executing'])).phase, 'executing');
   assert.equal((await rpc(USER, 'apm_set_day_phase', ['first_hour'])).phase, 'executing', 'the phase never moves back');
 
   await rejects(rpc(USER, 'apm_service_day_reprint', [USER, today, JSON.stringify(agenda)]), /permission denied/, 'REPRINT is server-derived too');
-  await rejects(svc('apm_service_day_reprint', [USER, today, JSON.stringify({ ...agenda, mode: 'recovery' })]), /loop_invalid_agenda/, 'a reprint never changes scope');
+  await rejects(svc('apm_service_day_reprint', [USER, today, JSON.stringify({ ...agenda, mode: agenda.mode === 'recovery' ? 'standard' : 'recovery' })]), /loop_invalid_agenda/, 'a reprint never changes scope');
   const reprinted = await svc('apm_service_day_reprint', [USER, today, JSON.stringify(agenda)]);
   assert.equal(reprinted.reprint_count, 1);
   for (let i = 0; i < 4; i += 1) await svc('apm_service_day_reprint', [USER, today, JSON.stringify(agenda)]);

@@ -145,6 +145,8 @@ test('the end-of-day close is validated, local-day, audited, and keeps one carry
   await rejects(call(['mvd', 'full_day', review, null, null, null]), /loop_verdict_needs_evidence/, 'a win needs completion evidence');
   const today = (await admin('select private.apm_local_today($1)::text d', [DUE])).rows[0].d;
   const locked = (await admin('select agenda from public.day_records where user_id = $1 and day = $2::date', [DUE, today])).rows[0].agenda;
+  await rejects(asRole('authenticated', DUE, 'select public.apm_complete_plan_action($1, $2, null)', [locked.firstHour.priority.planId, locked.firstHour.priority.actionKey]), /loop_first_hour_not_started/);
+  await asRole('authenticated', DUE, "select public.apm_set_day_phase('first_hour')");
   await asRole('authenticated', DUE, 'select public.apm_complete_plan_action($1, $2, null)', [locked.firstHour.priority.planId, locked.firstHour.priority.actionKey]);
   const closed = (await call(['mvd', 'full_day', review, 'Long day', 'Call the bank about the card', 'Minimum Viable Day kept the chain.'])).rows[0].r;
   assert.equal(closed.day, (await admin('select private.apm_local_today($1)::text d', [DUE])).rows[0].d);

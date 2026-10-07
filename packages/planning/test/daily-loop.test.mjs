@@ -222,3 +222,47 @@ test('carry-forward joins a normal next day once, is held on a recovery day, and
   assert.match(dayInsight(continuity, 'miss'), /data/);
   assert.doesNotMatch(dayInsight(continuity, 'miss'), /fail|lazy|should have/i, 'no shame language');
 });
+
+test('Billionaire Mindset (Track 1) shapes arbitration: ownership outranks linear income; the pinned foreground still wins', () => {
+  const g = [
+    { id: 'g-promo', title: 'Get promoted to engineering manager', status: 'active', priority: 1 },
+    { id: 'g-found', title: 'Launch my startup and reach 10 paying customers', status: 'active', priority: 2 },
+  ];
+  const promo = entry('p-promo', 'g-promo', 'Get promoted to engineering manager');
+  const found = entry('p-found', 'g-found', 'Launch my startup and reach 10 paying customers');
+  assert.equal(promo.plan.persona.key, 'operator_promotion');
+  assert.equal(found.plan.persona.key, 'founder');
+  const plain = selectForeground({ plans: [promo, found], goals: g, date: START, completions: [] });
+  const shaped = selectForeground({ plans: [promo, found], goals: g, date: START, completions: [], trackKeys: ['billionaire_mindset'] });
+  const score = (sel, id) => sel.arbitration.ranked.find((r) => r.id === id).score;
+  assert.ok(score(shaped, 'p-found') > score(plain, 'p-found'), 'ownership gains with the Track');
+  assert.ok(score(shaped, 'p-promo') < score(plain, 'p-promo'), 'linear income loses with the Track');
+  assert.equal(shaped.foreground.record.id, 'p-found');
+  const pinned = selectForeground({ plans: [promo, found], goals: g, foregroundGoalId: 'g-promo', date: START, completions: [], trackKeys: ['billionaire_mindset'] });
+  assert.equal(pinned.foreground.record.id, 'p-promo', 'a Track is a filter; only the user moves the foreground');
+
+  // composeAgenda passes the active Tracks to arbitration and says so.
+  const agenda = composeAgenda({ date: START, state: 'normal', plans: [promo, found], goals: g, completions: [], morningSequence: [],
+    tracks: { active: ['billionaire_mindset'], roles: [], settings: {}, referral: false, calendar: [], familyBlocks: [], recentVerdicts: [] } });
+  assert.equal(agenda.foregroundPriority.goalId, 'g-found');
+  assert.ok(agenda.reasons.includes('track.billionaire.arbitration'));
+  assert.ok(agenda.trackFlags.some((flag) => flag.code === 'billionaire.prioritised'));
+});
+
+test('Billionaire Mindset shapes Today: strategic work is framed by the four filters, linear effort is challenged, nothing is added', () => {
+  const g = [{ id: 'g-found', title: 'Launch my startup and reach 10 paying customers', status: 'active', priority: 1 }];
+  const found = entry('p-found', 'g-found', 'Launch my startup and reach 10 paying customers');
+  const ctx = (active) => ({ active, roles: [], settings: {}, referral: false, calendar: [], familyBlocks: [], recentVerdicts: [] });
+  const base = composeAgenda({ date: START, state: 'normal', plans: [found], goals: g, foregroundGoalId: 'g-found', completions: [], morningSequence: [], tracks: ctx([]) });
+  const shaped = composeAgenda({ date: START, state: 'normal', plans: [found], goals: g, foregroundGoalId: 'g-found', completions: [], morningSequence: [], tracks: ctx(['billionaire_mindset']),
+    nextActions: [{ id: 'na-1', title: 'Pick up an extra shift on Saturday', goalId: 'g-found', status: 'open', estimatedMinutes: 30 }] });
+  assert.equal(base.trackFlags.some((flag) => flag.track === 'billionaire_mindset'), false);
+  assert.equal(shaped.firstHour.priority.pillar, 'execution');
+  assert.ok(shaped.trackFlags.some((flag) => flag.code === 'billionaire.decision_frame' && /10 years/.test(flag.message)), 'strategic decision framing');
+  assert.ok(agendaItems(shaped).some((item) => /extra shift/i.test(item.title)));
+  const linear = shaped.trackFlags.filter((flag) => flag.code === 'billionaire.leverage_check');
+  assert.equal(linear.length, 1, 'linear effort is challenged for leverage');
+  assert.match(linear[0].message, /extra shift/);
+  assert.equal(agendaItems(shaped).length, agendaItems(composeAgenda({ date: START, state: 'normal', plans: [found], goals: g, foregroundGoalId: 'g-found', completions: [], morningSequence: [], tracks: ctx([]),
+    nextActions: [{ id: 'na-1', title: 'Pick up an extra shift on Saturday', goalId: 'g-found', status: 'open', estimatedMinutes: 30 }] })).length, 'a Track never adds tasks');
+});

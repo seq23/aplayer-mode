@@ -60,7 +60,7 @@ import {
 } from './autopilotRepository';
 import { notifyRadarItems } from './push';
 import { workPushHold } from './morningTrigger';
-import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, rebuildBodyPlans, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
+import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, rebuildBodyPlans, rebuildPlansForPillar, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
   applyOsChange,
   asLoopError,
@@ -886,7 +886,14 @@ app.post('/v1/os/changes', async (c) => {
 app.post('/v1/os/changes/:id/apply', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   let applied;
-  try { applied = await applyOsChange(c.env, user.accessToken, c.req.param('id')); }
+  try {
+    applied = await applyOsChange(c.env, user.accessToken, c.req.param('id'));
+    // A pillar-floor change regenerates the affected plans' floors (their 90 days continue).
+    const proposed = (applied as { proposed?: { name?: unknown } }).proposed;
+    if (applied.field === 'pillar' && typeof proposed?.name === 'string') {
+      await rebuildPlansForPillar(c.env, user.accessToken, user.id, proposed.name);
+    }
+  }
   catch (error) { return loopFailure(c, error); }
   return c.json({ change: applied, message: `Applied. It takes effect from ${applied.effective_from}: today's locked agenda is not rewritten.`, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });
@@ -942,6 +949,8 @@ app.post('/v1/goals', async (c) => {
     goals: state.graph.goals,
     date: localToday(state.graph, now),
     completions: state.graph.planCompletions,
+    // Track rules shape arbitration, not only new-goal filters (Billionaire Mindset).
+    trackKeys: [...activeTracks],
   });
   return c.json({
     goalId: created.goal.id,
