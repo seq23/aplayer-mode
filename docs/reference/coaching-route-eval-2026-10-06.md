@@ -84,7 +84,7 @@ call (free-tier cap) until its route budget ran out. Over runs 3, 4 and 6 Mistra
 
 `recovery_no_catch_up` passed 3/3 in both local runs with no guard trip.
 
-**Pending promotion:** [`0091_promote_coaching_route.sql`](0091_promote_coaching_route.sql) — ready to
+**Promotion (approved 2026-10-07):** [`0091_promote_coaching_route.sql`](../../services/api/migrations/0091_promote_coaching_route.sql) — ready to
 apply after the owner's sign-off; not in `services/api/migrations`, not applied.
 
 ## Data policy as checked (2026-10-06)
