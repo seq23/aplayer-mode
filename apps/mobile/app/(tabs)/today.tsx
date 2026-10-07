@@ -24,7 +24,7 @@ function timeLabel(value?: string) {
 }
 
 export default function TodayScreen() {
-  const { graph, todayPlan, completeNextAction, isDurable, syncError, refresh } = useLifeGraph();
+  const { graph, todayPlan, modeState, completeNextAction, isDurable, syncError, refresh } = useLifeGraph();
   const { accessToken } = useSession();
   const [busy, setBusy] = useState(false);
   const [busyActionId, setBusyActionId] = useState<string>();
@@ -35,7 +35,7 @@ export default function TodayScreen() {
   const completionEvidence = graph.evidence.find((item) => item.relatedActionId === primaryAction?.id);
   const firstRadarItem = graph.radarItems[0];
   const name = graph.identity.displayName || 'there';
-  const mode = todayPlan?.mode ?? graph.personalOS?.activeMode ?? 'standard';
+  const mode = modeState?.mode ?? todayPlan?.mode ?? graph.personalOS?.activeMode ?? 'standard';
   const recovery = mode === 'recovery';
   const approvals = (todayPlan?.approvalActionIds ?? [])
     .map((id) => graph.actions.find((action) => action.id === id))
@@ -84,6 +84,8 @@ export default function TodayScreen() {
       </View>
 
       {!isDurable ? <Card tone="warning"><CardTitle>APM is not pretending local state is durable.</CardTitle><Body muted>{syncError ?? 'Reconnect the authenticated APM API before changing private Life Graph state.'}</Body></Card> : null}
+
+      {modeState?.todayEffect && (mode === 'sprint' || mode === 'deep_work') ? <Card tone="accent"><Label>{mode === 'sprint' ? 'Sprint' : 'Deep Work'}</Label><CardTitle>{modeState.todayEffect.summary}</CardTitle>{modeState.todayEffect.heldBlocks.length ? <Body muted>{modeState.todayEffect.heldBlocks.length} item(s) held {mode === 'sprint' ? 'in maintenance' : 'until the block ends'}.</Body> : null}</Card> : null}
 
       {recovery ? <Card tone="warning"><Label>Minimum Viable Day</Label><CardTitle>One useful thing. No catch-up debt.</CardTitle><Body muted>Continuity beats intensity today. Completing the smallest critical move is enough.</Body></Card> : null}
 

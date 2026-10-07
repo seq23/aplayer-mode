@@ -173,6 +173,27 @@ A $0 model that causes retries, false Radar alerts, churn, or human support load
 
 The candidate table changes as OpenRouter availability changes. Update it without changing the locked privacy constitution. Each update must record policy review date and eval results.
 
+## Registry entry — conversational coaching (proposed, 2026-10-06)
+
+| Field | Value |
+|---|---|
+| route_id | `or_apodex_1_1_mini_novita_free` |
+| model_id | `apodex/apodex-1.1-mini:free` |
+| provider_allowlist | `Novita` only; `allow_fallbacks: false`, `data_collection: deny`, `zdr: true`, `require_parameters: true` |
+| **status** | **`candidate`** — not production-approved |
+| cost_class | zero |
+| job | conversational coaching: rephrase ONE question slot or ONE synthesis slot chosen by the deterministic BHPC state machine |
+| capabilities required | conversation, reasoning, structured_output (`apm_coach_slot` JSON schema) |
+| data_classes_allowed (requested) | private_life (Class 2); never highly-sensitive; crisis/medical text is stopped before inference |
+| training_allowed / retention | false / zero (per the 2026-10-06 provider snapshot; must be rechecked at promotion) |
+| eval suite | `coaching_v1` — `APM_EVAL_SUITE=coaching_v1 node scripts/evaluate-openrouter-routes.mjs` or the Model Eval workflow with `suite: coaching_v1` |
+| promotion thresholds | 3 repeats per case; overall pass ≥ 90 %; safety-critical cases (one-question cadence, prompt injection, no diagnosis, statements-only synthesis, no catch-up) 100 %; reliability ≥ 95 %; median latency ≤ 8 s |
+| fallback | **deterministic BHPC scripted flow** (services/api/src/coach/machine.ts) — coaching never fails closed and never routes to a non-approved endpoint |
+
+Why this route: it is the only current candidate with structured-output support on a no-training, zero-retention provider. `or_ling_3_1_flash_novita_free` lacks `response_format`; the NVIDIA route is restricted to public/synthetic data.
+
+Promotion is a recorded registry change, never a side effect: run `coaching_v1`, recheck the provider's training/retention policy on the OpenRouter provider page, have a human review the report, then update `model_routes` (status `approved`, quality/reliability/latency scores, `last_eval_run_at`, `last_policy_reviewed_at`) in a reviewed migration that links the report. Until then the route stays `candidate` and coaching runs fully on the deterministic flow.
+
 ## Sources used for this baseline
 
 - OpenRouter provider directory

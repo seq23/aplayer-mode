@@ -63,7 +63,7 @@ Current source program includes:
 - provider-neutral calendar fabric;
 - Gmail/Outlook commitment extraction foundations;
 - fail-closed OpenRouter privacy routing + candidate evaluation workflow;
-- live coaching source behind approved-model gate;
+- BHPC coaching state machine + the five Modes as deterministic state (works with no model; an approved route may only rephrase a slot);
 - Radar/Today context integration;
 - permissioned Action Engine;
 - push registration/evaluation;

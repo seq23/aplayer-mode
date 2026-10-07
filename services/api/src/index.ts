@@ -12,7 +12,6 @@ import {
   getLifeGraph,
   saveMethodologyIntake,
   saveOnboarding,
-  setOperatingMode,
 } from './lifeGraphRepository';
 import {
   closeDay,
@@ -39,6 +38,10 @@ import { buildOAuthAuthorizationUrl, exchangeAndStoreOAuthConnection } from './c
 import { syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
+import { COACH_CHOICES } from './coach/machine';
+import { applyModeToPlan, modeView, reconcileModeState, transitionMode, type ModeEvent, type ModeRequest, type ModeState } from './coach/modes';
+import { ACTIVE_TRACK_KEYS } from './coach/tracks';
+import { getModeState, saveModeState } from './modeRepository';
 import { approveAndMaybeExecuteAction, prepareAction } from './actionEngine';
 import {
   autopilotErrorResponse,
@@ -59,7 +62,7 @@ type WorkerEnv = { Bindings: ApiEnv };
 const app = new Hono<WorkerEnv>();
 
 const pillarSchema = z.enum(['wealth', 'body', 'spirit', 'execution']);
-const trackSchema = z.enum(['billionaire_mindset','operator_discipline','strategic_patience','manifestation_mastery','investor_ai_leverage','resilience']);
+const trackSchema = z.enum(ACTIVE_TRACK_KEYS);
 const modeSchema = z.enum(['standard','recovery','high_pressure','executive_review','sprint','deep_work']);
 const providerSchema = z.enum(['google','microsoft']);
 const integrationKindSchema = z.enum(['calendar','email']);
@@ -178,8 +181,9 @@ const methodologyIntakeSchema = onboardingSchema.extend({
   accountability: z.object({ dayStart: z.enum(['guided','hard']), coachingReminderAfterDays: z.number().int().min(1).max(60).optional() }),
   criticalPillars: z.array(pillarSchema).max(4),
   minimumFloors: z.object({ wealth: z.string().trim().max(300).optional(), body: z.string().trim().max(300).optional(), spirit: z.string().trim().max(300).optional(), execution: z.string().trim().max(300).optional() }),
-  trackKeys: z.array(trackSchema).max(6),
-  activeMode: modeSchema.optional(),
+  trackKeys: z.array(trackSchema).max(ACTIVE_TRACK_KEYS.length),
+  // Sprint and Deep Work need a declared duration, so they start only via POST /v1/methodology/mode.
+  activeMode: z.enum(['standard','recovery','high_pressure','executive_review']).optional(),
   morningSequence: z.array(z.string().trim().min(1).max(240)).max(5).optional(),
   schedulingPreference: z.enum(['strict_blocks','loose_dayparts','ordered_stack']).optional(),
   hardBoundaries: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
@@ -321,10 +325,38 @@ const deviceCalendarEventSchema = z.object({
   sourceVersion: z.string().max(500).optional(), deleted: z.boolean().optional(),
 });
 
+async function persistModeEvents(env: ApiEnv, accessToken: string, userId: string, events: ModeEvent[], state: ModeState, actor: 'user' | 'system') {
+  if (!events.length) return;
+  await supabaseRest(env, accessToken, '/rest/v1/audit_events', {
+    method: 'POST', headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify(events.map((event) => ({ user_id: userId, event_type: event, actor_type: actor, object_type: 'personal_os', object_id: userId, metadata: { mode: state.mode, endsAt: state.endsAt ?? null, recoveryLockedUntil: state.recoveryLockedUntil ?? null } }))),
+  });
+}
+
+/** Mode auto-exit (Deep Work block end, Sprint end → mandatory recovery, declared Recovery return) is applied on every read. */
+async function currentModeState(env: ApiEnv, accessToken: string, userId: string, timezone: string | undefined, now: Date): Promise<ModeState> {
+  const stored = await getModeState(env, accessToken, userId);
+  const reconciled = reconcileModeState(stored, now, timezone);
+  if (reconciled.changed) {
+    await saveModeState(env, accessToken, reconciled.state);
+    await persistModeEvents(env, accessToken, userId, reconciled.events, reconciled.state, 'system');
+  }
+  return reconciled.state;
+}
+
 async function buildUserState(env: ApiEnv, accessToken: string, userId: string) {
+  const now = new Date();
   const persistedGraph = await getLifeGraph(env, accessToken, userId);
-  const graph = { ...persistedGraph, radarItems: buildRadarItems(persistedGraph) };
-  return { graph, plan: buildDailyPlan(graph) };
+  const modeState = persistedGraph.personalOS
+    ? await currentModeState(env, accessToken, userId, persistedGraph.identity.timezone, now)
+    : { mode: 'standard' as const };
+  const graph = {
+    ...persistedGraph,
+    personalOS: persistedGraph.personalOS ? { ...persistedGraph.personalOS, activeMode: modeState.mode } : undefined,
+    radarItems: buildRadarItems(persistedGraph),
+  };
+  const projected = applyModeToPlan(buildDailyPlan(graph, { mode: modeState.mode === 'recovery' ? 'recovery' : undefined, now }), graph, modeState);
+  return { graph, plan: projected.plan, mode: { ...modeView(modeState, now), todayEffect: projected.effect } };
 }
 
 async function requireUser(c: any) {
@@ -485,12 +517,35 @@ app.put('/v1/methodology/intake', async (c) => {
   return c.json(await buildUserState(c.env, user.accessToken, user.id));
 });
 
+const modeRequestSchema = z.union([
+  z.object({ action: z.literal('exit') }),
+  z.object({ action: z.literal('enter').default('enter'), mode: z.enum(['standard','high_pressure','executive_review','recovery']) }),
+  z.object({ action: z.literal('enter').default('enter'), mode: z.literal('sprint'), days: z.number().int().min(1).max(14) }),
+  z.object({ action: z.literal('enter').default('enter'), mode: z.literal('deep_work'), minutes: z.number().int().min(15).max(240), focus: z.string().trim().min(1).max(200) }),
+]);
+
+async function changeMode(env: ApiEnv, accessToken: string, userId: string, request: ModeRequest) {
+  const now = new Date();
+  const graph = await getLifeGraph(env, accessToken, userId);
+  if (!graph.personalOS) return { ok: false as const, error: 'personal_os_missing', message: 'Complete the Personal OS intake first.' };
+  const current = await currentModeState(env, accessToken, userId, graph.identity.timezone, now);
+  const foreground = graph.projects.find((project) => project.foreground && project.status === 'active');
+  const result = transitionMode(current, request, { now, timezone: graph.identity.timezone, foregroundTitle: foreground?.title });
+  if (!result.ok) return result;
+  if (result.events.length) {
+    await saveModeState(env, accessToken, result.state);
+    await persistModeEvents(env, accessToken, userId, result.events, result.state, 'user');
+  }
+  return result;
+}
+
 app.post('/v1/methodology/mode', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ mode: modeSchema }).safeParse(await c.req.json().catch(() => null));
+  const parsed = modeRequestSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  await setOperatingMode(c.env, user.accessToken, user.id, parsed.data.mode);
-  await audit(c.env, user.accessToken, user.id, 'operating_mode.changed', { mode: parsed.data.mode }, 'personal_os', user.id);
+  const result = await changeMode(c.env, user.accessToken, user.id, parsed.data as ModeRequest);
+  if (!result.ok) return c.json({ error: result.error, message: result.message }, 409);
+  await audit(c.env, user.accessToken, user.id, 'operating_mode.changed', { mode: result.state.mode }, 'personal_os', user.id);
   return c.json(await buildUserState(c.env, user.accessToken, user.id));
 });
 
@@ -513,12 +568,27 @@ app.post('/v1/next-actions/:id/complete', async (c) => {
 
 app.post('/v1/apm/coach', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ message: z.string().trim().min(1).max(8000), sessionId: z.string().uuid().optional(), mode: modeSchema.optional() }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({
+    message: z.string().trim().max(8000).optional(),
+    choice: z.enum(COACH_CHOICES as [string, ...string[]]).optional(),
+    sessionId: z.string().uuid().optional(),
+  }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  const { graph } = await buildUserState(c.env, user.accessToken, user.id);
-  const result = await coach({ env: c.env, accessToken: user.accessToken, userId: user.id, graph, message: parsed.data.message, sessionId: parsed.data.sessionId, requestedMode: parsed.data.mode });
-  await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'coaching_turn', { mode: result.mode, closureReady: result.closureReady });
-  return c.json(result);
+  const state = await buildUserState(c.env, user.accessToken, user.id);
+  const modeState: ModeState = state.mode;
+  const { reply, turn } = await coach({
+    env: c.env, accessToken: user.accessToken, userId: user.id, graph: state.graph, plan: state.plan, modeState,
+    message: parsed.data.message, choice: parsed.data.choice as never, sessionId: parsed.data.sessionId,
+  });
+  let today: Awaited<ReturnType<typeof buildUserState>> | undefined;
+  if (turn.modeRequest) {
+    // Deep Work ended early / Executive Review closed: the same deterministic
+    // transition rules apply, and the client gets the rebuilt Today with it.
+    const changed = await changeMode(c.env, user.accessToken, user.id, turn.modeRequest);
+    if (changed.ok) today = await buildUserState(c.env, user.accessToken, user.id);
+  }
+  await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'coaching_turn', { mode: reply.mode, phase: reply.phase, engine: reply.engine, step: reply.step });
+  return c.json({ ...reply, modeState: today?.mode ?? state.mode, ...(today ? { today } : {}) });
 });
 app.post('/v1/apm/coach/:sessionId/close', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);

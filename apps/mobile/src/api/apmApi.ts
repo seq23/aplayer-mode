@@ -17,7 +17,7 @@ import type {
   OperatingModeKey,
   Permission,
   PillarName,
-  TrackKey,
+  ActiveTrackKey,
   WeeklyCadence,
 } from '@apm/domain';
 
@@ -47,7 +47,7 @@ export interface ApiMethodologyIntakeInput extends ApiOnboardingInput {
   accountability: AccountabilityPolicy;
   criticalPillars: PillarName[];
   minimumFloors: Partial<Record<PillarName, string>>;
-  trackKeys: TrackKey[];
+  trackKeys: ActiveTrackKey[];
   activeMode?: OperatingModeKey;
   morningSequence?: string[];
   schedulingPreference?: 'strict_blocks' | 'loose_dayparts' | 'ordered_stack';
@@ -58,7 +58,47 @@ export interface ApiMethodologyIntakeInput extends ApiOnboardingInput {
   reviewGateDays?: 30 | 60 | 90;
 }
 
-export interface TodayState { graph: LifeGraphSnapshot; plan: DailyPlan }
+export interface ModeDefinitionView { key: OperatingModeKey; name: string; purpose: string; rules: string[]; exitProtocol: string; todayEffect: string }
+export interface ModeStateView {
+  mode: OperatingModeKey;
+  startedAt?: string;
+  endsAt?: string;
+  focus?: string;
+  recoveryLockedUntil?: string;
+  resume?: { mode: OperatingModeKey; endsAt?: string; focus?: string };
+  definition: ModeDefinitionView;
+  recoveryLocked: boolean;
+  canExit: boolean;
+  todayEffect?: { mode: OperatingModeKey; summary: string; heldBlocks: Array<{ id: string; title: string }>; heldUntil?: string };
+}
+export interface TodayState { graph: LifeGraphSnapshot; plan: DailyPlan; mode?: ModeStateView }
+
+export type ModeChangeRequest =
+  | { action: 'exit' }
+  | { action?: 'enter'; mode: 'standard' | 'high_pressure' | 'executive_review' | 'recovery' }
+  | { action?: 'enter'; mode: 'sprint'; days: number }
+  | { action?: 'enter'; mode: 'deep_work'; minutes: number; focus: string };
+
+export type CoachChoice = 'close_and_launch' | 'go_deeper' | 'sequence_done' | 'stay_in_block' | 'end_block_early' | 'im_safe' | 'need_help_now' | 'open_today' | 'end_session';
+export interface CoachPromptView { kind: 'question' | 'choice' | 'confirm'; text: string; options: Array<{ id: CoachChoice; label: string }> }
+export interface CoachReplyView {
+  sessionId: string;
+  mode: OperatingModeKey;
+  phase: 'exploring' | 'closure_offered' | 'morning_sequence' | 'closed' | 'safety_stop';
+  step: string;
+  engine: 'scripted' | 'model';
+  reply: string;
+  prompt: CoachPromptView;
+  nextMove?: string;
+  morningSequence?: string[];
+  review?: { opening: string; items: Array<{ area: string; text: string }>; closing: string; directive: string };
+  safety?: { level: 'crisis' | 'medical' | 'therapy_scope' | 'none'; resources: Array<{ label: string; detail: string; action?: { kind: 'call' | 'text' | 'url'; value: string } }> };
+  boundaryNote?: string;
+  trackChallenges: string[];
+  modeState?: ModeStateView;
+  /** Present when the turn changed the mode: the rebuilt server Today state. */
+  today?: TodayState;
+}
 
 export interface ProductPlanCard {
   plan: 'beta' | 'chief_of_staff' | 'life_os' | 'autopilot' | 'household';
@@ -130,8 +170,8 @@ async function request<T>(path: string, accessToken: string, options: RequestIni
   const response = await fetch(`${baseUrl}${path}`, { ...options, headers });
   if (!response.ok) {
     const requestId = response.headers.get('x-request-id');
-    const body = await response.json().catch(() => ({})) as { error?: string };
-    throw new Error(`${body.error ?? 'APM API request failed'} (${response.status})${requestId ? ` · ${requestId}` : ''}`);
+    const body = await response.json().catch(() => ({})) as { error?: string; message?: string };
+    throw new Error(`${body.message ?? body.error ?? 'APM API request failed'} (${response.status})${requestId ? ` · ${requestId}` : ''}`);
   }
   return response.json() as Promise<T>;
 }
@@ -177,8 +217,8 @@ export async function persistOnboarding(input: ApiOnboardingInput, accessToken: 
 export async function persistMethodologyIntake(input: ApiMethodologyIntakeInput, accessToken: string): Promise<TodayState> {
   return request<TodayState>('/v1/methodology/intake', accessToken, { method: 'PUT', body: JSON.stringify(input) });
 }
-export async function persistOperatingMode(mode: OperatingModeKey, accessToken: string): Promise<TodayState> {
-  return request<TodayState>('/v1/methodology/mode', accessToken, { method: 'POST', body: JSON.stringify({ mode }) });
+export async function persistOperatingMode(modeRequest: ModeChangeRequest, accessToken: string): Promise<TodayState> {
+  return request<TodayState>('/v1/methodology/mode', accessToken, { method: 'POST', body: JSON.stringify(modeRequest) });
 }
 export async function persistActionCompletion(actionId: string, accessToken: string): Promise<TodayState> {
   return request<TodayState>(`/v1/next-actions/${encodeURIComponent(actionId)}/complete`, accessToken, { method: 'POST' });
@@ -187,8 +227,8 @@ export async function closeDay(verdict: 'full_day' | 'mvd' | 'miss', note: strin
   return request<TodayState>('/v1/methodology/day/close', accessToken, { method: 'POST', body: JSON.stringify({ verdict, note }) });
 }
 
-export async function sendCoachMessage(input: { message: string; sessionId?: string; mode?: OperatingModeKey }, accessToken: string) {
-  return request<{ sessionId: string; mode: OperatingModeKey; reply: string; closureReady: boolean; nextAction?: string }>('/v1/apm/coach', accessToken, { method: 'POST', body: JSON.stringify(input) });
+export async function sendCoachMessage(input: { message?: string; choice?: CoachChoice; sessionId?: string }, accessToken: string): Promise<CoachReplyView> {
+  return request<CoachReplyView>('/v1/apm/coach', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 export async function closeCoachSession(sessionId: string, accessToken: string) {
   return request<{ ok: boolean }>(`/v1/apm/coach/${encodeURIComponent(sessionId)}/close`, accessToken, { method: 'POST' });

@@ -40,18 +40,34 @@ export interface PillarSetting {
   minimumFloor?: string;
 }
 
-export type TrackKey =
+/**
+ * The installable Track set (migration 0020): the four BHPC Tracks plus the
+ * three app-only Tracks. The database check constraint, the API schema and the
+ * coaching Track library all use exactly this list.
+ */
+export type ActiveTrackKey =
   | 'billionaire_mindset'
   | 'operator_discipline'
   | 'strategic_patience'
-  | 'manifestation_mastery'
-  | 'investor_ai_leverage'
-  | 'resilience';
+  | 'resilience'
+  | 'body_foundation'
+  | 'wealth_foundation'
+  | 'home_front';
+
+/**
+ * Retired in migration 0020 (rows removed, each recorded as a `track.retired`
+ * audit event). No API, mobile or database path accepts these keys any more.
+ * @deprecated kept in `TrackKey` only until packages/planning's BUILTIN_TRACKS drops them.
+ */
+export type RetiredTrackKey = 'manifestation_mastery' | 'investor_ai_leverage';
+
+/** @deprecated use ActiveTrackKey; this wider union exists only for packages/planning compatibility. */
+export type TrackKey = ActiveTrackKey | RetiredTrackKey;
 
 export interface Track {
   id: UUID;
   userId: UUID;
-  key: TrackKey;
+  key: ActiveTrackKey;
   name: string;
   active: boolean;
   foreground: boolean;

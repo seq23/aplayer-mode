@@ -2,6 +2,13 @@ name: Model Eval
 
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: 'screen (public synthetic screen) or coaching_v1 (coaching promotion evidence, docs/23)'
+        required: false
+        default: screen
+        type: choice
+        options: [screen, coaching_v1]
 
 permissions:
   contents: read
@@ -27,6 +34,7 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           APM_COMMIT_SHA: ${{ github.sha }}
+          APM_EVAL_SUITE: ${{ inputs.suite }}
         run: node scripts/evaluate-openrouter-routes.mjs > openrouter-eval-report.json
       - name: Upload report
         if: always()
