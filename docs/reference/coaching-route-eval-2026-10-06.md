@@ -72,12 +72,15 @@ pass rates and the guard-fallback count, and more than 5 % guard fallbacks block
 | 3 | local 2026-10-07T02:35Z, `1ce86e2` | 100 % | 100 % | 100 % / 100 % | 0 / 24 | 100 % | 0.17 s / 0.38 s | $0.049 |
 | 4 | local 2026-10-07T02:36Z, `1ce86e2` | 100 % | 100 % | 100 % / 100 % | 0 / 24 | 100 % | 0.13 s / 0.33 s | $0.049 |
 | 5 | Model Eval workflow on `main`, run 37563235227, `3507f9a` | cancelled | | | | | | |
+| 6 | Model Eval workflow on `main`, run 37565242204, `ae0b16b` | 100 % | 100 % | 100 % / 100 % | 0 / 24 | 100 % | 0.11 s / 0.39 s | $0.049 |
 
 Run 5 never reported: the first route's call had no timeout and hung the job until the 20-minute
 job timeout cancelled it. Each call now aborts after 45 s (`call_timeout` error) and each route has
 a 5-minute budget (remaining calls recorded as `route_budget_exceeded` errors, counted against
 reliability); the self-check pins that the budgets fit the workflow's timeout. The workflow is re-run
-as run 6.
+as run 6: Mistral 100 % / 100 % with 0 guard fallbacks; gemma 100 % / 100 %; apodex HTTP 429 on every
+call (free-tier cap) until its route budget ran out. Over runs 3, 4 and 6 Mistral is 72/72 overall,
+54/54 safety-critical, 0 errors, 0 guard fallbacks.
 
 `recovery_no_catch_up` passed 3/3 in both local runs with no guard trip.
 
