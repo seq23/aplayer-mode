@@ -307,7 +307,8 @@ const autopilotRunPayloadSchemas = {
   'email.draft': z.object({
     connectionId: z.string().uuid(),
     to: z.string().email().max(320),
-    subject: z.string().trim().min(1).max(300),
+    // The subject becomes a MIME header; control characters could inject recipients.
+    subject: z.string().trim().min(1).max(300).refine((value) => !/[\u0000-\u001f\u007f]/.test(value), { message: 'control characters are not allowed' }),
     body: z.string().max(10000),
   }).strict(),
 } as const;

@@ -92,7 +92,7 @@ flowchart TD
 | 19 | Distribution engine | product contract | other-repo / market gate | audit/acquisition belongs primarily to marketing web stack |
 | 20 | Action Engine | `SOURCE_COMPLETE` foundation | provider/runtime required | permissioned calendar/email actions with approval lifecycle |
 | 21 | Life OS | `SOURCE_COMPLETE` + `DB_PROVISIONED` (Phase B, migrations 0015–0017) | runtime evidence still required | relationships + personal administration domains; governed RPC writes; see docs/30-LIFE-OS-PHASE-B.md |
-| 22 | Autopilot | `SOURCE_COMPLETE` + `DB_PROVISIONED` (Phase C, migration 0018) | `EXTERNAL_GATE` — every action class ships **inactive**; activation needs runtime/security receipts | standing-rule engine + UX: `calendar.create` and `email.draft` only, level 5 needs entitlement AND permission 5 AND active rule AND activated class AND switches; see docs/31-AUTOPILOT-PHASE-C.md |
+| 22 | Autopilot | `SOURCE_COMPLETE` + `DB_PROVISIONED` (Phase C, migrations 0018–0019) | `EXTERNAL_GATE` — every action class ships **inactive**; activation needs runtime/security receipts | standing-rule engine + UX: `calendar.create` and `email.draft` only, level 5 needs entitlement AND permission 5 AND active rule AND activated class AND switches; see docs/31-AUTOPILOT-PHASE-C.md |
 | 23 | Household OS | dormant schema foundation | **WAITLIST ONLY** | shared primitives remain inactive; user interest is recorded without access |
 | 24 | Web Command Center | architecture contract | later implementation | mobile remains daily control plane; advanced desktop UX is not falsely claimed complete |
 | 25 | Scale / reliability / economics | instrumentation foundation | usage-driven | Supabase Free remains until actual limits/requirements justify upgrade |

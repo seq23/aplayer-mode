@@ -58,7 +58,7 @@ Rejected by name in the database (`autopilot_unsupported_action_class`) and list
 
 Life OS bills, subscriptions and health routines remain reminders/preparation only.
 
-## Data model (migration 0018)
+## Data model (migrations 0018–0019)
 
 | Table | Purpose |
 |---|---|
@@ -139,6 +139,14 @@ Privacy & AI -> Your Data shows retained rule/run counts (owner-only read)
 
 Non-Autopilot accounts see the boundary and the explanation that a plan alone grants nothing.
 
+## Migration 0019 — `autopilot_draft_header_hardening`
+
+Self security review of `8468775` (the requested Codex review could not run: Codex usage limit). The Gmail draft is built as raw MIME, so a subject carrying CR/LF could inject `Cc`/`Bcc` headers with recipients outside `allowedRecipientDomains`. `apm_autopilot_claim` now rejects any control character in the subject; the API schema does the same, and `executeEmail` refuses control characters in `To`/`Subject` for every email action (approved or standing) before loading credentials.
+
+## Known limitation (by design of the publishable-key boundary)
+
+The Worker acts with the user's own JWT, so the user can also call `apm_autopilot_record_result` directly for their own claimed run. That can only falsify the user's **own** ledger (e.g. marking a run failed to free their own daily cap); it cannot create authority, reach another user's data, or execute at a provider. Rule caps protect the user from APM, not from themselves. A service-role verifier that alone may record results is a Phase E option once a Worker is deployed.
+
 ## Not included in Phase C
 
 - activating any action class (needs runtime/security receipts — Phase E);
@@ -153,7 +161,7 @@ Before merge:
 
 1. exact-head workspace typecheck;
 2. exact-head workspace tests:
-   - `services/api/test/autopilot-db.test.mjs` runs migration 0018 in embedded Postgres and proves, as `authenticated`, that direct writes fail; anon cannot call any RPC; definers are not exposed and pin `search_path`; classes ship inactive; forbidden classes are rejected; only Autopilot can grant; permission 5 and activation are both required; every rule constraint, idempotency, master pause, expiry and revoke hold; stopping works after downgrade; reads need the entitlement and the export still returns retained rows; deactivation stops existing rules;
+   - `services/api/test/autopilot-db.test.mjs` runs migrations 0018–0019 in embedded Postgres and proves, as `authenticated`, that direct writes fail; anon cannot call any RPC; definers are not exposed and pin `search_path`; classes ship inactive; forbidden classes are rejected; only Autopilot can grant; permission 5 and activation are both required; every rule constraint, idempotency, master pause, expiry and revoke hold; stopping works after downgrade; reads need the entitlement and the export still returns retained rows; deactivation stops existing rules;
    - `services/api/test/autopilot-worker.test.mjs` proves the Worker fails closed before any call, executes only after a claim, records results and undo by RPC, never re-executes a replay, never writes Autopilot tables directly or re-audits, and that the approval route is pinned to level 4;
    - `packages/policy/test/autopilot.test.mjs` covers the allow-list, constraint validation, the calendar evaluator and `decideStandingAuthority`;
 3. migration applies to Supabase; security advisor reports 0 lints;
@@ -177,4 +185,5 @@ Before merge:
 - Applied via the Management API as migration `autopilot_standing_rules` (listed after `life_os_governed_writes`).
 - Post-migration Supabase security advisor: **0 security lints**.
 - The forbidden paths (direct writes, anon RPC calls, exposed definers, unpinned `search_path`, grant/claim without entitlement, permission or activation) are proven against the same migration file in `services/api/test/autopilot-db.test.mjs`. The management token used for provisioning has no `database_read` scope, so live SQL inspection of the applied schema is not part of this receipt.
+- Applied migration `autopilot_draft_header_hardening` (0019) the same day; advisor still **0 security lints**.
 - Both action classes are `inactive` as shipped: **no standing execution is possible in production** until a reviewed activation migration records runtime evidence.

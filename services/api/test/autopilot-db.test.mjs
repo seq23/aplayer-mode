@@ -1,4 +1,4 @@
-// Executes the real Autopilot migration (0018) in an embedded Postgres (PGlite)
+// Executes the real Autopilot migrations (0018, 0019) in an embedded Postgres (PGlite)
 // on a minimal Supabase-shaped substrate (auth.uid(), anon/authenticated roles,
 // Supabase's default public-schema grants, and the 0005 tables 0018 depends on
 // with their production own-row policies) and proves, as the `authenticated`
@@ -196,7 +196,9 @@ const claim = (userId, ruleId, key, payload, reason = 'Morning routine block') =
 test.before(async () => {
   db = new PGlite();
   await db.exec(SUBSTRATE);
-  await db.exec(await migration('0018_autopilot_standing_rules.sql'));
+  for (const name of ['0018_autopilot_standing_rules.sql', '0019_autopilot_draft_header_hardening.sql']) {
+    await db.exec(await migration(name));
+  }
   await admin(`insert into auth.users (id) values ('${USER_A}'), ('${USER_B}'), ('${USER_C}')`);
   await setPlan(USER_A, 'autopilot', 'active');
   await setPlan(USER_B, 'life_os', 'active');
@@ -384,6 +386,7 @@ test('email.draft: recipient domains, daily cap; send is never a standing class'
   await rejects(claim(USER_A, rule.id, 'mail-bad-01', { ...base, to: 'teacher@elsewhere.example.com' }), /autopilot_outside_rule/);
   await rejects(claim(USER_A, rule.id, 'mail-bad-02', { ...base, to: 'a@school.example.org, b@x.com' }), /autopilot_invalid_payload/);
   await rejects(claim(USER_A, rule.id, 'mail-bad-03', { ...base, to: 'teacher@school.example.org', cc: 'x@y.z' }), /autopilot_invalid_payload/);
+  await rejects(claim(USER_A, rule.id, 'mail-bad-04', { ...base, to: 'teacher@school.example.org', subject: 'Hi\r\nBcc: x@elsewhere.example.com' }), /autopilot_invalid_payload/);
   const ok = await claim(USER_A, rule.id, 'mail-ok-001', { ...base, to: 'Teacher@School.Example.Org' });
   assert.equal(ok.action.action_type, 'email.draft');
   await rejects(claim(USER_A, rule.id, 'mail-cap-01', { ...base, to: 'office@school.example.org' }), /autopilot_rate_limited/);

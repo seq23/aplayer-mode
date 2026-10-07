@@ -16,15 +16,17 @@ const srcDir = fileURLToPath(new URL('../src/', import.meta.url));
 let outDir;
 let repo;
 let cryptoMod;
+let engine;
 
 test.before(async () => {
   outDir = await mkdtemp(join(tmpdir(), 'apm-autopilot-test-'));
   await build({
-    entryPoints: { autopilot: join(srcDir, 'autopilotRepository.ts'), crypto: join(srcDir, 'crypto.ts') },
+    entryPoints: { autopilot: join(srcDir, 'autopilotRepository.ts'), crypto: join(srcDir, 'crypto.ts'), engine: join(srcDir, 'actionEngine.ts') },
     bundle: true, format: 'esm', platform: 'neutral', outdir: outDir, logLevel: 'silent',
   });
   repo = await import(pathToFileURL(join(outDir, 'autopilot.js')).href);
   cryptoMod = await import(pathToFileURL(join(outDir, 'crypto.js')).href);
+  engine = await import(pathToFileURL(join(outDir, 'engine.js')).href);
 });
 
 test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
@@ -257,4 +259,15 @@ test('no Worker source writes Autopilot tables directly, re-audits governed tran
     const body = index.slice(index.indexOf(route), index.indexOf('\n});', index.indexOf(route)));
     assert.match(body, /autopilot_required/, `${route} must check the entitlement before calling the database`);
   }
+});
+
+test('email actions with control characters in To/Subject are refused before any credential or provider call', async () => {
+  const mock = mockFetch(() => ({ status: 500, json: {} }));
+  try {
+    for (const [to, subject] of [['teacher@school.example.org', 'Hi\r\nBcc: x@elsewhere.example.com'], ['a@b.org\r\nCc: c@d.org', 'Hi']]) {
+      const action = { id: 'a', userId: USER, domain: 'email', actionType: 'email.draft', status: 'executing', payload: { connectionId: CONN, to, subject, body: 'x' }, reason: 'r', idempotencyKey: 'k', requiresApproval: false, createdAt: '', updatedAt: '' };
+      await assert.rejects(engine.executeConnectorAction(action, { env: liveEnv, accessToken: 'jwt', userId: USER }), /email_action_invalid/);
+    }
+  } finally { mock.restore(); }
+  assert.deepEqual(mock.calls, []);
 });

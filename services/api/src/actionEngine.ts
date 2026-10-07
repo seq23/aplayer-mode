@@ -126,12 +126,16 @@ function toBase64Url(value: string): string {
 async function executeEmail(action: ActionRecord, input: { env: ApiEnv; accessToken: string; userId: string }): Promise<string> {
   const connectionId = String(action.payload.connectionId ?? '');
   if (!connectionId) throw new Error('action_connection_required');
-  const auth = await getValidConnectorToken({ ...input, connectionId });
-  if (auth.kind !== 'email') throw new Error('action_connection_kind_mismatch');
   const to = String(action.payload.to ?? '').trim();
   const subject = String(action.payload.subject ?? '').trim();
   const body = String(action.payload.body ?? '');
   if (!to || !subject) throw new Error('email_action_invalid');
+  // Raw MIME headers: CR/LF (or any control character) in To/Subject could
+  // inject extra recipients. Checked before any credential is loaded; applies
+  // to approved and standing email actions.
+  if (/[\u0000-\u001f\u007f]/.test(to) || /[\u0000-\u001f\u007f]/.test(subject)) throw new Error('email_action_invalid');
+  const auth = await getValidConnectorToken({ ...input, connectionId });
+  if (auth.kind !== 'email') throw new Error('action_connection_kind_mismatch');
   const send = action.actionType === 'email.send';
 
   if (auth.provider === 'google') {
