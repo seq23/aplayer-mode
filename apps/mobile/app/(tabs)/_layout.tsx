@@ -1,7 +1,7 @@
 import { Redirect, Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession } from '../../src/state/session';
-import { TabIcon, type IconName } from '../../src/components/ui';
+import { TabIcon, TabLabel, type IconName } from '../../src/components/ui';
 import { useTheme } from '../../src/theme';
 
 /** One icon set (Feather) for the tab bar. */
@@ -9,12 +9,11 @@ const TAB_ICONS: Record<string, IconName> = { today: 'sun', radar: 'compass', go
 
 export default function TabsLayout() {
   const { status } = useSession();
-  const { colors, type } = useTheme();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
   if (status === 'loading') return null;
   if (status !== 'signed_in') return <Redirect href="/welcome" />;
-  const { maxFontSizeMultiplier: _scale, ...labelFont } = type.tab;
 
   return (
     <Tabs
@@ -24,7 +23,7 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.inkMuted,
         // Room for the icon pill and a label with descenders, above the home indicator.
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line, height: 62 + insets.bottom, paddingTop: 6 },
-        tabBarLabelStyle: labelFont,
+        tabBarLabel: ({ color, children }) => <TabLabel color={color}>{children}</TabLabel>,
         tabBarIcon: ({ focused }) => <TabIcon icon={TAB_ICONS[route.name] ?? 'circle'} focused={focused} />,
         sceneStyle: { backgroundColor: colors.bg },
       })}

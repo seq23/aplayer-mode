@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { router } from 'expo-router';
-import { Body, Button, Card, CardTitle, ErrorState, KeyValue, Label, Screen, SectionTitle, TextField } from '../src/components/ui';
+import { Body, Button, Card, CardTitle, ErrorState, KeyValue, Label, LoadingState, Screen, SectionTitle, TextField } from '../src/components/ui';
 import { completeWeeklyReview, fetchWeeklyDebrief, type WeeklyDebriefView } from '../src/api/apmApi';
 import { useLifeGraph } from '../src/state/lifeGraph';
 import { useSession } from '../src/state/session';
@@ -21,7 +21,7 @@ export default function WeeklyReviewScreen() {
   const load = useCallback(() => {
     if (!accessToken) return;
     setLoadFailed(false); setError(undefined);
-    void fetchWeeklyDebrief(accessToken).then((result) => setDebrief(result.debrief)).catch((cause: unknown) => { setLoadFailed(true); setError(plainError(cause, 'The debrief did not load.')); });
+    void fetchWeeklyDebrief(accessToken).then((result) => { setDebrief(result.debrief); setAdjustment((current) => current || result.debrief.suggestedAdjustment?.text || ''); }).catch((cause: unknown) => { setLoadFailed(true); setError(plainError(cause, 'The debrief did not load.')); });
   }, [accessToken]);
   useEffect(() => { load(); }, [load]);
 
@@ -65,14 +65,16 @@ export default function WeeklyReviewScreen() {
           </Card>
           <SectionTitle>One adjustment for next week</SectionTitle>
           <Card>
+            {debrief.suggestedAdjustment ? <Label>APM suggests</Label> : null}
+            {debrief.suggestedAdjustment ? <Body muted>{`Why: ${debrief.suggestedAdjustment.reason}`}</Body> : null}
+            <TextField label="Your adjustment" value={adjustment} onChangeText={setAdjustment} multiline placeholder="e.g. Move the long walk to Saturday mornings" />
             <Body muted>{debrief.adjustmentPrompt}</Body>
-            <TextField value={adjustment} onChangeText={setAdjustment} placeholder="e.g. Move the long walk to Saturday mornings" />
             <Button label={done ? 'Debrief recorded' : busy ? 'Recording…' : 'Record the debrief'} disabled={done || busy} onPress={() => void finish()} />
             {done ? <Button label="Draft that change in the Drafting Room" variant="secondary" onPress={() => router.push('/settings/os')} /> : null}
           </Card>
           <Card tone="muted"><Body>{debrief.executiveReview.close}</Body></Card>
         </>
-      ) : loadFailed ? <Card><Button label="Try again" onPress={load} /></Card> : <Card><Body muted>Loading…</Body></Card>}
+      ) : loadFailed ? <Card><Button label="Try again" onPress={load} /></Card> : <LoadingState label="Loading your week…" />}
     </Screen>
   );
 }

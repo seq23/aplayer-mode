@@ -1,0 +1,16 @@
+{
+  // The A Player Mode web app (Expo web export in dist/) plus /terms and /privacy, served as
+  // static assets from a Worker with no script. Deployed only by scripts/deploy-web-production.sh.
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "aplayermode-app",
+  "compatibility_date": "2026-10-06",
+  "assets": {
+    "directory": "./dist",
+    // Expo Router is a single-page app: unknown paths serve index.html; /terms/ and /privacy/
+    // are real files and are served as themselves.
+    "not_found_handling": "single-page-application",
+    "html_handling": "drop-trailing-slash"
+  },
+  "routes": [{ "pattern": "app.aplayermode.com", "custom_domain": true }],
+  "workers_dev": true
+}

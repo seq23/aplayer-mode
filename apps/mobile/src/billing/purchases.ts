@@ -25,7 +25,7 @@ export function billingAvailability(): BillingAvailability {
 }
 
 export const UNAVAILABLE_COPY: Record<Extract<BillingAvailability, { available: false }>['reason'], string> = {
-  web: 'Subscriptions are bought in the iOS or Android app.',
+  web: 'Subscribe in the iPhone or Android app. Your plan then works here too, on the same account.',
   expo_go: 'In-app purchases need the A Player Mode app build; Expo Go cannot make purchases.',
   not_configured: 'In-app purchases are not configured in this build yet.',
 };

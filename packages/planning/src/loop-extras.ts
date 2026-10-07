@@ -180,6 +180,40 @@ export interface WeeklyDebrief {
   diaryQuestion: string;
   executiveReview: { open: string; close: string };
   adjustmentPrompt: string;
+  /** The one adjustment APM proposes from this week's misses; the user accepts or edits it, never designs it. */
+  suggestedAdjustment: { text: string; reason: string };
+}
+
+/**
+ * One adjustment for next week, chosen from the week's misses in a fixed order: days left
+ * unclosed, then days that did not count, then a main goal that barely moved, then replans.
+ * Only the seven days of this debrief are read.
+ */
+export function suggestWeeklyAdjustment(input: {
+  pastDays: string[];
+  verdictOf: (day: string) => string | undefined;
+  foregroundLabel?: string;
+  foregroundDays: number;
+  replans: number;
+}): { text: string; reason: string } {
+  const name = (day: string) => WEEKDAY_NAME[new Date(`${day}T00:00:00Z`).getUTCDay()]!;
+  const list = (names: string[]) => names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  const unclosed = input.pastDays.filter((day) => !input.verdictOf(day));
+  const missed = input.pastDays.filter((day) => input.verdictOf(day) === 'miss');
+  if (unclosed.length >= 3) {
+    return { text: 'Close every day before bed, even a light one: two minutes, one tap on Today.', reason: `${unclosed.length} days were never closed (${list(unclosed.map(name))}), so they could not count.` };
+  }
+  if (missed.length + unclosed.length >= 1) {
+    const days = [...new Set([...missed, ...unclosed].sort().map(name))];
+    return { text: `Plan ${list(days)} as a light day in advance: pick its one minimum step the night before.`, reason: `${list(days)} did not count this week. A light day still counts.` };
+  }
+  if (input.foregroundLabel && input.foregroundDays < 4) {
+    return { text: `Do the daily step for "${input.foregroundLabel}" first, before anything else on the agenda.`, reason: `Your main goal moved on ${input.foregroundDays} of ${input.pastDays.length} days.` };
+  }
+  if (input.replans >= 2) {
+    return { text: 'Leave a 30-minute open block every afternoon for what comes up.', reason: `You replanned mid-day ${input.replans} times.` };
+  }
+  return { text: 'Keep next week exactly as it is. Change nothing.', reason: 'Every day counted. The system is working; leave it alone.' };
 }
 
 /** Execution Score, Foreground Focus review, Friction Analysis and One Adjustment for next week. */
@@ -210,6 +244,13 @@ export function weeklyDebrief(input: {
   if (replans) friction.push(`${replans} declared mid-day replan${replans === 1 ? '' : 's'}.`);
   if (input.foreground && foregroundDays < 4) friction.push(`The foreground moved on ${foregroundDays} of 7 days.`);
   if (!friction.length) friction.push('No friction pattern this week. Keep it boring.');
+  const suggestedAdjustment = suggestWeeklyAdjustment({
+    pastDays: days,
+    verdictOf: (day) => record(day)?.verdict ?? undefined,
+    ...(input.foreground ? { foregroundLabel: input.foreground.label } : {}),
+    foregroundDays,
+    replans,
+  });
 
   return {
     weekStart,
@@ -221,6 +262,7 @@ export function weeklyDebrief(input: {
     diary: input.diary.filter((entry) => entry.localDay >= weekStart && entry.localDay <= input.today),
     diaryQuestion: 'Did you log any major breakthroughs in your Diary to review now?',
     executiveReview: { open: "Here's what you already know that still makes you better:", close: 'None of this is new — you’re just being reminded.' },
-    adjustmentPrompt: 'One adjustment for next week (it goes to the Drafting Room; nothing changes until you apply it).',
+    adjustmentPrompt: 'APM suggests one adjustment from this week. Keep it or edit it; it goes to the Drafting Room and nothing changes until you apply it.',
+    suggestedAdjustment,
   };
 }

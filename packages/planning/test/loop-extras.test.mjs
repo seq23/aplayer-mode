@@ -119,6 +119,29 @@ test('First 7 Days programme, the coaching check-in and the weekly debrief caden
   assert.ok(debrief.friction.some((line) => /replan/.test(line)));
   assert.equal(debrief.diary.length, 1);
   assert.equal(debrief.executiveReview.open, "Here's what you already know that still makes you better:");
+  // 4 of 7 past days unclosed (Thu to Sun): the server proposes closing every day, with the days named.
+  assert.match(debrief.suggestedAdjustment.text, /^Close every day/);
+  assert.match(debrief.suggestedAdjustment.reason, /^4 days were never closed \(Thursday, Friday, Saturday and Sunday\)/);
+});
+
+test('the weekly adjustment is proposed from the misses, never left blank, and reads only the seven days ending today', () => {
+  const base = { completions: [], diary: [] };
+  const allFull = (to) => Array.from({ length: 7 }, (_, i) => shift(to, i - 6)).map((day) => ({ day, verdict: 'full_day', replans: [] }));
+  // A miss outside the seven days (the week before) is not this week's adjustment.
+  const mid = weeklyDebrief({ ...base, today: '2026-10-07', dayRecords: [{ day: '2026-09-30', verdict: 'miss', replans: [] }, ...allFull('2026-10-07')] });
+  assert.equal(mid.suggestedAdjustment.text, 'Keep next week exactly as it is. Change nothing.');
+  // One miss on Tuesday: plan Tuesday as a light day.
+  const oneMiss = weeklyDebrief({ ...base, today: '2026-10-11', dayRecords: allFull('2026-10-11').map((r) => r.day === '2026-10-06' ? { ...r, verdict: 'miss' } : r) });
+  assert.equal(oneMiss.suggestedAdjustment.text, 'Plan Tuesday as a light day in advance: pick its one minimum step the night before.');
+  assert.match(oneMiss.suggestedAdjustment.reason, /^Tuesday did not count/);
+  // Every day counted but the main goal moved twice: do its step first.
+  const fg = weeklyDebrief({ ...base, today: '2026-10-11', dayRecords: allFull('2026-10-11'), foreground: { planId: 'p1', label: 'Pass the CPA exam' }, completions: [{ day: '2026-10-05', planId: 'p1', role: 'foreground' }, { day: '2026-10-06', planId: 'p1', role: 'foreground' }] });
+  assert.equal(fg.suggestedAdjustment.text, 'Do the daily step for "Pass the CPA exam" first, before anything else on the agenda.');
+  assert.equal(fg.suggestedAdjustment.reason, 'Your main goal moved on 2 of 7 days.');
+  // Replans only.
+  const rp = weeklyDebrief({ ...base, today: '2026-10-11', dayRecords: allFull('2026-10-11').map((r, i) => i < 2 ? { ...r, replans: [{ reason: 'x' }] } : r) });
+  assert.equal(rp.suggestedAdjustment.text, 'Leave a 30-minute open block every afternoon for what comes up.');
+  for (const d of [mid, oneMiss, fg, rp]) assert.ok(d.suggestedAdjustment.text.length > 0 && d.suggestedAdjustment.reason.length > 0);
 });
 
 test('a recorded red flag keeps the body plan paused until clearance', () => {

@@ -19,7 +19,19 @@
     },
     "production": {
       "name": "aplayer-mode-api",
-      "triggers": { "crons": ["*/15 * * * *"] }
+      "triggers": { "crons": ["*/15 * * * *"] },
+      // Phase E go-live (docs/33 §8). api./app. are scoped out of the apex → BHPC 301 by the
+      // zone redirect rules matching http.host (apex and www only), checked 2026-10-07.
+      "routes": [{ "pattern": "api.aplayermode.com", "custom_domain": true }],
+      // Public values only (the publishable key ships in every app build). Secrets are set with
+      // `wrangler secret put` (scripts/deploy-api-production.sh); BILLING_ALLOW_SANDBOX is never set here.
+      "vars": {
+        "SUPABASE_URL": "https://klzbnchgoqmnwsgolwoe.supabase.co",
+        "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_k1YVCTt8hL0gBlWbf7lpYQ__lbnKGt8",
+        "ALLOWED_ORIGIN": "https://app.aplayermode.com",
+        "APP_PUBLIC_URL": "https://app.aplayermode.com",
+        "APP_REVIEW_EMAIL": "appreview@aplayermode.com"
+      }
     }
   }
 
