@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { View } from 'react-native';
-import { Body, Button, Card, CardTitle, KeyValue, Pill, Screen, SectionTitle, uiStyles } from '../../src/components/ui';
-import { fetchHouseholdInterest, setHouseholdInterest, type ProductPlanResponse } from '../../src/api/apmApi';
-import { useSession } from '../../src/state/session';
+import { useCallback, useState } from 'react';
+import { Body, Card, CardTitle, KeyValue, Screen } from '../../src/components/ui';
+import { type ProductPlanResponse } from '../../src/api/apmApi';
 import { PlanChoice } from '../../src/billing/PlanChoice';
 import { PLAN_SCREEN } from '../../src/content/sell';
 
@@ -12,39 +10,16 @@ function formatDate(iso: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-/** Settings → Your plan: the current plan, the shared plan choice (src/billing/PlanChoice), Household interest. */
+/** Settings → Your plan: the current plan and the shared plan choice (src/billing/PlanChoice). No placeholder products (App Review 2.1). */
 export default function PlanScreen() {
-  const { accessToken } = useSession();
   const [product, setProduct] = useState<ProductPlanResponse>();
-  const [householdInterested, setHouseholdInterestedState] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    if (!accessToken) return;
-    let active = true;
-    fetchHouseholdInterest(accessToken).then((interest) => { if (active) setHouseholdInterestedState(interest.interested); }).catch(() => undefined);
-    return () => { active = false; };
-  }, [accessToken]);
   const onProduct = useCallback((next: ProductPlanResponse) => setProduct(next), []);
 
   const entitlement = product?.entitlement;
   const billing = product?.billing ?? null;
 
-  const changeHouseholdInterest = async () => {
-    if (!accessToken || busy) return;
-    setBusy(true); setError(undefined);
-    try {
-      const result = await setHouseholdInterest(!householdInterested, accessToken);
-      setHouseholdInterestedState(result.interested);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to update Household interest.');
-    } finally { setBusy(false); }
-  };
-
   return (
     <Screen eyebrow="Your plan" title={PLAN_SCREEN.title} subtitle={PLAN_SCREEN.plate}>
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
       <Card tone="accent">
         <CardTitle>{entitlement?.displayName ?? 'Loading your plan…'}</CardTitle>
         {entitlement ? (
@@ -67,16 +42,6 @@ export default function PlanScreen() {
 
       <PlanChoice onProduct={onProduct} />
 
-      <SectionTitle>Household</SectionTitle>
-      <Card tone="muted">
-        <View style={uiStyles.row}>
-          <CardTitle>Household OS</CardTitle>
-          <Pill tone="warning">Later</Pill>
-        </View>
-        <Body>Coordinate shared calendars, responsibilities and mental load across a household. We are not activating Household yet.</Body>
-        <Body muted>Your interest helps determine when we build the collaborative product. Joining this list grants no Household access or authority.</Body>
-        <Button label={busy ? 'Saving…' : householdInterested ? 'Remove me from Household interest list' : 'I’m interested in Household OS'} variant="secondary" onPress={() => void changeHouseholdInterest()} />
-      </Card>
     </Screen>
   );
 }

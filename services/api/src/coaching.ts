@@ -36,6 +36,8 @@ export type CoachEngine = 'scripted' | 'model';
 
 export interface CoachReply extends Omit<CoachTurn, 'session' | 'modelSlot' | 'closeSession'> {
   sessionId: string;
+  /** The stored assistant turn (coaching_turns.id): what "Report this" points at. */
+  turnId?: string;
   mode: OperatingModeKey;
   phase: CoachPhase;
   engine: CoachEngine;
@@ -258,10 +260,13 @@ export async function coach(input: {
   assertCoachTurnContract(turn);
 
   const assistantText = [turn.reply, turn.prompt.text].filter(Boolean).join('\n');
-  await supabaseRest(input.env, input.accessToken, '/rest/v1/coaching_turns', {
-    method: 'POST', headers: { Prefer: 'return=minimal' },
+  // The stored reply's id goes back to the app so the person can report this exact reply
+  // ("Report this", migration 0066). Only the id is selected.
+  const storedReply = await supabaseRest<Array<{ id: string }> | undefined>(input.env, input.accessToken, '/rest/v1/coaching_turns?select=id', {
+    method: 'POST', headers: { Prefer: 'return=representation' },
     body: JSON.stringify([{ user_id: input.userId, session_id: session.id, role: 'assistant', content: assistantText.slice(0, 8000) }]),
   });
+  const turnId = Array.isArray(storedReply) ? storedReply[0]?.id : undefined;
   const closing = turn.closeSession || turn.session.phase === 'closed' || turn.session.phase === 'safety_stop';
   await supabaseRest(input.env, input.accessToken, `/rest/v1/coaching_sessions?id=eq.${encodeURIComponent(session.id)}&user_id=eq.${encodeURIComponent(input.userId)}`, {
     method: 'PATCH', headers: { Prefer: 'return=minimal' },
@@ -289,6 +294,7 @@ export async function coach(input: {
     reply: {
       ...visible,
       sessionId: session.id,
+      ...(turnId ? { turnId } : {}),
       mode,
       phase: nextSession.phase,
       engine,

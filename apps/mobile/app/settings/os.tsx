@@ -4,6 +4,8 @@ import { TRACK_DISPLAY_NAMES, type ActiveTrackKey, type OsChangeField, type Area
 import { Body, Button, Card, CardTitle, ChoiceRow, KeyValue, Label, Screen, SectionTitle, TextField } from '../../src/components/ui';
 import { applyOsChange, discardOsChange, draftOsChange, type OsChangeInput } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
+import { describeOsChange } from '../../src/content/osChange';
+import { plainError } from '../../src/api/errors';
 
 const FIELDS: Array<{ id: OsChangeField; label: string }> = [
   { id: 'morning_sequence', label: 'Morning sequence' },
@@ -59,7 +61,7 @@ export default function DraftingRoomScreen() {
   };
   const run = async (call: () => Promise<void>) => {
     setError(undefined); setMessage(undefined);
-    try { await call(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Not saved.'); }
+    try { await call(); } catch (cause) { setError(plainError(cause, 'Not saved. Try again.')); }
   };
   const draft = () => run(async () => {
     const value = input();
@@ -110,7 +112,7 @@ export default function DraftingRoomScreen() {
       {drafts.length ? drafts.map((change) => (
         <Card key={change.id} tone="warning">
           <Label>{FIELDS.find((f) => f.id === change.field)?.label ?? change.field}</Label>
-          <CardTitle>{JSON.stringify(change.proposed)}</CardTitle>
+          <CardTitle>{describeOsChange(change.field, change.proposed)}</CardTitle>
           {change.reason ? <Body muted>{change.reason}</Body> : null}
           <Button label="Apply (starts tomorrow)" onPress={() => void run(async () => { const state = await perform((token) => applyOsChange(change.id, token)); setMessage(state.message); })} />
           <Button label="Discard" variant="secondary" onPress={() => void run(async () => { await perform((token) => discardOsChange(change.id, token)); })} />

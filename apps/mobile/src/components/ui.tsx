@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import {
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,7 +26,10 @@ export function Screen({
 }) {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-      <ScrollView contentContainerStyle={styles.screen}>
+      {/* Text boxes (coach, close-the-day note, goals) stay above the keyboard; a tap on a
+          button while the keyboard is up still lands (docs/35 E10). */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+      <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         {(eyebrow || title || subtitle) && (
           <View style={styles.headingWrap}>
             {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
@@ -34,6 +39,7 @@ export function Screen({
         )}
         {children}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -237,6 +243,7 @@ export const uiStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   screen: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,

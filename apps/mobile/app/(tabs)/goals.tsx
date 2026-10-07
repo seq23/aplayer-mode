@@ -3,7 +3,7 @@ import { AREA_OPTIONS, areaDisplay } from '../../src/content/areas';
 import { useState } from 'react';
 import { View } from 'react-native';
 import type { AreaKey, StoredGoalPlan } from '@apm/domain';
-import type { GoalPlan } from '@apm/planning';
+import { classifySuggestedArea, type GoalPlan } from '@apm/planning';
 import {
   Body,
   Button,
@@ -20,6 +20,7 @@ import {
 } from '../../src/components/ui';
 import { createGoal, setForegroundGoal, type CreatedGoalState } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
+import { plainError } from '../../src/api/errors';
 
 const healthTone = {
   on_track: 'success',
@@ -62,24 +63,30 @@ export default function GoalsScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [created, setCreated] = useState<CreatedGoalState>();
+  const [choosingArea, setChoosingArea] = useState(false);
+  // APM files the goal under an area from its words; the person only changes it if it is wrong (docs/35 U1).
+  const autoArea = title.trim().length >= 3 ? classifySuggestedArea(title).area : undefined;
+  const area = pillar ?? autoArea;
   const today = todayLoop?.date ?? new Date().toISOString().slice(0, 10);
   const plans = graph.goalPlans as unknown as Array<StoredGoalPlan<GoalPlan>>;
   const foregroundGoalId = graph.personalOS?.foregroundGoalId;
 
   const add = async () => {
-    if (busy || title.trim().length < 3) return;
+    if (busy) return;
+    if (title.trim().length < 3) { setError('Write the goal in a few words first, e.g. "Run a 5K by June".'); return; }
+    if (targetDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(targetDate.trim())) { setError('Write the date like 2027-01-31, or leave it empty.'); return; }
     setBusy(true); setError(undefined); setCreated(undefined);
     try {
-      const state = await perform((token) => createGoal({ title: title.trim(), ...(pillar ? { pillar } : {}), ...(/^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? { targetDate } : {}) }, token));
-      setCreated(state); setTitle(''); setPillar(undefined); setTargetDate('');
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to add the goal.'); }
+      const state = await perform((token) => createGoal({ title: title.trim(), ...(area ? { pillar: area } : {}), ...(/^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? { targetDate } : {}) }, token));
+      setCreated(state); setTitle(''); setPillar(undefined); setTargetDate(''); setChoosingArea(false);
+    } catch (cause) { setError(plainError(cause, 'The goal was not added. Try again.')); }
     finally { setBusy(false); }
   };
   const makeForeground = async (goalId: string) => {
     if (busy) return;
     setBusy(true); setError(undefined);
     try { await perform((token) => setForegroundGoal(goalId, token)); setCreated(undefined); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to change the foreground.'); }
+    catch (cause) { setError(plainError(cause, 'The foreground did not change. Try again.')); }
     finally { setBusy(false); }
   };
   const recommended = created?.recommendedForegroundGoalId;
@@ -139,8 +146,9 @@ export default function GoalsScreen() {
           <Card>
             <Body muted>A new goal is run through the Arbitration Engine against your foreground. In Week 1 no new projects are added: the system stabilises first.</Body>
             <TextField label="Goal" value={title} onChangeText={setTitle} placeholder="e.g. Build a 3-month emergency fund" />
-            <Label>Pillar</Label>
-            <ChoiceRow options={PILLARS} value={pillar} onChange={setPillar} />
+            {area ? <Body muted>{`APM files this under ${areaDisplay(area)}.`}</Body> : null}
+            {choosingArea ? <ChoiceRow options={PILLARS} value={area} onChange={(next) => { setPillar(next); setChoosingArea(false); }} />
+              : area ? <Button label="Change the area" variant="secondary" onPress={() => setChoosingArea(true)} /> : null}
             <TextField label="Target date (optional, YYYY-MM-DD)" value={targetDate} onChangeText={setTargetDate} placeholder="2027-01-31" />
             <Button label={busy ? 'Planning…' : 'Add goal and build its plan'} onPress={() => void add()} />
           </Card>

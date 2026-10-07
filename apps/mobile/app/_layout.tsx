@@ -42,6 +42,10 @@ export default function RootLayout() {
           <Stack.Screen name="settings/privacy/activity" options={{ title: 'APM Activity' }} />
           <Stack.Screen name="settings/privacy/export-delete" options={{ title: 'Export & Delete' }} />
           <Stack.Screen name="radar/why" options={{ title: 'Why APM saw this' }} />
+          {/* Every pushed route has a human title (an unregistered route shows its file name). */}
+          <Stack.Screen name="diary" options={{ title: 'Diary' }} />
+          <Stack.Screen name="review" options={{ title: 'Weekly debrief' }} />
+          <Stack.Screen name="settings/os" options={{ title: 'Drafting Room' }} />
         </Stack>
         </IntakeProvider>
       </LifeGraphProvider>

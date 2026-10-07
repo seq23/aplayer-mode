@@ -85,6 +85,12 @@ function harness({ routeStatus = 'candidate', modelText, session } = {}) {
     if (path.startsWith('/rest/v1/coaching_turns') && method === 'GET') return json(db.userTurns.map((content, i) => ({ id: `u${i}`, role: 'user', content, created_at: `2026-10-06T08:0${i}:00Z` })));
     if (path.startsWith('/rest/v1/coaching_turns') && method === 'POST') {
       for (const row of body) if (row.role === 'user') db.userTurns.push(row.content);
+      // The assistant reply is stored with return=representation so its id reaches the app ("Report this").
+      if (body[0]?.role === 'assistant') {
+        assert.equal(new Headers(init.headers).get('prefer'), 'return=representation');
+        db.assistantTurns = (db.assistantTurns ?? 0) + 1;
+        return json([{ id: `00000000-0000-4000-8000-${String(db.assistantTurns).padStart(12, '0')}` }], 201);
+      }
       return new Response(null, { status: 201 });
     }
     if (path.startsWith('/rest/v1/model_routes')) return json([routeRow(routeStatus)]);
@@ -112,6 +118,7 @@ test('no approved route: coaching runs the scripted BHPC flow end to end and nev
       const { reply } = await call(env, { message });
       steps.push(reply.step);
       assert.equal(reply.engine, 'scripted');
+      assert.match(reply.turnId ?? '', /^[0-9a-f-]{36}$/, 'every coach reply carries its stored turn id, so it can be reported');
     }
     assert.deepEqual(steps, ['ask', 'ask', 'ask', 'synthesize']);
     assert.equal(h.db.session.phase, 'closure_offered', 'phase persists between requests');

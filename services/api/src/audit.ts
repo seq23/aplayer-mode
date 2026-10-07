@@ -13,6 +13,7 @@ export const WORKER_AUDIT_EVENTS = {
     'day.replan_refused', 'integration.connected', 'next_action.completed', 'notification_preferences.updated',
     'operating_mode.changed', 'permission.changed', 'personal_os.installed', 'product_interest.changed',
     'mode.entered', 'mode.exited', 'sprint.completed', 'sprint.recovery_started', 'recovery.return_declared', 'recovery.resumed',
+    'auth.review_login',
   ],
   system: ['mode.auto_exited', 'mode.exited', 'sprint.completed', 'sprint.recovery_started', 'recovery.resumed', 'coaching.safety_stop'],
 } as const;

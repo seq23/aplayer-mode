@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
-import { Linking, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import type { OperatingModeKey } from '@apm/domain';
 import {
   Body,
@@ -13,7 +13,9 @@ import {
   SectionTitle,
   uiStyles,
 } from '../../src/components/ui';
-import { closeCoachSession, sendCoachMessage, type CoachChoice, type CoachReplyView, type ModeChangeRequest } from '../../src/api/apmApi';
+import { closeCoachSession, reportCoachReply, sendCoachMessage, type CoachChoice, type CoachReplyView, type CoachReportReason, type ModeChangeRequest } from '../../src/api/apmApi';
+import { plainError } from '../../src/api/errors';
+import { openExternal } from '../../src/links/external';
 import { colors, radius, spacing } from '../../src/theme';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { useSession } from '../../src/state/session';
@@ -25,7 +27,13 @@ const MODE_LABEL: Record<OperatingModeKey, string> = {
 const SPRINT_DAYS = [3, 7, 14];
 const BLOCK_MINUTES = [25, 50, 90, 120];
 
-type ChatTurn = { role: 'user' | 'apm'; text: string };
+type ChatTurn = { role: 'user' | 'apm'; text: string; turnId?: string };
+const REPORT_REASONS: Array<{ id: CoachReportReason; label: string }> = [
+  { id: 'harmful', label: 'Harmful or unsafe' },
+  { id: 'wrong', label: 'Wrong or misleading' },
+  { id: 'inappropriate', label: 'Inappropriate' },
+  { id: 'other', label: 'Something else' },
+];
 
 const inputStyle = { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.ink } as const;
 
@@ -36,7 +44,7 @@ function formatWhen(value?: string): string {
 }
 
 export default function ApmScreen() {
-  const { graph, todayPlan, modeState, setOperatingMode, applyTodayState, isDurable } = useLifeGraph();
+  const { graph, todayPlan, todayLoop, modeState, setOperatingMode, applyTodayState, isDurable } = useLifeGraph();
   const { accessToken } = useSession();
   const [busyMode, setBusyMode] = useState<string>();
   const [error, setError] = useState<string>();
@@ -47,6 +55,10 @@ export default function ApmScreen() {
   const [coachingBusy, setCoachingBusy] = useState(false);
   const [pending, setPending] = useState<'sprint' | 'deep_work'>();
   const [focus, setFocus] = useState('');
+  const [reporting, setReporting] = useState<string>();
+  const [reported, setReported] = useState<Record<string, true>>({});
+  // Deep Work: APM names the one task (today's priority); the person only confirms or edits it.
+  const suggestedFocus = todayLoop?.agenda.firstHour.priority?.title ?? todayLoop?.agenda.foregroundPriority?.label ?? todayPlan?.numberOneMove?.title ?? '';
 
   const activeMode: OperatingModeKey = modeState?.mode ?? graph.personalOS?.activeMode ?? todayPlan?.mode ?? 'standard';
   const definition = modeState?.definition;
@@ -61,7 +73,7 @@ export default function ApmScreen() {
       if (sessionId && accessToken) await closeCoachSession(sessionId, accessToken).catch(() => undefined);
       resetCoach(); setPending(undefined); setFocus('');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to change APM mode.');
+      setError(plainError(cause, 'The mode did not change. Try again.'));
     } finally { setBusyMode(undefined); }
   };
 
@@ -75,10 +87,15 @@ export default function ApmScreen() {
       const result = await sendCoachMessage({ ...input, sessionId }, accessToken);
       setSessionId(result.sessionId);
       setLast(result);
-      setTurns((current) => [...current, { role: 'apm', text: [result.reply, result.prompt.kind === 'question' && !result.prompt.options.length ? result.prompt.text : ''].filter(Boolean).join('\n') }]);
+      setTurns((current) => [...current, { role: 'apm', text: [result.reply, result.prompt.kind === 'question' && !result.prompt.options.length ? result.prompt.text : ''].filter(Boolean).join('\n'), ...(result.turnId ? { turnId: result.turnId } : {}) }]);
       if (result.today) applyTodayState(result.today);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'APM coaching is unavailable right now.');
+      // A failed send never eats what she typed: the words go back in the box (docs/35 E9).
+      if (input.message) {
+        setTurns((current) => current.slice(0, -1));
+        setMessage(input.message);
+      }
+      setError(plainError(cause, 'APM coaching is unavailable right now. Your message is still in the box.'));
     } finally { setCoachingBusy(false); }
   };
 
@@ -87,6 +104,16 @@ export default function ApmScreen() {
     if (!text) return;
     setMessage('');
     void send({ message: text });
+  };
+
+  const report = async (turnId: string, reason: CoachReportReason) => {
+    if (!accessToken) return;
+    setError(undefined);
+    try {
+      await reportCoachReply({ turnId, reason }, accessToken);
+      setReported((current) => ({ ...current, [turnId]: true }));
+      setReporting(undefined);
+    } catch (cause) { setError(plainError(cause, 'The report did not send. Try again.')); }
   };
 
   const close = async () => {
@@ -151,9 +178,9 @@ export default function ApmScreen() {
         ) : null}
         {pending === 'deep_work' ? (
           <View style={uiStyles.stack}>
-            <Label>The one task for this block</Label>
-            <TextInput value={focus} onChangeText={setFocus} placeholder="e.g. Draft the intro section" placeholderTextColor={colors.inkMuted} style={inputStyle} />
-            {BLOCK_MINUTES.map((minutes) => <Button key={minutes} label={`${minutes} minutes`} onPress={() => void changeMode({ mode: 'deep_work', minutes, focus: focus.trim() }, 'deep_work')} />)}
+            <Label>{suggestedFocus ? `The one task for this block: ${suggestedFocus}` : 'The one task for this block'}</Label>
+            <TextInput accessibilityLabel="Change the task (optional)" value={focus} onChangeText={setFocus} placeholder={suggestedFocus ? 'Change it (optional)' : 'e.g. Draft the intro section'} placeholderTextColor={colors.inkMuted} style={inputStyle} />
+            {BLOCK_MINUTES.map((minutes) => <Button key={minutes} label={`${minutes} minutes`} onPress={() => void changeMode({ mode: 'deep_work', minutes, focus: (focus.trim() || suggestedFocus).slice(0, 300) }, 'deep_work')} />)}
           </View>
         ) : null}
       </Card>
@@ -166,7 +193,26 @@ export default function ApmScreen() {
             <Button label={coachingBusy ? 'Starting…' : activeMode === 'executive_review' ? 'Run Executive Review' : 'Start coaching'} onPress={() => void send({})} />
           </>
         ) : null}
-        {turns.map((turn, index) => <View key={`${turn.role}-${index}`} style={uiStyles.stack}><Label>{turn.role === 'apm' ? 'APM' : 'You'}</Label><Body>{turn.text}</Body></View>)}
+        {turns.map((turn, index) => (
+          <View key={`${turn.role}-${index}`} style={uiStyles.stack}>
+            <Label>{turn.role === 'apm' ? 'APM' : 'You'}</Label>
+            <Body>{turn.text}</Body>
+            {turn.role === 'apm' && turn.turnId ? (
+              reported[turn.turnId] ? <Body muted>Reported. Thank you. A person reviews every report.</Body>
+                : reporting === turn.turnId ? (
+                  <View style={uiStyles.stack}>
+                    <Label>What is wrong with this reply?</Label>
+                    {REPORT_REASONS.map((reason) => <Button key={reason.id} label={reason.label} variant="secondary" onPress={() => void report(turn.turnId!, reason.id)} />)}
+                    <Button label="Cancel" variant="secondary" onPress={() => setReporting(undefined)} />
+                  </View>
+                ) : (
+                  <Pressable accessibilityRole="button" accessibilityLabel="Report this reply" onPress={() => setReporting(turn.turnId)} style={{ minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' }}>
+                    <Text style={{ color: colors.inkMuted, fontWeight: '700' }}>Report this</Text>
+                  </Pressable>
+                )
+            ) : null}
+          </View>
+        ))}
 
         {last?.morningSequence && last.phase === 'morning_sequence' ? (
           <Card tone="accent"><Label>Morning Sequence</Label>{last.morningSequence.map((step, index) => <Body key={step}>{index + 1}. {step}</Body>)}</Card>
@@ -179,7 +225,7 @@ export default function ApmScreen() {
               <View key={resource.label} style={uiStyles.stack}>
                 <CardTitle>{resource.label}</CardTitle>
                 <Body>{resource.detail}</Body>
-                {resource.action ? <Button label={resource.action.kind === 'url' ? 'Open' : `Call ${resource.action.value}`} variant="danger" onPress={() => void Linking.openURL(resource.action!.kind === 'url' ? resource.action!.value : `tel:${resource.action!.value}`)} /> : null}
+                {resource.action ? <Button label={resource.action.kind === 'url' ? 'Open' : resource.action.kind === 'text' ? `Text ${resource.action.value}` : `Call ${resource.action.value}`} variant="danger" onPress={() => { const action = resource.action!; void openExternal(action.kind === 'url' ? { kind: 'web', url: action.value } : { kind: action.kind, number: action.value }); }} /> : null}
               </View>
             ))}
           </Card>

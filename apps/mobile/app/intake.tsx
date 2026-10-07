@@ -26,6 +26,7 @@ import {
 import { useIntake } from '../src/intake/store';
 import { useSession } from '../src/state/session';
 import { synthesizeIntake } from '../src/api/apmApi';
+import { plainError } from '../src/api/errors';
 import { enableApmPush } from '../src/integrations/push';
 import { QuestionView } from '../src/components/intake/QuestionView';
 import { Interstitial } from '../src/components/intake/Interstitials';
@@ -161,7 +162,7 @@ export default function IntakeScreenRoute() {
           track('onboarding_completed', { mode: mode ?? 'full', games: games.join('.') });
           go('plan');
         } catch (error) {
-          setNotice(error instanceof Error ? error.message.replace(/ \(\d{3}\).*$/, '') : 'Install did not finish. Try again.');
+          setNotice(plainError(error, 'Install did not finish. Try again.'));
         }
       })();
     };

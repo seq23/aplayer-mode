@@ -44,6 +44,7 @@ import { buildOAuthAuthorizationUrl, exchangeAndStoreOAuthConnection } from './c
 import { syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
+import { reviewLogin } from './reviewLogin';
 import { COACH_CHOICES } from './coach/machine';
 import { applyModeToPlan, modeView, reconcileModeState, transitionMode, type ModeEvent, type ModeRequest, type ModeState } from './coach/modes';
 import { ACTIVE_TRACK_KEYS } from './coach/tracks';
@@ -1267,6 +1268,30 @@ app.post('/v1/apm/coach', async (c) => {
   }
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'coaching_turn', { mode: reply.mode, phase: reply.phase, engine: reply.engine, step: reply.step });
   return c.json({ ...reply, modeState: today?.mode ?? state.mode, ...(today ? { today } : {}) });
+});
+// "Report this" on a coach reply (App Review; migration 0066): stored with an audit row.
+app.post('/v1/apm/coach/report', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({
+    turnId: z.string().uuid(),
+    reason: z.enum(['harmful', 'wrong', 'inappropriate', 'other']),
+    note: z.string().trim().max(500).optional(),
+  }).strict().safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  try {
+    const result = await supabaseRest<{ reportId: string; replayed: boolean }>(c.env, user.accessToken, '/rest/v1/rpc/apm_report_coach_reply', {
+      method: 'POST', body: JSON.stringify({ p_turn_id: parsed.data.turnId, p_reason: parsed.data.reason, p_note: parsed.data.note ?? null }),
+    });
+    return c.json(result, result.replayed ? 200 : 201);
+  } catch (error) {
+    if (/report_turn_not_found/.test(restErrorMessage(error) ?? '')) return c.json({ error: 'not_found', message: 'That reply is no longer there to report.' }, 404);
+    throw error;
+  }
+});
+// App Review demo sign-in (docs/33 §8): off (404) unless APP_REVIEW_EMAIL and APP_REVIEW_CODE are set.
+app.post('/v1/auth/review-login', async (c) => {
+  const result = await reviewLogin(c.env as ApiEnv, await c.req.json().catch(() => null));
+  return c.json(result.body, result.status);
 });
 app.post('/v1/apm/coach/:sessionId/close', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);

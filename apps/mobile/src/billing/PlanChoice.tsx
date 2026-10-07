@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import type { BillingPeriod, PaidPlan } from '@apm/policy';
 import { Body, Button, Card, CardTitle, ChoiceRow, KeyValue, Pill, SectionTitle, uiStyles } from '../components/ui';
@@ -9,6 +9,9 @@ import { APPLE_STANDARD_EULA_URL, PAID_PLANS, storeManageUrl, subscriptionDisclo
 import { UNAVAILABLE_COPY, billingAvailability, buyPackage, identifyBillingUser, legalUrls, loadOffering, managementUrl, restoreStorePurchases } from './purchases';
 import { PLAN_SCREEN, TIER_GRID_WHAT, TIER_GRID_WHO, offerBanner, recommendedTier, type OfferBanner } from '../content/sell';
 import { colors, radius, spacing } from '../theme';
+import { openExternal } from '../links/external';
+import { plainError } from '../api/errors';
+import { AccountPanel } from '../components/intake/AccountPanel';
 
 const PLAN_RANK: Record<string, number> = { beta: 0, chief_of_staff: 1, life_os: 2, autopilot: 3, household: 0 };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -38,6 +41,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   const [busy, setBusy] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
+  const [reloadKey, setReloadKey] = useState(0);
   const recommended = recommendedTier(games);
 
   const loadPlan = useCallback(async () => {
@@ -63,9 +67,9 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
           if (active) setStoreOffering(storeSide);
         }
       })
-      .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : 'Unable to load plans.'); });
+      .catch((cause: unknown) => { if (active) setError(plainError(cause, 'Plans did not load. Check your connection and try again.')); });
     return () => { active = false; };
-  }, [accessToken, availability.available, isAnonymous, onProduct, user?.id]);
+  }, [accessToken, availability.available, isAnonymous, onProduct, user?.id, reloadKey]);
 
   const packagesById = useMemo(() => {
     const map: Record<string, PurchasesPackage> = {};
@@ -110,7 +114,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       setNotice(confirmed ? 'Your plan is updated.' : 'The store accepted the purchase. Your plan updates here as soon as the store confirms it.');
       onFinished?.('purchased');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The purchase did not complete.');
+      setError(plainError(cause, 'The purchase did not complete. You were not charged twice; try again.'));
     } finally { setBusy(undefined); }
   };
 
@@ -121,20 +125,20 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       await restoreStorePurchases();
       setNotice(await confirmWithServer(product) ? 'Purchases restored.' : 'Restore sent to the store. Any active subscription appears here once the store confirms it.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to restore purchases.');
+      setError(plainError(cause, 'Restore did not finish. Try again.'));
     } finally { setBusy(undefined); }
   };
 
   const manage = async () => {
     const target = (availability.available ? await managementUrl() : undefined) ?? storeManageUrl(billing?.store ?? store ?? 'app_store');
-    await Linking.openURL(target);
+    await openExternal({ kind: 'web', url: target });
   };
 
   const disclosureOffer = offers.find((item) => item.plan === (PLAN_RANK[currentPlan]! >= 1 ? currentPlan : 'chief_of_staff')) ?? offers[0]!;
 
   return (
     <View style={uiStyles.stack}>
-      {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
+      {error ? <Card tone="danger"><Body>{error}</Body><Button label="Try again" variant="secondary" onPress={() => { setError(undefined); setReloadKey((n) => n + 1); }} /></Card> : null}
       {notice ? <Card tone="muted"><Body>{notice}</Body></Card> : null}
 
       <OfferBannerCard banner={banner} />
@@ -146,7 +150,11 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       <SectionTitle>Choose your plan</SectionTitle>
       <ChoiceRow<BillingPeriod> options={[{ id: 'monthly', label: 'Monthly' }, { id: 'annual', label: 'Annual · 2 months free' }]} value={period} onChange={setPeriod} />
       {!availability.available ? <Card tone="muted"><Body>{UNAVAILABLE_COPY[availability.reason]}</Body></Card> : null}
-      {availability.available && isAnonymous ? <Card tone="warning"><Body>Save your plan to an account first, so your subscription is never tied to one phone.</Body></Card> : null}
+      {availability.available && isAnonymous ? (
+        <Card tone="warning">
+          <AccountPanel title="Save your account first" sub="A subscription belongs to an account, so it is never tied to one phone. One tap, no password." onDone={() => setReloadKey((n) => n + 1)} />
+        </Card>
+      ) : null}
       {availability.available && (!privacyUrl || !termsUrl) ? <Card tone="muted"><Body>Purchases open once the Terms of Use and Privacy Policy links are configured for this build.</Body></Card> : null}
       {PAID_PLANS.map((planKey) => {
         const offer = offers.find((item) => item.plan === planKey)!;
@@ -174,8 +182,13 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       {onboarding && CLOSED_BETA_BUILD ? (
         <Card tone="muted"><Body>{PLAN_SCREEN.betaLine}</Body><Button label="Start with the closed beta" variant="secondary" onPress={() => onFinished?.('beta')} /></Card>
       ) : null}
-      {onboarding && !CLOSED_BETA_BUILD && !availability.available ? (
-        <Card tone="muted"><Body>{`${UNAVAILABLE_COPY[availability.reason]} Your OS is installed; choose a plan from Settings in the app.`}</Body><Button label="Continue to Day 1" variant="secondary" onPress={() => onFinished?.('continue')} /></Card>
+      {/* Never a dead end (docs/35 E6): whatever this build can or cannot buy, there is a way on.
+          Today then shows "Pick a plan to start Day 1" instead of a check-in the server refuses. */}
+      {onboarding && !CLOSED_BETA_BUILD ? (
+        <Card tone="muted">
+          <Body>{availability.available ? 'Not ready to choose? Your OS is installed and saved. Look around first; Today keeps the plans one tap away.' : `${UNAVAILABLE_COPY[availability.reason]} Your OS is installed and saved to your account.`}</Body>
+          <Button label={availability.available ? 'Decide later, show me Today' : 'Go to Today'} variant="secondary" onPress={() => onFinished?.('continue')} />
+        </Card>
       ) : null}
 
       <Card tone="muted">
@@ -187,8 +200,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       <Card tone="muted">
         {subscriptionDisclosure(billing?.store ?? store ?? 'app_store', disclosureOffer).map((line) => <Body key={line} muted>{line}</Body>)}
         <View style={uiStyles.row}>
-          {termsUrl ? <Button label="Terms of Use" variant="secondary" onPress={() => void Linking.openURL(termsUrl)} /> : null}
-          {privacyUrl ? <Button label="Privacy Policy" variant="secondary" onPress={() => void Linking.openURL(privacyUrl)} /> : null}
+          {termsUrl ? <Button label="Terms of Use" variant="secondary" onPress={() => void openExternal({ kind: 'web', url: termsUrl })} /> : null}
+          {privacyUrl ? <Button label="Privacy Policy" variant="secondary" onPress={() => void openExternal({ kind: 'web', url: privacyUrl })} /> : null}
         </View>
       </Card>
     </View>

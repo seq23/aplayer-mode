@@ -19,6 +19,7 @@ import type {
   ActiveTrackKey,
 } from '@apm/domain';
 import type { DailyAgenda, IntakeInstallPayload } from '@apm/planning';
+import { ApiError, networkError } from './errors';
 
 /** The first-run install payload (packages/planning toInstallPayload). */
 export type ApiIntakeInstallInput = IntakeInstallPayload;
@@ -114,6 +115,8 @@ export interface CoachReplyView {
   step: string;
   engine: 'scripted' | 'model';
   reply: string;
+  /** The stored assistant turn, so the person can report this exact reply (App Review 1.2 / docs/35). */
+  turnId?: string;
   prompt: CoachPromptView;
   nextMove?: string;
   morningSequence?: string[];
@@ -237,18 +240,44 @@ const baseUrl = process.env.EXPO_PUBLIC_APM_API_URL?.replace(/\/$/, '');
 
 export function isApmApiConfigured(): boolean { return Boolean(baseUrl); }
 
-async function request<T>(path: string, accessToken: string, options: RequestInit = {}): Promise<T> {
-  if (!baseUrl) throw new Error('EXPO_PUBLIC_APM_API_URL is not configured');
-  if (!accessToken) throw new Error('An authenticated APM session is required');
+/** Every API call gives up after this long, so no screen can spin forever (docs/35 E2). */
+export const REQUEST_TIMEOUT_MS = 20_000;
+let requestTimeoutMs = REQUEST_TIMEOUT_MS;
+/** Test hook: a shorter ceiling so the timeout can be proven without waiting 20 s. */
+export function setRequestTimeoutMs(ms: number): void { requestTimeoutMs = ms; }
+
+/**
+ * Supplies a fresh access token after a 401 (the session layer registers it). An app
+ * resumed after an hour in the background holds an expired token until the auth client's
+ * own refresh lands; one refresh-and-retry hides that from the person (docs/35 E3).
+ */
+let refreshAccessToken: (() => Promise<string | undefined>) | undefined;
+export function setAccessTokenRefresher(refresher: (() => Promise<string | undefined>) | undefined): void { refreshAccessToken = refresher; }
+
+async function send(url: string, options: RequestInit, accessToken: string): Promise<Response> {
   const headers = new Headers(options.headers);
   headers.set('accept', 'application/json');
   headers.set('authorization', `Bearer ${accessToken}`);
   if (options.body) headers.set('content-type', 'application/json');
-  const response = await fetch(`${baseUrl}${path}`, { ...options, headers });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+  try { return await fetch(url, { ...options, headers, signal: controller.signal }); }
+  catch (cause) { throw networkError(cause); }
+  finally { clearTimeout(timer); }
+}
+
+async function request<T>(path: string, accessToken: string, options: RequestInit = {}): Promise<T> {
+  if (!baseUrl) throw new Error('EXPO_PUBLIC_APM_API_URL is not configured');
+  if (!accessToken) throw new ApiError(401, { error: 'unauthorized' });
+  let response = await send(`${baseUrl}${path}`, options, accessToken);
+  if (response.status === 401 && refreshAccessToken) {
+    const fresh = await refreshAccessToken().catch(() => undefined);
+    if (fresh && fresh !== accessToken) response = await send(`${baseUrl}${path}`, options, fresh);
+  }
   if (!response.ok) {
-    const requestId = response.headers.get('x-request-id');
+    const requestId = response.headers.get('x-request-id') ?? undefined;
     const body = await response.json().catch(() => ({})) as { error?: string; message?: string };
-    throw new Error(`${body.message ?? body.error ?? 'APM API request failed'} (${response.status})${requestId ? ` · ${requestId}` : ''}`);
+    throw new ApiError(response.status, body, requestId);
   }
   return response.json() as Promise<T>;
 }
@@ -392,6 +421,11 @@ export async function recordClinicianClearance(accessToken: string) {
 export async function sendCoachMessage(input: { message?: string; choice?: CoachChoice; sessionId?: string }, accessToken: string): Promise<CoachReplyView> {
   return request<CoachReplyView>('/v1/apm/coach', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
+export type CoachReportReason = 'harmful' | 'wrong' | 'inappropriate' | 'other';
+/** "Report this" on a coach reply: stored server-side with an audit row (migration 0066). */
+export async function reportCoachReply(input: { turnId: string; reason: CoachReportReason; note?: string }, accessToken: string): Promise<{ reportId: string }> {
+  return request<{ reportId: string }>('/v1/apm/coach/report', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
 export async function closeCoachSession(sessionId: string, accessToken: string) {
   return request<{ ok: boolean }>(`/v1/apm/coach/${encodeURIComponent(sessionId)}/close`, accessToken, { method: 'POST' });
 }
@@ -509,4 +543,22 @@ export async function setAutopilotEventFlexible(eventId: string, flexible: boole
 }
 export async function fetchRetainedAutopilotState(accessToken: string): Promise<{ rules: AutopilotRule[]; executions: AutopilotExecution[]; masterPaused: boolean }> {
   return request('/v1/privacy/autopilot', accessToken);
+}
+
+/**
+ * App Review demo sign-in (docs/33 §8). Off unless the server has APP_REVIEW_EMAIL and
+ * APP_REVIEW_CODE set; then it answers ONLY for that one address. Without `code` it says
+ * whether to skip the email step; with the code it returns a session for that account.
+ */
+export async function reviewerSignIn(input: { email: string; code?: string }): Promise<{ review: true; session?: { access_token: string; refresh_token: string } } | null> {
+  if (!baseUrl) return null;
+  let response: Response;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+    try { response = await fetch(`${baseUrl}/v1/auth/review-login`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(input), signal: controller.signal }); }
+    finally { clearTimeout(timer); }
+  } catch { return null; }
+  if (!response.ok) return null;
+  return response.json() as Promise<{ review: true; session?: { access_token: string; refresh_token: string } }>;
 }

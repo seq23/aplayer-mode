@@ -27,6 +27,9 @@ jobs:
       - name: Test workspaces
         run: npm run test
 
+      - name: App Store pre-submit check (no placeholders, no Stripe, links via openExternal, iPad decision)
+        run: npm run presubmit:ios
+
       - name: Bundle the app (Metro must resolve workspace sources)
         run: npx expo export --platform web --output-dir "$RUNNER_TEMP/web-export"
         working-directory: apps/mobile
