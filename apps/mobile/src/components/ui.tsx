@@ -78,20 +78,25 @@ export function Button({
   label,
   onPress,
   variant = 'primary',
+  disabled = false,
 }: {
   label: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'danger';
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
         variant === 'secondary' && styles.buttonSecondary,
         variant === 'danger' && styles.buttonDanger,
         pressed && styles.pressed,
+        disabled && styles.disabled,
       ]}
     >
       <Text
@@ -302,6 +307,7 @@ const styles = StyleSheet.create({
   buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   buttonSecondaryText: { color: colors.ink },
   pressed: { opacity: 0.72 },
+  disabled: { opacity: 0.45 },
   fieldWrap: { gap: spacing.xs },
   field: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, color: colors.ink, fontSize: 16 },
   fieldMultiline: { minHeight: 88, textAlignVertical: 'top' },

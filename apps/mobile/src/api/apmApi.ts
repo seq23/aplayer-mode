@@ -172,6 +172,12 @@ export interface ProductPlanCard {
   maxAutonomyLabel: string;
   priceLabel: string;
   highlights: string[];
+  /** Paid tiers only (ADR-0004 / ADR-0005). */
+  monthlyUsdCents?: number;
+  annualUsdCents?: number;
+  monthlyPriceLabel?: string;
+  annualPriceLabel?: string;
+  packages?: { monthly: string; annual: string };
 }
 
 export interface LifeRelationshipInput {
@@ -213,8 +219,29 @@ export interface ProductPlanResponse {
     capabilities: string[];
     maxAutonomyLevel: AutonomyLevel;
     maxAutonomyLabel: string;
+    storeProductId?: string;
   };
+  /** Store subscription state as the verified RevenueCat webhook last wrote it; null when not store-billed. */
+  billing: {
+    store: 'app_store' | 'google_play';
+    period: 'monthly' | 'annual' | null;
+    founding: boolean;
+    periodEnd: string | null;
+    renews: boolean;
+    cancelAtPeriodEnd: boolean;
+    billingIssue: boolean;
+    pendingPlan: 'chief_of_staff' | 'life_os' | 'autopilot' | null;
+  } | null;
   plans: ProductPlanCard[];
+}
+
+/** The server's decision of which RevenueCat offering this user may see (Founding 100 is server-side). */
+export interface BillingOfferingResponse {
+  offering: 'default' | 'founding';
+  offeringId: string;
+  founding: boolean;
+  reservedUntil: string | null;
+  appUserId: string;
 }
 
 
@@ -247,6 +274,9 @@ export async function fetchRetainedLifeOsState(accessToken: string): Promise<{ l
 }
 export async function fetchProductPlan(accessToken: string): Promise<ProductPlanResponse> {
   return request<ProductPlanResponse>('/v1/product/plan', accessToken);
+}
+export async function fetchBillingOffering(accessToken: string): Promise<BillingOfferingResponse> {
+  return request<BillingOfferingResponse>('/v1/billing/offering', accessToken);
 }
 export async function fetchHouseholdInterest(accessToken: string) {
   return request<{ interested: boolean; updatedAt?: string }>('/v1/product/household-interest', accessToken);

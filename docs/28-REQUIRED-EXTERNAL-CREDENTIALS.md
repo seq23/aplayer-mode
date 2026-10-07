@@ -59,6 +59,7 @@ These values are bundled into the app and therefore are **not secrets**:
 - `EXPO_PUBLIC_EAS_PROJECT_ID`
 - `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` — RevenueCat public Apple SDK key (`appl_…`), **Phase E placeholder**
 - `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` — RevenueCat public Google SDK key (`goog_…`), **Phase E placeholder**
+- `EXPO_PUBLIC_TERMS_URL` / `EXPO_PUBLIC_PRIVACY_POLICY_URL` — paywall legal links, **Phase E placeholders** (purchases stay disabled until the privacy URL is set; iOS terms fall back to Apple's standard EULA)
 
 Never place server/API/provider secrets into `EXPO_PUBLIC_*` variables.
 
