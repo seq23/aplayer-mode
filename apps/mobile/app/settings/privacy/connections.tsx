@@ -28,6 +28,7 @@ import { accountName, accountsOfKind, addAnotherAccount, hasMultiAccount, KIND_N
 import { syncConfiguredDeviceCalendars } from '../../../src/integrations/deviceCalendar';
 import { useLifeGraph } from '../../../src/state/lifeGraph';
 import { useSession } from '../../../src/state/session';
+import { plainError } from '../../../src/api/errors';
 
 // The provider write scopes the Autopilot claim checks (migration 0033 required_scopes).
 const WRITE_SCOPES: Record<OAuthKind, string[]> = {
@@ -62,7 +63,7 @@ export default function ConnectionsScreen() {
       await work(accessToken);
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : fallback);
+      setError(plainError(cause, fallback));
     } finally {
       setBusy(undefined);
     }
@@ -156,7 +157,6 @@ export default function ConnectionsScreen() {
 
   return (
     <Screen
-      eyebrow="Connections"
       title="You choose what APM can see."
       subtitle="Every account is connected separately. Calendar access never silently grants email access, and reading never grants write or send authority: that is a separate consent you give per account."
     >

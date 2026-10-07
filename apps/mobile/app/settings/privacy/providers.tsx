@@ -13,6 +13,7 @@ import {
 } from '../../../src/components/ui';
 import { fetchModelRoutes } from '../../../src/api/apmApi';
 import { useSession } from '../../../src/state/session';
+import { plainError } from '../../../src/api/errors';
 
 interface RouteView {
   route_id?: string;
@@ -42,14 +43,13 @@ export default function ProvidersScreen() {
         if (active) setRoutes(result.routes as RouteView[]);
       })
       .catch((cause: unknown) => {
-        if (active) setError(cause instanceof Error ? cause.message : 'Unable to load the current model registry.');
+        if (active) setError(plainError(cause, 'Unable to load the current model registry.'));
       });
     return () => { active = false; };
   }, [accessToken]);
 
   return (
     <Screen
-      eyebrow="AI transparency"
       title="Current AI processing routes."
       subtitle="This page is backed by APM's server model registry. Candidate and restricted routes are shown for transparency but cannot process private data unless they are explicitly approved."
     >

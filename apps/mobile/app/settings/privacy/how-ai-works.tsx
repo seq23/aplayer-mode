@@ -13,18 +13,17 @@ import {
 export default function HowAiWorksScreen() {
   return (
     <Screen
-      eyebrow="How APM uses AI"
-      title="AI helps reason. Your Life Graph holds your life."
+      title="AI helps think. Your account holds your life."
       subtitle="APM does not send everything it knows to an AI model every time."
     >
       <Card tone="accent">
         <Flow
           steps={[
-            'Your private Life Graph',
-            'APM selects relevant context',
-            'Privacy Gateway checks sensitivity',
-            'Approved AI inference',
-            'Validated result',
+            'Your private account',
+            'APM picks only what this task needs',
+            'A privacy check decides what may leave',
+            'An approved AI model answers',
+            'APM checks the answer',
             'Your APM experience updates',
           ]}
         />
@@ -32,16 +31,16 @@ export default function HowAiWorksScreen() {
 
       <SectionTitle>What APM is designed to do</SectionTitle>
       <Card>
-        <ListItem title="Use deterministic code first" detail="Dates, conflicts, completion counts and state transitions should not need an LLM." />
-        <ListItem title="Minimize context" detail="An AI task receives the information it needs—not your whole Life Graph by default." />
-        <ListItem title="Route by privacy first" detail="Privacy eligibility → capability → reliability → cost → latency." />
-        <ListItem title="Validate model output" detail="A model response is untrusted input until APM validates it." />
+        <ListItem title="Plain code first" detail="Dates, clashes and counts are worked out by APM itself. No AI model needed." />
+        <ListItem title="Share the least" detail="An AI task gets only what it needs, never everything APM knows about you." />
+        <ListItem title="Privacy decides first" detail="A model is used only if its privacy terms allow it; then quality, then cost." />
+        <ListItem title="Check every answer" detail="An AI answer is not trusted until APM has checked it." />
       </Card>
 
       <Card>
         <CardTitle>Learning is not model training.</CardTitle>
         <Body>
-          If APM learns that you prefer workouts before noon, that preference can be stored privately in your Life Graph. It does not require a public foundation model to train on your calendar history.
+          If APM learns that you prefer workouts before noon, that preference can be stored privately in your account. It does not require a public foundation model to train on your calendar history.
         </Body>
       </Card>
 

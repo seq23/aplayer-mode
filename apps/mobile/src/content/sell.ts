@@ -30,6 +30,16 @@ export const HERO = {
   notThis: 'It is not perfection. It is not hustle cosplay. It is not waking up at 4 a.m. pretending you are a machine. It is a system that keeps you moving when motivation, mood and pressure change.',
 } as const;
 
+/** Section 2: how it works, in three steps (docs/34 §3.3). Nothing to design: APM builds it. */
+export const HOW_IT_WORKS = {
+  title: 'How it works',
+  steps: [
+    'Tap through easy questions: about 3 minutes to a working plan. Stop any time; nothing is lost. No essays.',
+    'APM builds your system: your one priority, your minimum day, your rules and your first 7 days. You approve it with one tap.',
+    'Every morning your plan arrives on its own: one priority, a short start, then the day. Bad days shrink automatically. No catch-up, no guilt.',
+  ],
+} as const;
+
 export const CONTINUITY = {
   title: 'You don\'t have a knowledge problem. You have a continuity problem.',
   body: 'You can plan. You can think clearly. You can design the perfect system. And life still runs in the same loop:',
@@ -39,7 +49,8 @@ export const CONTINUITY = {
 } as const;
 
 export const FIVE_ROLES = {
-  title: 'Five jobs in one',
+  title: 'Five people you would hire. One app.',
+  lead: 'Elite performers pay for a support stack. APM is that stack, working for you every day.',
   framing: 'Billionaires do not rely on motivation. They buy structure: a coach for clarity, a chief of staff for sequencing, an accountability partner for follow-through. Most people are expected to do all of that alone. APM runs that support stack for you, every day.',
   roles: [
     { title: 'Executive Coach', body: 'Calm, clear direction under pressure. You stop talking yourself in circles.' },
@@ -55,7 +66,7 @@ export const PERSONAS = {
   personas: [
     { title: 'Wealth building', thought: '"Am I doing the right thing with my money?"', plate: 'Saving runs by default, one debt at a time, a buffer before any bets, and subscriptions flagged.' },
     { title: 'Weight loss', thought: '"What do I eat and when do I work out today?"', plate: 'The day\'s workout and food steps, at a safe pace; a 10-minute walk counts on hard days.' },
-    { title: 'Founder / Entrepreneur', thought: '"What actually moves the business today, and who am I forgetting to follow up?"', plate: 'One foreground priority, dropped follow-ups caught, decisions run through ownership and leverage filters.' },
+    { title: 'Founder / Entrepreneur', thought: '"What actually moves the business today, and who am I forgetting to follow up?"', plate: 'One priority that moves the business, dropped follow-ups caught, decisions run through ownership and leverage filters.' },
     { title: 'Operator', thought: '"Am I doing the work that gets me promoted?"', plate: 'Real work in front of fake work, visible results on the calendar, no quiet renegotiation.' },
     { title: 'Parent+', thought: '"Did I forget a pickup, form, birthday or appointment?"', plate: 'Family time is booked first and defended like a board meeting; work fits around it.' },
   ],
@@ -64,23 +75,25 @@ export const PERSONAS = {
 
 export const INSIDE = {
   title: 'Inside the system',
+  lead: 'Six engines run in the background so you never have to think about them.',
   parts: [
     { title: 'Daily agenda engine', body: 'Turns the day into one clear stack: your priority first, then the rest, sized to the time you really have.' },
     { title: 'Morning trigger', body: 'Your agenda arrives on its own at the time you chose. You never have to remember to open the app.' },
     { title: 'Never Miss Twice', body: 'One miss is data. The next day shrinks to one small thing so a miss never becomes a lost week.' },
     { title: 'Minimum Viable Day', body: 'On a 2-out-of-10 day: one small thing, close the day, it counts. Zeros are allowed; quitting is not.' },
-    { title: 'Arbitration engine', body: 'When everything feels urgent, it picks the one foreground priority by leverage, urgency, energy, compounding and downside.' },
+    { title: 'Arbitration engine', body: 'When everything feels urgent, it picks the one priority that matters most by payoff, real deadlines, your energy, how it compounds and what could go wrong.' },
     { title: 'End-of-day check-in', body: 'Closes the loop with evidence: what got done, Hit / Partial / Miss, one insight. No catch-up debt.' },
   ] as readonly Card[],
 } as const;
 
 export const MODES = {
   title: 'Coaching modes, one tap away',
+  lead: 'APM picks the right one for your game. Switch any time from Today.',
   modes: [
     { key: 'high_pressure', title: 'High-Pressure Coaching', body: 'When you are stuck or avoiding: cuts through the noise and ends with one stabilizing directive.' },
     { key: 'executive_review', title: 'Executive Review', body: 'When your head is full: no new ideas, no re-diagnosis. Organizes the 3 to 7 things you already know.' },
     { key: 'recovery', title: 'Recovery', body: 'After a bad day or in a low season: a minimum day, no catch-up, no guilt.' },
-    { key: 'sprint', title: 'Sprint', body: 'When a deadline is close: a short, declared push with one foreground only.' },
+    { key: 'sprint', title: 'Sprint', body: 'When a deadline is close: a short, declared push on one thing only.' },
     { key: 'deep_work', title: 'Deep Work', body: 'Protects one uninterrupted focus block for one hard task.' },
     { key: 'standard', title: 'Standard', body: 'Normal execution under your operating system.' },
   ] as ReadonlyArray<{ key: string; title: string; body: string }>,
@@ -163,6 +176,8 @@ export const INTRO_SAVING_PERCENT = Math.round(((listCents - introCents) / listC
 export const WELCOME_TIERS_TEASER = {
   title: 'Three levels of help',
   line: PAID.map((plan) => `${PLAN_PRICES[plan].displayName} ${PLAN_PRICES[plan].tagline}`).join(' · '),
+  /** The same line as three rows (no prices: those are on the plan screen). */
+  rows: PAID.map((plan) => ({ title: PLAN_PRICES[plan].displayName, body: PLAN_PRICES[plan].tagline })) as readonly Card[],
   offer: `Introductory offer: start at ${INTRO_PRICE}/month`,
 } as const;
 
@@ -191,7 +206,7 @@ export function offerBanner(input: { founding: boolean; spotsLeft?: number | nul
     return {
       kind: 'founding',
       ribbon: 'Introductory offer',
-      headline: 'Introductory offer — Founding Member price',
+      headline: 'Founding Member price',
       ...common,
       explain: `For our first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members only. Your price stays ${INTRO_PRICE} for as long as you stay subscribed.`,
       ...(spots !== undefined ? { scarcity: `${spots} of ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} spots left` } : {}),
@@ -200,7 +215,7 @@ export function offerBanner(input: { founding: boolean; spotsLeft?: number | nul
   return {
     kind: 'introductory',
     ribbon: 'Introductory offer',
-    headline: `Introductory offer: ${INTRO_PRICE}/month for your first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}`,
+    headline: `${INTRO_PRICE}/month for your first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}`,
     ...common,
     explain: `New members pay ${INTRO_PRICE}/month for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}/month. Cancel any time in your store settings.`,
   };
@@ -236,6 +251,8 @@ export const TIER_GRID_WHAT = {
 
 export const PLAN_SCREEN = {
   title: 'How much should APM carry?',
+  compareTitle: 'Compare the three plans',
+  compareSummary: 'What each plan takes off your plate, side by side',
   plate: 'Every tier lifts load. Higher tiers lift more.',
   annualLine: 'Annual = 2 months free.',
   autonomyLine: 'Buying a tier never grants autonomy: you switch on each permission yourself, and you can revoke it.',
@@ -249,9 +266,10 @@ export function recommendedTier(games: readonly string[]): PaidPlan {
 
 export interface WelcomeSection { id: string; title: string }
 
-/** The welcome page, in its scannable order (11 sections, CTA repeated at the end). */
+/** The welcome page, in its scannable order (12 sections, CTA repeated at the end). */
 export const WELCOME_SECTIONS: readonly WelcomeSection[] = [
   { id: 'hero', title: HERO.headline },
+  { id: 'how', title: HOW_IT_WORKS.title },
   { id: 'continuity', title: CONTINUITY.title },
   { id: 'roles', title: FIVE_ROLES.title },
   { id: 'personas', title: PERSONAS.title },
@@ -266,7 +284,7 @@ export const WELCOME_SECTIONS: readonly WelcomeSection[] = [
 
 /** Every string the welcome page renders (the test pins content against it). */
 export function welcomeText(): string {
-  return JSON.stringify([HERO, CONTINUITY, FIVE_ROLES, PERSONAS, INSIDE, MODES, TRACKS, SITUATIONS, WITHOUT_WITH, WELCOME_TIERS_TEASER, PRIVACY_LINE, CTA_LABEL, WELCOME_SECTIONS]);
+  return JSON.stringify([HERO, HOW_IT_WORKS, CONTINUITY, FIVE_ROLES, PERSONAS, INSIDE, MODES, TRACKS, SITUATIONS, WITHOUT_WITH, WELCOME_TIERS_TEASER, PRIVACY_LINE, CTA_LABEL, WELCOME_SECTIONS]);
 }
 
 /** Every string the plan screen renders above the purchase options. */

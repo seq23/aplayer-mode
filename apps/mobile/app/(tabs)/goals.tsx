@@ -23,6 +23,9 @@ import {
 import { createGoal, setForegroundGoal, type CreatedGoalState } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { plainError } from '../../src/api/errors';
+import { GATE_WORDS, GOAL_HEALTH_WORDS, GOAL_STATUS_WORDS, TARGET_HORIZONS, shortDate, targetDateFor } from '../../src/content/words';
+
+const sentence = (text: string) => (text ? text[0]!.toUpperCase() + text.slice(1) : text);
 
 const healthTone = {
   on_track: 'success',
@@ -43,10 +46,10 @@ function PlanView({ stored, today }: { stored: StoredGoalPlan<GoalPlan>; today: 
   return (
     <View style={uiStyles.stack}>
       <KeyValue label="Plan" value={`Day ${day} of 90 · ${plan.foreground.label}`} />
-      {stored.decision ? <KeyValue label="Day-90 decision" value={`${stored.decision}${stored.decisionReason ? ` — ${stored.decisionReason}` : ''}`} /> : null}
+      {stored.decision ? <KeyValue label="Day-90 decision" value={`${sentence(GATE_WORDS[stored.decision] ?? 'decided')}${stored.decisionReason ? ` — ${stored.decisionReason}` : ''}`} /> : null}
       {plan.gates.map((gate) => (
         <View key={gate.key} style={uiStyles.stack}>
-          <Label>{`${gate.label} · days ${gate.startDay}–${gate.endDay} (${gate.startDate} → ${gate.endDate})${stored.gateReviews[gate.key] ? ` · reviewed: ${stored.gateReviews[gate.key]!.verdict}` : ''}`}</Label>
+          <Label>{`${gate.label} · ${shortDate(gate.startDate)} to ${shortDate(gate.endDate)}${stored.gateReviews[gate.key] ? ' · checked' : ''}`}</Label>
           <Body>{gate.outcome}</Body>
           {gate.milestones.map((milestone) => <Body key={milestone.id} muted>{`Day ${milestone.dueDay}: ${milestone.title}`}</Body>)}
         </View>
@@ -61,7 +64,7 @@ export default function GoalsScreen() {
   const { graph, todayLoop, perform } = useLifeGraph();
   const [title, setTitle] = useState('');
   const [pillar, setPillar] = useState<AreaKey>();
-  const [targetDate, setTargetDate] = useState('');
+  const [horizon, setHorizon] = useState<string>('none');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [created, setCreated] = useState<CreatedGoalState>();
@@ -76,20 +79,21 @@ export default function GoalsScreen() {
   const add = async () => {
     if (busy) return;
     if (title.trim().length < 3) { setError('Write the goal in a few words first, e.g. "Run a 5K by June".'); return; }
-    if (targetDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(targetDate.trim())) { setError('Write the date like 2027-01-31, or leave it empty.'); return; }
+    const targetDate = targetDateFor(horizon);
     setBusy(true); setError(undefined); setCreated(undefined);
     try {
-      const state = await perform((token) => createGoal({ title: title.trim(), ...(area ? { pillar: area } : {}), ...(/^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? { targetDate } : {}) }, token));
-      setCreated(state); setTitle(''); setPillar(undefined); setTargetDate(''); setChoosingArea(false);
+      const state = await perform((token) => createGoal({ title: title.trim(), ...(area ? { pillar: area } : {}), ...(targetDate ? { targetDate } : {}) }, token));
+      setCreated(state); setTitle(''); setPillar(undefined); setHorizon('none'); setChoosingArea(false);
     } catch (cause) { setError(plainError(cause, 'The goal was not added. Try again.')); }
     finally { setBusy(false); }
   };
+  const [movingId, setMovingId] = useState<string>();
   const makeForeground = async (goalId: string) => {
     if (busy) return;
-    setBusy(true); setError(undefined);
+    setBusy(true); setMovingId(goalId); setError(undefined);
     try { await perform((token) => setForegroundGoal(goalId, token)); setCreated(undefined); }
-    catch (cause) { setError(plainError(cause, 'The foreground did not change. Try again.')); }
-    finally { setBusy(false); }
+    catch (cause) { setError(plainError(cause, 'Your main goal did not change. Try again.')); }
+    finally { setBusy(false); setMovingId(undefined); }
   };
   const recommended = created?.recommendedForegroundGoalId;
 
@@ -97,7 +101,7 @@ export default function GoalsScreen() {
     <Screen
       eyebrow="Goals"
       title="Where APM is taking you."
-      subtitle="Every goal becomes a 90-day plan: three gates, milestones, and one physical action each day. One goal is the foreground; the rest get maintenance only."
+      subtitle="APM turns each goal into a 90-day plan with one small step a day. One goal is your main goal; the others tick over in the background."
     >
       {error ? <ErrorState message={error} /> : null}
       {graph.goals.length ? (
@@ -108,33 +112,33 @@ export default function GoalsScreen() {
             return (
               <Card key={goal.id} tone={isForeground ? 'accent' : 'default'}>
                 <View style={uiStyles.row}>
-                  <Pill tone={healthTone[goal.health]}>{goal.health.replace('_', ' ')}</Pill>
-                  {isForeground ? <Pill tone="success">Foreground</Pill> : <Pill>Background</Pill>}
-                  <Pill>{goal.status}</Pill>
+                  <Pill tone={isForeground && healthTone[goal.health] === 'success' ? 'solid' : healthTone[goal.health]}>{GOAL_HEALTH_WORDS[goal.health] ?? 'Just started'}</Pill>
+                  {isForeground ? <Pill tone="solid">Main goal</Pill> : null}
+                  {goal.status !== 'active' ? <Pill>{GOAL_STATUS_WORDS[goal.status] ?? 'Paused'}</Pill> : null}
                 </View>
                 <CardTitle>{goal.title}</CardTitle>
                 <KeyValue label="Area" value={areaDisplay(goal.pillar)} />
-                {goal.targetDate ? <KeyValue label="Target date" value={goal.targetDate} /> : null}
+                {goal.targetDate ? <KeyValue label="Target date" value={shortDate(goal.targetDate) || goal.targetDate} /> : null}
                 {stored ? <PlanView stored={stored} today={today} /> : <Body muted>The plan is being built; it appears on your next refresh.</Body>}
-                {!isForeground && goal.status === 'active' ? <Button label={busy ? 'Saving…' : 'Make this the foreground'} variant="secondary" onPress={() => void makeForeground(goal.id)} /> : null}
+                {!isForeground && goal.status === 'active' ? <Button label={movingId === goal.id ? 'Saving…' : 'Make this my main goal'} variant="secondary" busy={movingId === goal.id} disabled={busy && movingId !== goal.id} onPress={() => makeForeground(goal.id)} /> : null}
               </Card>
             );
           })}
         </View>
       ) : (
-        <EmptyState icon="target" title="No goal in your Life Graph yet." body="Start with one concrete 90-day outcome. APM turns it into a plan and a daily action." actionLabel="Build my APM" onAction={() => router.push('/intake')} />
+        <EmptyState icon="target" title="No goal yet." body="Answer a few quick questions and APM turns your goal into a 90-day plan with one small step a day." actionLabel="Set up my plan" onAction={() => router.push('/intake')} />
       )}
 
       {created?.arbitration ? (
         <Card tone="warning">
-          <Label>Arbitration Engine</Label>
-          <CardTitle>{recommended && recommended !== foregroundGoalId ? 'The new goal scores higher than your current foreground.' : 'Your current foreground still wins. The new goal runs in the background.'}</CardTitle>
-          {created.arbitration.ranked.map((row) => {
+          <Label>Which goal comes first?</Label>
+          <CardTitle>{recommended && recommended !== foregroundGoalId ? 'APM suggests making the new goal your main goal.' : 'Your main goal stays first. The new goal ticks over in the background.'}</CardTitle>
+          {created.arbitration.ranked.map((row, index) => {
             const goalId = plans.find((plan) => plan.id === row.id)?.goalId;
-            return <KeyValue key={row.id} label={graph.goals.find((goal) => goal.id === goalId)?.title ?? 'Goal'} value={row.score.toFixed(2)} />;
+            return <KeyValue key={row.id} label={index === 0 ? 'First' : `${index + 1}.`} value={graph.goals.find((goal) => goal.id === goalId)?.title ?? 'Goal'} />;
           })}
-          <Body muted>Leverage, urgency (real deadlines only), energy match, compounding and downside. You decide.</Body>
-          {recommended && recommended !== foregroundGoalId ? <Button label="Move the foreground" onPress={() => void makeForeground(recommended)} /> : null}
+          <Body muted>APM weighs payoff, real deadlines, your energy, how it builds over time and what could go wrong. You decide.</Body>
+          {recommended && recommended !== foregroundGoalId ? <Button label="Make it my main goal" onPress={() => makeForeground(recommended)} /> : null}
         </Card>
       ) : null}
 
@@ -142,20 +146,21 @@ export default function GoalsScreen() {
         <>
           <SectionTitle>Add a goal</SectionTitle>
           <Card>
-            <Body muted>A new goal is run through the Arbitration Engine against your foreground. In Week 1 no new projects are added: the system stabilizes first.</Body>
+            <Body muted>Write it in a few words. APM files it, plans it and tells you whether it should come first. In your first week new goals wait, so the basics settle.</Body>
             <TextField label="Goal" value={title} onChangeText={setTitle} placeholder="e.g. Build a 3-month emergency fund" />
             {area ? <Body muted>{`APM files this under ${areaDisplay(area)}.`}</Body> : null}
             {choosingArea ? <ChoiceRow options={PILLARS} value={area} onChange={(next) => { setPillar(next); setChoosingArea(false); }} />
               : area ? <Button label="Change the area" variant="secondary" onPress={() => setChoosingArea(true)} /> : null}
-            <TextField label="Target date (optional, YYYY-MM-DD)" value={targetDate} onChangeText={setTargetDate} placeholder="2027-01-31" />
-            <Button label={busy ? 'Planning…' : 'Add goal and build its plan'} onPress={() => void add()} />
+            <Label>By when? (optional)</Label>
+            <ChoiceRow options={TARGET_HORIZONS.map((h) => ({ id: h.id, label: h.label }))} value={horizon} onChange={setHorizon} />
+            <Button label={busy && !movingId ? 'Planning…' : 'Add goal and build its plan'} busy={busy && !movingId} disabled={title.trim().length < 3} disabledReason="Write the goal in a few words first." onPress={() => add()} />
           </Card>
         </>
       ) : null}
 
       <SectionTitle>How progress works</SectionTitle>
       <Card>
-        <Body>Goal → 30/60/90 gates → milestones → today’s one action → evidence → day-90 Promote, Maintain or Park.</Body>
+        <Body>Your goal becomes three 30-day stages, each with checkpoints. Every day you get one small step. On day 90 you choose: make it your main goal, keep it going, or park it.</Body>
       </Card>
     </Screen>
   );

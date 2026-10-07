@@ -11,6 +11,7 @@ import {
   EmptyState,
 } from '../../src/components/ui';
 import { useLifeGraph } from '../../src/state/lifeGraph';
+import { radarTag } from '../../src/content/words';
 
 export default function RadarScreen() {
   const { graph } = useLifeGraph();
@@ -21,21 +22,23 @@ export default function RadarScreen() {
     <Screen
       eyebrow="Radar"
       title="What APM sees coming."
-      subtitle="Deterministic signals only for now. If APM cannot explain the signal from your state, it should not surface it."
+      subtitle="Promises, deadlines and replies that are about to slip. APM only shows what it can explain."
     >
-      <Row wrap gap="xs">
-        <Pill tone={highAttention.length > 0 ? 'warning' : 'success'}>{`${highAttention.length} high attention`}</Pill>
-        <Pill>{`${items.length} open`}</Pill>
-      </Row>
+      {items.length ? (
+        <Row wrap gap="xs">
+          {highAttention.length ? <Pill tone="warning">{`${highAttention.length} important`}</Pill> : null}
+          <Pill>{`${items.length} open`}</Pill>
+        </Row>
+      ) : null}
 
       <SectionTitle>Needs attention</SectionTitle>
       {items.length === 0 ? (
-        <EmptyState icon="compass" title="Nothing justified right now." body="Radar is intentionally quiet until durable state gives APM a reason to interrupt you." />
+        <EmptyState icon="compass" title="Nothing slipping right now." body="Radar stays quiet until something really needs you. Connect your calendar or email and it watches those too." actionLabel="Connect an account" onAction={() => router.push('/settings/privacy/connections')} />
       ) : (
         items.map((item) => (
           <Card key={item.id} tone={item.severity === 'critical' || item.severity === 'high' ? 'warning' : 'default'}>
             <Pill tone={item.severity === 'critical' || item.severity === 'high' ? 'warning' : 'neutral'}>
-              {item.type} · {item.severity}
+              {radarTag(item.type, item.severity)}
             </Pill>
             <CardTitle>{item.headline}</CardTitle>
             <Body muted>{item.summary}</Body>

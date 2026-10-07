@@ -5,6 +5,7 @@ import { completeWeeklyReview, fetchWeeklyDebrief, type WeeklyDebriefView } from
 import { useLifeGraph } from '../src/state/lifeGraph';
 import { useSession } from '../src/state/session';
 import { plainError } from '../src/api/errors';
+import { shortDate } from '../src/content/words';
 
 /** BHPC Prompt #7: Execution Score, Foreground Focus, Friction Analysis, One Adjustment. */
 export default function WeeklyReviewScreen() {
@@ -34,25 +35,25 @@ export default function WeeklyReviewScreen() {
   };
 
   return (
-    <Screen eyebrow="Weekly debrief" title="Executive Review." subtitle={debrief?.executiveReview.open ?? "Here's what you already know that still makes you better:"}>
+    <Screen title="Your week, in five minutes." subtitle={debrief?.executiveReview.open ?? "Here's what you already know that still makes you better:"}>
       {error ? <ErrorState message={error} /> : null}
       {debrief ? (
         <>
           <Card tone="accent">
-            <Label>{`Execution score · ${debrief.weekStart} → ${debrief.weekEnd}`}</Label>
+            <Label>{`How the week went · ${shortDate(debrief.weekStart)} to ${shortDate(debrief.weekEnd)}`}</Label>
             <CardTitle>{`${debrief.executionScore.counted} of 7 days counted (${debrief.executionScore.percent}%)`}</CardTitle>
             <KeyValue label="Full days" value={String(debrief.executionScore.fullDays)} />
-            <KeyValue label="Minimum Viable Days" value={String(debrief.executionScore.mvdDays)} />
+            <KeyValue label="Light days (they count)" value={String(debrief.executionScore.mvdDays)} />
             <KeyValue label="Misses" value={String(debrief.executionScore.misses)} />
             <KeyValue label="Not closed" value={String(debrief.executionScore.unclosed)} />
           </Card>
           <Card>
-            <Label>Foreground focus</Label>
-            <CardTitle>{debrief.foregroundFocus.label ?? 'No foreground yet'}</CardTitle>
-            <Body>{`Foreground action done on ${debrief.foregroundFocus.daysWithForegroundDone} of 7 days.`}</Body>
+            <Label>Your main goal</Label>
+            <CardTitle>{debrief.foregroundFocus.label ?? 'No main goal yet'}</CardTitle>
+            <Body>{`You did its daily step on ${debrief.foregroundFocus.daysWithForegroundDone} of 7 days.`}</Body>
           </Card>
           <Card>
-            <Label>Friction analysis</Label>
+            <Label>What got in the way</Label>
             {debrief.friction.map((line) => <Body key={line}>{`• ${line}`}</Body>)}
             {debrief.trackSignals.map((signal) => <Body key={signal.code} muted>{`• ${signal.message}`}</Body>)}
           </Card>

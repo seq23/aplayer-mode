@@ -32,7 +32,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="today" options={{ title: 'Today', tabBarAccessibilityLabel: 'Today' }} />
       <Tabs.Screen name="radar" options={{ title: 'Radar', tabBarAccessibilityLabel: 'Radar' }} />
       <Tabs.Screen name="goals" options={{ title: 'Goals', tabBarAccessibilityLabel: 'Goals' }} />
-      <Tabs.Screen name="apm" options={{ title: 'APM', tabBarAccessibilityLabel: 'APM Coach' }} />
+      <Tabs.Screen name="apm" options={{ title: 'Coach', tabBarAccessibilityLabel: 'Coach' }} />
     </Tabs>
   );
 }

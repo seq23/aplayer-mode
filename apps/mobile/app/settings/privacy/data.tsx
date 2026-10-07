@@ -16,6 +16,7 @@ import {
 import { fetchRetainedAutopilotState, fetchRetainedLifeOsState } from '../../../src/api/apmApi';
 import { useLifeGraph } from '../../../src/state/lifeGraph';
 import { useSession } from '../../../src/state/session';
+import { plainError } from '../../../src/api/errors';
 
 export default function YourDataScreen() {
   const { graph } = useLifeGraph();
@@ -36,7 +37,7 @@ export default function YourDataScreen() {
       })
       .catch((cause: unknown) => {
         if (!active) return;
-        setLifeOsReadError(cause instanceof Error ? cause.message : 'Unable to load retained life-area data.');
+        setLifeOsReadError(plainError(cause, 'Unable to load retained life-area data.'));
       });
     return () => { active = false; };
   }, [accessToken, graph.lifeRelationships, graph.lifeAdminItems]);
@@ -56,13 +57,12 @@ export default function YourDataScreen() {
 
   return (
     <Screen
-      eyebrow="Your Data"
       title="What APM knows about you."
-      subtitle="Important persistent state is inspectable with source context. Core stated profile/goal state can be corrected by updating your Personal OS intake."
+      subtitle="Everything APM keeps about you, where it came from, and how to correct it."
     >
       <Card tone="accent">
-        <CardTitle>Your Life Graph is APM's private operating memory.</CardTitle>
-        <Body muted>Roles, goals, commitments, routines, people, relationships, life-area obligations, preferences and rules live in structured state instead of being hidden inside a giant prompt.</Body>
+        <CardTitle>This is APM's private memory of your life.</CardTitle>
+        <Body muted>Your roles, goals, promises, routines, people, life admin, preferences and rules, each one visible here, never hidden inside an AI prompt.</Body>
       </Card>
 
       <SectionTitle>Identity & game</SectionTitle>
@@ -71,8 +71,8 @@ export default function YourDataScreen() {
         <CardTitle>{graph.identity.displayName || 'Not set'}</CardTitle>
         {graph.identity.currentSeason ? <KeyValue label="Current season" value={graph.identity.currentSeason} /> : null}
         {graph.identity.becoming ? <KeyValue label="Becoming" value={graph.identity.becoming} /> : null}
-        <KeyValue label="Source" value="Personal OS intake" />
-        <Button label="Correct my Personal OS" variant="secondary" onPress={editPersonalOS} />
+        <KeyValue label="Source" value="Your setup answers" />
+        <Button label="Correct this" variant="secondary" onPress={editPersonalOS} />
       </Card>
 
       {graph.roles.map((role) => (
@@ -134,7 +134,7 @@ export default function YourDataScreen() {
       )) : <Card><Body muted>No life-area administration items are stored.</Body></Card>}
 
       <Card>
-        <Body muted>Life-area state is private structured data. Use Life areas to correct or complete it; export and account deletion include this state through the same Life Graph lifecycle.</Body>
+        <Body muted>Your life admin is private. Correct or complete it in Life areas; export and account deletion include it.</Body>
         <Button label="Manage life areas" variant="secondary" onPress={() => router.push('/settings/life')} />
       </Card>
 
@@ -153,7 +153,7 @@ export default function YourDataScreen() {
 
       <Card tone="warning">
         <CardTitle>Correction requirement</CardTitle>
-        <Body>Stated identity/goal state can be corrected by reinstalling the Personal OS. Provider-derived commitments must retain source/confidence and will gain item-level correction controls before public launch; corrections must not be blindly recreated from stale source evidence.</Body>
+        <Body>What you told APM in setup can be corrected in the Drafting Room. Promises APM found in your email or calendar keep a note of where they came from, so you can always see why APM thinks so.</Body>
       </Card>
     </Screen>
   );

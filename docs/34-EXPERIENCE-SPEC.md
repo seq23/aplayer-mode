@@ -78,9 +78,10 @@ BHPC splits the system into three chats: **A** is the rulebook and source of tru
 
 ## 3. Welcome page: the sell (first open)
 
-**Built (§14):** the page carries the full aplayermode.com pitch, adapted from "a download you paste into an AI" to the app, in this scannable order with section headers, expandable cards and a sticky **"Start: reduce my load"** button (repeated at the end), all copy in one typed module (`apps/mobile/src/content/sell.ts`, pinned by `apps/mobile/test/first-run.test.mjs`):
+**Built (§14):** the page carries the full aplayermode.com pitch, adapted from "a download you paste into an AI" to the app, in this scannable order with section headers (each with an eyebrow; the jobs, personas, engines and modes VISIBLE, not folded — docs/36 H1), a few expandable cards and a sticky **"Start: reduce my load"** button (repeated at the end), all copy in one typed module (`apps/mobile/src/content/sell.ts`, pinned by `apps/mobile/test/first-run.test.mjs`):
 
 1. Hero: **Reduce your cognitive load.** + what A-player mode means (clearer priorities, cleaner execution, faster recovery after imperfect days, less self-renegotiation; not perfection, not hustle cosplay) + "Running on empty?".
+1b. How it works: the three steps of §3.3 (added by docs/36 H1).
 2. "You don't have a knowledge problem. You have a continuity problem." + the restart loop + "You are not lazy. You are overloaded."
 3. Five jobs in one: the five roles, one line each on what they take off your plate, with the "support stack elite performers pay for" framing.
 4. The five personas + the broader list (creatives, students, athletes, career-switchers, executives in a new seat, anyone at 2 a.m.).

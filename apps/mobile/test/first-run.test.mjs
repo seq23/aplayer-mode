@@ -31,8 +31,11 @@ test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: 
 
 const usd = (cents) => policy.formatUsdCents(cents);
 
-test('the welcome page carries all 11 sections in order, with the CTA', () => {
-  assert.deepEqual(sell.WELCOME_SECTIONS.map((s) => s.id), ['hero', 'continuity', 'roles', 'personas', 'inside', 'modes', 'tracks', 'situations', 'without_with', 'tiers', 'privacy']);
+test('the welcome page carries all 12 sections in order (how it works second), with the CTA', () => {
+  assert.deepEqual(sell.WELCOME_SECTIONS.map((s) => s.id), ['hero', 'how', 'continuity', 'roles', 'personas', 'inside', 'modes', 'tracks', 'situations', 'without_with', 'tiers', 'privacy']);
+  assert.equal(sell.HOW_IT_WORKS.steps.length, 3, 'docs/34 §3.3: three steps');
+  assert.match(sell.HOW_IT_WORKS.steps[0], /3 minutes/);
+  assert.match(sell.HOW_IT_WORKS.steps[2], /arrives on its own/);
   assert.equal(sell.HERO.headline, 'Reduce your cognitive load.');
   assert.equal(sell.CTA_LABEL, 'Start: reduce my load');
   assert.equal(sell.CONTINUITY.title, 'You don\'t have a knowledge problem. You have a continuity problem.');
@@ -93,7 +96,8 @@ test('the introductory offer reads as a promotion in both states; scarcity is th
   const list = usd(policy.PLAN_PRICES.chief_of_staff.monthlyUsdCents);
   const founding = sell.offerBanner({ founding: true, spotsLeft: 37 });
   assert.equal(founding.kind, 'founding');
-  assert.equal(founding.headline, 'Introductory offer — Founding Member price');
+  assert.equal(founding.ribbon, 'Introductory offer');
+  assert.equal(founding.headline, 'Founding Member price');
   assert.equal(founding.now, `${intro}/month`);
   assert.equal(founding.was, `${list}/month`);
   assert.equal(founding.saving, 'Save 60%');
@@ -104,10 +108,15 @@ test('the introductory offer reads as a promotion in both states; scarcity is th
   assert.equal(unknown.scarcity, undefined, 'count unavailable → hidden, never invented');
   for (const fallback of [sell.offerBanner({ founding: false, spotsLeft: 12 }), sell.offerBanner({ founding: true, spotsLeft: 0 })]) {
     assert.equal(fallback.kind, 'introductory');
-    assert.equal(fallback.headline, `Introductory offer: ${intro}/month for your first 3 months, then ${list}`);
+    assert.equal(fallback.ribbon, 'Introductory offer');
+    assert.equal(fallback.headline, `${intro}/month for your first 3 months, then ${list}`);
     assert.equal(fallback.was, `${list}/month`);
     assert.equal(fallback.saving, 'Save 60%');
     assert.equal(fallback.scarcity, undefined);
+  }
+  // docs/36 H4: the ribbon and the headline sit one above the other; the words are never said twice.
+  for (const banner of [founding, unknown, sell.offerBanner({ founding: false })]) {
+    assert.ok(!banner.headline.toLowerCase().includes(banner.ribbon.toLowerCase()), `"${banner.ribbon}" is not repeated in "${banner.headline}"`);
   }
 });
 

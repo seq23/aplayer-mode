@@ -10,7 +10,7 @@ export default function AccountScreen() {
         title="Welcome back"
         sub="Sign in the way you saved your plan. No passwords."
         onDone={() => router.replace('/')}
-        onLater={() => router.back()}
+        onLater={() => (router.canGoBack() ? router.back() : router.replace('/welcome'))}
         laterLabel="Back"
       />
     </Screen>

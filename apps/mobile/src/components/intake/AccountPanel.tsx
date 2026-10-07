@@ -5,6 +5,7 @@ import { useSession, type AccountProvider, type AccountResult } from '../../stat
 import { Body, Button, Card, CardTitle, LinkButton, Muted, QuestionTitle, Reason, Row, TextField } from '../ui';
 import { radius, tap, useTheme } from '../../theme';
 import { intakeStyles } from './primitives';
+import { plainError } from '../../api/errors';
 
 /**
  * "Save your plan" (docs/34 §5): Apple (iOS only, first and at least as prominent as
@@ -41,7 +42,7 @@ export function AccountPanel({ title, sub, answeredCount, onDone, onLater, later
       const result = await call();
       if (result && result.outcome !== 'cancelled') onDone(result);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'That didn\'t work. Try again.');
+      setError(plainError(cause, 'That didn\'t work. Try again.'));
     } finally { setBusy(undefined); }
   };
 
@@ -88,7 +89,7 @@ export function AccountPanel({ title, sub, answeredCount, onDone, onLater, later
       {onLater && laterLabel !== 'Back' ? <Muted align="center">Saved on this phone; we'll ask again at install.</Muted> : null}
       {error ? <Reason>{error}</Reason> : null}
       <Card tone="muted">
-        <CardTitle>Your account is the boundary around your Life Graph.</CardTitle>
+        <CardTitle>Your account keeps your plan private and safe.</CardTitle>
         <Muted>No passwords. Private-life AI uses zero-retention, no-training routes only.</Muted>
         <LinkButton role="link" label="How APM protects your data" onPress={() => router.push('/settings/privacy')} />
       </Card>

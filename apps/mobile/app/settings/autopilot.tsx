@@ -167,7 +167,7 @@ function describe(rule: AutopilotRule): string {
     case 'email.send':
       return `${when} · ${(c.allowedKinds ?? []).join(', ')} · only to ${[...(c.allowedRecipients ?? []), ...(c.allowedRecipientDomains ?? [])].join(', ')} · up to ${c.maxPerDay}/day, ${c.maxPerRecipientPerDay}/person`;
     case 'calendar.reschedule':
-      return `${when} · flexible or matching "${(c.matchTitleKeywords ?? []).join(', ')}" · within ${c.maxShiftDays} days · never Deep Work or foreground blocks`;
+      return `${when} · flexible or matching "${(c.matchTitleKeywords ?? []).join(', ')}" · within ${c.maxShiftDays} days · never focus blocks or your main goal's time`;
     case 'calendar.decline':
       return `Declines invitations in ${(c.boundaries ?? []).map((b) => `${b.start}–${b.end}`).join(', ')} · with a polite note · never your own meetings or protected blocks`;
     case 'appointment.book':
@@ -220,7 +220,7 @@ export default function AutopilotScreen() {
 
   if (!overview) {
     return (
-      <Screen eyebrow="Autopilot" title="Standing authority, inside your rules." subtitle="Loading your rules…">
+      <Screen title="Standing authority, inside your rules." subtitle="Loading your rules…">
         {error ? <Card tone="danger"><Body>{error}</Body><Button label="Try again" variant="secondary" onPress={() => { setError(undefined); void load(); }} /></Card> : null}
       </Screen>
     );
@@ -229,7 +229,7 @@ export default function AutopilotScreen() {
   const { autopilot } = overview;
   if (!autopilot.entitled) {
     return (
-      <Screen eyebrow="Autopilot" title="Standing authority, inside your rules." subtitle="Autopilot lets APM handle approved recurring work without asking each time—only inside rules you write and can revoke.">
+      <Screen title="Standing authority, inside your rules." subtitle="Autopilot lets APM handle approved recurring work without asking each time—only inside rules you write and can revoke.">
         <Card tone="warning">
           <CardTitle>Autopilot is not active on this account.</CardTitle>
           <Body muted>Standing rules need an active Autopilot plan, enforced by the server and database. Even then, the plan grants nothing on its own: you choose each rule, its limits and how long it lasts.</Body>
@@ -245,7 +245,7 @@ export default function AutopilotScreen() {
   }
 
   return (
-    <Screen eyebrow="Autopilot" title="Standing authority, inside your rules." subtitle="APM acts without asking each time only where you have written a rule. Every run is audited and revocable; each one tells you whether it can be undone.">
+    <Screen title="Standing authority, inside your rules." subtitle="APM acts without asking each time only where you have written a rule. Every run is audited and revocable; each one tells you whether it can be undone.">
       {error ? <ErrorState message={error} /> : null}
 
       <Card tone={autopilot.masterPaused ? 'warning' : 'accent'}>
@@ -387,7 +387,7 @@ export default function AutopilotScreen() {
                     {policy.actionClass === 'calendar.reschedule'
                       ? <TextField value={draft.maxShiftDays} onChangeText={(v) => patchDraft(policy.actionClass, { maxShiftDays: v })} placeholder="Move at most N days" keyboardType="number-pad" />
                       : <TextField value={draft.declineNote} onChangeText={(v) => patchDraft(policy.actionClass, { declineNote: v })} placeholder="Your polite note (optional; a kind default is used)" multiline />}
-                    <Body muted>Only events you mark flexible or that match these words. Deep Work, focus and foreground blocks are never moved or declined.</Body>
+                    <Body muted>Only events you mark flexible or that match these words. Focus blocks and your main goal's time are never moved or declined.</Body>
                   </>
                 ) : null}
                 {policy.actionClass === 'appointment.book' ? (

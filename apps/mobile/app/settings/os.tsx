@@ -73,7 +73,7 @@ export default function DraftingRoomScreen() {
   });
 
   return (
-    <Screen eyebrow="Drafting Room" title="Change a rule without redoing the intake." subtitle="Draft first. Nothing becomes real until you apply it, and an applied change starts tomorrow — today's locked agenda stands.">
+    <Screen title="Change a rule without redoing the intake." subtitle="Draft first. Nothing becomes real until you apply it, and an applied change starts tomorrow — today's locked agenda stands.">
       <Toast tone="success" message={message} />
       {error ? <ErrorState message={error} /> : null}
       <Card>

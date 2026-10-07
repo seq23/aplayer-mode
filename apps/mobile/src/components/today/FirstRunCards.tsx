@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
 import type { LifeGraphSnapshot, OperatingModeKey } from '@apm/domain';
@@ -26,6 +26,7 @@ import { useIntake } from '../../intake/store';
 import { useLifeGraph } from '../../state/lifeGraph';
 import { useSession } from '../../state/session';
 import { updateIntakeProfile } from '../../api/apmApi';
+import { plainError } from '../../api/errors';
 
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -46,7 +47,7 @@ export function SaveAccountBanner() {
   if (!isAnonymous) return null;
   return (
     <Card tone="warning">
-      <CardTitle>Your OS is only on this phone.</CardTitle>
+      <CardTitle>Your plan is only on this phone.</CardTitle>
       <Body muted>Save it to an account so a lost phone never loses it. No passwords.</Body>
       <Button label="Save it" onPress={() => router.push('/account')} />
     </Card>
@@ -90,26 +91,33 @@ export function CoachingModeChips({ graph, activeMode }: { graph: LifeGraphSnaps
   const { setOperatingMode } = useLifeGraph();
   const [error, setError] = useState<string>();
   const [showWhen, setShowWhen] = useState(false);
+  // One mode change at a time: a second tap while one is saving is dropped, so a double tap
+  // can never enter a mode and then exit it again (docs/36 H3).
+  const [busyMode, setBusyMode] = useState<string>();
+  const inFlight = useRef(false);
   const profile = graph.personalOS?.intakeProfile;
   const chips = coachingModeChips({ games: profile?.games ?? graph.roles.map((r) => r.name.toLowerCase()), deadlines: profile?.deadlines ?? [] });
-  const focus = graph.goals.find((goal) => goal.id === graph.personalOS?.foregroundGoalId)?.title ?? 'The foreground task';
+  const focus = graph.goals.find((goal) => goal.id === graph.personalOS?.foregroundGoalId)?.title ?? 'My main goal';
   const pick = async (mode: (typeof chips)[number]['mode']) => {
-    setError(undefined);
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusyMode(mode); setError(undefined);
     try {
       if (activeMode === mode) await setOperatingMode({ action: 'exit' });
       else if (mode === 'sprint') await setOperatingMode({ action: 'enter', mode: 'sprint', days: 3 });
       else if (mode === 'deep_work') await setOperatingMode({ action: 'enter', mode: 'deep_work', minutes: 90, focus: focus.slice(0, 200) });
       else await setOperatingMode({ action: 'enter', mode });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message.replace(/ \(\d{3}\).*$/, '') : 'That mode could not start.');
-    }
+      setError(plainError(cause, 'That mode could not start. Try again.'));
+    } finally { inFlight.current = false; setBusyMode(undefined); }
   };
   return (
     <Card>
-      <Label>Coaching modes · one tap, any time</Label>
-      <View style={intakeStyles.chips}>
-        {chips.map((chip) => <Chip key={chip.mode} label={chip.label} selected={activeMode === chip.mode} onPress={() => void pick(chip.mode)} />)}
+      <Label>Need a different kind of day?</Label>
+      <View style={intakeStyles.chips} accessibilityRole="radiogroup">
+        {chips.map((chip) => <Chip key={chip.mode} role="radio" label={busyMode === chip.mode ? 'Switching…' : chip.label} selected={activeMode === chip.mode} onPress={() => void pick(chip.mode)} />)}
       </View>
+      {chips.some((chip) => chip.mode === activeMode) ? <Muted>On now. Tap it again to go back to your usual day.</Muted> : null}
       {chips.filter((chip) => showWhen || chip.mode === activeMode).map((chip) => <Muted key={chip.mode}>{`${chip.label}: ${chip.when}`}</Muted>)}
       <LinkButton label={showWhen ? 'Hide when to use each' : 'When to use each mode'} onPress={() => setShowWhen((v) => !v)} />
       {error ? <Reason>{error}</Reason> : null}

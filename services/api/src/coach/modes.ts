@@ -20,8 +20,8 @@ export const MODE_LIBRARY: Record<OperatingModeKey, ModeDefinition> = {
   standard: {
     key: 'standard',
     name: 'Standard',
-    purpose: 'Normal execution under your Personal OS.',
-    rules: ['One question at a time.', 'Coaching closes back into execution.'],
+    purpose: 'Your usual day: your plan, one step at a time.',
+    rules: ['One question at a time.', 'Coaching ends with you back on your plan.'],
     exitProtocol: 'Standard is the default; choose another mode to change how APM holds the day.',
     todayEffect: 'Full agenda.',
   },
@@ -47,7 +47,7 @@ export const MODE_LIBRARY: Record<OperatingModeKey, ModeDefinition> = {
     purpose: 'Organize what you already know — no new ideas, no re-diagnosis.',
     rules: [
       'Opens with: “Here’s what you already know that still makes you better:”',
-      'Numbered list of 3–7 items drawn only from your Life Graph.',
+      'Numbered list of 3–7 items drawn only from what APM already knows about you.',
       'Examines current priorities, opportunity quality, execution progress and strategic positioning.',
       'Introduces no new insights and asks no questions.',
       'Closes with: “None of this is new — you’re just being reminded.” and one grounding directive.',
