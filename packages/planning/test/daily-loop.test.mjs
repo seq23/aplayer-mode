@@ -238,6 +238,15 @@ test('Billionaire Mindset (Track 1) shapes arbitration: ownership outranks linea
   assert.ok(score(shaped, 'p-found') > score(plain, 'p-found'), 'ownership gains with the Track');
   assert.ok(score(shaped, 'p-promo') < score(plain, 'p-promo'), 'linear income loses with the Track');
   assert.equal(shaped.foreground.record.id, 'p-found');
+  // A parent's plans are wrapped as parent_plus; the Track weighs the real goal persona.
+  const parentFound = entry('p-found', 'g-found', 'Launch my startup and reach 10 paying customers', START, { roles: ['parent'] });
+  const parentPromo = entry('p-promo', 'g-promo', 'Get promoted to engineering manager', START, { roles: ['parent'] });
+  assert.equal(parentFound.plan.persona.key, 'parent_plus');
+  assert.equal(parentFound.plan.persona.foregroundPersona, 'founder');
+  const parentPlain = selectForeground({ plans: [parentPromo, parentFound], goals: g, date: START, completions: [] });
+  const parentShaped = selectForeground({ plans: [parentPromo, parentFound], goals: g, date: START, completions: [], trackKeys: ['billionaire_mindset'] });
+  assert.ok(score(parentShaped, 'p-found') > score(parentPlain, 'p-found'), 'multi-role parents keep the Track weighting');
+  assert.ok(score(parentShaped, 'p-promo') < score(parentPlain, 'p-promo'));
   const pinned = selectForeground({ plans: [promo, found], goals: g, foregroundGoalId: 'g-promo', date: START, completions: [], trackKeys: ['billionaire_mindset'] });
   assert.equal(pinned.foreground.record.id, 'p-promo', 'a Track is a filter; only the user moves the foreground');
 

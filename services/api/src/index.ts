@@ -63,6 +63,8 @@ import { workPushHold } from './morningTrigger';
 import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, rebuildBodyPlans, rebuildPlansForPillar, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
   applyOsChange,
+  getAppliedOsChange,
+  loopErrorCode,
   asLoopError,
   discardOsChange,
   draftOsChange,
@@ -887,7 +889,15 @@ app.post('/v1/os/changes/:id/apply', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   let applied;
   try {
-    applied = await applyOsChange(c.env, user.accessToken, c.req.param('id'));
+    try {
+      applied = await applyOsChange(c.env, user.accessToken, c.req.param('id'));
+    } catch (error) {
+      // Retry-safe: a pillar change already applied (e.g. its rebuild failed last time)
+      // re-runs only the idempotent in-place rebuild below, never the change itself.
+      const prior = loopErrorCode(error) === 'loop_change_not_draft' ? await getAppliedOsChange(c.env, user.accessToken, c.req.param('id')) : undefined;
+      if (!prior || prior.field !== 'pillar') throw error;
+      applied = prior;
+    }
     // A pillar-floor change regenerates the affected plans' floors (their 90 days continue).
     const proposed = (applied as { proposed?: { name?: unknown } }).proposed;
     if (applied.field === 'pillar' && typeof proposed?.name === 'string') {

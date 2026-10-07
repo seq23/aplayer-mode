@@ -565,7 +565,20 @@ test('Billionaire Mindset (Track 1) filters apply to ALL guidance, not only trig
   assert.doesNotMatch(triggered.text, /Billionaire filter on this move/, 'the guidance line never repeats a fired challenge');
   const off = machine.scriptedSynthesis('standard', ['I keep putting off the hiring plan', 'x', 'y'], 'Write the first role description', [track('billionaire_mindset', false)]);
   assert.doesNotMatch(off.text, /Billionaire/);
-  for (const mode of ['high_pressure', 'recovery', 'sprint']) {
-    assert.match(machine.scriptedSynthesis(mode, ['stuck', 'x', 'y'], 'Do the next step', tracksOn).text, /Billionaire filter on this move/, mode);
+  for (const mode of ['standard', 'high_pressure', 'recovery', 'sprint']) {
+    const synthesis = machine.scriptedSynthesis(mode, ['stuck', 'x', 'y'], 'Do the next step', tracksOn);
+    assert.match(synthesis.text, /Billionaire filter on this move/, mode);
+    // The one-question contract still holds with the closure prompt (Codex P1 on #24).
+    assert.doesNotThrow(() => machine.assertCoachTurnContract({ reply: synthesis.text, prompt: { kind: 'choice', text: machine.CLOSURE_QUESTION, options: ['close', 'deeper'] } }), mode);
   }
+  assert.doesNotMatch(tracks.TRACK_LIBRARY.billionaire_mindset.guidance, /\?/, 'guidance is declarative');
+});
+
+test('Billionaire Mindset filters also frame Executive Review, early enough to survive the bound', () => {
+  const g = graph({ tracks: [track('billionaire_mindset')] });
+  const reviewed = review.buildExecutiveReview(g, plan(), NOW);
+  assert.ok(reviewed.items.some((item) => /Billionaire filter on this move/.test(item.text)));
+  assert.equal(reviewed.text.includes('?'), false, 'no extra questions in the review');
+  const without = review.buildExecutiveReview(graph({ tracks: [] }), plan(), NOW);
+  assert.equal(without.items.some((item) => /Billionaire filter/.test(item.text)), false);
 });

@@ -158,7 +158,8 @@ export function arbitrationCandidate(
   context: { date: string; mood?: number; completions: PlanActionCompletion[]; trackKeys?: readonly string[] },
 ): ArbitrationCandidate {
   const persona = entry.plan.persona.key;
-  const track = billionaireAdjustment(persona, context.trackKeys);
+  // A parent/caregiver wrapper (parent_plus) keeps the real goal persona in foregroundPersona.
+  const track = billionaireAdjustment(entry.plan.persona.foregroundPersona ?? persona, context.trackKeys);
   const daysToTarget = goal?.targetDate ? daysBetween(context.date, goal.targetDate.slice(0, 10)) : undefined;
   const urgency = daysToTarget === undefined ? 0 : daysToTarget <= 14 ? 9 : daysToTarget <= 30 ? 7 : daysToTarget <= 60 ? 5 : 3;
   const supply = supplyDailyActions(entry.plan, { date: context.date, state: 'normal' });

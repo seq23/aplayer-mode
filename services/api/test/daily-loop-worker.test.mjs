@@ -67,6 +67,7 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
     if (rpc) {
       calls.rpc.push({ fn: rpc, args: body });
       if (rpcErrors[rpc]) return json({ message: rpcErrors[rpc] }, 400);
+      if (store.rpcErrorOnce?.[rpc]) { const message = store.rpcErrorOnce[rpc]; delete store.rpcErrorOnce[rpc]; return json({ message }, 400); }
       if (rpc === 'apm_service_save_goal_plan' || rpc === 'apm_service_create_goal') {
         const plan = body.p_plan;
         const goalId = rpc === 'apm_service_save_goal_plan' ? body.p_goal_id : '00000000-0000-4000-8000-0000000000a2';
@@ -421,9 +422,21 @@ test('a Drafting Room pillar-floor change regenerates the affected plans’ floo
     assert.equal(saves[0].args.p_plan.startDate, STARTED, 'its 90 days continue');
     assert.match(JSON.stringify(saves[0].args.p_plan.actions), /Walk 15 minutes after lunch/, 'the new floor is in the plan');
 
+    // Retry-safe: if the rebuild failed after the change was applied, applying again re-runs
+    // only the idempotent in-place rebuild (Codex P2 on #24).
+    h.store.os_change_requests = [{ id: 'chg2', field: 'pillar', status: 'applied', effective_from: '2099-01-01', proposed: h.store.applyResult.proposed }];
+    const saved = h.store.applyResult;
+    h.store.applyResult = undefined;
+    const retryBefore = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').length;
+    h.store.rpcErrorOnce = { apm_apply_os_change: 'loop_change_not_draft' };
+    const retried = await request('/v1/os/changes/chg2/apply', { method: 'POST' });
+    assert.equal(retried.status, 200);
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').length, retryBefore + 1, 'the rebuild re-runs');
+    h.store.applyResult = saved;
+
     // A change to a pillar no plan uses regenerates nothing.
     h.store.applyResult = { ...h.store.applyResult, id: 'chg3', proposed: { name: 'spirit', critical: false, minimumFloor: 'Pray 5 minutes' } };
     await request('/v1/os/changes/chg3/apply', { method: 'POST' });
-    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').slice(before).length, 1);
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').slice(before).length, 2, 'only the two body rebuilds (apply + retry)');
   } finally { h.restore(); }
 });

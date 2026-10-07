@@ -64,7 +64,8 @@ export const TRACK_LIBRARY: Record<ActiveTrackKey, TrackDefinition> = {
     ],
     triggers: [/\b(opportunit(y|ies)|offer|deal|equity|invest(ing|ment)?|salary|raise money|side hustle)\b/i],
     challenge: 'Billionaire Mindset filters apply: it must still be right in 10 years, the worst case must be survivable, and it should scale without you.',
-    guidance: 'Billionaire filter on this move: favour leverage over activity and ownership over income — is it still right in 10 years, is the worst case survivable, does it scale without you?',
+    // Declarative on purpose: a coach turn carries at most one question (assertCoachTurnContract).
+    guidance: 'Billionaire filter on this move: favour leverage over activity and ownership over income; it should still be right in 10 years, its worst case must be survivable, and it should scale without you.',
     precedence: 'Wealth Foundation’s buffer gate governs personal money; Billionaire Mindset governs venture and business decisions.',
   },
   operator_discipline: {
