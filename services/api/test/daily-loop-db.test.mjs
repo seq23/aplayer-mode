@@ -201,9 +201,11 @@ test('No Mid-Day Negotiation holds in the database: only declared external/safet
 
 test('closing the day closes the LOCAL today, audits it, and then execution stops', async () => {
   const today = await localToday(USER_A);
-  const closed = await rpc(USER_A, 'apm_close_day', ['full_day', 'Good day']);
+  // The safety replan swapped the agenda, so the earlier completion is not the whole day.
+  await rejects(rpc(USER_A, 'apm_close_day', ['full_day', 'Good day']), /loop_verdict_needs_evidence/);
+  const closed = await rpc(USER_A, 'apm_close_day', ['mvd', 'Good day']);
   assert.equal(closed.day, today);
-  assert.equal(closed.verdict, 'full_day');
+  assert.equal(closed.verdict, 'mvd');
   assert.equal(closed.completed_action_ids.length, 1);
   assert.equal((await admin(`select count(*)::int n from public.audit_events where user_id = '${USER_A}' and event_type = 'day.closed'`)).rows[0].n, 1);
   const stored = (await admin(`select * from public.goal_plans where goal_id = '${GOAL_A}' and status = 'active'`)).rows[0];
@@ -284,8 +286,9 @@ test('evidence before verdict, and the legacy path only completes what today’s
   await rpc(USER_B, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(agenda)]);
   assert.equal((await rpc(USER_B, 'apm_complete_next_action', [onAgenda])).action.status, 'done');
   await rejects(rpc(USER_B, 'apm_complete_next_action', [offAgenda]), /loop_not_on_agenda/);
-  const closed = await rpc(USER_B, 'apm_close_day', ['full_day', null]);
-  assert.equal(closed.verdict, 'full_day', 'after the check-in a Full Day is accepted');
+  await rejects(rpc(USER_B, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'the plan action is still open');
+  const closed = await rpc(USER_B, 'apm_close_day', ['mvd', null]);
+  assert.equal(closed.verdict, 'mvd', 'after the check-in, evidence supports an MVD');
 });
 
 test('the database checks the day’s supply, the Mood Gate and Never Miss Twice, and evidence before verdict', async () => {
@@ -329,4 +332,38 @@ test('the database checks the day’s supply, the Mood Gate and Never Miss Twice
     }
     assert.ok(offset + 1 >= 90 || !sqlKeys.includes('day90_decision'), `day ${offset + 1} never offers the day-90 decision early`);
   }
+});
+
+test('a Full Day needs the whole locked agenda done; setup days supply only setup; parked plans are never missed', async () => {
+  const USER_D = '00000000-0000-4000-8000-0000000000d1';
+  const GOAL_D = '00000000-0000-4000-8000-00000000d0d1';
+  await admin(`insert into auth.users (id) values ('${USER_D}')`);
+  await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_D}', 'standard', current_date - 10)`);
+  await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${GOAL_D}', '${USER_D}', 'Launch my business', 'active', 'unknown', 1, 'stated', 'manual')`);
+  const today = await localToday(USER_D);
+  const parentPlan = planning.generateGoalPlan('Launch my business', { roles: ['Parenting / caregiving', 'Building a business'], startDate: shift(today, -9) });
+  const stored = await rpc(USER_D, 'apm_save_goal_plan', [GOAL_D, JSON.stringify(parentPlan), 'intake']);
+  const entry = { record: { id: stored.id, goalId: GOAL_D, status: 'active', gateReviews: {}, startDate: stored.start_date }, plan: stored.plan };
+  // Yesterday was closed with evidence-free MVD? No: make yesterday a clean full day via admin so today is normal.
+  await admin(`insert into public.day_records (user_id, day, mode, verdict, closed_at) values ('${USER_D}', $1::date - 1, 'standard', 'full_day', now())`, [today]);
+  const agenda = planning.composeAgenda({ date: today, state: 'normal', plans: [entry], goals: [{ id: GOAL_D, title: 'Launch my business', status: 'active', priority: 1 }], completions: [], morningSequence: [] });
+  assert.ok(agenda.dailyStack.length >= 1, 'a foreground action plus the family floor');
+  await rpc(USER_D, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(agenda)]);
+  await rpc(USER_D, 'apm_complete_plan_action', [stored.id, agenda.firstHour.priority.actionKey, null]);
+  await rejects(rpc(USER_D, 'apm_close_day', ['full_day', null]), /loop_verdict_needs_evidence/, 'one of two done is not a Full Day');
+  assert.equal((await admin('select private.apm_loop_max_verdict($1, $2::date) v', [USER_D, today])).rows[0].v, 'mvd');
+  for (const item of agenda.dailyStack) await rpc(USER_D, 'apm_complete_plan_action', [stored.id, item.actionKey, null]);
+  assert.equal((await rpc(USER_D, 'apm_close_day', ['full_day', null])).verdict, 'full_day');
+
+  // Setup days: the SQL supply equals the engine's (setup action only, never the cadence on top).
+  for (const setup of stored.plan.setup) {
+    const day = shift(stored.start_date, setup.day - 1);
+    const sqlKeys = (await admin('select private.apm_loop_allowed_actions($1::jsonb, $2::date) a', [JSON.stringify(stored.plan), day])).rows[0].a;
+    assert.deepEqual([...sqlKeys].sort(), [...stored.plan.floors, setup.actionKey].sort(), `setup day ${setup.day}`);
+  }
+
+  // A parked plan never makes tomorrow "missed".
+  await admin(`update public.goal_plans set status = 'decided', decision = 'park', decision_reason = 'Parked', decided_at = now() where id = $1`, [stored.id]);
+  await admin(`update public.goals set status = 'paused' where id = $1`, [GOAL_D]);
+  assert.equal((await admin('select private.apm_loop_missed_yesterday($1, $2::date + 2) m', [USER_D, today])).rows[0].m, false);
 });

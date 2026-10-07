@@ -4,6 +4,7 @@ import {
   composeAgenda,
   deriveDayState,
   generateGoalPlan,
+  isPlanEligible,
   planContextFromGraph,
   validatePlan,
   withCompletionStatus,
@@ -83,11 +84,14 @@ function firstActiveDay(entries: PlanEntry[]): string | undefined {
 }
 
 export function dayStateFor(graph: LifeGraphSnapshot, date: string, recoveryMode: boolean): DayStateResult {
+  // Only plans still running count: a parked plan or a paused goal supplies nothing to miss.
+  const running = planEntries(graph).filter((entry) => isPlanEligible(entry.record)
+    && graph.goals.some((goal) => goal.id === entry.record.goalId && goal.status === 'active'));
   return deriveDayState({
     date,
     dayRecords: graph.dayRecords,
     completions: graph.planCompletions,
-    firstActiveDay: firstActiveDay(planEntries(graph)),
+    firstActiveDay: firstActiveDay(running),
     recoveryMode,
   });
 }

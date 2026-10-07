@@ -49,6 +49,9 @@ export default function TodayScreen() {
   const [closeNote, setCloseNote] = useState('');
   const agenda = todayLoop?.agenda;
   const executionOpen = Boolean(todayLoop?.checkedIn && !todayLoop.closed);
+  const planItems = [agenda?.firstHour.priority, ...(agenda?.dailyStack ?? [])].filter((item): item is AgendaItem => Boolean(item?.planId && item.actionKey));
+  const planItemCount = planItems.length;
+  const doneCount = planItems.filter((item) => item.status === 'done').length;
   const hideAgenda = todayLoop?.dayStart === 'hard' && !todayLoop.checkedIn;
 
   const run = async (label: string, call: (token: string) => Promise<unknown>) => {
@@ -98,7 +101,8 @@ export default function TodayScreen() {
   const firstRadarItem = graph.radarItems[0];
   const name = graph.identity.displayName || 'there';
   const mode = modeState?.mode ?? todayPlan?.mode ?? graph.personalOS?.activeMode ?? 'standard';
-  const recovery = mode === 'recovery';
+  // The agenda's own state counts: a mood-2 day or a missed yesterday is an MVD even outside Recovery Mode.
+  const recovery = mode === 'recovery' || todayLoop?.agenda.mode === 'recovery';
   const approvals = (todayPlan?.approvalActionIds ?? [])
     .map((id) => graph.actions.find((action) => action.id === id))
     .filter((action): action is NonNullable<typeof action> => Boolean(action));
@@ -244,6 +248,8 @@ export default function TodayScreen() {
         </>
       ) : null}
 
+      {recovery ? <Card tone="muted"><Body>Minimum Viable Day: the run of show, approvals and open loops wait until tomorrow. One thing, then close.</Body></Card> : (
+        <>
       <SectionTitle>Your run of show</SectionTitle>
       <View style={uiStyles.stack}>
         {(todayPlan?.blocks.length ?? 0) ? todayPlan!.blocks.map((block) => (
@@ -268,15 +274,18 @@ export default function TodayScreen() {
         <KeyValue label="Radar items" value={String(todayPlan?.radarItemIds.length ?? 0)} />
       </Card>
 
+        </>
+      )}
+
       {graph.personalOS ? <Card><Label>Personal OS</Label><KeyValue label="Day start" value={graph.personalOS.accountability.dayStart === 'hard' ? 'Hard Start' : 'Guided Start'} /><KeyValue label="Tracks" value={graph.tracks.filter((track) => track.active).map((track) => track.name).join(', ') || 'None'} /><Button label="Open APM Coach" variant="secondary" onPress={() => router.push('/(tabs)/apm')} /></Card> : null}
 
       <SectionTitle>Close the day</SectionTitle>
       <Card>
         <Body muted>Closing records evidence for continuity. No catch-up is created for tomorrow.</Body>
         <TextField value={closeNote} onChangeText={setCloseNote} placeholder="A note for today (optional)" />
-        {todayLoop?.closed ? <Body>{`Closed: ${todayLoop.day?.verdict?.replace('_', ' ') ?? 'done'}. Prior days stay closed; tomorrow starts fresh.`}</Body> : todayLoop && (!todayLoop.checkedIn || [agenda?.firstHour.priority, ...(agenda?.dailyStack ?? [])].filter((item) => item?.status === 'done').length === 0) ? <Body muted>A Full Day or MVD needs the check-in and at least one completed action. Otherwise today closes as a Miss — a miss is data.</Body> : (
+        {todayLoop?.closed ? <Body>{`Closed: ${todayLoop.day?.verdict?.replace('_', ' ') ?? 'done'}. Prior days stay closed; tomorrow starts fresh.`}</Body> : todayLoop && (!todayLoop.checkedIn || doneCount === 0) ? <Body muted>A Full Day or MVD needs the check-in and at least one completed action. Otherwise today closes as a Miss — a miss is data.</Body> : (
           <>
-            <Button label={closing ? 'Saving…' : 'Full Day'} onPress={() => void closeToday('full_day')} />
+            {doneCount === planItemCount ? <Button label={closing ? 'Saving…' : 'Full Day'} onPress={() => void closeToday('full_day')} /> : <Body muted>{`Full Day needs every agenda item done (${doneCount} of ${planItemCount}).`}</Body>}
             <Button label="Minimum Viable Day" variant="secondary" onPress={() => void closeToday('mvd')} />
           </>
         )}
