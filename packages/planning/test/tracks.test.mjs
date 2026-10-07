@@ -44,3 +44,66 @@ test('persona → Track defaults follow the research map and only ever name the 
   }
   assert.ok(recommendTrackKeys([], ['all-or-nothing burnout']).includes('resilience'));
 });
+
+// docs/32 is the Track specification; it is pinned to the code here so the doc
+// and the one shared display-name map can never drift apart.
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+const TRACK_DOC = readFileSync(join(repoRoot, 'docs/32-TRACK-LIBRARY-AND-APP-TRACKS.md'), 'utf8');
+const section = (heading) => {
+  const start = TRACK_DOC.indexOf(`## ${heading}`);
+  assert.ok(start >= 0, `docs/32 has section "${heading}"`);
+  const next = TRACK_DOC.indexOf('\n## ', start + 3);
+  return TRACK_DOC.slice(start, next < 0 ? undefined : next);
+};
+
+test('docs/32 Track table is exactly BUILTIN_TRACKS: keys, display names, origin, order', () => {
+  const rows = [...section('1. The seven Tracks').matchAll(/^\| `([a-z_]+)` \| ([^|]+?) \| (bhpc|app) \|$/gm)]
+    .map(([, key, name, origin]) => ({ key, name, origin }));
+  assert.equal(rows.length, 7, 'seven Track rows');
+  assert.deepEqual(rows, BUILTIN_TRACKS.map(({ key, name, origin }) => ({ key, name, origin })));
+  assert.ok(!/Billionaire Mindset|Manifestation Mastery Track|Investor \+ AI Leverage Track/.test(section('1. The seven Tracks')), 'no retired or superseded names in the Track table');
+  assert.ok(!TRACK_DOC.includes('Billionaire Mindset'), 'Track 1 is only ever called by its final display name');
+});
+
+test('docs/32 persona table: the five marketed personas, each Track named is one the code recommends', () => {
+  const byName = Object.fromEntries(Object.entries(NAMES).map(([key, name]) => [name, key]));
+  const fixtures = {
+    'Wealth building': { roles: [], goal: 'Build a 3-month emergency fund and pay off my credit card' },
+    'Weight loss': { roles: [], goal: 'lose 30 lbs' },
+    'Founder / Entrepreneur': { roles: ['Building a business'], goal: 'Get my first 10 paying customers' },
+    Operator: { roles: ['Career / leadership'], goal: 'Get promoted to director' },
+    'Parent+': { roles: ['Parenting / caregiving', 'Building a business'], goal: 'Launch my business' },
+  };
+  const rows = [...section('2. Personas we market to').matchAll(/^\| \*\*([^*]+)\*\*[^|]* \| ([^|]+) \|$/gm)];
+  assert.deepEqual(rows.map((r) => r[1]), Object.keys(fixtures), 'exactly the five personas, in order');
+  for (const [, persona, tracks] of rows) {
+    const keys = tracks.split(',').map((t) => byName[t.trim()]);
+    assert.ok(keys.length > 0 && keys.every(Boolean), `${persona}: every Track is a display name from the shared map`);
+    const recommended = recommendTrackKeys(fixtures[persona].roles, [], fixtures[persona].goal);
+    for (const key of keys) assert.ok(recommended.includes(key), `${persona}: code recommends ${key}`);
+  }
+});
+
+test('docs/32 reason codes all exist in source, and Track 1 principles never imply endorsement', () => {
+  const sources = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) walk(path);
+      else if (path.endsWith('.ts')) sources.push(readFileSync(path, 'utf8'));
+    }
+  };
+  for (const dir of ['packages/planning/src', 'packages/radar/src', 'packages/domain/src', 'services/api/src']) walk(join(repoRoot, dir));
+  const code = sources.join('\n');
+  const codes = new Set(TRACK_DOC.match(/\b(?:body|wealth|home)\.[a-z_]+\b/g) ?? []);
+  assert.ok(codes.size >= 12, `docs/32 names the Track reason codes (found ${codes.size})`);
+  for (const reason of codes) assert.ok(code.includes(`'${reason}'`), `reason code ${reason} exists in source`);
+  const library = section('1. The seven Tracks');
+  assert.match(library, /principle library of high-performer wisdom/);
+  assert.match(library, /\*\*principles only\*\*/);
+  assert.match(library, /no implied endorsement by real people/);
+});

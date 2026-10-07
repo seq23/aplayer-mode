@@ -329,7 +329,7 @@ Measure:
 
 Expose Chief of Staff, Life OS, and Autopilot only when the capabilities shown for each tier have the required runtime/provider/store/billing receipts.
 
-Current pricing hypotheses remain $29/mo Chief of Staff, ~$59/mo Life OS and ~$129+/mo Autopilot, with founding pricing governed separately.
+Final pricing (ADR-0004): Chief of Staff $24.99/mo, Life OS $39.99/mo, Autopilot $79.99/mo, cumulative. Chief of Staff intro offers: Founding 100 at $9.99/mo locked while continuously subscribed; everyone else $9.99/mo for the first 3 months, then $24.99/mo. Billing is App Store + Google Play in-app subscriptions (Phase D).
 
 ## Phase 14 — Household waitlist only
 

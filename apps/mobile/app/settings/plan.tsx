@@ -72,7 +72,7 @@ export default function PlanScreen() {
               {plan.plan === currentPlan ? <Pill tone="success">Current</Pill> : <Pill>Available tier</Pill>}
             </View>
             <Body>{plan.promise}</Body>
-            <KeyValue label="Price hypothesis" value={plan.priceLabel} />
+            <KeyValue label="Price" value={plan.priceLabel} />
             <KeyValue label="Autonomy ceiling" value={`${plan.maxAutonomyLevel} · ${plan.maxAutonomyLabel}`} />
             {plan.highlights.map((highlight) => <Body key={highlight} muted>• {highlight}</Body>)}
             {plan.plan !== currentPlan ? <Body muted>Purchase/upgrade activation will use verified billing receipts; this build does not fake a plan change locally.</Body> : null}

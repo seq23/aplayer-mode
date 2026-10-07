@@ -1,130 +1,89 @@
 # A Player Mode — Pricing Strategy
 
-**Status:** RECOMMENDED / TESTABLE (not permanently locked)
-**Version:** 1.0
-**Date:** 2026-10-06
+**Status:** OWNER-DECIDED / FINAL (ADR-0004)
+**Version:** 2.0
+**Date:** 2026-10-07
 
-Pricing is deliberately documented separately from the locked Product and Privacy constitutions because pricing must respond to willingness-to-pay, retention, unit economics, and product maturity.
+Pricing is documented separately from the locked Product and Privacy constitutions. The decision of record is **ADR-0004**; the numbers live in code (`packages/policy/src/index.ts`: `PLAN_PRICES`, `CHIEF_OF_STAFF_INTRO_OFFERS`) and this document is pinned to them by `packages/policy/test/pricing.test.mjs`.
 
-## Recommendation
+## Price list
 
-### Launch sequence
-
-| Stage | Offer | Recommended price | Why |
+| Tier | Job | Monthly | Includes |
 |---|---|---:|---|
-| Closed beta | Full Chief of Staff beta | $0 | Learn trust, Radar accuracy, retention, and willingness-to-pay before optimizing revenue |
-| Founding launch | Chief of Staff | **$24/mo or $228/yr ($19/mo effective)** | Premium to simple calendar tools, close enough to premium planners to be legible, with a meaningful annual commitment discount |
-| Post-PMF | Chief of Staff | **$29/mo or $276/yr ($23/mo effective)** | Appropriate once proactive value is demonstrated consistently |
-| Life OS | Deeper life management | **$59/mo or $564/yr ($47/mo effective)** | Prices the product as delegated mental-load management rather than a task app |
-| Autopilot | Permissioned execution | **$129/mo starting point** | Captures materially higher delegated value and leaves room for action/inference costs |
-| Household | Shared Life Graph / family operations | **No active price — waitlist only** | Household is deferred; collect demand before a later approval/build decision |
+| Closed beta | full Chief of Staff ceiling | $0 | — |
+| **Chief of Staff** | **decides the day** | **$24.99** | — |
+| **Life OS** | **remembers and prepares** | **$39.99** | everything in Chief of Staff |
+| **Autopilot** | **does** | **$79.99** | everything in Life OS |
+| Household | future shared coordination | waitlist only | — |
 
-**ADR-0002 supersedes the prior Chief-of-Staff-only launch sequence.** Build and offer Chief of Staff, Life OS, and Autopilot as the three individual service levels once each exposed capability has passed its runtime/release gates. Household remains waitlist-only. Pricing remains testable and may still be staged during beta.
+- **Cumulative ladder.** Each tier includes the one below it.
+- **Every tier reduces cognitive load; upper tiers reduce more.** Chief of Staff takes the "what do I do today, in what order" decision off the user. Life OS also remembers the wider life (relationships, birthdays, bills, subscriptions, appointments, travel, routines) and prepares what each needs. Autopilot also does approved work inside standing rules the user writes.
+- **Monthly only at launch.** Any annual plan needs a new pricing decision record and a change to the price constants.
 
-## Market anchors researched October 2026
+## Chief of Staff intro offers
 
-| Product | Current public price anchor | Relevant lesson |
-|---|---:|---|
-| Reclaim | $12/seat/mo Starter; $18 Business | Automated scheduling alone anchors in low-to-mid teens |
-| Sunsama | $22/mo monthly; $17/mo annual | Premium daily planning can sustain ~$1/workday pricing |
-| Superhuman Mail | $30/mo Starter; $40/mo Business | High-value workflow acceleration can sustain $30–40/mo |
-| Superhuman Suite | $15/mo Pro monthly; $40/mo Business monthly | Broad AI productivity suites put pressure on generic AI-assistant pricing |
-| APM proposed Chief of Staff | $24 founding → $29 standard | Must earn premium via proactive Life Graph/Radar, not generic chat |
-| APM proposed Life OS | $59 | New value category: delegated mental load |
-| APM proposed Autopilot | $129+ | New value category: permissioned execution / time returned |
+| Offer | Who | Price | For how long |
+|---|---|---:|---|
+| **Founding 100** | the first 100 subscribers | **$9.99/mo** | locked while continuously subscribed |
+| **Intro** | everyone else | **$9.99/mo** | first 3 months, then $24.99/mo |
 
-Sources used for this research are linked in the associated product research/decision record and should be refreshed before public pricing changes.
+Intro offers apply to Chief of Staff only.
 
-## Pricing ladder visual
+## Billing
+
+- **App Store and Google Play in-app subscriptions** (Phase D, pending; not built).
+- Server-side entitlements are reconciled from verified store receipts only. The client never grants a plan.
+- **Buying a tier never grants autonomy.** Entitlement AND explicit user permission AND server policy AND kill switches decide authority.
 
 ```mermaid
 flowchart LR
-  DIY[Digital OS\n$49–99 one-time] --> BETA[Chief of Staff Beta\n$0]
-  BETA --> F[Founding Chief of Staff\n$24/mo]
-  F --> C[Chief of Staff\n$29/mo]
-  C --> L[Life OS\n$59/mo]
-  L --> A[Autopilot\n$129+/mo]
+  BETA[Closed beta\nfree] --> C[Chief of Staff\ndecides the day]
+  C --> L[Life OS\nremembers and prepares]
+  L --> A[Autopilot\ndoes]
   A -. later .-> H[Household\nWaitlist only]
 ```
 
-## Value ladder
+## Market anchors (checked October 2026)
 
-| Tier | User buys | Product behavior |
-|---|---|---|
-| Digital OS | Methodology | **I run the system** |
-| Chief of Staff | Awareness + prioritization | **APM notices and tells me** |
-| Life OS | Mental-load management | **APM organizes and prepares it** |
-| Autopilot | Delegated execution | **APM handles approved classes of work** |
-| Household | Shared coordination | **APM helps run the household system** |
-
-## Why $24 founding / $29 standard instead of $12–15
-
-At $12–15, APM risks being perceived as another AI productivity utility and leaves insufficient room for a product that will maintain persistent personal state, proactive background processing, integrations, push, privacy controls, support, and eventually action execution.
-
-At $29, APM is comparable to premium workflow products but must deliver a stronger outcome: valuable proactive interventions the user did not explicitly request.
-
-The founding price reduces initial adoption friction without permanently anchoring the product below its intended category.
-
-## Why not start at $59
-
-Life OS pricing should be earned by Life OS capability. Charging $59 while the product is still primarily Goals + Today + Calendar/Gmail + Radar creates expectation debt. Chief of Staff should first prove recurring proactive value and trust.
-
-## Annual pricing
-
-Recommended annual discount: ~20%.
-
-| Plan | Monthly | Annual | Effective monthly |
-|---|---:|---:|---:|
-| Founding Chief of Staff | $24 | $228 | $19 |
-| Chief of Staff | $29 | $276 | $23 |
-| Life OS | $59 | $564 | $47 |
-
-Autopilot annual pricing should wait until usage/action economics are observed.
+| Product | Price | Read |
+|---|---:|---|
+| Sunsama Pro | $25/mo; $20/mo annual | premium daily planning sustains about $1 per workday |
+| Reclaim Starter / Business | $12 / $18 per seat monthly | automated scheduling alone anchors in the low-to-mid teens |
+| Superhuman Pro / Business | $15 / $40 monthly | AI mail suites set the upper band for workflow acceleration |
+| Martin Personal (consumer AI assistant) | $25/mo | consumer assistants cluster at $20–35 |
+| Howie Basic / Pro (AI EA) | $35 / $145 monthly | the $95–150 band is reserved for products that do the work |
+| ChatGPT Plus / Google AI Pro | $20/mo | generic assistant floor the first tier must beat on proactive value |
 
 ## Free tier decision
 
-Do **not** begin with a permanent generous free tier. Start with a closed free beta, then a time-limited full-product trial or controlled preview.
-
-Reason: APM requires integrations, inference, background work, and high trust. We want users who experience the real product rather than a permanently crippled version. A free diagnostic/A Player Audit can serve top-of-funnel distribution without giving away the ongoing operating system.
+Do **not** begin with a permanent generous free tier. The closed beta is free; launch uses the Chief of Staff intro offers above instead of a crippled free plan. A free diagnostic/A Player Audit can serve top-of-funnel distribution without giving away the ongoing operating system.
 
 ## Margin architecture
 
-Price and inference cost are intentionally decoupled. APM routes work in this order:
+Price and inference cost are decoupled. APM routes work in this order:
 
 **deterministic code → privacy-eligible $0 model → approved low-cost model → premium fallback**.
 
-This allows strong gross margins without weakening the privacy promise.
-
-OpenRouter's free plan currently advertises 25+ free models but only 50 requests/day and lacks policy-based routing controls on the free platform plan. Therefore production economics must not assume unlimited free OpenRouter capacity. We should build our own model registry/policy enforcement and treat $0 endpoints as opportunistic eligible capacity, not a guaranteed SLA.
-
-## Pricing gates
-
-Do not raise/add tiers because the roadmap says so. Use evidence.
-
-| Change | Required evidence |
-|---|---|
-| Beta → $24 founding | Users repeatedly receive valuable proactive interventions and return weekly |
-| $24 → $29 standard | Healthy paid conversion + retention; clear user-reported time/mental-load value |
-| Add $59 Life OS | Users rely on APM across multiple life domains and repeatedly use prepared actions |
-| Add $129+ Autopilot | Users repeatedly approve the same action classes and explicitly want fewer approvals |
-| Usage/action surcharge | Meaningful cost variance or external transaction/action costs threaten target margins |
+- **Store fees are the largest variable cost.** Apple and Google take 15% (Small Business Program, under $1M a year) or 30%; that is larger than inference at every tier and is part of every gross-margin figure.
+- OpenRouter's free plan advertises free models but only 50 requests/day and lacks policy-based routing on the free platform plan, so production economics never assume unlimited free capacity. The model registry/policy enforcement treats $0 endpoints as opportunistic eligible capacity, not an SLA.
+- Premium fallback is capped per user if p90 variable cost threatens tier margin.
 
 ## Metrics to instrument from day one
 
-- trial → paid conversion
-- monthly/annual selection
+- intro → standard conversion (month 4 retention of intro subscribers)
+- Founding 100 fill rate and lock retention
+- tier mix (Chief of Staff / Life OS / Autopilot)
 - 4-, 8-, and 12-week retention
 - valuable proactive interventions/user/week
 - verified loops closed/user/week
 - inference cost/user/month
-- total variable cost/user/month
+- total variable cost/user/month, including store fee
 - gross margin by plan
 - paid fallback rate
 - $0 eligible inference rate
 - action volume by type
-- willingness-to-pay responses at key milestones
 - downgrade/cancel reasons
 
 ## Pricing governance
 
-Pricing is **not a constitutional lock**. Any public price change should be documented in a pricing decision record with date, cohort impact, evidence, grandfathering decision, and experiment/rollout plan.
+Any public price change is a pricing decision record (date, cohort impact, evidence, grandfathering, rollout) plus a change to the price constants in `packages/policy/src/index.ts`, in one PR. The Founding 100 lock is honoured for every subscriber who holds it while they stay continuously subscribed.

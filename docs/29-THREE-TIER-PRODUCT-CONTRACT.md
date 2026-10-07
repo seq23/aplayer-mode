@@ -1,8 +1,8 @@
 # A Player Mode — Three-Tier Product Contract
 
 **Status: LOCKED IMPLEMENTATION CONTRACT**  
-**Decision authority:** ADR-0002  
-**Updated:** 2026-10-06
+**Decision authority:** ADR-0002; pricing ADR-0004  
+**Updated:** 2026-10-07
 
 > **Whatever game you're in, get into A Player Mode.**
 
@@ -12,10 +12,23 @@ The user's game can include several simultaneous roles. The tier changes how muc
 
 ```mermaid
 flowchart LR
-  C[Chief of Staff\nSee + prioritize + prepare] --> L[Life OS\nManage + prepare + approved execution]
-  L --> A[Autopilot\nStanding authority inside explicit rules]
+  C[Chief of Staff · decides the day\nSee + prioritize + prepare] --> L[Life OS · remembers and prepares\nManage + prepare + approved execution]
+  L --> A[Autopilot · does\nStanding authority inside explicit rules]
   A -. future interest only .-> H[Household OS\nWaitlist]
 ```
+
+## Tiers and prices
+
+| Tier | Job | Monthly | Includes |
+|---|---|---:|---|
+| Chief of Staff | decides the day | $24.99 | — |
+| Life OS | remembers and prepares | $39.99 | everything in Chief of Staff |
+| Autopilot | does | $79.99 | everything in Life OS |
+
+- **Chief of Staff intro offers:** Founding 100 (the first 100 subscribers) pay $9.99/mo, locked while continuously subscribed; everyone else pays $9.99/mo for the first 3 months, then $24.99/mo.
+- **Every tier reduces cognitive load; upper tiers reduce more.**
+- **Billing:** App Store + Google Play in-app subscriptions (Phase D, not built).
+- **Buying a tier never grants autonomy.** Prices come from `PLAN_PRICES` in `packages/policy/src/index.ts`; `packages/policy/test/pricing.test.mjs` pins this table to it.
 
 ## Capability grid
 
@@ -70,14 +83,14 @@ The API is the authority boundary. Client UI may explain a plan but cannot grant
 - permission writes above the current plan ceiling fail;
 - action preparation/execution remains independently policy-checked;
 - Household read and mutation routes stay unavailable; authenticated Supabase RLS exposes no Household customer read/write policy while the product is waitlist-only;
-- billing will later reconcile verified store/provider receipts into server-side entitlements.
+- billing (Phase D) will reconcile verified App Store / Google Play receipts into server-side entitlements.
 
 ## Phase ledger after this contract
 
 1. **Phase A — three-tier contract / gating / plan UX / Household waitlist**.
 2. **Phase B — Life OS domain modules**.
 3. **Phase C — Autopilot standing-rule engine + UX**.
-4. **Phase D — billing / entitlement reconciliation**.
+4. **Phase D — billing / entitlement reconciliation** (App Store + Google Play in-app subscriptions; next, pending owner discussion).
 5. **Phase E — external runtime/provider evidence**.
 6. **Phase F — three-tier beta/release evidence**.
 7. **Household — later, separate approval.**

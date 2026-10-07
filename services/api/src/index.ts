@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, selectForeground, verdictFromReview } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
 import type { ActionRecord, AutonomyLevel, OperatingModeKey, SubscriptionEntitlement } from '@apm/domain';
-import { autonomyLabels, capabilitiesForPlan, forbiddenStandingActions, localMoment, maxAutonomyForPlan, planHasCapability, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
+import { autonomyLabels, capabilitiesForPlan, forbiddenStandingActions, localMoment, maxAutonomyForPlan, planHasCapability, planPriceLabels, productPlanPolicies, standingActionClasses, STANDING_RULE_MAX_DAYS, validateStandingConstraints, type ActionDomain, type ProductPlan } from '@apm/policy';
 import { authenticateRequest } from './auth';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
@@ -120,13 +120,6 @@ const onboardingSchema = z.object({
 });
 
 
-const planPriceLabels: Record<ProductPlan, string> = {
-  beta: 'Free during beta',
-  chief_of_staff: '$29/mo standard · $24/mo founding hypothesis',
-  life_os: '~$59/mo',
-  autopilot: '~$129+/mo',
-  household: 'Waitlist only',
-};
 
 function entitlementIsUsable(entitlement: SubscriptionEntitlement | undefined): boolean {
   return Boolean(entitlement && (entitlement.status === 'active' || entitlement.status === 'trialing'));
