@@ -71,8 +71,12 @@ export default function TodayScreen() {
       setNotice(error instanceof Error ? error.message.replace(/ \(409\).*$/, '') : undefined);
     }
   });
-  const reviewGate = (stillAligned: boolean) => agenda?.gateReview && run('gate', () => perform((token) => reviewPlanGate(agenda.gateReview!.planId, { gate: agenda.gateReview!.gate as 'foundation' | 'build', stillAligned }, token)));
-  const decide = () => agenda?.decision && decision && decisionReason.trim().length >= 3 && run('decide', () => perform((token) => decideGoalPlan(agenda.decision!.planId, { decision, reason: decisionReason.trim() }, token)));
+  // One question at a time: the first due gate, then the first due day-90 decision.
+  const gateDue = agenda?.gateReviews?.[0];
+  const decisionDue = agenda?.decisions?.[0];
+  const goalTitleForPlan = (planId: string) => graph.goals.find((goal) => goal.id === graph.goalPlans.find((plan) => plan.id === planId)?.goalId)?.title ?? 'this goal';
+  const reviewGate = (stillAligned: boolean) => gateDue && run('gate', () => perform((token) => reviewPlanGate(gateDue.planId, { gate: gateDue.gate as 'foundation' | 'build', stillAligned }, token)));
+  const decide = () => decisionDue && decision && decisionReason.trim().length >= 3 && run('decide', () => perform((token) => decideGoalPlan(decisionDue.planId, { decision, reason: decisionReason.trim() }, token)));
 
   const itemCard = (item: AgendaItem, label?: string) => (
     <Card key={item.id} tone={item.kind === 'plan_action' ? 'accent' : 'default'}>
@@ -194,21 +198,21 @@ export default function TodayScreen() {
             </>
           ) : null}
 
-          {agenda?.gateReview && !hideAgenda ? (
+          {gateDue && !hideAgenda ? (
             <Card tone="warning">
-              <Label>{agenda.gateReview.label}</Label>
-              <CardTitle>{`Recommended: ${agenda.gateReview.recommended}. ${agenda.gateReview.completedDays} days with evidence.`}</CardTitle>
+              <Label>{`${gateDue.label} · ${goalTitleForPlan(gateDue.planId)}`}</Label>
+              <CardTitle>{`Recommended: ${gateDue.recommended}. ${gateDue.completedDays} days with evidence.`}</CardTitle>
               <Body muted>Is this goal still aligned with what you want?</Body>
               <Button label="Still aligned" onPress={() => void reviewGate(true)} />
               <Button label="Not aligned any more" variant="secondary" onPress={() => void reviewGate(false)} />
             </Card>
           ) : null}
 
-          {agenda?.decision && !hideAgenda ? (
+          {decisionDue && !hideAgenda ? (
             <Card tone="warning">
               <Label>Day 90 · forced decision</Label>
-              <CardTitle>{`Promote, Maintain or Park? APM recommends ${agenda.decision.recommended}.`}</CardTitle>
-              {agenda.decision.criteria.map((line) => <Body key={line} muted>{line}</Body>)}
+              <CardTitle>{`${goalTitleForPlan(decisionDue.planId)}: Promote, Maintain or Park? APM recommends ${decisionDue.recommended}.`}</CardTitle>
+              {decisionDue.criteria.map((line) => <Body key={line} muted>{line}</Body>)}
               <ChoiceRow options={[{ id: 'promote', label: 'Promote' }, { id: 'maintain', label: 'Maintain' }, { id: 'park', label: 'Park' }]} value={decision} onChange={setDecision} />
               <TextField value={decisionReason} onChangeText={setDecisionReason} placeholder="One line why" />
               <Button label="Record the decision" onPress={() => void decide()} />
@@ -270,8 +274,12 @@ export default function TodayScreen() {
       <Card>
         <Body muted>Closing records evidence for continuity. No catch-up is created for tomorrow.</Body>
         <TextField value={closeNote} onChangeText={setCloseNote} placeholder="A note for today (optional)" />
-        <Button label={closing ? 'Saving…' : 'Full Day'} onPress={() => void closeToday('full_day')} />
-        <Button label="Minimum Viable Day" variant="secondary" onPress={() => void closeToday('mvd')} />
+        {todayLoop && !todayLoop.checkedIn ? <Body muted>A Full Day or MVD needs the check-in first. Without it, today can only close as a Miss.</Body> : (
+          <>
+            <Button label={closing ? 'Saving…' : 'Full Day'} onPress={() => void closeToday('full_day')} />
+            <Button label="Minimum Viable Day" variant="secondary" onPress={() => void closeToday('mvd')} />
+          </>
+        )}
         <Button label="Miss" variant="secondary" onPress={() => void closeToday('miss')} />
       </Card>
 

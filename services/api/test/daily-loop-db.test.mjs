@@ -266,3 +266,23 @@ test('the legacy next-action completion honours the opening step once the daily 
   await rpc(USER_B, 'apm_save_goal_plan', [GOAL_B, JSON.stringify(plan('Pass the CPA exam', await localToday(USER_B))), 'intake']);
   await rejects(rpc(USER_B, 'apm_complete_next_action', [await insert(USER_B)]), /loop_opening_step_required/);
 });
+
+test('evidence before verdict, and the legacy path only completes what today’s agenda printed', async () => {
+  const today = await localToday(USER_B);
+  await rejects(rpc(USER_B, 'apm_close_day', ['full_day', null]), /loop_opening_step_required/, 'no Full Day without the check-in');
+  await rejects(rpc(USER_B, 'apm_close_day', ['mvd', null]), /loop_opening_step_required/);
+  const stored = (await admin(`select * from public.goal_plans where goal_id = '${GOAL_B}' and status = 'active'`)).rows[0];
+  const onAgenda = (await admin(`insert into public.next_actions (user_id, title, status) values ('${USER_B}', 'Book the CPA exam seat for March', 'open') returning id`)).rows[0].id;
+  const offAgenda = (await admin(`insert into public.next_actions (user_id, title, status) values ('${USER_B}', 'Order the review course books', 'open') returning id`)).rows[0].id;
+  const agenda = planning.composeAgenda({
+    date: today, state: 'normal',
+    plans: [{ record: { id: stored.id, goalId: GOAL_B, status: 'active', gateReviews: {}, startDate: stored.start_date }, plan: stored.plan }],
+    goals: [{ id: GOAL_B, title: 'Pass the CPA exam', status: 'active', priority: 1 }],
+    completions: [], morningSequence: [], nextActions: [{ id: onAgenda, title: 'Book the CPA exam seat for March', status: 'open' }],
+  });
+  await rpc(USER_B, 'apm_day_check_in', [today, 7, 'normal', JSON.stringify(agenda)]);
+  assert.equal((await rpc(USER_B, 'apm_complete_next_action', [onAgenda])).action.status, 'done');
+  await rejects(rpc(USER_B, 'apm_complete_next_action', [offAgenda]), /loop_not_on_agenda/);
+  const closed = await rpc(USER_B, 'apm_close_day', ['full_day', null]);
+  assert.equal(closed.verdict, 'full_day', 'after the check-in a Full Day is accepted');
+});

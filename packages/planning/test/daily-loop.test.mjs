@@ -105,7 +105,12 @@ test('MVD stays minimal: no backlog and no background maintenance on a low day',
     assert.equal(agenda.dailyStack.filter((item) => item.planId === 'p-money').length, 0, JSON.stringify(low));
     assert.ok(agenda.reasons.includes('backlog_held_mvd') && agenda.reasons.includes('background_held_mvd'));
     assert.ok(agendaItems(agenda).every((item) => item.scope === 'mvd'));
+    assert.equal(agendaItems(agenda).length, 1, 'ONE meaningful action');
   }
+  const parent = entry('p-parent', 'g-body', 'Launch my business', START, { roles: ['Parenting / caregiving', 'Building a business'] });
+  const parentLow = composeAgenda({ date: shift(START, 5), state: 'normal', mood: 1, plans: [parent], goals, completions: [], morningSequence: [] });
+  assert.equal(agendaItems(parentLow).length, 1);
+  assert.ok(parentLow.reasons.includes('floors_held_mvd'));
 });
 
 test('a background weight-loss plan keeps its movement floor (the substituted floor is not lost)', () => {
@@ -155,16 +160,20 @@ test('completion evidence flows back into a frozen agenda and scores the day', (
 
 test('gate verdicts and the day-90 decision surface on the agenda when due', () => {
   const day30 = composeAgenda({ date: shift(START, 29), state: 'normal', plans: [body], goals, completions: [], morningSequence: [] });
-  assert.equal(day30.gateReview.gate, 'foundation');
-  assert.equal(day30.gateReview.recommended, 'park');
+  assert.equal(day30.gateReviews[0].gate, 'foundation');
+  assert.equal(day30.gateReviews[0].recommended, 'park');
+  const both = composeAgenda({ date: shift(START, 29), state: 'normal', plans: [body, money], goals, foregroundGoalId: 'g-body', completions: [], morningSequence: [] });
+  assert.deepEqual(both.gateReviews.map((g) => g.planId).sort(), ['p-body', 'p-money'], 'a background plan’s gate comes due too');
   const evidence = Array.from({ length: 25 }, (_, i) => ({ planId: 'p-body', actionKey: 'x', day: shift(START, i) }));
-  assert.equal(composeAgenda({ date: shift(START, 29), state: 'normal', plans: [body], goals, completions: evidence, morningSequence: [] }).gateReview.recommended, 'promote');
+  assert.equal(composeAgenda({ date: shift(START, 29), state: 'normal', plans: [body], goals, completions: evidence, morningSequence: [] }).gateReviews[0].recommended, 'promote');
   const reviewed = { ...body, record: { ...body.record, gateReviews: { foundation: { verdict: 'promote' } } } };
-  assert.equal(composeAgenda({ date: shift(START, 29), state: 'normal', plans: [reviewed], goals, completions: [], morningSequence: [] }).gateReview, undefined);
+  assert.deepEqual(composeAgenda({ date: shift(START, 29), state: 'normal', plans: [reviewed], goals, completions: [], morningSequence: [] }).gateReviews, []);
 
   const day90 = composeAgenda({ date: shift(START, 89), state: 'normal', plans: [body], goals, completions: evidence, morningSequence: [] });
   assert.equal(day90.phase, 'decision');
-  assert.equal(day90.decision.planId, 'p-body');
+  assert.equal(day90.decisions[0].planId, 'p-body');
+  const bg90 = composeAgenda({ date: shift(START, 89), state: 'normal', plans: [body, money], goals, foregroundGoalId: 'g-money', completions: [], morningSequence: [] });
+  assert.deepEqual(bg90.decisions.map((d) => d.planId).sort(), ['p-body', 'p-money'], 'background plans face the day-90 decision too');
   assert.equal(day90.firstHour.priority.actionKey, 'day90_decision');
 });
 

@@ -245,8 +245,10 @@ export interface DailyAgenda {
   /** Background plans that only get maintenance today. */
   background: Array<{ planId: string; goalId: string; label: string }>;
   arbitration?: ArbitrationResult;
-  gateReview?: GateReviewDue;
-  decision?: DecisionDue;
+  /** Due 30/60 gate reviews across all live plans. */
+  gateReviews: GateReviewDue[];
+  /** Due day-90 decisions across all live plans. */
+  decisions: DecisionDue[];
   reasons: string[];
   bridge: string;
   /** Agenda-quality problems (Invalid Agenda clause). Empty = valid. */
@@ -322,8 +324,23 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
   const dailyStack: AgendaItem[] = [];
   let priority: AgendaItem | undefined;
   let supply: DailySupply | undefined;
-  let gateReview: GateReviewDue | undefined;
-  let decision: DecisionDue | undefined;
+  // Gates and the day-90 decision come due for EVERY live plan, foreground or background.
+  const gateReviews: GateReviewDue[] = [];
+  const decisions: DecisionDue[] = [];
+  for (const entry of [selection.foreground, ...selection.background].filter((candidate): candidate is PlanEntry => Boolean(candidate))) {
+    const due = gateReviewDue(entry, input.date, input.completions);
+    if (due) gateReviews.push(due);
+    if (entry.record.status === 'active' && planDayIndex(entry.plan, input.date) >= PLAN_LENGTH_DAYS) {
+      const stats = planEvidenceStats(entry.record.id, input.completions, entry.plan.startDate, entry.plan.endDate);
+      decisions.push({
+        planId: entry.record.id,
+        goalId: entry.record.goalId,
+        recommended: decideAtDay90(entry.plan, { ...stats, stillAligned: true }),
+        criteria: entry.plan.decision.criteria,
+        ...stats,
+      });
+    }
+  }
   const safetyNotes: string[] = [];
   let referral = false;
   let doctorLine: string | undefined;
@@ -342,12 +359,16 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
     for (const reason of supply.reasons) reasons.add(reason);
     priority = itemFromSupplied(entry, supply.foreground, 'plan_action', supply.reasons);
     const coveredPillars = new Set<PlanPillar>([supply.foreground.pillar]);
-    for (const floor of supply.floors) {
-      coveredPillars.add(floor.pillar);
-      dailyStack.push(itemFromSupplied(entry, floor, 'plan_floor', ['floor_protected']));
+    // MVD (mood ≤ 2, missed yesterday, Recovery) is ONE meaningful action (BHPC Law 6): the
+    // other floors, background maintenance and the open backlog wait for a normal day.
+    if (!lowDay) {
+      for (const floor of supply.floors) {
+        coveredPillars.add(floor.pillar);
+        dailyStack.push(itemFromSupplied(entry, floor, 'plan_floor', ['floor_protected']));
+      }
+    } else if (supply.floors.length) {
+      reasons.add('floors_held_mvd');
     }
-    // MVD (mood ≤ 2, missed yesterday, Recovery) is ONE meaningful action plus the foreground
-    // plan's own floors: background maintenance and the open backlog wait for a normal day.
     if (!lowDay) {
       for (const background of selection.background) {
         const backgroundSupply = supplyDailyActions(background.plan, {
@@ -369,17 +390,6 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
       reasons.add('background_held_mvd');
     }
     if (selection.arbitration) reasons.add('arbitration');
-    gateReview = gateReviewDue(entry, input.date, input.completions);
-    if (supply.phase === 'decision') {
-      const stats = planEvidenceStats(entry.record.id, input.completions, entry.plan.startDate, entry.plan.endDate);
-      decision = {
-        planId: entry.record.id,
-        goalId: entry.record.goalId,
-        recommended: decideAtDay90(entry.plan, { ...stats, stillAligned: true }),
-        criteria: entry.plan.decision.criteria,
-        ...stats,
-      };
-    }
     referral = entry.plan.safety.referral;
     doctorLine = entry.plan.safety.doctorLine;
     safetyNotes.push(...entry.plan.safety.notes);
@@ -428,8 +438,8 @@ export function composeAgenda(input: AgendaInput): DailyAgenda {
       label: input.goals.find((goal) => goal.id === entry.record.goalId)?.title ?? entry.plan.foreground.label,
     })),
     ...(selection.arbitration ? { arbitration: selection.arbitration } : {}),
-    ...(gateReview ? { gateReview } : {}),
-    ...(decision ? { decision } : {}),
+    gateReviews,
+    decisions,
     reasons: [...reasons],
     bridge: PHASE_BRIDGE_QUESTION,
     problems: [],
