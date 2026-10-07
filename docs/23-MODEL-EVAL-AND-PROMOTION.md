@@ -79,7 +79,7 @@ Run 2 (Model Eval workflow on `main`, run 37561039809): apodex 71 % / 78 %; mist
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
 | 3 | local, 2026-10-07T02:35Z | 100 % | 100 % | 100 % / 100 % | 0 / 24 | 100 % | 0.17 s / 0.38 s | $0.049 | eligible for human review |
 | 4 | local, 2026-10-07T02:36Z | 100 % | 100 % | 100 % / 100 % | 0 / 24 | 100 % | 0.13 s / 0.33 s | $0.049 | eligible for human review |
-| 5 | Model Eval workflow on `main` | see below | | | | | | | |
+| 5 | Model Eval workflow on `main` (run 37563235227, `3507f9a`) | — | — | — | — | — | — | — | cancelled: a call with no timeout hung the job to its 20-min limit before any route reported; fixed with a 45 s per-call timeout and a 5-min per-route budget (pinned against the job timeout), then re-run (run 6) |
 
 The tightened prompt removed the catch-up phrasing at source: the guard did not have to fire on any of the 48 calls, so the 100 % holds on the unguarded replies too. Cost per 1K turns rose from $0.042 to $0.049 with the longer system prompt.
 

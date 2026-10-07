@@ -28,6 +28,18 @@ export const PROMOTION_THRESHOLDS = Object.freeze({
 });
 
 /**
+ * Time bounds for a coaching_v1 run (Model Eval run 37563235227, 2026-10-07: a
+ * call with no timeout hung the job until the 20-minute job timeout cancelled
+ * it with no report). Every call is aborted after EVAL_CALL_TIMEOUT_MS and
+ * recorded as an error; each route gets EVAL_ROUTE_BUDGET_MS in total, after
+ * which its remaining calls are recorded as `route_budget_exceeded` errors —
+ * they count against reliability, never as passes. The --self-check pins that
+ * every route's budget fits inside the workflow's timeout-minutes.
+ */
+export const EVAL_CALL_TIMEOUT_MS = 45_000;
+export const EVAL_ROUTE_BUDGET_MS = 5 * 60_000;
+
+/**
  * Coaching route candidates evaluated by `coaching_v1` (docs/05, docs/23). Every
  * endpoint is on OpenRouter's ZDR endpoint list (/api/v1/endpoints/zdr) and is
  * requested with data_collection: deny + zdr: true + allow_fallbacks: false.

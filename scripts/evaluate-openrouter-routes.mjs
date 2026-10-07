@@ -6,6 +6,7 @@
  * Promotion requires a separate privacy-policy review plus human review of this report.
  */
 
+import { readFile } from 'node:fs/promises';
 import {
   buildCaseTask,
   buildRouteRequestBody,
@@ -15,6 +16,8 @@ import {
   coachingCases,
   crisisNeverReachesModel,
   judgeCase,
+  EVAL_CALL_TIMEOUT_MS,
+  EVAL_ROUTE_BUDGET_MS,
   judgeCaseDetail,
   judgeRawCase,
   loadCoachingRuntime,
@@ -71,6 +74,12 @@ if (process.argv.includes('--self-check')) {
     if (route.responseFormat === 'json_object' && !body.messages[1].content.includes('"nextMove"')) problems.push(`${route.routeId}: json_object route lacks the schema in the prompt`);
     if (route.modelId.endsWith(':free') && !(route.minIntervalMs >= 3000)) problems.push(`${route.routeId}: free route is not paced under 20 requests/min`);
   }
+  // Time-bound pins (run 37563235227 hung until the job timeout, no report).
+  const workflow = await readFile(new URL('../.github/workflows/model-eval.yml', import.meta.url), 'utf8');
+  const jobMinutes = Number(workflow.match(/timeout-minutes:\s*(\d+)/)?.[1] ?? 0);
+  if (!(EVAL_CALL_TIMEOUT_MS > 0 && EVAL_CALL_TIMEOUT_MS < EVAL_ROUTE_BUDGET_MS)) problems.push('every coaching call needs a timeout shorter than its route budget');
+  if (!(jobMinutes > 0 && COACHING_CANDIDATE_ROUTES.length * EVAL_ROUTE_BUDGET_MS + EVAL_CALL_TIMEOUT_MS + 4 * 60_000 <= jobMinutes * 60_000)) problems.push(`route budgets (${COACHING_CANDIDATE_ROUTES.length} x ${EVAL_ROUTE_BUDGET_MS} ms) do not fit the Model Eval job timeout (${jobMinutes} min)`);
+  if (!/signal:\s*AbortSignal\.timeout\(EVAL_CALL_TIMEOUT_MS\)/.test(await readFile(new URL(import.meta.url), 'utf8'))) problems.push('coaching calls are not aborted at EVAL_CALL_TIMEOUT_MS');
   const novita400 = { error: { message: 'Provider returned error', code: 400, metadata: { raw: JSON.stringify({ message: "Model 'x' does not support 'json_schema' response format. Supported formats: json_object." }) } } };
   if (!/does not support 'json_schema'/.test(openRouterErrorMessage(novita400) ?? '')) problems.push('OpenRouter provider error message is not surfaced');
   if (/sk-or-/.test(openRouterErrorMessage({ error: { message: 'bad key sk-or-v1-abc123' } }) ?? '')) problems.push('error message leaks a key');
@@ -97,17 +106,24 @@ if (suite === COACHING_SUITE_ID) {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const call = (body) => fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
+    signal: AbortSignal.timeout(EVAL_CALL_TIMEOUT_MS),
     headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', 'x-title': 'A Player Mode Model Evaluation', 'http-referer': 'https://aplayermode.com' },
     body: JSON.stringify(body),
   });
   for (const route of coachingRoutes) {
     const results = [];
     let lastCallAt = 0;
+    const deadline = Date.now() + EVAL_ROUTE_BUDGET_MS;
+    console.error(`${route.routeId}: started`);
     for (const testCase of coachingCases(rt)) {
       const task = buildCaseTask(rt, testCase);
       const body = buildRouteRequestBody(route, task);
       for (let attempt = 0; attempt < repeats; attempt += 1) {
         const base = { caseId: testCase.id, attempt, safetyCritical: testCase.safetyCritical };
+        if (Date.now() >= deadline) {
+          results.push({ ...base, pass: false, latencyMs: 0, error: 'route_budget_exceeded' });
+          continue;
+        }
         try {
           let response;
           let started;
@@ -117,7 +133,7 @@ if (suite === COACHING_SUITE_ID) {
             lastCallAt = Date.now();
             started = Date.now();
             response = await call(body);
-            if (response.status !== 429) break;
+            if (response.status !== 429 || Date.now() >= deadline) break;
             await sleep(15_000 * (tries + 1));
           }
           const latencyMs = Date.now() - started;
@@ -135,7 +151,8 @@ if (suite === COACHING_SUITE_ID) {
           }
           results.push({ ...base, ...judgeCaseDetail(testCase, content), latencyMs, ...usage, output: content.slice(0, 500) });
         } catch (error) {
-          results.push({ ...base, pass: false, latencyMs: 0, error: error instanceof Error ? error.message : 'unknown_error' });
+          const timedOut = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+          results.push({ ...base, pass: false, latencyMs: 0, error: timedOut ? 'call_timeout' : error instanceof Error ? error.message : 'unknown_error' });
         }
       }
     }
@@ -187,6 +204,7 @@ async function runCase(route, testCase) {
   const started = Date.now();
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
+    signal: AbortSignal.timeout(EVAL_CALL_TIMEOUT_MS),
     headers: {
       authorization: `Bearer ${apiKey}`,
       'content-type': 'application/json',
