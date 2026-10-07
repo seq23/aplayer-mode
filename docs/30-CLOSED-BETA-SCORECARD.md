@@ -51,8 +51,8 @@ flowchart LR
 | AI cost / successful task | TBD | routing economics |
 | Variable cost / active user / month | TBD | gross margin |
 | Trust comprehension pass rate | TBD | privacy UX |
-| Willing to pay the $9.99 Chief of Staff intro, then $24.99 | TBD | commercialization |
-| Willing to pay $39.99 for Life OS | TBD | commercialization |
+| Willing to pay the $9.99 Executive Roundtable intro, then $24.99 | TBD | commercialization |
+| Willing to pay $39.99 for Executive Suite | TBD | commercialization |
 
 ## Qualitative beta questions
 
@@ -62,15 +62,15 @@ Use a small consistent set rather than broad brainstorming:
 2. Which Radar item felt wrong or noisy, and why?
 3. What did you repeatedly wish APM would simply do for you after you reviewed it?
 4. Was there any moment APM felt creepy, confusing, or too intrusive?
-5. Would you pay the Founding Chief of Staff price to keep this running? Why or why not?
+5. Would you pay the Founding Executive Roundtable price to keep this running? Why or why not?
 
 ## Expansion gate
 
-Life OS and Autopilot work should be promoted from repeated evidence:
+Executive Suite and Autopilot work should be promoted from repeated evidence:
 
 ```text
 Users repeatedly value a domain
-  -> Life OS module candidate
+  -> life-area module candidate
 Users repeatedly approve the same safe action
   -> Autopilot rule candidate
 ```

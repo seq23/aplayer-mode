@@ -10,32 +10,32 @@ Pricing is documented separately from the locked Product and Privacy constitutio
 
 | Tier | Job | Monthly | Includes |
 |---|---|---:|---|
-| Closed beta | full Chief of Staff ceiling | $0 | — |
-| **Chief of Staff** | **decides the day** | **$24.99** | — |
-| **Life OS** | **remembers and prepares** | **$39.99** | everything in Chief of Staff |
-| **Autopilot** | **does** | **$79.99** | everything in Life OS |
+| Closed beta | full Executive Roundtable ceiling | $0 | — |
+| **Executive Roundtable** | **plans and coaches you** | **$24.99** | — |
+| **Executive Suite** | **acts when you tap yes** | **$39.99** | everything in Executive Roundtable |
+| **Autopilot** | **handles it inside your rules** | **$79.99** | everything in Executive Suite |
 | Household | future shared coordination | waitlist only | — |
 
 - **Cumulative ladder.** Each tier includes the one below it.
-- **Every tier reduces cognitive load; upper tiers reduce more.** Chief of Staff takes the "what do I do today, in what order" decision off the user. Life OS also remembers the wider life (relationships, birthdays, bills, subscriptions, appointments, travel, routines) and prepares what each needs. Autopilot also does approved work inside standing rules the user writes.
+- **Every tier reduces cognitive load; upper tiers reduce more.** Executive Roundtable takes the "what do I do today, in what order" decision off the user. Executive Suite also remembers the wider life (relationships, birthdays, bills, subscriptions, appointments, travel, routines) and prepares what each needs. Autopilot also does approved work inside standing rules the user writes.
 - **Monthly or annual.** Annual is "2 months free" (ADR-0005):
 
 | Tier | Monthly | Annual |
 |---|---:|---:|
-| Chief of Staff | $24.99 | $249.99 |
-| Life OS | $39.99 | $399.99 |
+| Executive Roundtable | $24.99 | $249.99 |
+| Executive Suite | $39.99 | $399.99 |
 | Autopilot | $79.99 | $799.99 |
 
 - **No free trial** on any plan.
 
-## Chief of Staff intro offers
+## Executive Roundtable intro offers
 
 | Offer | Who | Price | For how long |
 |---|---|---:|---|
 | **Founding 100** | the first 100 subscribers | **$9.99/mo** | locked while continuously subscribed |
 | **Intro** | everyone else | **$9.99/mo** | first 3 months, then $24.99/mo |
 
-Intro offers apply to Chief of Staff monthly only. Founding 100 is a separate store product shown only while the server holds a free slot for that user (docs/33); a lapse loses the lock.
+Intro offers apply to Executive Roundtable monthly only. Founding 100 is a separate store product shown only while the server holds a free slot for that user (docs/33); a lapse loses the lock.
 
 ## Billing
 
@@ -45,9 +45,9 @@ Intro offers apply to Chief of Staff monthly only. Founding 100 is a separate st
 
 ```mermaid
 flowchart LR
-  BETA[Closed beta\nfree] --> C[Chief of Staff\ndecides the day]
-  C --> L[Life OS\nremembers and prepares]
-  L --> A[Autopilot\ndoes]
+  BETA[Closed beta\nfree] --> C[Executive Roundtable\nplans and coaches you]
+  C --> L[Executive Suite\nacts when you tap yes]
+  L --> A[Autopilot\nhandles it inside your rules]
   A -. later .-> H[Household\nWaitlist only]
 ```
 
@@ -64,7 +64,7 @@ flowchart LR
 
 ## Free tier decision
 
-Do **not** begin with a permanent generous free tier. The closed beta is free; launch uses the Chief of Staff intro offers above instead of a crippled free plan. A free diagnostic/A Player Audit can serve top-of-funnel distribution without giving away the ongoing operating system.
+Do **not** begin with a permanent generous free tier. The closed beta is free; launch uses the Executive Roundtable intro offers above instead of a crippled free plan. A free diagnostic/A Player Audit can serve top-of-funnel distribution without giving away the ongoing operating system.
 
 ## Margin architecture
 
@@ -80,7 +80,7 @@ Price and inference cost are decoupled. APM routes work in this order:
 
 - intro → standard conversion (month 4 retention of intro subscribers)
 - Founding 100 fill rate and lock retention
-- tier mix (Chief of Staff / Life OS / Autopilot)
+- tier mix (Executive Roundtable / Executive Suite / Autopilot)
 - 4-, 8-, and 12-week retention
 - valuable proactive interventions/user/week
 - verified loops closed/user/week

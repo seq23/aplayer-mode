@@ -257,14 +257,14 @@ function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: 
         maxAutonomyLabel: autonomyLabels[level],
         priceLabel: planPriceLabels[plan],
         highlights: plan === 'chief_of_staff'
-          ? ['Today + Radar + coaching', 'Calendar/email awareness', 'Prepare supported actions']
+          ? ['All five jobs: plans and coaches you', 'Today + Radar + coaching', 'Calendar/email awareness', 'Prepare supported actions; you do the last step']
           : plan === 'life_os'
-            ? ['Everything in Chief of Staff', 'Life-management domains', 'Execute one explicitly approved action']
+            ? [`Everything in ${PLAN_PRICES.chief_of_staff.displayName}`, 'Life areas: relationships, appointments and travel, bills and subscriptions, meals, health and life admin', 'One-tap approve-and-execute']
             : plan === 'autopilot'
-              ? ['Everything in Life OS', 'Standing authority inside rules you set', 'Revocable domain-by-domain control']
+              ? [`Everything in ${PLAN_PRICES.life_os.displayName}`, 'Handles recurring things inside rules you set', 'Saves money, never spends it', 'Revocable domain-by-domain control']
               : plan === 'household'
                 ? ['Future shared household coordination', 'Interest list only — no access granted']
-                : ['Chief-of-Staff capability ceiling during beta'],
+                : [`${PLAN_PRICES.chief_of_staff.displayName} capability ceiling during beta`],
       };
     }),
   };

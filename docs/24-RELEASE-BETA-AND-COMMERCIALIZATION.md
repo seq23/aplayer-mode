@@ -56,7 +56,7 @@ The key beta question remains:
 |---|---|
 | Intake completion | Can users install their Personal OS without friction? |
 | Time to first Radar hit | Time to product magic |
-| Valuable Proactive Interventions / user / week | Chief-of-Staff north star |
+| Valuable Proactive Interventions / user / week | Executive Roundtable north star |
 | Radar false-positive / correction rate | Trust and quality |
 | Radar action rate | Utility |
 | Notification disable rate | Noise / intrusion |
@@ -70,11 +70,11 @@ The key beta question remains:
 | Product state | Promise | Price (ADR-0004) |
 |---|---|---:|
 | Closed beta | Prove proactive value | Free |
-| Chief of Staff — Founding 100 | decides the day | $9.99/mo, locked while continuously subscribed |
-| Chief of Staff — intro | decides the day | $9.99/mo for the first 3 months, then $24.99/mo |
-| Chief of Staff | decides the day | $24.99/mo |
-| Life OS | remembers and prepares (includes Chief of Staff) | $39.99/mo |
-| Autopilot | does (includes Life OS) | $79.99/mo |
+| Executive Roundtable — Founding 100 | plans and coaches you | $9.99/mo, locked while continuously subscribed |
+| Executive Roundtable — intro | plans and coaches you | $9.99/mo for the first 3 months, then $24.99/mo |
+| Executive Roundtable | plans and coaches you | $24.99/mo |
+| Executive Suite | acts when you tap yes (includes Executive Roundtable) | $39.99/mo |
+| Autopilot | handles it inside your rules (includes Executive Suite) | $79.99/mo |
 | Household | Future shared mental load | Waitlist only |
 
 These prices are final (ADR-0004) and pinned to `PLAN_PRICES` in code. Annual plans are 2 months free (ADR-0005). Billing is App Store + Google Play in-app subscriptions via RevenueCat (Phase D, docs/33; store configuration is Phase E). A price is not permission to expose capabilities that do not exist, and buying a tier never grants autonomy.
@@ -105,7 +105,7 @@ The Life Graph/platform stores server-side subscription entitlements independent
 - webhook/reconciliation;
 - no client-only entitlement trust.
 
-Provider: RevenueCat over App Store + Google Play (owner decision, 7 Oct 2026; docs/33-BILLING-PHASE-D.md). No free trial; the Founding 100 and 3-month intro are Chief of Staff monthly only.
+Provider: RevenueCat over App Store + Google Play (owner decision, 7 Oct 2026; docs/33-BILLING-PHASE-D.md). No free trial; the Founding 100 and 3-month intro are Executive Roundtable monthly only.
 
 ## Distribution engine
 
@@ -140,4 +140,4 @@ The public marketing/audit implementation may live in the existing web/distribut
 
 ## ADR-0002 commercial amendment
 
-The approved commercial target is now **three individual service levels in one app: Chief of Staff, Life OS, and Autopilot**. Each tier may be shown and sold only when the capabilities advertised for that tier have the required runtime/provider/billing/store evidence. Household is excluded from the commercial launch and remains an authenticated interest/waitlist path only.
+The approved commercial target is now **three individual service levels in one app: Executive Roundtable, Executive Suite, and Autopilot**. Each tier may be shown and sold only when the capabilities advertised for that tier have the required runtime/provider/billing/store evidence. Household is excluded from the commercial launch and remains an authenticated interest/waitlist path only.

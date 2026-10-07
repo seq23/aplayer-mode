@@ -21,12 +21,12 @@ One brand. One app. One account. One Life Graph. One APM intelligence engine. In
 ```mermaid
 flowchart LR
   DIY[APM Digital OS\nDIY / acquisition] --> APP[A Player Mode App]
-  APP --> COS[Chief of Staff\nSee + prioritize + plan]
-  COS --> LIFE[Life OS\nManage + prepare]
+  APP --> COS[Executive Roundtable\nSee + prioritize + plan]
+  COS --> LIFE[Executive Suite\nManage + prepare]
   LIFE --> AUTO[Autopilot\nExecute within permission]
 ```
 
-Chief of Staff, Life OS, and Autopilot are capability/service levels inside the same app — not separate apps.
+Executive Roundtable, Executive Suite, and Autopilot are capability/service levels inside the same app — not separate apps.
 
 ## Product surfaces
 
@@ -119,8 +119,8 @@ We prove the product in this order:
 6. Calendar awareness
 7. Gmail/commitment awareness
 8. Proactive notifications
-9. Three-tier product contract: Chief of Staff / Life OS / Autopilot
-10. Life OS modules
+9. Three-tier product contract: Executive Roundtable / Executive Suite / Autopilot
+10. Life-area modules
 11. Autopilot standing-authority rules
 12. Closed beta across the individual service levels
 13. Paid three-tier launch only after each exposed capability passes its runtime/release gates
@@ -144,4 +144,4 @@ Implementation convenience, model fashions, or new feature ideas do not silently
 
 ## ADR-0002 amendment — individual service levels
 
-ADR-0002 supersedes the earlier sequencing rule that deferred Life OS and Autopilot source implementation until after a Chief-of-Staff-only launch. The product remains one app and one Life Graph. Chief of Staff, Life OS, and Autopilot are now built as three individual service levels in the same product train. Household remains waitlist-only until separately approved.
+ADR-0002 supersedes the earlier sequencing rule that deferred Executive Suite and Autopilot source implementation until after an Executive-Roundtable-only launch. The product remains one app and one Life Graph. Executive Roundtable, Executive Suite, and Autopilot are now built as three individual service levels in the same product train. Household remains waitlist-only until separately approved.

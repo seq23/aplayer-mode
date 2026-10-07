@@ -11,11 +11,11 @@ Each individual tier is also sold as an annual plan, priced at **2 months free**
 
 | Tier | Monthly | Annual | Includes |
 |---|---:|---:|---|
-| **Chief of Staff** | **$24.99** | **$249.99** | — |
-| **Life OS** | **$39.99** | **$399.99** | everything in Chief of Staff |
-| **Autopilot** | **$79.99** | **$799.99** | everything in Life OS |
+| **Executive Roundtable** | **$24.99** | **$249.99** | — |
+| **Executive Suite** | **$39.99** | **$399.99** | everything in Executive Roundtable |
+| **Autopilot** | **$79.99** | **$799.99** | everything in Executive Suite |
 
-- Annual plans have **no intro offer**. The Chief of Staff intro offers (Founding 100 at $9.99/mo locked; everyone else $9.99/mo for the first 3 months) stay monthly only (ADR-0004).
+- Annual plans have **no intro offer**. The Executive Roundtable intro offers (Founding 100 at $9.99/mo locked; everyone else $9.99/mo for the first 3 months) stay monthly only (ADR-0004).
 - There is no free trial on any plan.
 - Billing is App Store and Google Play in-app subscriptions through RevenueCat (docs/33-BILLING-PHASE-D.md). Annual and monthly products of all tiers share one store subscription group, so a change between them is an upgrade, downgrade or crossgrade the store prorates.
 

@@ -12,8 +12,8 @@ The user's game can include several simultaneous roles. The tier changes how muc
 
 ```mermaid
 flowchart LR
-  C[Chief of Staff · decides the day\nSee + prioritize + prepare] --> L[Life OS · remembers and prepares\nManage + prepare + approved execution]
-  L --> A[Autopilot · does\nStanding authority inside explicit rules]
+  C[Executive Roundtable · plans and coaches you\nSee + prioritize + prepare] --> L[Executive Suite · acts when you tap yes\nManage + prepare + approved execution]
+  L --> A[Autopilot · handles it inside your rules\nStanding authority inside explicit rules]
   A -. future interest only .-> H[Household OS\nWaitlist]
 ```
 
@@ -21,26 +21,26 @@ flowchart LR
 
 | Tier | Job | Monthly | Includes |
 |---|---|---:|---|
-| Chief of Staff | decides the day | $24.99 | — |
-| Life OS | remembers and prepares | $39.99 | everything in Chief of Staff |
-| Autopilot | does | $79.99 | everything in Life OS |
+| Executive Roundtable | plans and coaches you | $24.99 | — |
+| Executive Suite | acts when you tap yes | $39.99 | everything in Executive Roundtable |
+| Autopilot | handles it inside your rules | $79.99 | everything in Executive Suite |
 
 - **Annual plans (ADR-0005, 2 months free):**
 
 | Tier | Monthly | Annual |
 |---|---:|---:|
-| Chief of Staff | $24.99 | $249.99 |
-| Life OS | $39.99 | $399.99 |
+| Executive Roundtable | $24.99 | $249.99 |
+| Executive Suite | $39.99 | $399.99 |
 | Autopilot | $79.99 | $799.99 |
 
-- **Chief of Staff intro offers:** Founding 100 (the first 100 subscribers) pay $9.99/mo, locked while continuously subscribed; everyone else pays $9.99/mo for the first 3 months, then $24.99/mo.
+- **Executive Roundtable intro offers:** Founding 100 (the first 100 subscribers) pay $9.99/mo, locked while continuously subscribed; everyone else pays $9.99/mo for the first 3 months, then $24.99/mo.
 - **Every tier reduces cognitive load; upper tiers reduce more.**
 - **Billing:** App Store + Google Play in-app subscriptions via RevenueCat (Phase D, docs/33). No free trial.
 - **Buying a tier never grants autonomy.** Prices come from `PLAN_PRICES` in `packages/policy/src/index.ts`; `packages/policy/test/pricing.test.mjs` pins this table to it.
 
 ## Capability grid
 
-| Capability | Chief of Staff | Life OS | Autopilot |
+| Capability | Executive Roundtable | Executive Suite | Autopilot |
 |---|---:|---:|---:|
 | Adaptive intake + Personal OS | ✓ | ✓ | ✓ |
 | Goals / projects / routines | ✓ | ✓ | ✓ |
@@ -62,8 +62,8 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  C[Chief of Staff] --> L3[Level 3 · Prepare]
-  L[Life OS] --> L4[Level 4 · Approve & execute]
+  C[Executive Roundtable] --> L3[Level 3 · Prepare]
+  L[Executive Suite] --> L4[Level 4 · Approve & execute]
   A[Autopilot] --> L5[Level 5 · Standing authority]
 ```
 
@@ -96,7 +96,7 @@ The API is the authority boundary. Client UI may explain a plan but cannot grant
 ## Phase ledger after this contract
 
 1. **Phase A — three-tier contract / gating / plan UX / Household waitlist**.
-2. **Phase B — Life OS domain modules**.
+2. **Phase B — life-area modules**.
 3. **Phase C — Autopilot standing-rule engine + UX**.
 4. **Phase D — billing / entitlement reconciliation** (App Store + Google Play in-app subscriptions via RevenueCat; `SOURCE_COMPLETE` + `DB_PROVISIONED`, docs/33).
 5. **Phase E — external runtime/provider evidence**.

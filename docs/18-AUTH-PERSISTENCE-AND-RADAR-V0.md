@@ -129,4 +129,4 @@ A green static/unit CI run proves source-level integration. It does not by itsel
 - push notifications;
 - Radar persistence/dismissal history;
 - autonomous actions;
-- Life OS modules beyond the current Life Graph slice.
+- Life-area modules beyond the current Life Graph slice.

@@ -14,11 +14,11 @@ This document maps the full intended A Player Mode system to what is implemented
 | Work | Status | Evidence |
 |---|---|---|
 | Phase A — three-tier contract / gating / plan UX / Household waitlist | **DONE** (`SOURCE_COMPLETE`) | docs/29, ADR-0002 |
-| Phase B — Life OS domain modules | **DONE** (`SOURCE_COMPLETE` + `DB_PROVISIONED`) | docs/30-LIFE-OS-PHASE-B.md, migrations 0015–0017 |
+| Phase B — life-area modules | **DONE** (`SOURCE_COMPLETE` + `DB_PROVISIONED`) | docs/30-LIFE-OS-PHASE-B.md, migrations 0015–0017 |
 | Phase C — Autopilot standing-rule engine + UX | **DONE** (`SOURCE_COMPLETE` + `DB_PROVISIONED`) | docs/31, migrations 0018–0019 |
 | BHPC core — coaching state machine, five Modes, daily loop, Tracks | **DONE** (`SOURCE_COMPLETE` + `DB_PROVISIONED`) | rows 3 and 26; docs/32 Track library |
 | Autopilot action classes (ADR-0003) and daily-loop hardening | **DONE** (`SOURCE_COMPLETE` + `DB_PROVISIONED`; classes ship inactive) | PRs #23, #24; migrations 0033–0039 |
-| Final pricing | **DECIDED** (owner, final) | ADR-0004: Chief of Staff $24.99, Life OS $39.99, Autopilot $79.99; Founding 100 and 3-month intro at $9.99 |
+| Final pricing | **DECIDED** (owner, final) | ADR-0004: Executive Roundtable $24.99, Executive Suite $39.99, Autopilot $79.99; Founding 100 and 3-month intro at $9.99 |
 | Annual plans | **DECIDED** (owner, final) | ADR-0005: $249.99 / $399.99 / $799.99 per year (2 months free); no intro offer on annual |
 | **Phase D — billing / entitlement reconciliation** | **DONE** (`SOURCE_COMPLETE` + `DB_PROVISIONED`; store/RevenueCat configuration is Phase E) | docs/33-BILLING-PHASE-D.md; migrations 0040–0042; RevenueCat webhook + Founding 100 counter + paywall |
 
@@ -28,8 +28,8 @@ This document maps the full intended A Player Mode system to what is implemented
 
 ```mermaid
 flowchart LR
-  DIY[Digital APM OS] --> COS[Chief of Staff]
-  COS --> LIFE[Life OS]
+  DIY[Digital APM OS] --> COS[Executive Roundtable]
+  COS --> LIFE[Executive Suite]
   LIFE --> AUTO[Autopilot]
   AUTO --> HH[Household OS]
   HH --> PI[Personal Intelligence Layer]
@@ -73,7 +73,7 @@ flowchart TD
   P --> T[Live Trust Center]
   T --> SEC[Security / Data Rights / Analytics]
   SEC --> T[Three-tier contract]
-  T --> L[Life OS]
+  T --> L[Executive Suite]
   L --> AU[Autopilot]
   AU --> B[Three-tier beta]
   B --> PAID[Three-tier paid launch]
@@ -102,11 +102,11 @@ flowchart TD
 | 15 | Mobile release infrastructure | `SOURCE_COMPLETE` foundation | `EXTERNAL_GATE` | EAS profiles exist; Apple/Google signing/submission required |
 | 16 | Legal/privacy launch readiness | docs/policy foundation | `EXTERNAL_GATE` | qualified legal review cannot be simulated |
 | 17 | Closed beta | runbook required | `EXTERNAL_GATE` | requires 25–50 real users and evidence |
-| 18 | Three-tier product contract | `SOURCE_COMPLETE` in Phase A | DB/runtime validation required | Chief of Staff / Life OS / Autopilot boundaries + Household waitlist |
+| 18 | Three-tier product contract | `SOURCE_COMPLETE` in Phase A | DB/runtime validation required | Executive Roundtable / Executive Suite / Autopilot boundaries + Household waitlist |
 | 18A | Commercial entitlement activation (Phase D) | `SOURCE_COMPLETE` + `DB_PROVISIONED` (migrations 0040–0042) | `EXTERNAL_GATE` | RevenueCat webhook -> service-role entitlement writer; App Store / Play products, RevenueCat project and secrets are Phase E (docs/33 checklist); no store transaction is live |
 | 19 | Distribution engine | product contract | other-repo / market gate | audit/acquisition belongs primarily to marketing web stack |
 | 20 | Action Engine | `SOURCE_COMPLETE` foundation | provider/runtime required | permissioned calendar/email actions with approval lifecycle |
-| 21 | Life OS | `SOURCE_COMPLETE` + `DB_PROVISIONED` (Phase B, migrations 0015–0017) | runtime evidence still required | relationships + personal administration domains; governed RPC writes; see docs/30-LIFE-OS-PHASE-B.md |
+| 21 | Life areas | `SOURCE_COMPLETE` + `DB_PROVISIONED` (Phase B, migrations 0015–0017) | runtime evidence still required | relationships + personal administration domains; governed RPC writes; see docs/30-LIFE-OS-PHASE-B.md |
 | 22 | Autopilot | `SOURCE_COMPLETE` + `DB_PROVISIONED` (Phase C, migrations 0018–0019, 0033–0034) | `EXTERNAL_GATE` — every action class ships **inactive**; activation needs runtime/security receipts | standing-rule engine + UX: `calendar.create`, `email.draft` and, by ADR-0003, `email.send`, `calendar.reschedule`, `calendar.decline`, `appointment.book` (free only), `subscription.cancel`; level 5 needs entitlement AND permission 5 AND active rule AND activated class AND switches AND a write-scoped connection; outcomes recorded by the Worker's server key only; daily done-list with Undo / can't undo; see docs/31-AUTOPILOT-PHASE-C.md |
 | 23 | Household OS | dormant schema foundation | **WAITLIST ONLY** | shared primitives remain inactive; user interest is recorded without access |
 | 24 | Web Command Center | architecture contract | later implementation | mobile remains daily control plane; advanced desktop UX is not falsely claimed complete |
@@ -170,7 +170,7 @@ CI GREEN ON PROGRAM BRANCH
   -> push/device proof
   -> security/data-rights proof
   -> Phase A three-tier contract         (done)
-  -> Phase B Life OS domains            (source + DB done)
+  -> Phase B life areas            (source + DB done)
   -> Phase C Autopilot standing rules   (source + DB done; classes inactive)
   -> Autopilot action classes, ADR-0003 (PRs #23, #24 done; classes inactive)
   -> Phase D billing (App Store + Google Play IAP via RevenueCat)  <- source + DB done (docs/33)

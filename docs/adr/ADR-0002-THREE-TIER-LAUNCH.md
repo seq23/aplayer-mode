@@ -11,17 +11,17 @@ A Player Mode remains **one app, one account, one private Life Graph, and one AP
 
 The individual product will be built and commercialized as three service levels:
 
-1. **Chief of Staff** — APM sees, prioritizes, plans, coaches, reminds, and may prepare supported actions.
-2. **Life OS** — everything in Chief of Staff plus broader life-management domains and per-action execution after explicit approval.
-3. **Autopilot** — everything in Life OS plus explicit, revocable standing authority for supported safe action classes.
+1. **Executive Roundtable** — APM sees, prioritizes, plans, coaches, reminds, and may prepare supported actions.
+2. **Executive Suite** — everything in Executive Roundtable plus broader life-management domains and per-action execution after explicit approval.
+3. **Autopilot** — everything in Executive Suite plus explicit, revocable standing authority for supported safe action classes.
 
 **Household OS is not part of this build/launch train.** Household infrastructure may remain in source for future use, but customer-facing Household functionality stays unavailable. Interested users receive a real waitlist/interest control instead.
 
 ## Why this changes the previous sequence
 
-The original roadmap intentionally delayed Life OS and Autopilot until after Chief-of-Staff evidence. The product owner has now explicitly approved building the three individual service levels in the same product train.
+The original roadmap intentionally delayed Executive Suite and Autopilot until after Executive Roundtable evidence. The product owner has now explicitly approved building the three individual service levels in the same product train.
 
-This ADR supersedes only the sequencing rule that said Life OS and Autopilot source implementation must wait for post-launch evidence. It does **not** weaken any runtime, privacy, security, permission, billing, legal, provider, or store-validation gate.
+This ADR supersedes only the sequencing rule that said Executive Suite and Autopilot source implementation must wait for post-launch evidence. It does **not** weaken any runtime, privacy, security, permission, billing, legal, provider, or store-validation gate.
 
 ## Product invariant
 
@@ -41,7 +41,7 @@ Paying for Autopilot never grants standing authority by itself.
 
 ## Tier contract
 
-| Capability | Chief of Staff | Life OS | Autopilot |
+| Capability | Executive Roundtable | Executive Suite | Autopilot |
 |---|---:|---:|---:|
 | Personal OS / methodology | ✓ | ✓ | ✓ |
 | Today + Radar | ✓ | ✓ | ✓ |
@@ -53,7 +53,7 @@ Paying for Autopilot never grants standing authority by itself.
 | Standing authority / level 5 | — | — | ✓ |
 | Household shared graph | — | — | — |
 
-Beta access is treated as a Chief-of-Staff capability ceiling unless a later beta-specific ADR changes it.
+Beta access is treated as a Executive Roundtable capability ceiling unless a later beta-specific ADR changes it.
 
 ## Household policy
 
@@ -61,7 +61,7 @@ Household is **waitlist-only** until a later explicit approval. No subscription 
 
 ## Pricing
 
-**Superseded by ADR-0004 (2026-10-07).** The pricing hypotheses that stood here are retired; the final, owner-decided prices and the Chief of Staff intro offers are in ADR-0004 and in `packages/policy/src/index.ts`. Household still has no active product price while waitlist-only.
+**Superseded by ADR-0004 (2026-10-07).** The pricing hypotheses that stood here are retired; the final, owner-decided prices and the Executive Roundtable intro offers are in ADR-0004 and in `packages/policy/src/index.ts`. Household still has no active product price while waitlist-only.
 
 ## Validation
 

@@ -221,7 +221,7 @@ export const TIER_GRID_WHO = {
 
 export const TIER_GRID_WHAT = {
   title: 'What you no longer think about',
-  columns: PAID.map((plan) => `${PLAN_PRICES[plan].displayName} (${plan === 'chief_of_staff' ? 'decides it' : plan === 'life_os' ? 'prepares it' : 'does it'})`),
+  columns: PAID.map((plan) => `${PLAN_PRICES[plan].displayName} (${plan === 'chief_of_staff' ? 'plans it' : plan === 'life_os' ? 'acts on your yes' : 'handles it'})`),
   rows: [
     { label: '"What should I do today?"', cells: ['Agenda arrives, already prioritised', '+ covers family, home, health, money', '+ books the time on your calendar'] },
     { label: '"Am I forgetting something?"', cells: ['Radar catches dropped promises and deadlines', '+ birthdays, bills, appointments, renewals', '+ sends the follow-ups and confirmations'] },
@@ -242,7 +242,7 @@ export const PLAN_SCREEN = {
   betaLine: 'Closed beta: the prices are shown, nothing is charged.',
 } as const;
 
-/** Recommended tier: most parents start with Life OS; everyone else with Chief of Staff. */
+/** Recommended tier: most parents start with Executive Suite; everyone else with Executive Roundtable. */
 export function recommendedTier(games: readonly string[]): PaidPlan {
   return games.includes('parent') ? 'life_os' : 'chief_of_staff';
 }

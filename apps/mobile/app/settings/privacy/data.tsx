@@ -36,7 +36,7 @@ export default function YourDataScreen() {
       })
       .catch((cause: unknown) => {
         if (!active) return;
-        setLifeOsReadError(cause instanceof Error ? cause.message : 'Unable to load retained Life OS data.');
+        setLifeOsReadError(cause instanceof Error ? cause.message : 'Unable to load retained life-area data.');
       });
     return () => { active = false; };
   }, [accessToken, graph.lifeRelationships, graph.lifeAdminItems]);
@@ -62,7 +62,7 @@ export default function YourDataScreen() {
     >
       <Card tone="accent">
         <CardTitle>Your Life Graph is APM's private operating memory.</CardTitle>
-        <Body muted>Roles, goals, commitments, routines, people, relationships, Life OS obligations, preferences and rules live in structured state instead of being hidden inside a giant prompt.</Body>
+        <Body muted>Roles, goals, commitments, routines, people, relationships, life-area obligations, preferences and rules live in structured state instead of being hidden inside a giant prompt.</Body>
       </Card>
 
       <SectionTitle>Identity & game</SectionTitle>
@@ -107,7 +107,7 @@ export default function YourDataScreen() {
         </Card>
       )) : <Card><Body muted>No commitments are stored yet.</Body></Card>}
 
-      <SectionTitle>Life OS</SectionTitle>
+      <SectionTitle>Life areas</SectionTitle>
       {lifeOsReadError ? <Card tone="warning"><Body>{lifeOsReadError}</Body></Card> : null}
       {retainedLifeRelationships.length ? retainedLifeRelationships.slice(0, 20).map((relationship) => {
         const person = graph.people.find((candidate) => candidate.id === relationship.personId);
@@ -121,21 +121,21 @@ export default function YourDataScreen() {
             <KeyValue label="Source" value={relationship.provenance.sourceType} />
           </Card>
         );
-      }) : <Card><Body muted>No Life OS relationship state is stored.</Body></Card>}
+      }) : <Card><Body muted>No life-area relationship state is stored.</Body></Card>}
 
       {retainedLifeAdminItems.length ? retainedLifeAdminItems.slice(0, 20).map((item) => (
         <Card key={item.id}>
-          <View style={uiStyles.row}><Pill>Life OS</Pill><Pill>{item.kind.replaceAll('_', ' ')}</Pill></View>
+          <View style={uiStyles.row}><Pill>Life areas</Pill><Pill>{item.kind.replaceAll('_', ' ')}</Pill></View>
           <CardTitle>{item.title}</CardTitle>
           <KeyValue label="Status" value={item.status} />
           <KeyValue label="Next date" value={item.dueAt ?? item.startsAt ?? 'Not set'} />
           <KeyValue label="Source" value={item.provenance.sourceType} />
         </Card>
-      )) : <Card><Body muted>No Life OS administration items are stored.</Body></Card>}
+      )) : <Card><Body muted>No life-area administration items are stored.</Body></Card>}
 
       <Card>
-        <Body muted>Life OS state is private structured data. Use Life OS to correct or complete it; export and account deletion include this state through the same Life Graph lifecycle.</Body>
-        <Button label="Manage Life OS" variant="secondary" onPress={() => router.push('/settings/life')} />
+        <Body muted>Life-area state is private structured data. Use Life areas to correct or complete it; export and account deletion include this state through the same Life Graph lifecycle.</Body>
+        <Button label="Manage life areas" variant="secondary" onPress={() => router.push('/settings/life')} />
       </Card>
 
       <SectionTitle>Operating rules & preferences</SectionTitle>

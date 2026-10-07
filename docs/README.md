@@ -45,7 +45,7 @@ This directory is the canonical source of product, privacy, methodology, AI, arc
 | 26 | [EXTERNAL RUNTIME GATES](./26-EXTERNAL-RUNTIME-GATES.md) | **OPERATIONS RUNBOOK** | Cloudflare, provider, model, push, store, billing, legal and beta receipts |
 | 27 | [RUNTIME EVIDENCE PACKET](./27-RUNTIME-EVIDENCE-PACKET.md) | **OPEN EXTERNAL VALIDATION PACKET** | Receipt ledger for proving deployed/provider/device/store behavior after the merged source baseline |
 | 28 | [RUNTIME EVIDENCE HARDENING](./28-RUNTIME-EVIDENCE-HARDENING.md) | **IMPLEMENTATION + OPERATIONS GATE** | Machine-readable receipts, exact-SHA proof workflows, kill-switch and branch-governance hardening |
-| 29 | [THREE-TIER PRODUCT CONTRACT](./29-THREE-TIER-PRODUCT-CONTRACT.md) | **LOCKED IMPLEMENTATION CONTRACT** | Chief of Staff / Life OS / Autopilot capability boundaries + Household waitlist |
+| 29 | [THREE-TIER PRODUCT CONTRACT](./29-THREE-TIER-PRODUCT-CONTRACT.md) | **LOCKED IMPLEMENTATION CONTRACT** | Executive Roundtable / Executive Suite / Autopilot capability boundaries + Household waitlist |
 | 30B | [LIFE OS PHASE B](./30-LIFE-OS-PHASE-B.md) | **PHASE B IMPLEMENTATION CONTRACT** | Individual relationships + personal administration lifecycle, privacy and entitlement boundaries |
 | 31 | [AUTOPILOT PHASE C](./31-AUTOPILOT-PHASE-C.md) | **PHASE C IMPLEMENTATION CONTRACT** | Standing rules, level-5 authority invariant, supported/forbidden classes, governed DB surface, kill switches and undo |
 
@@ -65,7 +65,8 @@ A parent, athlete, entrepreneur, student, professional, creator, caregiver, or u
 | ADR | Status | Decision |
 |---|---|---|
 | [ADR-0001](./adr/ADR-0001-SUPABASE-CLOUDFLARE-HYBRID.md) | **ACCEPTED / LOCKED** | Supabase owns Auth/Postgres/RLS; Cloudflare owns API/intelligence/privacy/action boundary |
-| [ADR-0002](./adr/ADR-0002-THREE-TIER-LAUNCH.md) | **ACCEPTED / LOCKED** | Build Chief of Staff + Life OS + Autopilot in one individual-product train; Household waitlist-only |
+| [ADR-0002](./adr/ADR-0002-THREE-TIER-LAUNCH.md) | **ACCEPTED / LOCKED** | Build Executive Roundtable + Executive Suite + Autopilot in one individual-product train; Household waitlist-only |
+| [ADR-0006](./adr/ADR-0006-PLAN-DISPLAY-NAMES.md) | **ACCEPTED** | Plans are shown as Executive Roundtable / Executive Suite / Autopilot; internal keys, store ids and DB values unchanged |
 
 ## Authority / anti-drift hierarchy
 
@@ -92,7 +93,7 @@ flowchart LR
   PROACTIVE --> ACTIONS[Permissioned Actions]
   ACTIONS --> PROOF[Runtime evidence + hardening]
   PROOF --> TIER[Three-tier contract]
-  TIER --> LIFE[Life OS]
+  TIER --> LIFE[Executive Suite]
   LIFE --> AUTO[Autopilot]
   AUTO --> BETA[Three-tier beta / launch]
   BETA -. later .-> HOUSE[Household waitlist]

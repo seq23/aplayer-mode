@@ -89,7 +89,7 @@ test('the server catalogue is exactly BILLING_PRODUCTS from packages/policy', as
   const expected = policy.BILLING_PRODUCTS.map((p) => ({ product_id: p.productId, store: p.store, plan: p.plan, billing_period: p.period, offer: p.offer }))
     .sort((x, y) => (x.product_id < y.product_id ? -1 : 1));
   assert.deepEqual(rows, expected);
-  // A founding row can only ever be Chief of Staff monthly.
+  // A founding row can only ever be Executive Roundtable (chief_of_staff) monthly.
   await rejects(admin("insert into private.billing_products values ('x', 'app_store', 'autopilot', 'monthly', 'founding')"), /check constraint/);
 });
 

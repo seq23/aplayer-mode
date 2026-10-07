@@ -24,29 +24,29 @@ export interface ProductPlanPolicy {
 export const productPlanPolicies: Record<ProductPlan, ProductPlanPolicy> = {
   beta: {
     plan: 'beta',
-    displayName: 'Chief of Staff Beta',
+    displayName: 'Executive Roundtable Beta',
     promise: 'APM notices, prioritizes, plans, coaches and prepares supported actions.',
     publicAvailability: 'beta',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions'],
   },
   chief_of_staff: {
     plan: 'chief_of_staff',
-    displayName: 'Chief of Staff',
-    promise: 'APM decides the day.',
+    displayName: 'Executive Roundtable',
+    promise: 'Your five-person executive team, in one app. APM plans and coaches you; you do the last step.',
     publicAvailability: 'available',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions'],
   },
   life_os: {
     plan: 'life_os',
-    displayName: 'Life OS',
-    promise: 'APM remembers and prepares: everything in Chief of Staff, across more of your life.',
+    displayName: 'Executive Suite',
+    promise: 'APM runs your whole life and acts when you tap yes: everything in Executive Roundtable, plus relationships, appointments and travel, bills and subscriptions, meals, health and life admin, with one-tap approve-and-execute.',
     publicAvailability: 'available',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval'],
   },
   autopilot: {
     plan: 'autopilot',
     displayName: 'Autopilot',
-    promise: 'APM does: everything in Life OS, plus approved work carried out inside rules you set.',
+    promise: 'APM handles recurring things on its own inside rules you set: everything in Executive Suite. It saves money, never spends it.',
     publicAvailability: 'available',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval','standing_autopilot'],
   },
@@ -84,13 +84,20 @@ export interface PlanPrice {
   includes: PaidPlan | null;
 }
 
+// Display names (owner-decided, 2026-10-07; ADR-0006). The keys `chief_of_staff` and
+// `life_os` are internal only: "Chief of Staff" is one of the five JOBS every plan does,
+// never a plan name, and "Life OS" is never shown to users.
 export const PLAN_PRICES: Readonly<Record<PaidPlan, PlanPrice>> = {
-  chief_of_staff: { plan: 'chief_of_staff', displayName: 'Chief of Staff', tagline: 'decides the day', monthlyUsdCents: 2499, annualUsdCents: 24999, includes: null },
-  life_os: { plan: 'life_os', displayName: 'Life OS', tagline: 'remembers and prepares', monthlyUsdCents: 3999, annualUsdCents: 39999, includes: 'chief_of_staff' },
-  autopilot: { plan: 'autopilot', displayName: 'Autopilot', tagline: 'does', monthlyUsdCents: 7999, annualUsdCents: 79999, includes: 'life_os' },
+  chief_of_staff: { plan: 'chief_of_staff', displayName: 'Executive Roundtable', tagline: 'plans and coaches you', monthlyUsdCents: 2499, annualUsdCents: 24999, includes: null },
+  life_os: { plan: 'life_os', displayName: 'Executive Suite', tagline: 'acts when you tap yes', monthlyUsdCents: 3999, annualUsdCents: 39999, includes: 'chief_of_staff' },
+  autopilot: { plan: 'autopilot', displayName: 'Autopilot', tagline: 'handles it inside your rules', monthlyUsdCents: 7999, annualUsdCents: 79999, includes: 'life_os' },
 };
 
-/** Intro offers exist on Chief of Staff MONTHLY only (never annual, never Life OS / Autopilot). */
+/**
+ * Intro offers exist on Executive Roundtable (internal key `chief_of_staff`) MONTHLY only
+ * (never annual, never Executive Suite / Autopilot). The constant keeps its internal name on
+ * purpose: plan keys, store product ids and DB values were not renamed (ADR-0006).
+ */
 export const CHIEF_OF_STAFF_INTRO_OFFERS = {
   /** First 100 subscribers: the intro price for as long as they stay continuously subscribed. */
   founding100: { subscribers: 100, monthlyUsdCents: 999, lockedWhileContinuouslySubscribed: true },
@@ -103,7 +110,7 @@ export const BILLING_CHANNELS = ['app_store', 'google_play'] as const;
 export type BillingChannel = (typeof BILLING_CHANNELS)[number];
 
 export type BillingPeriod = 'monthly' | 'annual';
-/** `standard` = list price (Chief of Staff monthly carries the 3-month intro); `founding` = the Founding 100 product. */
+/** `standard` = list price (Executive Roundtable monthly carries the 3-month intro); `founding` = the Founding 100 product. */
 export type BillingOffer = 'standard' | 'founding';
 
 export interface BillingProduct {
@@ -154,7 +161,7 @@ export const BILLING_PRODUCTS: ReadonlyArray<BillingProduct> = [
 export const REVENUECAT_CONFIG = {
   /** RevenueCat entitlements, one per tier; informational only (the server maps product ids). */
   entitlements: { chief_of_staff: 'chief_of_staff', life_os: 'life_os', autopilot: 'autopilot' } as Readonly<Record<PaidPlan, string>>,
-  /** Offering shown to everyone; Chief of Staff monthly carries the 3-month intro. */
+  /** Offering shown to everyone; Executive Roundtable monthly carries the 3-month intro. */
   defaultOffering: 'default',
   /** Offering shown ONLY when the server reserved a Founding 100 slot for this user. */
   foundingOffering: 'founding',
@@ -181,8 +188,8 @@ export function formatUsdCents(cents: number): string {
 export const planPriceLabels: Readonly<Record<ProductPlan, string>> = {
   beta: 'Free during beta',
   chief_of_staff: `${formatUsdCents(PLAN_PRICES.chief_of_staff.monthlyUsdCents)}/mo or ${formatUsdCents(PLAN_PRICES.chief_of_staff.annualUsdCents)}/yr · founding 100: ${formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents)}/mo locked · everyone else: ${formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents)}/mo for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months`,
-  life_os: `${formatUsdCents(PLAN_PRICES.life_os.monthlyUsdCents)}/mo or ${formatUsdCents(PLAN_PRICES.life_os.annualUsdCents)}/yr · includes Chief of Staff`,
-  autopilot: `${formatUsdCents(PLAN_PRICES.autopilot.monthlyUsdCents)}/mo or ${formatUsdCents(PLAN_PRICES.autopilot.annualUsdCents)}/yr · includes Life OS`,
+  life_os: `${formatUsdCents(PLAN_PRICES.life_os.monthlyUsdCents)}/mo or ${formatUsdCents(PLAN_PRICES.life_os.annualUsdCents)}/yr · includes ${PLAN_PRICES.chief_of_staff.displayName}`,
+  autopilot: `${formatUsdCents(PLAN_PRICES.autopilot.monthlyUsdCents)}/mo or ${formatUsdCents(PLAN_PRICES.autopilot.annualUsdCents)}/yr · includes ${PLAN_PRICES.life_os.displayName}`,
   household: 'Waitlist only',
 };
 

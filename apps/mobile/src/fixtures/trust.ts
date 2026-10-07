@@ -48,7 +48,7 @@ export const providerFixtures = [
 export const dataFixtures = [
   {
     category: 'Goal',
-    value: 'Launch A Player Mode Chief of Staff',
+    value: 'Launch the A Player Mode app',
     source: 'You told APM',
     confidence: 'Confirmed',
   },

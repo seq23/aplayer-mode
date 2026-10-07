@@ -9,12 +9,12 @@ This repository contains the mobile-first A Player Mode product and its canonica
 The shared platform foundation is in place. We are now building the **three individual APM service levels** in one app:
 
 ```text
-Chief of Staff → Life OS → Autopilot
+Executive Roundtable → Executive Suite → Autopilot
                       \
                        Household = waitlist only for now
 ```
 
-Chief of Staff, Life OS and Autopilot share the same account, Life Graph, privacy boundary and policy engine. A subscription makes capability available; it never grants action authority by itself.
+Executive Roundtable, Executive Suite and Autopilot share the same account, Life Graph, privacy boundary and policy engine. A subscription makes capability available; it never grants action authority by itself.
 
 The first mobile implementation intentionally begins with the **Trust Center and product shell using fixture data** so the privacy, AI, connection, and autonomy experience is understandable before real private integrations are connected.
 

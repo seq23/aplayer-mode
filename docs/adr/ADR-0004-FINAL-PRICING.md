@@ -1,4 +1,4 @@
-# ADR-0004 — Final Individual Pricing and Chief of Staff Intro Offers
+# ADR-0004 — Final Individual Pricing and Executive Roundtable Intro Offers
 
 **Status:** ACCEPTED / LOCKED
 **Date:** 2026-10-07
@@ -11,18 +11,18 @@ The three individual service levels are priced, per month, in USD:
 
 | Tier | Job | Monthly | Includes |
 |---|---|---:|---|
-| **Chief of Staff** | decides the day | **$24.99** | — |
-| **Life OS** | remembers and prepares | **$39.99** | everything in Chief of Staff |
-| **Autopilot** | does | **$79.99** | everything in Life OS |
+| **Executive Roundtable** | plans and coaches you | **$24.99** | — |
+| **Executive Suite** | acts when you tap yes | **$39.99** | everything in Executive Roundtable |
+| **Autopilot** | handles it inside your rules | **$79.99** | everything in Executive Suite |
 
 The ladder is cumulative. Every tier reduces the user's cognitive load; the upper tiers reduce more of it.
 
-### Chief of Staff intro offers
+### Executive Roundtable intro offers
 
 - **Founding 100:** the first 100 subscribers pay **$9.99/mo**, locked for as long as they stay continuously subscribed. A lapse ends the lock; re-subscribing is at the then-current price.
 - **Everyone else:** **$9.99/mo for the first 3 months**, then **$24.99/mo**.
 
-Intro offers exist on Chief of Staff only. Life OS and Autopilot have no intro price.
+Intro offers exist on Executive Roundtable only. Executive Suite and Autopilot have no intro price.
 
 ### Billing channel
 
@@ -40,8 +40,8 @@ The prices live in code, in `packages/policy/src/index.ts` (`PLAN_PRICES`, `CHIE
 
 ## Why these numbers
 
-- **$24.99 Chief of Staff** sits inside the consumer AI-assistant band (Sunsama, Martin, Howie Basic, ChatGPT Plus; docs/02 market anchors) and must be earned by proactive Radar, not generic chat.
-- **$39.99 Life OS** is a real step for more of life covered, without the 2× jump of the earlier hypothesis while bills, subscriptions and health stay reminders/preparation.
+- **$24.99 Executive Roundtable** sits inside the consumer AI-assistant band (Sunsama, Martin, Howie Basic, ChatGPT Plus; docs/02 market anchors) and must be earned by proactive Radar, not generic chat.
+- **$39.99 Executive Suite** is a real step for more of life covered, without the 2× jump of the earlier hypothesis while bills, subscriptions and health stay reminders/preparation.
 - **$79.99 Autopilot** prices the tier that does the work inside standing rules (ADR-0003 classes), within the band that products doing real work command, below the EA-agent band that does inbox work for a person (docs/02 market anchors).
 - **$9.99 intro** lowers the first-purchase barrier; the Founding 100 lock rewards the earliest subscribers for staying.
 

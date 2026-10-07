@@ -157,18 +157,18 @@ Every new storage table/object must identify:
 - deletion behavior;
 - whether it may enter AI context.
 
-## Phase B Life OS storage classes
+## Phase B life-area storage classes
 
 | Object | Owner / boundary | Classification | Retention intent | Export / deletion | AI-context eligibility |
 |---|---|---|---|---|---|
-| `life_relationships` | individual user; own-row + Life OS entitlement RLS for reads; no direct client writes (governed RPCs only, migration 0017) | Class 2 private life | persistent until corrected/deleted/account deletion | included in Life Graph export via the owner-only data-rights function (also after downgrade); cascades with account/person deletion | only when a future task requires it and Privacy Gateway permits; **Phase B Radar/Today are deterministic** |
-| `life_admin_items` | individual user; own-row + Life OS entitlement RLS for reads; no direct client writes (governed RPCs only, migration 0017) | Class 2 by default; fields containing financial or health-sensitive details can be Class 3 | persistent while useful; completed/cancelled state remains structured history until removed/account deletion | included in Life Graph export via the owner-only data-rights function (also after downgrade); cascades with account deletion | only minimum necessary fields through an eligible route; **no new Phase B inference path** |
+| `life_relationships` | individual user; own-row + life-area entitlement RLS for reads; no direct client writes (governed RPCs only, migration 0017) | Class 2 private life | persistent until corrected/deleted/account deletion | included in Life Graph export via the owner-only data-rights function (also after downgrade); cascades with account/person deletion | only when a future task requires it and Privacy Gateway permits; **Phase B Radar/Today are deterministic** |
+| `life_admin_items` | individual user; own-row + life-area entitlement RLS for reads; no direct client writes (governed RPCs only, migration 0017) | Class 2 by default; fields containing financial or health-sensitive details can be Class 3 | persistent while useful; completed/cancelled state remains structured history until removed/account deletion | included in Life Graph export via the owner-only data-rights function (also after downgrade); cascades with account deletion | only minimum necessary fields through an eligible route; **no new Phase B inference path** |
 
-Phase B analytics contain event type and coarse domain kind/recurrence state only. Titles, notes, amounts, health details, relationship notes and other raw private Life OS content are not copied into product analytics by default.
+Phase B analytics contain event type and coarse domain kind/recurrence state only. Titles, notes, amounts, health details, relationship notes and other raw private life-area content are not copied into product analytics by default.
 
-Data-rights access is separate from product entitlement, but it is not an RLS bypass for ordinary reads: ordinary SELECT needs own-row AND entitlement, and only the dedicated owner-only `apm_life_os_data_rights_export()` path (used by `/v1/privacy/life-os` and `/v1/privacy/export`) reads retained rows after downgrade. Every Life OS write is a governed RPC that checks ownership, entitlement and lifecycle rules, forces user-stated provenance, and writes its audit event in the same transaction.
+Data-rights access is separate from product entitlement, but it is not an RLS bypass for ordinary reads: ordinary SELECT needs own-row AND entitlement, and only the dedicated owner-only `apm_life_os_data_rights_export()` path (used by `/v1/privacy/life-os` and `/v1/privacy/export`) reads retained rows after downgrade. Every life areas write is a governed RPC that checks ownership, entitlement and lifecycle rules, forces user-stated provenance, and writes its audit event in the same transaction.
 
-Life OS state retains provenance. User-managed edits and completion are canonical state changes; future inferred Life OS facts must preserve the correction rules above.
+Life-area state retains provenance. User-managed edits and completion are canonical state changes; future inferred life-area facts must preserve the correction rules above.
 
 ## Phase C Autopilot storage classes
 
