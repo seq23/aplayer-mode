@@ -70,6 +70,8 @@ export interface WeeklyDebriefView {
   diaryQuestion: string;
   executiveReview: { open: string; close: string };
   adjustmentPrompt: string;
+  /** APM's proposed one adjustment, from the week's misses (older servers omit it). */
+  suggestedAdjustment?: { text: string; reason: string };
 }
 export type OsChangeInput =
   | { field: 'morning_sequence' | 'hard_boundaries' | 'non_negotiables' | 'core_values'; value: string[] }

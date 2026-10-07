@@ -99,6 +99,11 @@ test('the app never reports a purchase to the API or decides Founding eligibilit
   assert.doesNotMatch(paywall, /loadOffering\('founding'\)|foundingOffering/, 'never picks the founding offering itself');
   assert.match(paywall, /subscriptionDisclosure\(/, 'the store disclosures are on the paywall');
   assert.match(paywall, /Restore purchases/, 'Restore is on the paywall');
+  // Web has no store: the paywall says where to subscribe, and shows no buy or Restore button that cannot work.
+  const purchasesSource = files.find(([path]) => path.endsWith('src/billing/purchases.ts'))[1];
+  assert.match(purchasesSource, /web: 'Subscribe in the iPhone or Android app\./, 'web says where to subscribe');
+  assert.match(paywall, /\{availability\.available \? <Button label=\{busy === 'restore'/, 'Restore renders only where a store exists');
+  assert.match(paywall, /\{!isCurrent && availability\.available \? \(/, 'buy buttons render only where a store exists');
   for (const user of ['app/settings/plan.tsx', 'app/intake.tsx']) {
     const text = files.find(([path]) => path.endsWith(user))?.[1] ?? '';
     assert.match(text, /<PlanChoice\b/, `${user} renders the shared paywall`);

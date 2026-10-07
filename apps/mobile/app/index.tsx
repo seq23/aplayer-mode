@@ -1,5 +1,5 @@
 import { Redirect } from 'expo-router';
-import { Body, Button, Card, CardTitle, Screen } from '../src/components/ui';
+import { Body, Button, Card, CardTitle, LoadingState, Screen } from '../src/components/ui';
 import { useLifeGraph } from '../src/state/lifeGraph';
 import { useSession } from '../src/state/session';
 import { useIntake } from '../src/intake/store';
@@ -17,7 +17,7 @@ export default function Index() {
   const installedHere = draft.installedVersion !== undefined && draft.installedVersion !== null;
 
   if (status === 'loading' || (status === 'signed_in' && (syncStatus === 'idle' || syncStatus === 'loading'))) {
-    return <Screen fullBleed eyebrow="A Player Mode" title="Opening your APM…">{null}</Screen>;
+    return <Screen fullBleed eyebrow="A Player Mode" title="Opening your APM…"><LoadingState label="Opening your APM" /></Screen>;
   }
 
   if (status === 'signed_in' && syncStatus === 'error' && (!started || installedHere)) {

@@ -19,3 +19,7 @@ yarn-error.log*
 *.pem
 *.p12
 *.mobileprovision
+
+# Expo prebuild output (continuous native generation): never committed
+apps/mobile/android/
+apps/mobile/ios/

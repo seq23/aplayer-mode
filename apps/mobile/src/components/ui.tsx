@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
   type AccessibilityRole,
+  type ColorValue,
   type TextInputProps,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -41,6 +42,13 @@ export function TabIcon({ icon, focused }: { icon: IconName; focused: boolean })
 }
 
 /** One icon set app-wide: Feather (stroke icons, matching the Outfit line weight). */
+/** A tab label that keeps the type scale's own cap (1.4×): uncapped, AX5 text overflowed the 62 pt tab bar (docs/36 A-5). */
+export function TabLabel({ children, color }: { children: ReactNode; color: ColorValue }) {
+  const { type } = useTheme();
+  const { maxFontSizeMultiplier, ...font } = type.tab;
+  return <Text maxFontSizeMultiplier={maxFontSizeMultiplier} numberOfLines={1} style={[font, { color }]}>{children}</Text>;
+}
+
 export function Icon({ name, size = 20, tone = 'ink', label }: { name: IconName; size?: number; tone?: Tone; label?: string }) {
   const { colors } = useTheme();
   return <Feather name={name} size={size} color={colors[tone]} accessibilityElementsHidden={!label} importantForAccessibility={label ? 'yes' : 'no-hide-descendants'} accessibilityLabel={label} />;
@@ -462,7 +470,8 @@ export function Flow({ steps }: { steps: string[] }) {
 const flowStyles = ({ colors }: Theme) => ({
   wrap: { gap: spacing.sm },
   item: { flexDirection: 'row' as const, alignItems: 'flex-start' as const, gap: spacing.sm },
-  num: { width: 28, height: 28, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: 'center' as const, justifyContent: 'center' as const },
+  // min, not fixed: the step number grows with Dynamic Type instead of clipping in a 28 pt circle.
+  num: { minWidth: 28, paddingVertical: 4, paddingHorizontal: 6, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: 'center' as const, justifyContent: 'center' as const },
 });
 
 /** A navigation row (Settings, coach tools): icon, title, detail, chevron. */
@@ -624,6 +633,17 @@ export function EmptyState({ icon = 'inbox', title, body, actionLabel, onAction 
 }
 
 /** Something failed: a plain sentence (never a code) and, when it can be retried, Try again. */
+/** A loading screen that visibly moves: a spinner plus a short line, announced once (docs/36 A-1). */
+export function LoadingState({ label }: { label: string }) {
+  const { colors } = useTheme();
+  return (
+    <View accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityState={{ busy: true }} style={styles.loading}>
+      <ActivityIndicator size="large" color={colors.accent} />
+      <Txt variant="body" tone="inkMuted" align="center">{label}</Txt>
+    </View>
+  );
+}
+
 export function ErrorState({ title, message, onRetry, retryLabel = 'Try again' }: { title?: string; message: string; onRetry?: () => void; retryLabel?: string }) {
   return (
     <Card tone="danger">
@@ -675,6 +695,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   tabIcon: { width: 48, height: 26, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
   fill: { flex: 1, minWidth: 0, gap: 2 },
+  loading: { alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
   flexShrink: { flexShrink: 1 },
   row: { flexDirection: 'row' },
   wrap: { flexWrap: 'wrap' },

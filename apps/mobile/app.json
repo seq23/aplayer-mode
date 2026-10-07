@@ -36,13 +36,24 @@
       "permissions": [
         "READ_CALENDAR"
       ],
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1E1C19"
+      }
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "output": "single",
+      "name": "A Player Mode",
+      "shortName": "APM",
+      "themeColor": "#1E1C19",
+      "backgroundColor": "#E9E5DE",
+      "favicon": "./public/favicon.png"
     },
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "icon": "./assets/icon.png"
   }
 }

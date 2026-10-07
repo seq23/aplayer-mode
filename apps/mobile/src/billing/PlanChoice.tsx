@@ -209,7 +209,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       <Body muted>{`${PLAN_SCREEN.annualLine} ${PLAN_SCREEN.autonomyLine}`}</Body>
 
       <Card tone="muted">
-        <Button label={busy === 'restore' ? 'Restoring…' : 'Restore purchases'} variant="secondary" disabled={!availability.available || Boolean(busy)} onPress={() => void restore()} />
+        {/* On web there is no store to restore from: no dead Restore button, only the way to manage. */}
+        {availability.available ? <Button label={busy === 'restore' ? 'Restoring…' : 'Restore purchases'} variant="secondary" disabled={Boolean(busy)} onPress={() => void restore()} /> : null}
         <Button label="Manage subscription" variant="secondary" onPress={() => void manage()} />
       </Card>
 
