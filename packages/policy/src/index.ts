@@ -108,9 +108,18 @@ export const CHIEF_OF_STAFF_INTRO_OFFERS = {
   introductory: { monthlyUsdCents: 999, months: 3, thenMonthlyUsdCents: 2499 },
 } as const;
 
-/** Billing is store in-app subscriptions only, via RevenueCat (Phase D, docs/33). */
-export const BILLING_CHANNELS = ['app_store', 'google_play'] as const;
+/**
+ * Billing channels, all via RevenueCat (Phase D, docs/33). `app_store` and `google_play` are
+ * in-app subscriptions; `web` is RevenueCat Web Billing (card checkout through the RevenueCat
+ * Web Purchase Link, owner ruling 7 Oct 2026 "stripe first for the apps") and is offered ONLY
+ * in the web app and the sideload Android APK, never in a store build (App Store 3.1.1,
+ * Google Play payments policy; docs/33 §9, apps/mobile/src/billing/distribution.ts).
+ */
+export const BILLING_CHANNELS = ['app_store', 'google_play', 'web'] as const;
 export type BillingChannel = (typeof BILLING_CHANNELS)[number];
+/** The in-app store channels (a store build can buy only through these). */
+export const STORE_CHANNELS = ['app_store', 'google_play'] as const satisfies ReadonlyArray<BillingChannel>;
+export type StoreChannel = (typeof STORE_CHANNELS)[number];
 
 export type BillingPeriod = 'monthly' | 'annual';
 /** `standard` = list price (Executive Roundtable monthly carries the 3-month intro); `founding` = the Founding 100 product. */
@@ -142,6 +151,8 @@ const product = (productId: string, store: BillingChannel, plan: PaidPlan, perio
  *
  * App Store: one subscription group, one product per row. Google Play: one
  * subscription per tier with base plans; RevenueCat reports `<subscription>:<base plan>`.
+ * Web (RevenueCat Web Billing): `apm_web_<tier>_<period>[_founding]`, created in the
+ * RevenueCat dashboard with EXACTLY these identifiers (WEB_BILLING_CONFIG, docs/33 §9).
  */
 export const BILLING_PRODUCTS: ReadonlyArray<BillingProduct> = [
   product('apm_cos_monthly', 'app_store', 'chief_of_staff', 'monthly'),
@@ -158,7 +169,37 @@ export const BILLING_PRODUCTS: ReadonlyArray<BillingProduct> = [
   product('apm_lifeos:annual', 'google_play', 'life_os', 'annual'),
   product('apm_autopilot:monthly', 'google_play', 'autopilot', 'monthly'),
   product('apm_autopilot:annual', 'google_play', 'autopilot', 'annual'),
+  product('apm_web_cos_monthly', 'web', 'chief_of_staff', 'monthly'),
+  product('apm_web_cos_monthly_founding', 'web', 'chief_of_staff', 'monthly', 'founding'),
+  product('apm_web_cos_annual', 'web', 'chief_of_staff', 'annual'),
+  product('apm_web_lifeos_monthly', 'web', 'life_os', 'monthly'),
+  product('apm_web_lifeos_annual', 'web', 'life_os', 'annual'),
+  product('apm_web_autopilot_monthly', 'web', 'autopilot', 'monthly'),
+  product('apm_web_autopilot_annual', 'web', 'autopilot', 'annual'),
 ];
+
+/**
+ * RevenueCat Web Billing (card checkout) — everything the dashboard step must match.
+ * The database maps these webhook `store` values to the `web` channel (migration 0092):
+ * RC_BILLING is RevenueCat Web Billing; STRIPE is RevenueCat's Stripe Billing integration.
+ */
+export const WEB_BILLING_CONFIG = {
+  /** RevenueCat webhook `store` values that mean the web channel. */
+  webhookStores: ['RC_BILLING', 'STRIPE'] as const,
+  /** The web product identifiers to create in RevenueCat Web Billing, in dashboard order. */
+  productIds: [
+    'apm_web_cos_monthly', 'apm_web_cos_monthly_founding', 'apm_web_cos_annual',
+    'apm_web_lifeos_monthly', 'apm_web_lifeos_annual', 'apm_web_autopilot_monthly', 'apm_web_autopilot_annual',
+  ] as const,
+  /** Where RevenueCat redirects after a successful card purchase (dashboard: success behaviour = redirect). */
+  returnUrl: 'https://app.aplayermode.com/billing/return',
+  /** Build-time config of the app (apps/mobile): the Web Purchase Link of each offering. */
+  purchaseLinkEnv: { default: 'EXPO_PUBLIC_RC_WEB_PURCHASE_URL', founding: 'EXPO_PUBLIC_RC_WEB_PURCHASE_URL_FOUNDING' },
+  /** Worker secret: comma-separated APM user ids whose SANDBOX (test-card) events production honours. */
+  sandboxTesterSecret: 'BILLING_SANDBOX_TESTER_IDS',
+  /** Worker secret: a RevenueCat API v2 key with read access to customer information (customer portal links). */
+  portalKeySecret: 'REVENUECAT_API_V2_KEY',
+} as const;
 
 /** RevenueCat identifiers (dashboard configuration in docs/33). */
 export const REVENUECAT_CONFIG = {

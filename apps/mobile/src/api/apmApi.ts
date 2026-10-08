@@ -190,9 +190,9 @@ export interface ProductPlanResponse {
     maxAutonomyLabel: string;
     storeProductId?: string;
   };
-  /** Store subscription state as the verified RevenueCat webhook last wrote it; null when not store-billed. */
+  /** Store or web (card) subscription state as the verified RevenueCat webhook last wrote it; null when not billed. */
   billing: {
-    store: 'app_store' | 'google_play';
+    store: 'app_store' | 'google_play' | 'web';
     period: 'monthly' | 'annual' | null;
     founding: boolean;
     periodEnd: string | null;
@@ -296,6 +296,10 @@ export async function fetchProductPlan(accessToken: string): Promise<ProductPlan
 }
 export async function fetchBillingOffering(accessToken: string): Promise<BillingOfferingResponse> {
   return request<BillingOfferingResponse>('/v1/billing/offering', accessToken);
+}
+/** Web (card) subscribers: the RevenueCat customer-portal link for the signed-in user, or null with a reason. */
+export async function fetchWebBillingPortal(accessToken: string) {
+  return request<{ url: string | null; reason?: 'not_configured' | 'no_web_subscription' | 'unavailable' }>('/v1/billing/web/portal', accessToken);
 }
 export async function fetchHouseholdInterest(accessToken: string) {
   return request<{ interested: boolean; updatedAt?: string }>('/v1/product/household-interest', accessToken);

@@ -12,7 +12,11 @@ export function hasDailyLoopAccess(entitlement: SubscriptionEntitlement | undefi
   return true;
 }
 
-/** What the "no plan yet" card on Today says, per build. Never a dead end. */
+/**
+ * What the "no plan yet" card on Today says, per build. Never a dead end. `canBuyHere` is
+ * true in a store build that can buy in-app AND in the web app / sideload APK (card
+ * checkout, docs/33 §9): those must never be told to go to a store app.
+ */
 export function noPlanCopy(canBuyHere: boolean): { title: string; body: string; action: string } {
   return canBuyHere
     ? {

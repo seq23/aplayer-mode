@@ -169,3 +169,54 @@ test('the cron runs the billing expiry sweep; without the service key it is a na
     assert.ok(fake.calls.some((c) => c.href.includes('apm_service_billing_expire_lapsed')), 'scheduled() runs the sweep');
   } finally { fake.restore(); }
 });
+
+test('production sandbox: ONLY the explicit tester allowlist is honoured; every other sandbox event stays refused', async () => {
+  const TESTER = '00000000-0000-4000-8000-0000000000d7';
+  const prod = { ...env, BILLING_SANDBOX_TESTER_IDS: ` ${TESTER.toUpperCase()} , not-a-uuid, ` };
+  const fake = fakeSupabase();
+  try {
+    const sandboxFor = async (overrides, e = prod) => {
+      fake.calls.length = 0;
+      assert.equal((await post(rcBody(overrides), { authorization: SECRET }, e)).status, 200);
+      return fake.calls[0].body.p_allow_sandbox;
+    };
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: TESTER, store: 'RC_BILLING', product_id: 'apm_web_cos_monthly' }), true, 'listed tester (case-insensitive)');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: USER, store: 'RC_BILLING', product_id: 'apm_web_cos_monthly' }), false, 'a non-listed user stays refused');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: 'not-a-uuid' }), false, 'garbage in the list never matches');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: null }), false, 'no user, no sandbox');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: TESTER }, env), false, 'no allowlist configured = none');
+    assert.equal(await sandboxFor({ environment: 'PRODUCTION', app_user_id: TESTER }), false, 'the flag is only ever about sandbox');
+    assert.deepEqual([...billing.sandboxTesterIds(prod)], [TESTER]);
+  } finally { fake.restore(); }
+});
+
+test('web customer portal: session user only, RevenueCat Billing subscriptions only, never throws', async () => {
+  const PORTAL = 'https://billing.revenuecat.com/portal/abc';
+  const seen = [];
+  const rc = (status, body) => async (url, init) => { seen.push({ url: String(url), auth: new Headers(init?.headers).get('authorization') }); return new Response(JSON.stringify(body), { status }); };
+  const cfg = { ...env, REVENUECAT_PROJECT_ID: 'proj2c0586cf', REVENUECAT_API_V2_KEY: 'sk_test_key' };
+  assert.deepEqual(await billing.webCustomerPortalFor(env, USER, rc(200, {})), { url: null, reason: 'not_configured' });
+  assert.deepEqual(await billing.webCustomerPortalFor({ ...cfg, REVENUECAT_PROJECT_ID: '../x' }, USER, rc(200, {})), { url: null, reason: 'not_configured' });
+  const items = [
+    { store: 'app_store', management_url: 'https://apps.apple.com/account/subscriptions', starts_at: 9 },
+    { store: 'rc_billing', management_url: 'https://billing.revenuecat.com/portal/old', starts_at: 1 },
+    { store: 'rc_billing', management_url: PORTAL, starts_at: 5 },
+    { store: 'rc_billing', management_url: 'javascript:alert(1)', starts_at: 7 },
+  ];
+  assert.deepEqual(await billing.webCustomerPortalFor(cfg, USER, rc(200, { items })), { url: PORTAL });
+  assert.equal(seen.at(-1).url, `https://api.revenuecat.com/v2/projects/proj2c0586cf/customers/${USER}/subscriptions?limit=20`);
+  assert.equal(seen.at(-1).auth, 'Bearer sk_test_key');
+  assert.deepEqual(await billing.webCustomerPortalFor(cfg, USER, rc(200, { items: [items[0]] })), { url: null, reason: 'no_web_subscription' });
+  assert.deepEqual(await billing.webCustomerPortalFor(cfg, USER, rc(404, {})), { url: null, reason: 'no_web_subscription' });
+  assert.deepEqual(await billing.webCustomerPortalFor(cfg, USER, rc(403, {})), { url: null, reason: 'unavailable' });
+  assert.deepEqual(await billing.webCustomerPortalFor(cfg, USER, async () => { throw new Error('network'); }), { url: null, reason: 'unavailable' });
+  // The route needs a session and asks only about that session's user.
+  const fake = fakeSupabase();
+  try {
+    const get = (headers) => entry.fetch(new Request('https://api.example.com/v1/billing/web/portal', { headers }), env);
+    assert.equal((await get({})).status, 401);
+    const res = await get({ authorization: 'Bearer user-jwt' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { url: null, reason: 'not_configured' });
+  } finally { fake.restore(); }
+});

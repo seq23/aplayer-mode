@@ -9,7 +9,7 @@ import { claimIntakeInstall, deleteAuthUser, finishIntakeInstall, getIntakeDraft
 import { synthesizeIntake } from './intakeSynthesis';
 import type { ApiEnv } from './env';
 import { restErrorMessage, SERVICE_ROLE_TOKEN, supabaseRest } from './db';
-import { billingOfferingFor, handleRevenueCatWebhook } from './billing';
+import { billingOfferingFor, handleRevenueCatWebhook, webCustomerPortalFor } from './billing';
 import {
   completeNextAction,
   getLifeGraph,
@@ -224,8 +224,8 @@ function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: 
       maxAutonomyLevel,
       maxAutonomyLabel: autonomyLabels[maxAutonomyLevel],
     },
-    // Store subscription state, as the verified RevenueCat webhook last wrote it (docs/33).
-    billing: resolved.provider === 'app_store' || resolved.provider === 'google_play'
+    // Store or web (card) subscription state, as the verified RevenueCat webhook last wrote it (docs/33).
+    billing: resolved.provider === 'app_store' || resolved.provider === 'google_play' || resolved.provider === 'web'
       ? {
           store: resolved.provider,
           period: resolved.billingPeriod ?? null,
@@ -632,6 +632,12 @@ app.get('/v1/billing/offering', async (c) => {
     appUserId: user.id,
     products: BILLING_PRODUCTS.filter((item) => offering.offering === 'founding' || item.offer === 'standard').map(({ productId, store, plan, period, offer }) => ({ productId, store, plan, period, offer })),
   });
+});
+
+// Web (card) subscribers: the RevenueCat customer portal link for the signed-in user only.
+app.get('/v1/billing/web/portal', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  return c.json(await webCustomerPortalFor(c.env, user.id));
 });
 
 app.get('/v1/product/household-interest', async (c) => {

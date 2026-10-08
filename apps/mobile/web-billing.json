@@ -1,0 +1,5 @@
+{
+  "_doc": "RevenueCat Web Billing Web Purchase Links (public URLs, docs/33 §9). Empty = the web app and sideload APK show 'Card payments open shortly'. Paste from RevenueCat → Web → Web Purchase Links: 'default' = the link for offering 'default', 'founding' = the link for offering 'founding'. Read by scripts/deploy-web-production.sh and scripts/build-android-apk.sh; an environment variable of the same EXPO_PUBLIC_ name overrides.",
+  "EXPO_PUBLIC_RC_WEB_PURCHASE_URL": "",
+  "EXPO_PUBLIC_RC_WEB_PURCHASE_URL_FOUNDING": ""
+}

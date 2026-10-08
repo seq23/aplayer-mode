@@ -2,7 +2,7 @@
 
 **Status:** `SOURCE_COMPLETE` + `DB_PROVISIONED` (migrations 0040–0042, applied to Supabase; security advisor 0 lints). Store products, the RevenueCat project and the secrets below are **Phase E** — nothing is runtime-proven and no store transaction is live.
 **Decisions:** owner, 7 Oct 2026 (final). Prices: ADR-0004 (monthly), ADR-0005 (annual).
-**Code:** `packages/policy/src/index.ts` (`PLAN_PRICES`, `CHIEF_OF_STAFF_INTRO_OFFERS`, `BILLING_PRODUCTS`, `REVENUECAT_CONFIG`), `services/api/src/billing.ts`, `services/api/migrations/0040_billing_revenuecat.sql` + `0041_billing_explicit_deny_all.sql` + `0042_billing_founding_claim_eligibility.sql`, `apps/mobile/app/settings/plan.tsx`, `apps/mobile/src/billing/`.
+**Code:** `packages/policy/src/index.ts` (`PLAN_PRICES`, `CHIEF_OF_STAFF_INTRO_OFFERS`, `BILLING_PRODUCTS`, `REVENUECAT_CONFIG`), `services/api/src/billing.ts`, `services/api/migrations/0040_billing_revenuecat.sql` + `0041_billing_explicit_deny_all.sql` + `0042_billing_founding_claim_eligibility.sql`, `apps/mobile/app/settings/plan.tsx`, `apps/mobile/src/billing/`. **Web channel (§9):** `WEB_BILLING_CONFIG`, migration `0092_billing_web_channel.sql`, `apps/mobile/src/billing/{distribution,webCheckout,webCheckout.ios}.ts`, `apps/mobile/web-billing.json`.
 
 ## 1. What was decided
 
@@ -150,7 +150,7 @@ Cancellation, billing issue, expiration, refund and product-change events about 
 | Terms / Privacy | **DONE**: `/terms`, `/privacy` (Spry Labs, last updated 2026-10-07); `EXPO_PUBLIC_TERMS_URL` / `EXPO_PUBLIC_PRIVACY_POLICY_URL` set in `eas.json` and the web build | `apps/mobile/public/{terms,privacy}/index.html`, pinned by `test/go-live.test.mjs` |
 | Domain | api./app. subdomains added; the zone redirect rules now match `http.host` (apex and www only), and both still 301 to `billionairehighperformancecoach.com/download` (and `/amazon/<slug>` to its book page) | Cloudflare zone aplayermode.com → Rules → Redirect Rules |
 | CORS | `ALLOWED_ORIGIN` = `APP_PUBLIC_URL` = `https://app.aplayermode.com` (preflight checked) | `services/api/wrangler.jsonc` `env.production.vars` |
-| Web paywall | "Subscribe in the iPhone or Android app"; no buy or Restore button on web (store billing only); beta-allowlisted accounts use the web | `src/billing/purchases.ts`, `PlanChoice.tsx` |
+| Web paywall | **Superseded by §9 (7 Oct 2026):** the web app and the sideload APK pay by card (RevenueCat Web Billing); "Card payments open shortly" until the Web Purchase Links are set; no Restore button on web | `src/billing/webCheckout.ts`, `PlanChoice.tsx` |
 | docs/36 leftovers | **DONE**: A-1 spinners (`LoadingState`); A-5 AX5 clipping (tab label cap, Flow step number); B-1 the weekly debrief proposes one adjustment from the week's misses, prefilled | `test/dynamic-type.test.mjs`, `packages/planning` `suggestWeeklyAdjustment` |
 | Reviewer account | **BUILT and configured** (`APP_REVIEW_EMAIL` var, `APP_REVIEW_CODE` secret; closed-beta access through migration 0070, applied); answers 404 until `SUPABASE_SECRET_KEY` is set (the stop above) | docs/35 |
 | Android APK | signed release APK built on the Mac with an upload keystore (no Expo account) | `scripts/build-android-apk.sh` (JDK 17, Android SDK 37, NDK 27.1); first build: https://github.com/seq23/aplayer-mode/releases/download/android-beta-2026-10-07/aplayermode.apk |
@@ -175,3 +175,30 @@ Still open after 8.0: the Supabase Auth settings below, the stores/RevenueCat se
 - Creating the App Store / Play products, the RevenueCat project, offerings, entitlements and webhook (checklist §3).
 - Setting `REVENUECAT_WEBHOOK_SECRET`, the public SDK keys and the terms / privacy URLs.
 - A sandbox purchase receipt per store, the webhook receipt on staging, and a restore on a second device.
+
+
+## 9. Web channel: card checkout for the web app and the sideload APK (RevenueCat Web Billing)
+
+**Decision:** owner, 7 Oct 2026 ("stripe first for the apps"). There are no store listings yet, so people who use the web app (`app.aplayermode.com`) or the Android APK downloaded from aplayermode.com pay by card through **RevenueCat Web Billing** (Stripe underneath). Gumroad stays the BHPC digital product only. **Status:** `SOURCE_COMPLETE` + `DB_PROVISIONED` (migration 0092). The Stripe account is not chosen yet, so the dashboard wiring is the named stop in `RUNBOOK.md`; until it is done the app shows *"Card payments open shortly."* (never a dead button).
+
+**Web product ids (exact; `WEB_BILLING_CONFIG.productIds`, same prices as the store twins in §2, pinned by `packages/policy/test/pricing.test.mjs`):**
+
+| Tier | Period | Offer | Web Billing product id | RevenueCat package |
+|---|---|---|---|---|
+| Executive Roundtable | monthly | standard + 3-month intro | `apm_web_cos_monthly` | `cos_monthly` (offering `default`) |
+| Executive Roundtable | monthly | Founding 100 | `apm_web_cos_monthly_founding` | `cos_monthly` (offering `founding`) |
+| Executive Roundtable | annual | standard | `apm_web_cos_annual` | `cos_annual` |
+| Executive Suite | monthly | standard | `apm_web_lifeos_monthly` | `lifeos_monthly` |
+| Executive Suite | annual | standard | `apm_web_lifeos_annual` | `lifeos_annual` |
+| Autopilot | monthly | standard | `apm_web_autopilot_monthly` | `autopilot_monthly` |
+| Autopilot | annual | standard | `apm_web_autopilot_annual` | `autopilot_annual` |
+
+**Server.** RevenueCat reports Web Billing purchases with webhook `store` = `RC_BILLING` (its Stripe Billing integration: `STRIPE`); migration 0092 maps both to the `web` channel (`private.billing_products.store`, `subscription_entitlements.provider`), seeds the seven rows and extends the expiry sweep. A product only matches its own channel (an `RC_BILLING` event naming an App Store id stays `ignored_unknown_product`). The webhook, its secret, idempotency, stale-event and Founding 100 rules are unchanged (§4–§6).
+
+**Sandbox in production (tester allowlist).** Production still refuses SANDBOX events (`BILLING_ALLOW_SANDBOX` is refused by `scripts/deploy-api-production.sh`), except for the APM user ids listed in the Worker secret **`BILLING_SANDBOX_TESTER_IDS`** (comma-separated UUIDs; ids, never emails). Only a SANDBOX event whose `app_user_id` is on that list is honoured; every other sandbox event stays `ignored_environment` (`services/api/test/billing-worker.test.mjs`).
+
+**Customer portal.** `GET /v1/billing/web/portal` returns the RevenueCat Billing `management_url` for the signed-in user only (RevenueCat API v2 `GET /projects/{REVENUECAT_PROJECT_ID}/customers/{user id}/subscriptions`, Worker secret **`REVENUECAT_API_V2_KEY`** with customer-information read, var `REVENUECAT_PROJECT_ID` = `proj2c0586cf`). Without the key the app says to use the *Manage subscription* link in any receipt email.
+
+**App.** The build says where it may take payment: `EXPO_PUBLIC_APM_DISTRIBUTION` = `store` (every EAS profile, `apps/mobile/eas.json`), `sideload` (`scripts/build-android-apk.sh`, which also drops any Play billing key), `web` (`scripts/deploy-web-production.sh`). iOS is always `store` whatever the flag says, and a native build without the flag is `store` (fail closed). On `web` / `sideload` each plan card shows **Pay by card**, which opens the offering's Web Purchase Link as `<link>/<url-encoded APM user id>?package_id=<package>` (the user id is the same one `identifyBillingUser` uses and the webhook maps back). A Founding 100 user (server decision) gets only the founding offering's link. On return (the app/tab comes back to the foreground, or RevenueCat redirects to `https://app.aplayermode.com/billing/return`) the app polls `/v1/product/plan` briefly and starts Day 1 when the plan is on. An active card subscriber changes plan in the customer portal, never through a second checkout. Links come from `apps/mobile/web-billing.json` (`EXPO_PUBLIC_RC_WEB_PURCHASE_URL`, `EXPO_PUBLIC_RC_WEB_PURCHASE_URL_FOUNDING`; only `https://pay.rev.cat/<token>` accepted).
+
+**Store builds never reach web checkout (App Store 3.1.1, Play payments policy).** iOS resolves `./webCheckout` to `webCheckout.ios.ts`, a stub with no link, package or copy; an Android store build gets `unavailable` from the distribution check; a web subscriber opening a store build is told the plan is managed where it was bought, with no link. Enforced by `npm run presubmit:ios` (stub present and clean, link config read only in `webCheckout.ts`, extension-less imports, every EAS profile `store`) and `apps/mobile/test/web-billing.test.mjs` (distribution matrix; the iOS bundle of the paywall contains none of the web checkout while the web bundle does; each presubmit rule proven red).

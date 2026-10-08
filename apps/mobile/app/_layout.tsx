@@ -62,6 +62,7 @@ function ThemedStack() {
           <Stack.Screen name="radar/why" options={{ title: 'Why APM saw this' }} />
           {/* Every pushed route has a human title (an unregistered route shows its file name). */}
           <Stack.Screen name="diary" options={{ title: 'Diary' }} />
+          <Stack.Screen name="billing/return" options={{ title: 'Your plan' }} />
           <Stack.Screen name="review" options={{ title: 'Weekly debrief' }} />
           <Stack.Screen name="settings/os" options={{ title: 'Drafting Room' }} />
         </Stack>

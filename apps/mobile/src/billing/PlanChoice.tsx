@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import type { BillingPeriod, PaidPlan } from '@apm/policy';
 import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Figure, Heading, KeyValue, Label, Pill, Row, SectionTitle, Small, Stack, Tile, Toast, uiStyles } from '../components/ui';
-import { fetchBillingOffering, fetchProductPlan, type BillingOfferingResponse, type ProductPlanResponse } from '../api/apmApi';
+import { fetchBillingOffering, fetchProductPlan, fetchWebBillingPortal, type BillingOfferingResponse, type ProductPlanResponse } from '../api/apmApi';
 import { useSession } from '../state/session';
-import { APPLE_STANDARD_EULA_URL, PAID_PLANS, storeManageUrl, subscriptionDisclosure, tierOffers, type StorePrice } from './catalog';
-import { UNAVAILABLE_COPY, billingAvailability, buyPackage, identifyBillingUser, legalUrls, loadOffering, managementUrl, restoreStorePurchases } from './purchases';
+import { APPLE_STANDARD_EULA_URL, PAID_PLANS, STORE_LABELS, storeManageUrl, subscriptionDisclosure, tierOffers, type StorePrice } from './catalog';
+import { UNAVAILABLE_COPY, appDistribution, billingAvailability, buyPackage, identifyBillingUser, legalUrls, loadOffering, managementUrl, restoreStorePurchases } from './purchases';
+// iOS resolves this to webCheckout.ios.ts (no card checkout in an iPhone build; App Store 3.1.1).
+import { WEB_CHECKOUT_COPY, webCheckoutFor } from './webCheckout';
 import { PLAN_SCREEN, TIER_GRID_WHAT, TIER_GRID_WHO, offerBanner, recommendedTier, type OfferBanner } from '../content/sell';
 import { openExternal } from '../links/external';
 import { plainError } from '../api/errors';
@@ -32,6 +34,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   const { accessToken, user, isAnonymous } = useSession();
   const availability = useMemo(() => billingAvailability(), []);
   const store = availability.available ? availability.store : undefined;
+  const distribution = useMemo(() => appDistribution(), []);
   const { termsUrl, privacyUrl } = legalUrls(store, APPLE_STANDARD_EULA_URL);
   const [product, setProduct] = useState<ProductPlanResponse>();
   const [serverOffering, setServerOffering] = useState<BillingOfferingResponse>();
@@ -41,6 +44,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
+  /** A card checkout was opened in the browser; confirm with the server when the user comes back. */
+  const [awaitingCard, setAwaitingCard] = useState(false);
   const recommended = recommendedTier(games);
 
   const loadPlan = useCallback(async () => {
@@ -83,6 +88,9 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   const founding = serverOffering?.founding === true || serverOffering?.offering === 'founding';
   const offers = tierOffers(period, founding, storePrices);
   const banner = offerBanner({ founding, spotsLeft: serverOffering?.spotsLeft ?? null });
+  // Card checkout (RevenueCat Web Billing): web app and sideload APK only; 'unavailable' in every store build.
+  const cardCheckout = webCheckoutFor(distribution, founding);
+  const cardPay = cardCheckout.kind !== 'unavailable';
 
   const entitlement = product?.entitlement;
   const billing = product?.billing ?? null;
@@ -90,6 +98,12 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   const currentPlan = usable ? entitlement?.plan ?? 'beta' : 'beta';
   // A subscription belongs to an account: an anonymous session saves the account first.
   const purchasesEnabled = availability.available && !isAnonymous && Boolean(privacyUrl) && Boolean(termsUrl) && Boolean(storeOffering);
+  const cardEnabled = cardCheckout.kind === 'ready' && !isAnonymous && Boolean(user?.id) && Boolean(privacyUrl) && Boolean(termsUrl) && Boolean(serverOffering);
+  /** Already paying by card: plan changes go through the customer portal, never a second checkout. */
+  const webSubscriber = usable && billing?.store === 'web';
+  /** Paying through a store while on the web / sideload app: change it where it was bought. */
+  const storeSubscriberHere = cardPay && usable && billing !== null && billing.store !== 'web';
+  const disclosureChannel = cardPay ? 'web' : billing && billing.store !== 'web' ? billing.store : store ?? 'app_store';
 
   const confirmWithServer = async (before?: ProductPlanResponse) => {
     for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -117,6 +131,35 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
     } finally { setBusy(undefined); }
   };
 
+  const payByCard = async (plan: PaidPlan) => {
+    const offer = offers.find((item) => item.plan === plan);
+    if (!offer || busy || cardCheckout.kind !== 'ready' || !cardEnabled || !user?.id) return;
+    // The checkout carries the signed-in APM user id: the webhook maps the payment to this account.
+    const url = cardCheckout.urlFor(offer.packageId, user.id);
+    setError(undefined); setNotice(undefined);
+    if (!url || !(await openExternal({ kind: 'web', url }))) { setError('The card checkout did not open. Try again.'); return; }
+    setAwaitingCard(true);
+  };
+
+  const confirmCard = useCallback(async () => {
+    setBusy('card'); setNotice(WEB_CHECKOUT_COPY.confirming);
+    try {
+      const confirmed = await confirmWithServer(product);
+      setNotice(confirmed ? WEB_CHECKOUT_COPY.confirmed : WEB_CHECKOUT_COPY.pending);
+      if (confirmed) { setAwaitingCard(false); onFinished?.('purchased'); }
+    } catch (cause) {
+      setError(plainError(cause, 'Your plan did not refresh. Check your connection and try again.'));
+    } finally { setBusy(undefined); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product, onFinished]);
+
+  // Back from the card checkout (tab or app returns to the foreground): ask the server.
+  useEffect(() => {
+    if (!awaitingCard) return;
+    const subscription = AppState.addEventListener('change', (next) => { if (next === 'active') void confirmCard(); });
+    return () => subscription.remove();
+  }, [awaitingCard, confirmCard]);
+
   const restore = async () => {
     if (busy || !availability.available) return;
     setBusy('restore'); setError(undefined); setNotice(undefined);
@@ -129,6 +172,16 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   };
 
   const manage = async () => {
+    setError(undefined); setNotice(undefined);
+    if (billing?.store === 'web') {
+      // A store build never links out to a web billing page (App Store 3.1.1).
+      if (!cardPay) { setNotice('This plan was not bought through this app, so it is managed where it was bought.'); return; }
+      const portal = accessToken ? await fetchWebBillingPortal(accessToken).catch(() => undefined) : undefined;
+      if (portal?.url && (await openExternal({ kind: 'web', url: portal.url }))) return;
+      setNotice(WEB_CHECKOUT_COPY.manageFallback);
+      return;
+    }
+    if (cardPay && !billing) { setNotice(WEB_CHECKOUT_COPY.manageFallback); return; }
     const target = (availability.available ? await managementUrl() : undefined) ?? storeManageUrl(billing?.store ?? store ?? 'app_store');
     await openExternal({ kind: 'web', url: target });
   };
@@ -158,13 +211,15 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
           into "Compare the three plans" below. */}
       <SectionTitle>Choose your plan</SectionTitle>
       <ChoiceRow<BillingPeriod> options={[{ id: 'monthly', label: 'Monthly' }, { id: 'annual', label: 'Annual · 2 months free' }]} value={period} onChange={setPeriod} />
-      {!availability.available ? <Card tone="muted"><Body>{UNAVAILABLE_COPY[availability.reason]}</Body></Card> : null}
-      {availability.available && isAnonymous ? (
+      {!availability.available && !cardPay ? <Card tone="muted"><Body>{UNAVAILABLE_COPY[availability.reason]}</Body></Card> : null}
+      {cardCheckout.kind === 'not_configured' ? <Card tone="muted"><Body>{WEB_CHECKOUT_COPY.notConfigured}</Body></Card> : null}
+      {storeSubscriberHere && billing && billing.store !== 'web' ? <Card tone="muted"><Body>{`Your plan is billed through ${STORE_LABELS[billing.store].settings}. Change or cancel it there; it works here on the same account.`}</Body></Card> : null}
+      {(availability.available || cardCheckout.kind === 'ready') && isAnonymous ? (
         <Card tone="warning">
           <AccountPanel title="Save your account first" sub="A subscription belongs to an account, so it is never tied to one phone. One tap, no password." onDone={() => setReloadKey((n) => n + 1)} />
         </Card>
       ) : null}
-      {availability.available && (!privacyUrl || !termsUrl) ? <Card tone="muted"><Body>Purchases open once the Terms of Use and Privacy Policy links are configured for this build.</Body></Card> : null}
+      {(availability.available || cardCheckout.kind === 'ready') && (!privacyUrl || !termsUrl) ? <Card tone="muted"><Body>Purchases open once the Terms of Use and Privacy Policy links are configured for this build.</Body></Card> : null}
       {PAID_PLANS.map((planKey) => {
         const offer = offers.find((item) => item.plan === planKey)!;
         const card = product?.plans.find((plan) => plan.plan === planKey);
@@ -186,6 +241,11 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
               <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName}`} accessibilityLabel={`${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'accent' : 'secondary'} busy={busy === planKey}
                 disabled={!purchasesEnabled || !pkg || Boolean(busy)} disabledReason={busy ? undefined : buyBlockedReason(pkg)} onPress={() => purchase(planKey)} />
             ) : null}
+            {/* Card checkout (web app + sideload APK only). Not configured yet: the calm card above, never a dead button. */}
+            {!isCurrent && cardCheckout.kind === 'ready' && !storeSubscriberHere ? (webSubscriber
+              ? <Button label={`${action} ${offer.displayName} in Manage subscription`} variant="secondary" disabled={Boolean(busy)} onPress={() => void manage()} />
+              : <Button label={busy === 'card' ? WEB_CHECKOUT_COPY.confirming : `${WEB_CHECKOUT_COPY.button} · ${offer.displayName}`} accessibilityLabel={`${WEB_CHECKOUT_COPY.button}: ${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'accent' : 'secondary'} busy={busy === 'card'}
+                  disabled={!cardEnabled || Boolean(busy)} disabledReason={busy ? undefined : isAnonymous ? WEB_CHECKOUT_COPY.account : !serverOffering ? 'Getting plans…' : undefined} onPress={() => void payByCard(planKey)} />) : null}
           </Card>
         );
       })}
@@ -197,8 +257,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
           Today then shows "Pick a plan to start Day 1" instead of a check-in the server refuses. */}
       {onboarding && !CLOSED_BETA_BUILD ? (
         <Card tone="muted">
-          <Body>{availability.available ? 'Not ready to choose? Your OS is installed and saved. Look around first; Today keeps the plans one tap away.' : `${UNAVAILABLE_COPY[availability.reason]} Your OS is installed and saved to your account.`}</Body>
-          <Button label={availability.available ? 'Decide later, show me Today' : 'Go to Today'} variant="secondary" onPress={() => onFinished?.('continue')} />
+          <Body>{availability.available || cardPay ? 'Not ready to choose? Your OS is installed and saved. Look around first; Today keeps the plans one tap away.' : `${UNAVAILABLE_COPY[availability.reason]} Your OS is installed and saved to your account.`}</Body>
+          <Button label={availability.available || cardPay ? 'Decide later, show me Today' : 'Go to Today'} variant="secondary" onPress={() => onFinished?.('continue')} />
         </Card>
       ) : null}
 
@@ -216,7 +276,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
 
       <SectionTitle>Subscription terms</SectionTitle>
       <Card tone="muted">
-        {subscriptionDisclosure(billing?.store ?? store ?? 'app_store', disclosureOffer).map((line) => <Body key={line} muted>{line}</Body>)}
+        {subscriptionDisclosure(disclosureChannel, disclosureOffer).map((line) => <Body key={line} muted>{line}</Body>)}
         <View style={uiStyles.stackSm}>
           {termsUrl ? <Button label="Terms of Use" variant="secondary" onPress={() => void openExternal({ kind: 'web', url: termsUrl })} /> : null}
           {privacyUrl ? <Button label="Privacy Policy" variant="secondary" onPress={() => void openExternal({ kind: 'web', url: privacyUrl })} /> : null}

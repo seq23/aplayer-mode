@@ -30,7 +30,8 @@
         "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_k1YVCTt8hL0gBlWbf7lpYQ__lbnKGt8",
         "ALLOWED_ORIGIN": "https://app.aplayermode.com",
         "APP_PUBLIC_URL": "https://app.aplayermode.com",
-        "APP_REVIEW_EMAIL": "appreview@aplayermode.com"
+        "APP_REVIEW_EMAIL": "appreview@aplayermode.com",
+        "REVENUECAT_PROJECT_ID": "proj2c0586cf"
       }
     }
   }
@@ -53,6 +54,9 @@
   // Authorization value, >= 32 random characters. Without it the webhook answers 503.
   // REVENUECAT_WEBHOOK_SECRET
   // Staging only: BILLING_ALLOW_SANDBOX=true accepts RevenueCat SANDBOX events.
+  // Production too: BILLING_SANDBOX_TESTER_IDS (secret) = comma-separated APM user ids whose
+  // SANDBOX (test-card) events are honoured; every other sandbox event stays ignored.
+  // REVENUECAT_API_V2_KEY (secret, customer-information read): web customer-portal links.
   //
   // Server-only inference secret when OpenRouter goes live:
   // OPENROUTER_API_KEY

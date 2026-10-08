@@ -136,7 +136,8 @@ test('E6: the onboarding paywall always has a way on, and an anonymous session c
   assert.match(paywall, /\{onboarding && !CLOSED_BETA_BUILD \? \(/, 'the way on is shown on every store build, not only when purchases are unavailable');
   assert.match(paywall, /Decide later, show me Today/);
   assert.doesNotMatch(paywall, /Continue to Day 1/);
-  assert.match(paywall, /availability\.available && isAnonymous \? \([\s\S]*<AccountPanel/);
+  // Store builds AND card-checkout builds (web, sideload APK): a subscription belongs to an account.
+  assert.match(paywall, /\(availability\.available \|\| cardCheckout\.kind === 'ready'\) && isAnonymous \? \([\s\S]*<AccountPanel/);
   assert.match(paywall, /label="Try again"/, 'a failed load can be retried');
 });
 

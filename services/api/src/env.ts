@@ -35,6 +35,20 @@ export interface ApiEnv {
   REVENUECAT_WEBHOOK_SECRET?: string;
   /** 'true' on staging only: accept RevenueCat SANDBOX events. Production ignores them. */
   BILLING_ALLOW_SANDBOX?: string;
+  /**
+   * Production too: comma-separated APM user ids (UUIDs) whose RevenueCat SANDBOX events are
+   * honoured (owner test-card purchases on the web channel). Worker secret; every other
+   * sandbox event is still ignored. Absent = none.
+   */
+  BILLING_SANDBOX_TESTER_IDS?: string;
+  /** RevenueCat project id for API v2 calls (public, e.g. `proj2c0586cf`). */
+  REVENUECAT_PROJECT_ID?: string;
+  /**
+   * Worker secret: a RevenueCat API v2 secret key with customer-information read access. Used
+   * only to fetch a web subscriber's customer-portal link. Absent = the app shows the
+   * receipt-email route instead.
+   */
+  REVENUECAT_API_V2_KEY?: string;
   /** App Review demo account (docs/33 §8): the one address whose fixed code signs in. Off unless set. */
   APP_REVIEW_EMAIL?: string;
   /** Its fixed code, 6–12 digits (Worker secret). Off unless set together with APP_REVIEW_EMAIL. */

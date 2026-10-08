@@ -6,7 +6,12 @@
 //   3. an http(s) link or Linking.openURL outside the external-link helper
 //      (src/links/external.ts opens the system browser), or any in-app webview;
 //   4. app.json not making the iPad decision (ios.supportsTablet must be false: the
-//      layouts are phone layouts, so iPad runs the iPhone app).
+//      layouts are phone layouts, so iPad runs the iPhone app);
+//   5. web (card) checkout reachable from a store build (3.1.1; docs/33 §9): the iOS stub
+//      src/billing/webCheckout.ios.ts must exist and hold no purchase link; the Web Purchase
+//      Link config may be read only in src/billing/webCheckout.ts; webCheckout is imported
+//      extension-less (so iOS resolves the stub); and no EAS (store) build profile may set
+//      EXPO_PUBLIC_APM_DISTRIBUTION to anything but "store".
 // Usage: node scripts/presubmit-ios.mjs [appDir]   (default apps/mobile)
 import { readFile, readdir } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
@@ -54,6 +59,26 @@ for (const file of files) {
   });
 }
 
+// 5. Web checkout never reaches a store build.
+const WEB_CHECKOUT_REAL = 'src/billing/webCheckout.ts';
+const WEB_CHECKOUT_IOS = 'src/billing/webCheckout.ios.ts';
+const relFiles = files.map((file) => relative(appDir, file).split('\\').join('/'));
+if (!relFiles.includes(WEB_CHECKOUT_IOS)) violations.push(`${WEB_CHECKOUT_IOS} missing: iOS would bundle the web checkout (3.1.1)`);
+for (const [index, file] of files.entries()) {
+  const rel = relFiles[index];
+  const text = await readFile(file, 'utf8');
+  if (rel === WEB_CHECKOUT_IOS && /EXPO_PUBLIC_RC_WEB|rev\.cat|package_id|pay by card|urlFor/i.test(text)) violations.push(`${rel}: the iOS stub must hold no web checkout (link, package, copy)`);
+  if (rel !== WEB_CHECKOUT_REAL && /EXPO_PUBLIC_RC_WEB_PURCHASE_URL|rev\.cat/.test(text)) violations.push(`${rel}: the Web Purchase Link is read only in ${WEB_CHECKOUT_REAL}`);
+  if (/from\s+['"][^'"]*webCheckout\.(ts|tsx|js)['"]/.test(text) || /from\s+['"][^'"]*webCheckout\.(?!ios)[a-z]+['"]/.test(text)) violations.push(`${rel}: import webCheckout extension-less so iOS resolves webCheckout.ios.ts`);
+}
+try {
+  const eas = JSON.parse(await readFile(join(appDir, 'eas.json'), 'utf8'));
+  for (const [name, profile] of Object.entries(eas.build ?? {})) {
+    const flag = profile?.env?.EXPO_PUBLIC_APM_DISTRIBUTION;
+    if (flag !== undefined && flag !== 'store') violations.push(`eas.json build.${name}: EXPO_PUBLIC_APM_DISTRIBUTION must be "store" in an EAS build (got ${JSON.stringify(flag)})`);
+  }
+} catch { /* no eas.json: no EAS store builds */ }
+
 let appJson;
 try { appJson = JSON.parse(await readFile(join(appDir, 'app.json'), 'utf8')); } catch { violations.push('app.json missing or unreadable'); }
 if (appJson) {
@@ -70,4 +95,4 @@ if (violations.length) {
   for (const v of violations) console.error(`  ✗ ${v}`);
   process.exit(1);
 }
-console.log(`presubmit:ios passed: ${files.length} files scanned; no placeholders, no Stripe, links only via openExternal, iPad = iPhone app.`);
+console.log(`presubmit:ios passed: ${files.length} files scanned; no placeholders, no Stripe, links only via openExternal, iPad = iPhone app, no web checkout in store builds.`);

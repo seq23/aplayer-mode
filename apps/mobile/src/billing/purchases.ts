@@ -5,11 +5,17 @@
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import Purchases, { type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases';
-import type { BillingChannel } from '@apm/policy';
+import type { StoreChannel } from '@apm/policy';
+import { DISTRIBUTION_FLAG, resolveDistribution, type Distribution } from './distribution';
 
 export type BillingAvailability =
-  | { available: true; store: BillingChannel }
-  | { available: false; reason: 'web' | 'expo_go' | 'not_configured' };
+  | { available: true; store: StoreChannel }
+  | { available: false; reason: 'web' | 'sideload' | 'expo_go' | 'not_configured' };
+
+/** This build's distribution (store / sideload / web), from EXPO_PUBLIC_APM_DISTRIBUTION; fail closed to store. */
+export function appDistribution(): Distribution {
+  return resolveDistribution(Platform.OS, DISTRIBUTION_FLAG);
+}
 
 function apiKey(): string | undefined {
   if (Platform.OS === 'ios') return process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || undefined;
@@ -19,18 +25,21 @@ function apiKey(): string | undefined {
 
 export function billingAvailability(): BillingAvailability {
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') return { available: false, reason: 'web' };
+  // The sideload APK is not from Google Play: there is no store to buy from (card checkout instead).
+  if (appDistribution() === 'sideload') return { available: false, reason: 'sideload' };
   if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return { available: false, reason: 'expo_go' };
   if (!apiKey()) return { available: false, reason: 'not_configured' };
   return { available: true, store: Platform.OS === 'ios' ? 'app_store' : 'google_play' };
 }
 
 export const UNAVAILABLE_COPY: Record<Extract<BillingAvailability, { available: false }>['reason'], string> = {
-  web: 'Subscribe in the iPhone or Android app. Your plan then works here too, on the same account.',
+  web: 'Plans are paid by card here. Your plan follows your account to every device you sign in on.',
+  sideload: 'Plans are paid by card in this version of the app. Your plan follows your account to every device you sign in on.',
   expo_go: 'In-app purchases need the A Player Mode app build; Expo Go cannot make purchases.',
   not_configured: 'In-app purchases are not configured in this build yet.',
 };
 
-export function legalUrls(store: BillingChannel | undefined, appleEula: string): { termsUrl?: string; privacyUrl?: string } {
+export function legalUrls(store: StoreChannel | 'web' | undefined, appleEula: string): { termsUrl?: string; privacyUrl?: string } {
   const terms = process.env.EXPO_PUBLIC_TERMS_URL || (store === 'app_store' ? appleEula : undefined);
   return { termsUrl: terms || undefined, privacyUrl: process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || undefined };
 }

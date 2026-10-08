@@ -86,8 +86,9 @@ test('the app never reports a purchase to the API or decides Founding eligibilit
   const files = [...await sources(join(appDir, 'app')), ...await sources(join(appDir, 'src'))];
   const api = files.find(([path]) => path.endsWith('src/api/apmApi.ts'))[1];
   const billingRoutes = [...api.matchAll(/'\/v1\/billing\/[^']*'/g)].map((m) => m[0]);
-  assert.deepEqual(billingRoutes, ["'/v1/billing/offering'"], 'the only billing route the app calls is the read-only offering');
+  assert.deepEqual(billingRoutes, ["'/v1/billing/offering'", "'/v1/billing/web/portal'"], 'the only billing routes the app calls are the read-only offering and the web customer-portal link');
   assert.doesNotMatch(api, /fetchBillingOffering[^}]*method:/s, 'and it is a GET');
+  assert.doesNotMatch(api, /fetchWebBillingPortal[^}]*method:/s, 'the portal link is a GET too');
   for (const [path, text] of files) {
     assert.doesNotMatch(text, /subscription_entitlements/, `${path} never touches the entitlement table`);
     assert.doesNotMatch(text, /apm_service_billing/, `${path} never names a service billing function`);
@@ -101,9 +102,15 @@ test('the app never reports a purchase to the API or decides Founding eligibilit
   assert.match(paywall, /Restore purchases/, 'Restore is on the paywall');
   // Web has no store: the paywall says where to subscribe, and shows no buy or Restore button that cannot work.
   const purchasesSource = files.find(([path]) => path.endsWith('src/billing/purchases.ts'))[1];
-  assert.match(purchasesSource, /web: 'Subscribe in the iPhone or Android app\./, 'web says where to subscribe');
+  // Web and the sideload APK pay by card (docs/33 §9): never sent to a store app.
+  assert.match(purchasesSource, /web: 'Plans are paid by card here\./, 'web says how to subscribe');
+  assert.match(purchasesSource, /sideload: 'Plans are paid by card in this version of the app\./);
+  assert.doesNotMatch(purchasesSource, /Subscribe in the iPhone or Android app/);
+  assert.match(purchasesSource, /if \(appDistribution\(\) === 'sideload'\) return \{ available: false, reason: 'sideload' \};/, 'the sideload APK never uses store billing, by flag (not by a missing key)');
   assert.match(paywall, /\{availability\.available \? <Button label=\{busy === 'restore'/, 'Restore renders only where a store exists');
   assert.match(paywall, /\{!isCurrent && availability\.available \? \(/, 'buy buttons render only where a store exists');
+  assert.match(paywall, /\{!isCurrent && cardCheckout\.kind === 'ready' && !storeSubscriberHere \? \(/, 'card buttons render only where card checkout is ready (never a store build)');
+  assert.match(paywall, /const cardCheckout = webCheckoutFor\(distribution, founding\);/, 'card checkout is decided by the build distribution and the SERVER founding decision');
   for (const user of ['app/settings/plan.tsx', 'app/intake.tsx']) {
     const text = files.find(([path]) => path.endsWith(user))?.[1] ?? '';
     assert.match(text, /<PlanChoice\b/, `${user} renders the shared paywall`);

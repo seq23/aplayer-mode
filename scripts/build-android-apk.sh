@@ -14,6 +14,15 @@ export EXPO_PUBLIC_SUPABASE_URL="https://klzbnchgoqmnwsgolwoe.supabase.co"
 export EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$(node -e "const s=require('fs').readFileSync('../../services/api/wrangler.jsonc','utf8');process.stdout.write(s.match(/\"SUPABASE_PUBLISHABLE_KEY\": \"(sb_publishable_[^\"]+)\"/)[1])")"
 export EXPO_PUBLIC_TERMS_URL="https://app.aplayermode.com/terms"
 export EXPO_PUBLIC_PRIVACY_POLICY_URL="https://app.aplayermode.com/privacy"
+# The sideload APK (aplayermode.com download, not Google Play): card checkout through RevenueCat
+# Web Billing instead of Play billing (docs/33 §9). Store builds set "store" (apps/mobile/eas.json).
+export EXPO_PUBLIC_APM_DISTRIBUTION="sideload"
+# Card payments (RevenueCat Web Billing, docs/33 §9): the Web Purchase Links are public URLs in
+# apps/mobile/web-billing.json (an environment variable of the same name overrides); empty = the
+# app shows "Card payments open shortly".
+eval "$(node scripts/web-billing-env.mjs)"
+# A Play billing key in a sideload build would be dead code at best: never pass one.
+unset EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY
 export NODE_ENV=production
 CI=1 npx expo prebuild --platform android --clean --no-install >/dev/null
 git checkout -- package.json 2>/dev/null || true   # prebuild rewrites the run scripts; keep ours

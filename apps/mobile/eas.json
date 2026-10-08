@@ -15,7 +15,8 @@
       "env": {
         "EXPO_PUBLIC_APM_API_URL": "https://api.aplayermode.com",
         "EXPO_PUBLIC_TERMS_URL": "https://app.aplayermode.com/terms",
-        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://app.aplayermode.com/privacy"
+        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://app.aplayermode.com/privacy",
+        "EXPO_PUBLIC_APM_DISTRIBUTION": "store"
       },
       "android": {
         "buildType": "apk"
@@ -27,7 +28,8 @@
       "env": {
         "EXPO_PUBLIC_APM_API_URL": "https://api.aplayermode.com",
         "EXPO_PUBLIC_TERMS_URL": "https://app.aplayermode.com/terms",
-        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://app.aplayermode.com/privacy"
+        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://app.aplayermode.com/privacy",
+        "EXPO_PUBLIC_APM_DISTRIBUTION": "store"
       }
     }
   },
