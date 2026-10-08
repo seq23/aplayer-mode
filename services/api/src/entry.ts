@@ -52,6 +52,20 @@ export default {
   },
 
   async fetch(request: Request, env: ApiEnv): Promise<Response> {
+    // HEAD is GET without a body (RFC 9110 §9.3.2). Answer it from the GET
+    // response so every route, /v1/health included, gives the same status and
+    // headers. Hono strips the body for HEAD, and the health wrapper below
+    // would then parse an empty body and throw: HEAD /v1/health returned 500.
+    if (request.method === 'HEAD') {
+      const get = await handleGet(new Request(request, { method: 'GET' }), env);
+      await get.body?.cancel();
+      return new Response(null, { status: get.status, statusText: get.statusText, headers: get.headers });
+    }
+    return handleGet(request, env);
+  },
+};
+
+async function handleGet(request: Request, env: ApiEnv): Promise<Response> {
     const response = await app.fetch(request, env);
     if (new URL(request.url).pathname !== '/v1/health' || !response.ok) return response;
 
@@ -67,5 +81,4 @@ export default {
         headers,
       },
     );
-  },
-};
+}
