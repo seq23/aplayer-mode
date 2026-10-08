@@ -37,7 +37,7 @@ const SUBSTRATE = `
   grant execute on function auth.uid() to anon, authenticated, service_role;
 `;
 
-let db; let policy; let outDir;
+let db; let policy; let billing; let outDir;
 async function admin(sql, params) { await db.exec('reset role'); return db.query(sql, params); }
 async function asRole(role, userId, sql, params = []) {
   return db.transaction(async (tx) => {
@@ -75,8 +75,9 @@ async function newUser() {
 
 test.before(async () => {
   outDir = await mkdtemp(join(tmpdir(), 'apm-billing-db-'));
-  await build({ entryPoints: { policy: policyEntry }, bundle: true, format: 'esm', platform: 'neutral', outdir: outDir, logLevel: 'silent' });
+  await build({ entryPoints: { policy: policyEntry, billing: fileURLToPath(new URL('../src/billing.ts', import.meta.url)) }, bundle: true, format: 'esm', platform: 'neutral', outdir: outDir, logLevel: 'silent' });
   policy = await import(pathToFileURL(join(outDir, 'policy.js')).href);
+  billing = await import(pathToFileURL(join(outDir, 'billing.js')).href);
   db = new PGlite();
   await db.exec(SUBSTRATE);
   for (const name of (await readdir(migrationsDir)).filter((n) => n.endsWith('.sql')).sort()) await db.exec(await migration(name));
@@ -466,4 +467,53 @@ test('the sweep expires store entitlements past period end + 1 day, and a late r
   assert.deepEqual([(await ent(C)).plan, (await ent(C)).status], ['beta', 'expired']);
   await apply(ev('RENEWAL', u, 'apm_cos_monthly'));
   assert.equal((await ent(u)).status, 'active');
+});
+
+test('reconcile (8 Oct 2026): RevenueCat\'s own record grants through the webhook writer; idempotent with the webhook; lapsed never grants', async () => {
+  const now = Date.now();
+  const sub = (user, overrides = {}) => ({ id: `subRc${user.slice(-6)}`, customer_id: user, product_id: 'prod55a7776fc5', store: 'rc_billing', environment: 'production',
+    status: 'active', gives_access: true, auto_renewal_status: 'will_renew', current_period_starts_at: now - 60_000, current_period_ends_at: now + 30 * DAY, ...overrides });
+  const reconcile = async (user, subs, allowSandbox = false) => {
+    const out = [];
+    for (const event of billing.reconcileEventsFor(user, subs, now)) out.push(await apply(event, allowSandbox));
+    return out;
+  };
+  // The webhook never arrived: reconcile alone turns the paid plan on.
+  const u = await newUser();
+  assert.equal((await ent(u))?.plan ?? 'beta', 'beta');
+  assert.deepEqual((await reconcile(u, [sub(u)])).map((r) => r.outcome), ['applied']);
+  assert.deepEqual([(await ent(u)).plan, (await ent(u)).status, (await ent(u)).provider, (await ent(u)).store_product_id], ['chief_of_staff', 'active', 'web', 'apm_web_cos_monthly']);
+  assert.equal((await access(u)).core, true);
+  // Reconciling again is a replay: no second write, no second audit.
+  const audits = async () => Number((await admin("select count(*)::int as n from public.audit_events where user_id = $1 and event_type like 'billing.%'", [u])).rows[0].n);
+  const before = await audits();
+  assert.deepEqual((await reconcile(u, [sub(u)])).map((r) => [r.outcome, r.replayed]), [['applied', true]]);
+  assert.equal(await audits(), before);
+  // The webhook then arrives (late): same state, nothing doubled, and a later cancellation still lands.
+  const purchase = { id: 'evt-late-initial', type: 'INITIAL_PURCHASE', app_user_id: u, product_id: 'apm_web_cos_monthly', store: 'RC_BILLING', environment: 'PRODUCTION', event_timestamp_ms: now - 59_000, expiration_at_ms: now + 30 * DAY };
+  assert.equal((await apply(purchase)).outcome, 'applied');
+  assert.equal((await apply(purchase)).replayed, true);
+  assert.deepEqual([(await ent(u)).plan, (await ent(u)).status], ['chief_of_staff', 'active']);
+  assert.equal((await apply({ ...purchase, id: 'evt-late-cancel', type: 'CANCELLATION', cancel_reason: 'UNSUBSCRIBE', event_timestamp_ms: now - 1_000 })).outcome, 'applied');
+  assert.equal((await ent(u)).cancel_at_period_end, true);
+  // A sandbox purchase from a user who is NOT on the tester allowlist stays refused (the Worker passes false).
+  const s = await newUser();
+  assert.deepEqual((await reconcile(s, [sub(s, { environment: 'sandbox' })], false)).map((r) => r.outcome), ['ignored_environment']);
+  assert.equal((await ent(s))?.plan ?? 'beta', 'beta');
+  assert.equal((await access(s)).core, false);
+  // ...and a listed tester's sandbox purchase is honoured.
+  const t = await newUser();
+  assert.deepEqual((await reconcile(t, [sub(t, { environment: 'sandbox' })], true)).map((r) => r.outcome), ['applied']);
+  assert.equal((await ent(t)).plan, 'chief_of_staff');
+  // Lapsed (no access now, or the period is over): no event, no access.
+  const l = await newUser();
+  for (const lapsed of [sub(l, { gives_access: false, status: 'expired' }), sub(l, { current_period_ends_at: now - 1 })]) {
+    assert.deepEqual(await reconcile(l, [lapsed]), []);
+  }
+  assert.equal((await ent(l))?.plan ?? 'beta', 'beta');
+  assert.equal((await access(l)).core, false);
+  // Auto-renew off at reconcile time: access to period end, flagged to stop.
+  const c = await newUser();
+  assert.deepEqual((await reconcile(c, [sub(c, { auto_renewal_status: 'will_not_renew' })])).map((r) => r.outcome), ['applied', 'applied']);
+  assert.deepEqual([(await ent(c)).status, (await ent(c)).cancel_at_period_end], ['active', true]);
 });

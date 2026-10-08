@@ -4,8 +4,9 @@ import { SERVICE_ROLE_TOKEN, SupabaseRestError, supabaseRest } from './db';
 
 /**
  * Phase D billing (docs/33-BILLING-PHASE-D.md). RevenueCat is the receipt verifier for
- * App Store + Google Play; its webhook is the ONLY path that changes an entitlement,
- * and only after the shared Authorization secret is verified here. The database
+ * App Store + Google Play + Web Billing. Entitlements change only through ONE writer
+ * (applyBillingEvent): the webhook, after the shared Authorization secret is verified here,
+ * and reconcile, which reads the session user's subscriptions from RevenueCat itself. The database
  * (migration 0040) maps product -> plan, dedupes on the event id, drops stale events
  * and decides Founding 100. Nothing a client says about a purchase is trusted.
  */
@@ -93,6 +94,18 @@ export function billingSandboxAllowed(env: ApiEnv, event?: Pick<SanitizedBilling
 
 export interface BillingApplyResult { outcome: string; replayed: boolean; plan?: string; status?: string }
 
+/**
+ * THE one writer of entitlements, shared by the webhook and reconcile: the database function
+ * apm_billing_apply_event (idempotent on the event id, drops stale events, maps product -> plan)
+ * with the ONE sandbox rule (billingSandboxAllowed). Never a second path that could drift.
+ */
+export async function applyBillingEvent(env: ApiEnv, event: SanitizedBillingEvent): Promise<BillingApplyResult> {
+  return supabaseRest<BillingApplyResult>(env, SERVICE_ROLE_TOKEN, '/rest/v1/rpc/apm_service_billing_apply_event', {
+    method: 'POST',
+    body: JSON.stringify({ p_event: event, p_allow_sandbox: billingSandboxAllowed(env, event) }),
+  });
+}
+
 export type WebhookResponse = { status: 200 | 400 | 401 | 413 | 503; body: Record<string, unknown> };
 
 /**
@@ -118,10 +131,7 @@ export async function handleRevenueCatWebhook(env: ApiEnv, request: Request): Pr
   if (!event) return { status: 400, body: { error: 'invalid_request' } };
   let result: BillingApplyResult;
   try {
-    result = await supabaseRest<BillingApplyResult>(env, SERVICE_ROLE_TOKEN, '/rest/v1/rpc/apm_service_billing_apply_event', {
-      method: 'POST',
-      body: JSON.stringify({ p_event: event, p_allow_sandbox: billingSandboxAllowed(env, event) }),
-    });
+    result = await applyBillingEvent(env, event);
   } catch (error) {
     // The database refused the event's shape: a 400, not a retryable outage.
     if (error instanceof SupabaseRestError && JSON.stringify(error.body ?? '').includes('billing_invalid_event')) {
@@ -177,4 +187,136 @@ export async function webCustomerPortalFor(env: ApiEnv, userId: string, fetcher:
   } catch {
     return { url: null, reason: 'unavailable' };
   }
+}
+
+/**
+ * RevenueCat v2 `product_id` (the dashboard's internal id) -> the store identifier the webhook
+ * reports as `product_id`. The v2 subscription read gives only the internal id, and the
+ * Worker's read-only key cannot read product configuration, so the mapping is pinned here and
+ * services/api/test/billing-worker.test.mjs proves it covers EXACTLY BILLING_PRODUCTS. A product
+ * missing from this map is never guessed: reconcile skips it and the webhook remains the path.
+ */
+export const REVENUECAT_V2_PRODUCT_IDS: Readonly<Record<string, string>> = {
+  prod5668d84428: 'apm_cos_monthly',
+  prod74fe7b8e27: 'apm_cos_monthly_founding',
+  prod82e18452f6: 'apm_cos_annual',
+  prod6371e0bbd9: 'apm_lifeos_monthly',
+  prod8fc9287e2d: 'apm_lifeos_annual',
+  prod5ae1849750: 'apm_autopilot_monthly',
+  prod9c0b0effca: 'apm_autopilot_annual',
+  prod6df7e6a266: 'apm_cos:monthly',
+  prod3d0a840964: 'apm_cos:founding-monthly',
+  prodec87878554: 'apm_cos:annual',
+  prodf554c0a937: 'apm_lifeos:monthly',
+  prodb49f3ac243: 'apm_lifeos:annual',
+  prod23b20e9949: 'apm_autopilot:monthly',
+  proda63696b155: 'apm_autopilot:annual',
+  prod55a7776fc5: 'apm_web_cos_monthly',
+  prodd268ac7476: 'apm_web_cos_monthly_founding',
+  prod5b26143a3c: 'apm_web_cos_annual',
+  prodc87e7e553f: 'apm_web_lifeos_monthly',
+  prod67b0cd398b: 'apm_web_lifeos_annual',
+  prod707eaae618: 'apm_web_autopilot_monthly',
+  prode5f37c9120: 'apm_web_autopilot_annual',
+};
+
+/** RevenueCat v2 `store` -> the webhook's `store` value (which apm_billing_apply_event maps to a channel). */
+const V2_STORE_TO_WEBHOOK: Readonly<Record<string, string>> = {
+  app_store: 'APP_STORE', mac_app_store: 'MAC_APP_STORE', play_store: 'PLAY_STORE', rc_billing: 'RC_BILLING', stripe: 'STRIPE',
+};
+
+/** The fields reconcile reads from a RevenueCat v2 subscription object. */
+export interface RevenueCatV2Subscription {
+  id?: string; customer_id?: string; product_id?: string; store?: string; environment?: string;
+  status?: string; gives_access?: boolean; auto_renewal_status?: string;
+  current_period_starts_at?: number | null; current_period_ends_at?: number | null;
+}
+
+/** v2 statuses under which a subscription is paid-for right now. */
+const ACCESS_STATUSES = new Set(['active', 'trialing', 'in_grace_period']);
+
+/**
+ * Turns the customer's RevenueCat v2 subscriptions into webhook-shaped events for the SAME
+ * database writer the webhook uses (apm_billing_apply_event): one grant (RENEWAL) for the newest
+ * subscription that gives access now, plus a CANCELLATION when auto-renew is off. Event ids are
+ * derived from the subscription id and its current period, so a repeated reconcile is a replay,
+ * and event times are the period start, so a later real webhook event is newer and still lands.
+ * A lapsed, expired, unmapped or other-customer subscription yields nothing: reconcile can only
+ * ever grant what RevenueCat says is paid for now, and never takes access away (the webhook and
+ * the expiry sweep do that).
+ */
+export function reconcileEventsFor(userId: string, subscriptions: readonly RevenueCatV2Subscription[], nowMs: number): SanitizedBillingEvent[] {
+  const live = subscriptions.filter((sub) => sub.gives_access === true && ACCESS_STATUSES.has(String(sub.status))
+    && sub.customer_id === userId && typeof sub.id === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(sub.id)
+    && typeof sub.current_period_starts_at === 'number' && typeof sub.current_period_ends_at === 'number'
+    && sub.current_period_ends_at > nowMs && sub.current_period_starts_at <= sub.current_period_ends_at
+    && Boolean(REVENUECAT_V2_PRODUCT_IDS[String(sub.product_id)]) && Boolean(V2_STORE_TO_WEBHOOK[String(sub.store)])
+    && (sub.environment === 'production' || sub.environment === 'sandbox'))
+    .sort((a, b) => (b.current_period_starts_at ?? 0) - (a.current_period_starts_at ?? 0));
+  const sub = live[0];
+  if (!sub) return [];
+  const startsAt = sub.current_period_starts_at as number;
+  const base = {
+    app_user_id: userId,
+    product_id: REVENUECAT_V2_PRODUCT_IDS[sub.product_id as string]!,
+    store: V2_STORE_TO_WEBHOOK[sub.store as string]!,
+    environment: sub.environment === 'sandbox' ? 'SANDBOX' : 'PRODUCTION',
+    expiration_at_ms: sub.current_period_ends_at as number,
+  };
+  const events: SanitizedBillingEvent[] = [{ ...base, id: `reconcile:${sub.id}:${startsAt}`, type: 'RENEWAL', event_timestamp_ms: startsAt }];
+  if (sub.auto_renewal_status === 'will_not_renew') {
+    events.push({ ...base, id: `reconcile-cancel:${sub.id}:${startsAt}`, type: 'CANCELLATION', cancel_reason: 'UNSUBSCRIBE', event_timestamp_ms: startsAt + 1 });
+  }
+  return events;
+}
+
+export type ReconcileResult =
+  | { reconciled: true; outcomes: string[] }
+  | { reconciled: false; reason: 'not_configured' | 'no_active_subscription' | 'unavailable' | 'rate_limited' };
+
+/** Per-isolate fallback limiter (the RECONCILE_LIMITER binding is the real one in deployed Workers). */
+const localReconcileHits = new Map<string, number[]>();
+export const RECONCILE_LIMIT = { requests: 6, windowMs: 60_000 } as const;
+
+async function reconcileAllowed(env: ApiEnv, userId: string, nowMs: number): Promise<boolean> {
+  if (env.RECONCILE_LIMITER) {
+    try { return (await env.RECONCILE_LIMITER.limit({ key: `billing-reconcile:${userId}` })).success; } catch { /* fall back below */ }
+  }
+  const recent = (localReconcileHits.get(userId) ?? []).filter((at) => at > nowMs - RECONCILE_LIMIT.windowMs);
+  if (recent.length >= RECONCILE_LIMIT.requests) { localReconcileHits.set(userId, recent); return false; }
+  recent.push(nowMs); localReconcileHits.set(userId, recent);
+  if (localReconcileHits.size > 5000) localReconcileHits.clear();
+  return true;
+}
+
+/**
+ * The webhook's safety net: read the signed-in user's subscriptions from RevenueCat (API v2,
+ * the read-only REVENUECAT_API_V2_KEY) and apply them through the SAME database writer and the
+ * SAME sandbox rule as the webhook. Used after a card checkout (/billing/return, "I already
+ * paid") so a missed or filtered webhook never leaves a paying customer without access. The
+ * customer id is the verified session's user id, never anything the request names.
+ */
+export async function reconcileBillingFor(env: ApiEnv, userId: string, fetcher: typeof fetch = fetch, nowMs: number = Date.now()): Promise<ReconcileResult> {
+  const key = env.REVENUECAT_API_V2_KEY;
+  const project = env.REVENUECAT_PROJECT_ID;
+  if (!key || !project || !/^proj[0-9a-z]+$/i.test(project) || !env.SUPABASE_SECRET_KEY || !UUID.test(userId)) return { reconciled: false, reason: 'not_configured' };
+  if (!(await reconcileAllowed(env, userId, nowMs))) return { reconciled: false, reason: 'rate_limited' };
+  let items: RevenueCatV2Subscription[];
+  try {
+    const response = await fetcher(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(project)}/customers/${encodeURIComponent(userId)}/subscriptions?limit=20`, {
+      headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
+    });
+    if (response.status === 404) return { reconciled: false, reason: 'no_active_subscription' };
+    if (!response.ok) return { reconciled: false, reason: 'unavailable' };
+    items = ((await response.json()) as { items?: RevenueCatV2Subscription[] }).items ?? [];
+  } catch {
+    return { reconciled: false, reason: 'unavailable' };
+  }
+  const events = reconcileEventsFor(userId, items, nowMs);
+  if (events.length === 0) return { reconciled: false, reason: 'no_active_subscription' };
+  const outcomes: string[] = [];
+  for (const event of events) {
+    outcomes.push((await applyBillingEvent(env, event)).outcome);
+  }
+  return { reconciled: true, outcomes };
 }

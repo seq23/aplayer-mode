@@ -297,6 +297,16 @@ export async function fetchProductPlan(accessToken: string): Promise<ProductPlan
 export async function fetchBillingOffering(accessToken: string): Promise<BillingOfferingResponse> {
   return request<BillingOfferingResponse>('/v1/billing/offering', accessToken);
 }
+export type BillingReconcileResponse =
+  | { reconciled: true; outcomes: string[] }
+  | { reconciled: false; reason: 'not_configured' | 'no_active_subscription' | 'unavailable' | 'rate_limited' };
+/**
+ * Ask the server to read THIS account's subscription from RevenueCat and apply it (the webhook's
+ * safety net after a card checkout). The app never says what was bought; the server asks RevenueCat.
+ */
+export async function reconcileBilling(accessToken: string): Promise<BillingReconcileResponse> {
+  return request<BillingReconcileResponse>('/v1/billing/reconcile', accessToken, { method: 'POST', body: '{}' });
+}
 /** Web (card) subscribers: the RevenueCat customer-portal link for the signed-in user, or null with a reason. */
 export async function fetchWebBillingPortal(accessToken: string) {
   return request<{ url: string | null; reason?: 'not_configured' | 'no_web_subscription' | 'unavailable' }>('/v1/billing/web/portal', accessToken);

@@ -154,3 +154,22 @@ test('build flags: APK = sideload, web deploy = web, every EAS profile with env 
     assert.throws(() => envHelper.webBillingEnv({ EXPO_PUBLIC_RC_WEB_PURCHASE_URL: bad }, {}), /not a RevenueCat Web Purchase Link/);
   }
 });
+
+test('a missed webhook never strands a card buyer: /billing/return and "I already paid" ask the server to reconcile from RevenueCat', async () => {
+  const api = await readFile(join(appDir, 'src/api/apmApi.ts'), 'utf8');
+  assert.match(api, /export async function reconcileBilling\(accessToken: string\)[\s\S]{0,200}'\/v1\/billing\/reconcile', accessToken, \{ method: 'POST', body: '\{\}' \}/, 'the request names nothing about the purchase');
+  const ret = await readFile(join(appDir, 'app/billing/return.tsx'), 'utf8');
+  assert.match(ret, /RECONCILE_ATTEMPTS\.has\(attempt\)\) await reconcileBilling\(accessToken\)/);
+  const attempts = [...ret.match(/new Set\(\[([\d, ]+)\]\)/)[1].split(',').map(Number)];
+  assert.ok(attempts.includes(0), 'reconcile on the first poll');
+  // Never more than the API's 6-per-minute limit within the 15 x 2 s poll window.
+  assert.ok(attempts.length <= 6 && attempts.every((n) => n >= 0 && n < 15), JSON.stringify(attempts));
+  const plan = await readFile(join(appDir, 'src/billing/PlanChoice.tsx'), 'utf8');
+  assert.match(plan, /const confirmCard = useCallback\(async \(\) => \{[\s\S]{0,300}await reconcileBilling\(accessToken\)/, 'back from the card checkout: reconcile first');
+  assert.match(plan, /!availability\.available && cardPay && !isAnonymous \? <Button label=\{busy === 'reconcile' \? WEB_CHECKOUT_COPY\.confirming : WEB_CHECKOUT_COPY\.alreadyPaid\}/, 'web / sideload only: the "I already paid" button');
+  assert.equal(checkout.WEB_CHECKOUT_COPY.alreadyPaid, 'I already paid · check my payment');
+  // The iOS stub must not grow the button's copy into the store build.
+  const ios = await readFile(join(appDir, 'src/billing/webCheckout.ios.ts'), 'utf8');
+  assert.doesNotMatch(ios, /reconcile/);
+  assert.match(ios, /alreadyPaid: '', notFound: ''/, 'the iOS stub carries the keys, empty');
+});

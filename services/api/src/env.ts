@@ -49,6 +49,8 @@ export interface ApiEnv {
    * receipt-email route instead.
    */
   REVENUECAT_API_V2_KEY?: string;
+  /** Workers Rate Limiting binding for POST /v1/billing/reconcile (per user); a per-isolate limiter stands in without it. */
+  RECONCILE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   /** App Review demo account (docs/33 §8): the one address whose fixed code signs in. Off unless set. */
   APP_REVIEW_EMAIL?: string;
   /** Its fixed code, 6–12 digits (Worker secret). Off unless set together with APP_REVIEW_EMAIL. */
