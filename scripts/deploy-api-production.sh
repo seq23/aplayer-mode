@@ -29,6 +29,9 @@ if [ -n "$SECRETS_DIR" ]; then
       APP_REVIEW_EMAIL|*.*) continue ;;   # a var in wrangler.jsonc, or not a secret file
     esac
     [[ "$name" =~ ^[A-Z][A-Z0-9_]+$ ]] || continue
+    # Only names the Worker declares (ApiEnv in src/env.ts): the secrets dir also holds operator
+    # keys (RC_V2_SECRET_KEY, STRIPE_TEST_*) that must never reach the Worker.
+    grep -qE "^[[:space:]]+${name}\??:" src/env.ts || { echo "skipped (not a Worker env name): $name"; continue; }
     npx wrangler secret put "$name" --env production < "$file" >/dev/null
     echo "secret set: $name"
   done
