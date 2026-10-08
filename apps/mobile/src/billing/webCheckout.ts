@@ -48,5 +48,7 @@ export const WEB_CHECKOUT_COPY = {
   confirmed: 'Payment confirmed. Your plan is on.',
   pending: 'Payment received by the card processor. Your plan turns on here as soon as it is confirmed, usually within a minute.',
   manageFallback: 'To change or cancel a card subscription, open the "Manage subscription" link in any receipt email from A Player Mode.',
+  alreadyPaid: 'I already paid · check my payment',
+  notFound: 'No active card subscription was found for this account yet. If you just paid, wait a minute and check again; the receipt email has the details.',
   restore: 'Card subscriptions follow your account: sign in the same way on any device and your plan is there.',
 } as const;

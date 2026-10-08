@@ -9,7 +9,7 @@ import { claimIntakeInstall, deleteAuthUser, finishIntakeInstall, getIntakeDraft
 import { synthesizeIntake } from './intakeSynthesis';
 import type { ApiEnv } from './env';
 import { restErrorMessage, SERVICE_ROLE_TOKEN, supabaseRest } from './db';
-import { billingOfferingFor, handleRevenueCatWebhook, webCustomerPortalFor } from './billing';
+import { billingOfferingFor, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
 import {
   completeNextAction,
   getLifeGraph,
@@ -632,6 +632,15 @@ app.get('/v1/billing/offering', async (c) => {
     appUserId: user.id,
     products: BILLING_PRODUCTS.filter((item) => offering.offering === 'founding' || item.offer === 'standard').map(({ productId, store, plan, period, offer }) => ({ productId, store, plan, period, offer })),
   });
+});
+
+// The webhook's safety net (after a card checkout, "I already paid"): read the SESSION user's
+// subscriptions from RevenueCat and apply them through the webhook's own writer. Rate-limited.
+app.post('/v1/billing/reconcile', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const result = await reconcileBillingFor(c.env, user.id);
+  if (!result.reconciled && result.reason === 'rate_limited') return c.json(result, 429);
+  return c.json(result);
 });
 
 // Web (card) subscribers: the RevenueCat customer portal link for the signed-in user only.

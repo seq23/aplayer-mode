@@ -15,5 +15,5 @@ export function webCheckoutFor(_distribution: Distribution, _founding: boolean):
 }
 
 export const WEB_CHECKOUT_COPY = {
-  button: '', notConfigured: '', account: '', confirming: '', confirmed: '', pending: '', manageFallback: '', restore: '',
+  button: '', notConfigured: '', account: '', confirming: '', confirmed: '', pending: '', manageFallback: '', restore: '', alreadyPaid: '', notFound: '',
 } as const;

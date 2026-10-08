@@ -3,7 +3,7 @@ import { AppState, View } from 'react-native';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import type { BillingPeriod, PaidPlan } from '@apm/policy';
 import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Figure, Heading, KeyValue, Label, Pill, Row, SectionTitle, Small, Stack, Tile, Toast, uiStyles } from '../components/ui';
-import { fetchBillingOffering, fetchProductPlan, fetchWebBillingPortal, type BillingOfferingResponse, type ProductPlanResponse } from '../api/apmApi';
+import { fetchBillingOffering, fetchProductPlan, fetchWebBillingPortal, reconcileBilling, type BillingOfferingResponse, type ProductPlanResponse } from '../api/apmApi';
 import { useSession } from '../state/session';
 import { APPLE_STANDARD_EULA_URL, PAID_PLANS, STORE_LABELS, storeManageUrl, subscriptionDisclosure, tierOffers, type StorePrice } from './catalog';
 import { UNAVAILABLE_COPY, appDistribution, billingAvailability, buyPackage, identifyBillingUser, legalUrls, loadOffering, managementUrl, restoreStorePurchases } from './purchases';
@@ -144,6 +144,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   const confirmCard = useCallback(async () => {
     setBusy('card'); setNotice(WEB_CHECKOUT_COPY.confirming);
     try {
+      // The webhook can be late or missed: the server reads this account's subscription from RevenueCat.
+      if (accessToken) await reconcileBilling(accessToken).catch(() => undefined);
       const confirmed = await confirmWithServer(product);
       setNotice(confirmed ? WEB_CHECKOUT_COPY.confirmed : WEB_CHECKOUT_COPY.pending);
       if (confirmed) { setAwaitingCard(false); onFinished?.('purchased'); }
@@ -151,7 +153,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       setError(plainError(cause, 'Your plan did not refresh. Check your connection and try again.'));
     } finally { setBusy(undefined); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product, onFinished]);
+  }, [product, onFinished, accessToken]);
 
   // Back from the card checkout (tab or app returns to the foreground): ask the server.
   useEffect(() => {
@@ -168,6 +170,21 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       setNotice(await confirmWithServer(product) ? 'Purchases restored.' : 'Restore sent to the store. Any active subscription appears here once the store confirms it.');
     } catch (cause) {
       setError(plainError(cause, 'Restore did not finish. Try again.'));
+    } finally { setBusy(undefined); }
+  };
+
+  /** Web / sideload "I already paid": the server reconciles from RevenueCat, then the plan reloads. */
+  const checkCardPayment = async () => {
+    if (busy || !accessToken) return;
+    setBusy('reconcile'); setError(undefined); setNotice(WEB_CHECKOUT_COPY.confirming);
+    try {
+      const result = await reconcileBilling(accessToken);
+      const plan = await loadPlan();
+      const on = plan ? plan.entitlement.plan !== 'beta' && (plan.entitlement.status === 'active' || plan.entitlement.status === 'trialing') : false;
+      setNotice(on ? WEB_CHECKOUT_COPY.confirmed : result.reconciled ? WEB_CHECKOUT_COPY.pending : WEB_CHECKOUT_COPY.notFound);
+      if (on) { setAwaitingCard(false); onFinished?.('purchased'); }
+    } catch (cause) {
+      setError(plainError(cause, 'Your plan did not refresh. Check your connection and try again.'));
     } finally { setBusy(undefined); }
   };
 
@@ -271,6 +288,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       <Card tone="muted">
         {/* On web there is no store to restore from: no dead Restore button, only the way to manage. */}
         {availability.available ? <Button label={busy === 'restore' ? 'Restoring…' : 'Restore purchases'} variant="secondary" disabled={Boolean(busy)} onPress={() => void restore()} /> : null}
+        {/* Web / sideload: a card payment the webhook has not delivered yet is fetched from RevenueCat by the server. */}
+        {!availability.available && cardPay && !isAnonymous ? <Button label={busy === 'reconcile' ? WEB_CHECKOUT_COPY.confirming : WEB_CHECKOUT_COPY.alreadyPaid} variant="secondary" disabled={Boolean(busy)} onPress={() => void checkCardPayment()} /> : null}
         <Button label="Manage subscription" variant="secondary" onPress={() => void manage()} />
       </Card>
 

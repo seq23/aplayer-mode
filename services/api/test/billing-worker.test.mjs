@@ -19,7 +19,7 @@ let outDir; let entry; let billing;
 
 test.before(async () => {
   outDir = await mkdtemp(join(tmpdir(), 'apm-billing-worker-'));
-  await build({ entryPoints: { entry: join(srcDir, 'entry.ts'), billing: join(srcDir, 'billing.ts') }, bundle: true, format: 'esm', platform: 'neutral', outdir: outDir, logLevel: 'silent' });
+  await build({ entryPoints: { entry: join(srcDir, 'entry.ts'), billing: join(srcDir, 'billing.ts'), policy: fileURLToPath(new URL('../../../packages/policy/src/index.ts', import.meta.url)) }, bundle: true, format: 'esm', platform: 'neutral', outdir: outDir, logLevel: 'silent' });
   entry = (await import(pathToFileURL(join(outDir, 'entry.js')).href)).default;
   billing = await import(pathToFileURL(join(outDir, 'billing.js')).href);
 });
@@ -219,4 +219,114 @@ test('web customer portal: session user only, RevenueCat Billing subscriptions o
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { url: null, reason: 'not_configured' });
   } finally { fake.restore(); }
+});
+
+// Reconcile (8 Oct 2026): a filtered webhook left a paying sandbox tester on 'beta'. Reconcile
+// reads the SESSION user's subscriptions from RevenueCat v2 and applies them through the
+// webhook's own writer and sandbox rule; it can only grant what RevenueCat says is paid now.
+const NOW = 1_791_462_000_000;
+const sub = (overrides = {}) => ({
+  id: 'subRcb51d7c42d2e3d89f7b59abf89bdca416f', customer_id: USER, product_id: 'prod55a7776fc5', store: 'rc_billing', environment: 'production',
+  status: 'active', gives_access: true, auto_renewal_status: 'will_renew', current_period_starts_at: NOW - 60_000, current_period_ends_at: NOW + 240_000, ...overrides,
+});
+
+test('reconcile: the v2 product map covers EXACTLY BILLING_PRODUCTS (no product is ever guessed)', async () => {
+  const policy = await import(pathToFileURL(join(outDir, 'policy.js')).href);
+  const mapped = Object.values(billing.REVENUECAT_V2_PRODUCT_IDS).sort();
+  assert.deepEqual(mapped, policy.BILLING_PRODUCTS.map((p) => p.productId).sort());
+  assert.equal(new Set(mapped).size, mapped.length, 'one RevenueCat id per store product');
+  for (const id of Object.keys(billing.REVENUECAT_V2_PRODUCT_IDS)) assert.match(id, /^prod[0-9a-f]{10}$/);
+});
+
+test('reconcile: an active web subscription becomes the webhook-shaped grant; lapsed / foreign / unmapped give nothing', () => {
+  const [grant, ...rest] = billing.reconcileEventsFor(USER, [sub()], NOW);
+  assert.deepEqual(grant, {
+    id: `reconcile:subRcb51d7c42d2e3d89f7b59abf89bdca416f:${NOW - 60_000}`, type: 'RENEWAL', app_user_id: USER, product_id: 'apm_web_cos_monthly',
+    store: 'RC_BILLING', environment: 'PRODUCTION', event_timestamp_ms: NOW - 60_000, expiration_at_ms: NOW + 240_000,
+  });
+  assert.equal(rest.length, 0);
+  // The grant is exactly what the webhook sanitiser would let through (same writer, same shape).
+  assert.deepEqual(billing.sanitizeRevenueCatEvent({ event: grant }), grant);
+  assert.equal(billing.reconcileEventsFor(USER, [sub({ store: 'stripe' })], NOW)[0].store, 'STRIPE');
+  assert.equal(billing.reconcileEventsFor(USER, [sub({ store: 'play_store', product_id: 'prod6df7e6a266' })], NOW)[0].product_id, 'apm_cos:monthly');
+  assert.equal(billing.reconcileEventsFor(USER, [sub({ environment: 'sandbox' })], NOW)[0].environment, 'SANDBOX');
+  // Auto-renew off: the grant plus a cancellation (access to period end, not beyond).
+  const cancelled = billing.reconcileEventsFor(USER, [sub({ auto_renewal_status: 'will_not_renew' })], NOW);
+  assert.deepEqual(cancelled.map((e) => [e.type, e.cancel_reason]), [['RENEWAL', undefined], ['CANCELLATION', 'UNSUBSCRIBE']]);
+  // Never a grant for: a lapsed, expired, no-access, other customer's, unmapped or unknown-store subscription.
+  for (const bad of [
+    sub({ gives_access: false }), sub({ status: 'expired' }), sub({ status: 'in_billing_retry' }), sub({ current_period_ends_at: NOW - 1 }),
+    sub({ customer_id: '00000000-0000-4000-8000-000000000999' }), sub({ product_id: 'prod399da46705' }), sub({ store: 'amazon' }),
+    sub({ environment: 'staging' }), sub({ id: 'bad id/../' }), sub({ current_period_starts_at: null }),
+  ]) assert.deepEqual(billing.reconcileEventsFor(USER, [bad], NOW), [], JSON.stringify(bad));
+  // Several subscriptions: the newest live one.
+  const two = billing.reconcileEventsFor(USER, [sub({ id: 'old', product_id: 'prod5b26143a3c', current_period_starts_at: NOW - 900_000 }), sub({ id: 'new' })], NOW);
+  assert.equal(two[0].product_id, 'apm_web_cos_monthly');
+});
+
+test('reconcile: session user only, the webhook writer + sandbox rule, rate-limited, never a client claim', async () => {
+  const TESTER = '00000000-0000-4000-8000-0000000000d7';
+  const cfg = { ...env, REVENUECAT_PROJECT_ID: 'proj2c0586cf', REVENUECAT_API_V2_KEY: 'sk_test_key' };
+  const seen = [];
+  const rc = (status, body) => async (url, init) => { seen.push({ url: String(url), auth: new Headers(init?.headers).get('authorization') }); return new Response(JSON.stringify(body), { status }); };
+  assert.deepEqual(await billing.reconcileBillingFor(env, USER, rc(200, {})), { reconciled: false, reason: 'not_configured' });
+  assert.deepEqual(await billing.reconcileBillingFor(cfg, 'not-a-uuid', rc(200, {})), { reconciled: false, reason: 'not_configured' });
+  const fake = fakeSupabase();
+  try {
+    const u1 = '00000000-0000-4000-8000-0000000000e1';
+    const r1 = await billing.reconcileBillingFor(cfg, u1, rc(200, { items: [sub({ customer_id: u1 })] }), NOW);
+    assert.deepEqual(r1, { reconciled: true, outcomes: ['applied'] });
+    assert.equal(seen.at(-1).url, `https://api.revenuecat.com/v2/projects/proj2c0586cf/customers/${u1}/subscriptions?limit=20`);
+    assert.equal(seen.at(-1).auth, 'Bearer sk_test_key');
+    const rpc = fake.calls.filter((c) => c.href.includes('apm_service_billing_apply_event'));
+    assert.equal(rpc.length, 1);
+    assert.equal(rpc[0].apikey, 'sb_secret_test');
+    assert.equal(rpc[0].body.p_event.app_user_id, u1);
+    assert.equal(rpc[0].body.p_allow_sandbox, false);
+    // Sandbox: honoured ONLY for the tester allowlist — the webhook's rule, not a second one.
+    fake.calls.length = 0;
+    const withTester = { ...cfg, BILLING_SANDBOX_TESTER_IDS: TESTER };
+    await billing.reconcileBillingFor(withTester, TESTER, rc(200, { items: [sub({ customer_id: TESTER, environment: 'sandbox' })] }), NOW);
+    const u2 = '00000000-0000-4000-8000-0000000000e2';
+    await billing.reconcileBillingFor(withTester, u2, rc(200, { items: [sub({ customer_id: u2, environment: 'sandbox' })] }), NOW);
+    assert.deepEqual(fake.calls.filter((c) => c.href.includes('apply_event')).map((c) => [c.body.p_event.app_user_id, c.body.p_allow_sandbox]), [[TESTER, true], [u2, false]]);
+    // Nothing paid now: no write at all. RevenueCat down: named, no write.
+    fake.calls.length = 0;
+    const u3 = '00000000-0000-4000-8000-0000000000e3';
+    assert.deepEqual(await billing.reconcileBillingFor(cfg, u3, rc(200, { items: [sub({ customer_id: u3, gives_access: false, status: 'expired' })] }), NOW), { reconciled: false, reason: 'no_active_subscription' });
+    assert.deepEqual(await billing.reconcileBillingFor(cfg, u3, rc(404, {}), NOW), { reconciled: false, reason: 'no_active_subscription' });
+    assert.deepEqual(await billing.reconcileBillingFor(cfg, u3, rc(500, {}), NOW), { reconciled: false, reason: 'unavailable' });
+    assert.deepEqual(await billing.reconcileBillingFor(cfg, u3, async () => { throw new Error('network'); }, NOW), { reconciled: false, reason: 'unavailable' });
+    assert.equal(fake.calls.filter((c) => c.href.includes('apply_event')).length, 0);
+    // Rate limit: per user, per window (fallback limiter); the binding wins when present.
+    const u4 = '00000000-0000-4000-8000-0000000000e4';
+    for (let i = 0; i < billing.RECONCILE_LIMIT.requests - 0; i += 1) await billing.reconcileBillingFor(cfg, u4, rc(404, {}), NOW + 1);
+    assert.deepEqual(await billing.reconcileBillingFor(cfg, u4, rc(404, {}), NOW + 2), { reconciled: false, reason: 'rate_limited' });
+    assert.deepEqual(await billing.reconcileBillingFor(cfg, u4, rc(404, {}), NOW + 2 + billing.RECONCILE_LIMIT.windowMs), { reconciled: false, reason: 'no_active_subscription' });
+    const keys = [];
+    const limited = { ...cfg, RECONCILE_LIMITER: { limit: async ({ key }) => { keys.push(key); return { success: false }; } } };
+    assert.deepEqual(await billing.reconcileBillingFor(limited, u1, rc(200, { items: [sub({ customer_id: u1 })] }), NOW), { reconciled: false, reason: 'rate_limited' });
+    assert.deepEqual(keys, [`billing-reconcile:${u1}`]);
+  } finally { fake.restore(); }
+  // The route: a session is required, the user is the session's (a body naming another user is ignored), 429 when limited.
+  const fake2 = fakeSupabase();
+  const original = globalThis.fetch;
+  const rcCalls = [];
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith('https://api.revenuecat.com/')) { rcCalls.push(String(url)); return new Response(JSON.stringify({ items: [sub({ current_period_starts_at: Date.now() - 60_000, current_period_ends_at: Date.now() + 30 * 86_400_000 })] }), { status: 200 }); }
+    return original(url, init);
+  };
+  try {
+    const call = (headers, e = cfg) => entry.fetch(new Request('https://api.example.com/v1/billing/reconcile', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ userId: TESTER, plan: 'autopilot' }) }), e);
+    assert.equal((await call({})).status, 401);
+    const res = await call({ authorization: 'Bearer user-jwt' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { reconciled: true, outcomes: ['applied'] });
+    assert.ok(rcCalls.at(-1).includes(`/customers/${USER}/`), 'the session user, never the body');
+    const applied = fake2.calls.find((c) => c.href.includes('apply_event'));
+    assert.equal(applied.body.p_event.app_user_id, USER);
+    assert.equal(applied.body.p_event.product_id, 'apm_web_cos_monthly', 'the product comes from RevenueCat, never the request');
+    assert.equal((await call({ authorization: 'Bearer user-jwt' }, { ...cfg, RECONCILE_LIMITER: { limit: async () => ({ success: false }) } })).status, 429);
+    assert.ok(!fake2.calls.some((c) => c.href.includes('subscription_entitlements') && c.method !== 'GET'), 'nothing writes the entitlement table directly');
+  } finally { globalThis.fetch = original; fake2.restore(); }
 });
