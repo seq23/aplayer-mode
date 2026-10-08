@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   BILLING_CHANNELS,
+  STORE_CHANNELS,
+  WEB_BILLING_CONFIG,
   BILLING_PRODUCTS,
   REVENUECAT_CONFIG,
   billingProductFor,
@@ -67,7 +69,8 @@ test('price constants are the owner-decided final prices (ADR-0004)', () => {
     introductory: { monthlyUsdCents: 999, months: 3, thenMonthlyUsdCents: 2499 },
   });
   assert.equal(CHIEF_OF_STAFF_INTRO_OFFERS.introductory.thenMonthlyUsdCents, PLAN_PRICES.chief_of_staff.monthlyUsdCents, 'intro rolls onto the standard price');
-  assert.deepEqual([...BILLING_CHANNELS], ['app_store', 'google_play']);
+  assert.deepEqual([...BILLING_CHANNELS], ['app_store', 'google_play', 'web']);
+  assert.deepEqual([...STORE_CHANNELS], ['app_store', 'google_play'], 'web is never an in-app store channel');
   assert.equal(formatUsdCents(2499), '$24.99');
   assert.equal(formatUsdCents(999), '$9.99');
   assert.equal(formatUsdCents(0), '$0.00');
@@ -179,10 +182,10 @@ test('annual plans: exactly the ADR-0005 prices, stated in every pricing doc', (
   assert.doesNotMatch(doc('docs/02-PRICING-STRATEGY.md'), /Monthly only at launch/, 'the retired monthly-only rule is gone');
 });
 
-test('store product catalogue: every tier x period on both stores, Founding 100 is CoS monthly only', () => {
+test('product catalogue: every tier x period on every channel (both stores + web), Founding 100 is CoS monthly only', () => {
   const ids = BILLING_PRODUCTS.map((item) => item.productId);
   assert.equal(new Set(ids).size, ids.length, 'product ids are unique');
-  assert.equal(BILLING_PRODUCTS.length, 14);
+  assert.equal(BILLING_PRODUCTS.length, 21);
   for (const store of BILLING_CHANNELS) {
     for (const plan of Object.keys(PLAN_PRICES)) {
       for (const period of ['monthly', 'annual']) {
@@ -197,10 +200,35 @@ test('store product catalogue: every tier x period on both stores, Founding 100 
   }
   for (const item of BILLING_PRODUCTS) {
     if (item.store === 'google_play') assert.match(item.productId, /^apm_[a-z]+:[a-z0-9-]+$/, 'Play ids are <subscription>:<base plan>');
-    else assert.match(item.productId, /^apm_[a-z_]+$/);
+    else if (item.store === 'web') assert.match(item.productId, /^apm_web_(cos|lifeos|autopilot)_(monthly|annual)(_founding)?$/, 'web ids are apm_web_<tier>_<period>[_founding]');
+    else { assert.match(item.productId, /^apm_[a-z_]+$/); assert.ok(!item.productId.startsWith('apm_web_'), 'apm_web_ is reserved for the web channel'); }
     assert.equal(billingProductFor(item.productId), item);
   }
   assert.equal(billingProductFor('apm_cos_monthly_FOUNDING'), undefined, 'exact match only');
   assert.notEqual(REVENUECAT_CONFIG.defaultOffering, REVENUECAT_CONFIG.foundingOffering);
   assert.equal(REVENUECAT_CONFIG.webhookPath, '/v1/billing/revenuecat/webhook');
+  // The web dashboard step uses exactly the catalogue's web ids, and the web prices are the store prices.
+  assert.deepEqual([...WEB_BILLING_CONFIG.productIds], BILLING_PRODUCTS.filter((item) => item.store === 'web').map((item) => item.productId));
+  for (const item of BILLING_PRODUCTS.filter((p) => p.store === 'web')) {
+    const twin = BILLING_PRODUCTS.find((p) => p.store === 'app_store' && p.plan === item.plan && p.period === item.period && p.offer === item.offer);
+    assert.equal(item.usdCents, twin.usdCents, `${item.productId} costs what the App Store twin costs`);
+  }
+  assert.deepEqual([...WEB_BILLING_CONFIG.webhookStores], ['RC_BILLING', 'STRIPE']);
+  assert.equal(WEB_BILLING_CONFIG.returnUrl, 'https://app.aplayermode.com/billing/return');
+});
+
+test('the web-billing named stop (RUNBOOK.md) and docs/33 §9 name exactly the web catalogue', () => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const runbook = readFileSync(join(root, 'RUNBOOK.md'), 'utf8');
+  const doc = readFileSync(join(root, 'docs/33-BILLING-PHASE-D.md'), 'utf8');
+  const listed = [...runbook.matchAll(/^\s+- `(apm_web_[a-z_]+)`/gm)].map((m) => m[1]);
+  assert.deepEqual(listed, [...WEB_BILLING_CONFIG.productIds], 'the RUNBOOK lists every web product id, in catalogue order, and nothing else');
+  for (const id of WEB_BILLING_CONFIG.productIds) assert.ok(doc.includes(`\`${id}\``), `docs/33 §9 names ${id}`);
+  for (const text of [runbook, doc]) {
+    assert.ok(text.includes(WEB_BILLING_CONFIG.returnUrl), 'the return URL');
+    for (const name of [...Object.values(WEB_BILLING_CONFIG.purchaseLinkEnv), WEB_BILLING_CONFIG.sandboxTesterSecret, WEB_BILLING_CONFIG.portalKeySecret]) assert.ok(text.includes(name), name);
+  }
+  assert.match(runbook, /### Stripe account for A Player Mode \(owner\)/);
+  assert.match(runbook, /NOT West Peek/);
+  assert.ok(runbook.includes(REVENUECAT_CONFIG.webhookPath));
 });

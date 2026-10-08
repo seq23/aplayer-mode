@@ -8,6 +8,7 @@ import { PLAN_PRICES } from '@apm/policy';
 import { requestDeletion } from '../../src/api/apmApi';
 import { plainError } from '../../src/api/errors';
 import { UNAVAILABLE_COPY, billingAvailability, restoreStorePurchases } from '../../src/billing/purchases';
+import { WEB_CHECKOUT_COPY } from '../../src/billing/webCheckout';
 
 /** Her plan by its ONE display name (ADR-0006); never retyped here. */
 const PAID_KEYS = ['chief_of_staff', 'life_os', 'autopilot'] as const;
@@ -39,7 +40,8 @@ export default function SettingsScreen() {
   const restore = async () => {
     if (busy) return;
     const availability = billingAvailability();
-    if (!availability.available) { setNotice(UNAVAILABLE_COPY[availability.reason]); return; }
+    // Web / sideload: card subscriptions follow the account; there is no store to restore from.
+    if (!availability.available) { setNotice(availability.reason === 'web' || availability.reason === 'sideload' ? WEB_CHECKOUT_COPY.restore : UNAVAILABLE_COPY[availability.reason]); return; }
     setBusy('restore'); setError(undefined); setNotice(undefined);
     try {
       await restoreStorePurchases();

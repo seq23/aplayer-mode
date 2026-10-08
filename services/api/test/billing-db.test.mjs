@@ -56,7 +56,7 @@ let seq = 0;
 function ev(type, user, product, extra = {}) {
   seq += 1;
   return {
-    id: `evt-${seq}`, type, app_user_id: user, product_id: product, store: product.includes(':') ? 'PLAY_STORE' : 'APP_STORE',
+    id: `evt-${seq}`, type, app_user_id: user, product_id: product, store: product.includes(':') ? 'PLAY_STORE' : product.startsWith('apm_web_') ? 'RC_BILLING' : 'APP_STORE',
     environment: 'PRODUCTION', event_timestamp_ms: T0 + seq * 1000, expiration_at_ms: T0 + 30 * DAY, ...extra,
   };
 }
@@ -351,6 +351,45 @@ test('never trusts identity, product, store or environment it cannot verify', as
     { ...ev('INITIAL_PURCHASE', u, 'apm_cos_monthly'), expiration_at_ms: null },
   ];
   for (const event of bad) await rejects(apply(event), /billing_invalid_event/);
+});
+
+test('0092 web channel: RevenueCat Web Billing (RC_BILLING / STRIPE) grants the mapped plan; channels never cross', async () => {
+  // Before 0092 this exact event was dropped as ignored_unknown_product.
+  const u = await newUser();
+  const out = await apply(ev('INITIAL_PURCHASE', u, 'apm_web_lifeos_annual'));
+  assert.equal(out.outcome, 'applied');
+  assert.deepEqual([(await ent(u)).plan, (await ent(u)).status, (await ent(u)).provider, (await ent(u)).billing_period, (await ent(u)).store_product_id],
+    ['life_os', 'active', 'web', 'annual', 'apm_web_lifeos_annual']);
+  assert.equal((await access(u)).life, true);
+  // Stripe Billing integration events map to the same channel.
+  const s = await newUser();
+  assert.equal((await apply({ ...ev('INITIAL_PURCHASE', s, 'apm_web_autopilot_monthly'), store: 'STRIPE' })).outcome, 'applied');
+  assert.equal((await ent(s)).provider, 'web');
+  // Upgrade on the web channel stays on the web channel.
+  assert.equal((await apply({ ...ev('PRODUCT_CHANGE', u, 'apm_web_lifeos_annual'), new_product_id: 'apm_web_autopilot_annual' })).outcome, 'applied');
+  assert.equal((await ent(u)).plan, 'autopilot');
+  // Channels never cross: a web store with a store product, a store with a web product, a web product to a store product.
+  const x = await newUser();
+  for (const [event, outcome] of [
+    [{ ...ev('INITIAL_PURCHASE', x, 'apm_autopilot_monthly'), store: 'RC_BILLING' }, 'ignored_unknown_product'],
+    [{ ...ev('INITIAL_PURCHASE', x, 'apm_web_autopilot_monthly'), store: 'APP_STORE' }, 'ignored_unknown_product'],
+    [{ ...ev('INITIAL_PURCHASE', x, 'apm_web_autopilot_monthly'), store: 'PLAY_STORE' }, 'ignored_unknown_product'],
+    [{ ...ev('INITIAL_PURCHASE', x, 'apm_web_autopilot_monthly'), store: 'PADDLE' }, 'ignored_unknown_product'],
+    [{ ...ev('INITIAL_PURCHASE', x, 'apm_web_autopilot_monthly'), environment: 'SANDBOX' }, 'ignored_environment'],
+  ]) assert.equal((await apply(event)).outcome, outcome, JSON.stringify(event));
+  assert.deepEqual([(await ent(x)).plan, (await ent(x)).provider], ['beta', null]);
+  assert.equal((await apply({ ...ev('PRODUCT_CHANGE', s, 'apm_web_autopilot_monthly'), new_product_id: 'apm_autopilot_annual' })).outcome, 'ignored_unknown_product');
+  // Founding 100 on the web: the founding web product claims a slot like the store ones.
+  const f = await newUser();
+  assert.equal((await apply(ev('INITIAL_PURCHASE', f, 'apm_web_cos_monthly_founding'))).outcome, 'applied');
+  assert.deepEqual([(await ent(f)).offer, (await slot(f))?.status], ['founding', 'claimed']);
+  // The sweep covers web entitlements.
+  await admin("update public.subscription_entitlements set current_period_end = now() - interval '2 days' where user_id = $1", [s]);
+  await service('select public.apm_service_billing_expire_lapsed()');
+  assert.equal((await ent(s)).status, 'expired');
+  // A client can never write the web provider either.
+  await rejects(asRole('authenticated', x, "update public.subscription_entitlements set provider = 'web', plan = 'autopilot', status = 'active' where user_id = $1", [x]), /permission denied/);
+  await rejects(admin("update public.subscription_entitlements set provider = 'stripe' where user_id = $1", [x]), /check constraint/);
 });
 
 test('Founding 100: only paid founding subscriptions hold a slot — 99 gives one, 100 gives none, never 101', async () => {

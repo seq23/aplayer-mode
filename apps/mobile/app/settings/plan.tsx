@@ -29,10 +29,10 @@ export default function PlanScreen() {
             <KeyValue label="Status" value={STATUS_WORDS[entitlement.status] ?? 'Not active'} />
             {billing ? (
               <>
-                <KeyValue label="Billing" value={`${billing.period === 'annual' ? 'Annual' : 'Monthly'} · ${billing.store === 'app_store' ? 'App Store' : 'Google Play'}${billing.founding ? ' · Founding Member price' : ''}`} />
+                <KeyValue label="Billing" value={`${billing.period === 'annual' ? 'Annual' : 'Monthly'} · ${billing.store === 'app_store' ? 'App Store' : billing.store === 'google_play' ? 'Google Play' : 'Card'}${billing.founding ? ' · Founding Member price' : ''}`} />
                 <KeyValue label={billing.renews ? 'Renews' : 'Access until'} value={formatDate(billing.periodEnd)} />
                 {billing.cancelAtPeriodEnd ? <Body muted>Auto-renew is off. You keep access until the end of the period you paid for.</Body> : null}
-                {billing.billingIssue ? <Body>The store could not renew your subscription. Update your payment method in {billing.store === 'app_store' ? 'your App Store account' : 'Google Play'} to keep access.</Body> : null}
+                {billing.billingIssue ? <Body>The payment could not renew your subscription. Update your payment method in {billing.store === 'app_store' ? 'your App Store account' : billing.store === 'google_play' ? 'Google Play' : 'Manage subscription'} to keep access.</Body> : null}
                 {billing.pendingPlan ? <Body muted>Changes to {product?.plans.find((plan) => plan.plan === billing.pendingPlan)?.displayName ?? billing.pendingPlan} at your next renewal.</Body> : null}
               </>
             ) : null}

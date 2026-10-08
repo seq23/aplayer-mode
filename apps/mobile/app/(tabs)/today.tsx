@@ -49,7 +49,8 @@ import { BedRoutineToday, CoachingModeChips, PillarRollUpLine, PracticesToday, Q
 import { useSession } from '../../src/state/session';
 import { sourceAccountLabel } from '../../src/integrations/accounts';
 import { hasDailyLoopAccess, noPlanCopy } from '../../src/billing/access';
-import { billingAvailability } from '../../src/billing/purchases';
+import { appDistribution, billingAvailability } from '../../src/billing/purchases';
+import { webCheckoutAllowed } from '../../src/billing/distribution';
 import { plainError } from '../../src/api/errors';
 import { greeting } from '../../src/content/greeting';
 import { GATE_WORDS, ITEM_KIND_WORDS, MODE_WORDS, TODAY_COPY, VERDICT_WORDS, actionTag, radarTag, shortDate } from '../../src/content/words';
@@ -124,7 +125,8 @@ export default function TodayScreen() {
   }, token)));
   // No plan yet (or a lapsed one): Today offers the plan, never a check-in the server refuses (docs/35 E5).
   const loopOpen = hasDailyLoopAccess(graph.entitlement);
-  const planCopy = noPlanCopy(billingAvailability().available);
+  // Web app and sideload APK pay by card here: never told to use a store app.
+  const planCopy = noPlanCopy(billingAvailability().available || webCheckoutAllowed(appDistribution()));
 
   const itemCard = (item: AgendaItem, label?: string) => (
     <Card key={item.id} tone={item.kind === 'plan_action' ? 'accent' : 'default'}>

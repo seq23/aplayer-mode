@@ -11,6 +11,11 @@ export EXPO_PUBLIC_SUPABASE_URL="https://klzbnchgoqmnwsgolwoe.supabase.co"
 export EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$(node -e "const s=require('fs').readFileSync('../../services/api/wrangler.jsonc','utf8');process.stdout.write(s.match(/\"SUPABASE_PUBLISHABLE_KEY\": \"(sb_publishable_[^\"]+)\"/)[1])")"
 export EXPO_PUBLIC_TERMS_URL="https://app.aplayermode.com/terms"
 export EXPO_PUBLIC_PRIVACY_POLICY_URL="https://app.aplayermode.com/privacy"
+export EXPO_PUBLIC_APM_DISTRIBUTION="web"
+# Card payments (RevenueCat Web Billing, docs/33 §9): the Web Purchase Links are public URLs in
+# apps/mobile/web-billing.json (an environment variable of the same name overrides); empty = the
+# app shows "Card payments open shortly".
+eval "$(node scripts/web-billing-env.mjs)"
 rm -rf dist
 npx expo export --platform web --output-dir dist --clear >/dev/null
 grep -rqF "$EXPO_PUBLIC_APM_API_URL" dist/_expo/static/js/web/ || { echo "the API URL is not in the bundle (env not inlined)"; exit 1; }

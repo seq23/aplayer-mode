@@ -7,6 +7,7 @@ import {
   REVENUECAT_CONFIG,
   formatUsdCents,
   type BillingChannel,
+  type StoreChannel,
   type BillingPeriod,
   type PaidPlan,
 } from '@apm/policy';
@@ -16,10 +17,11 @@ export const PAID_PLANS: readonly PaidPlan[] = ['chief_of_staff', 'life_os', 'au
 export const STORE_LABELS: Readonly<Record<BillingChannel, { account: string; settings: string }>> = {
   app_store: { account: 'Apple ID', settings: 'App Store account settings' },
   google_play: { account: 'Google Play account', settings: 'Google Play subscriptions' },
+  web: { account: 'card', settings: 'the customer portal (Manage subscription, or the link in any receipt email)' },
 };
 
 /** Store subscription-management pages (used when RevenueCat has no managementURL). */
-export function storeManageUrl(store: BillingChannel, androidPackage = 'com.aplayermode.app'): string {
+export function storeManageUrl(store: StoreChannel, androidPackage = 'com.aplayermode.app'): string {
   return store === 'app_store'
     ? 'https://apps.apple.com/account/subscriptions'
     : `https://play.google.com/store/account/subscriptions?package=${encodeURIComponent(androidPackage)}`;
@@ -92,12 +94,14 @@ export function subscriptionDisclosure(store: BillingChannel, offer: TierOffer):
   const lines = [
     `${offer.displayName} (${offer.period === 'annual' ? 'annual' : 'monthly'}) is an auto-renewing subscription at ${offer.priceLabel}.`,
     `Payment is charged to your ${labels.account} when you confirm the purchase.`,
-    `It renews automatically every ${unit} at the then-current price unless auto-renew is turned off at least 24 hours before the end of the current period; renewal is charged within the 24 hours before the period ends.`,
+    store === 'web'
+      ? `It renews automatically every ${unit} at the then-current price until you cancel; each renewal is charged to the same card at the start of the new period.`
+      : `It renews automatically every ${unit} at the then-current price unless auto-renew is turned off at least 24 hours before the end of the current period; renewal is charged within the 24 hours before the period ends.`,
     `Manage or cancel any time in ${labels.settings}. Cancelling stops the next renewal; you keep access until the end of the period you paid for.`,
     'There is no free trial.',
   ];
   if (offer.founding) lines.push('Founding 100: the founding price holds only while the subscription stays continuously active. If it lapses, the founding price ends and re-subscribing is at the current price.');
-  else if (offer.note && offer.plan === 'chief_of_staff' && offer.period === 'monthly') lines.push(`${offer.note} The intro price is for new subscribers only, as the store determines.`);
+  else if (offer.note && offer.plan === 'chief_of_staff' && offer.period === 'monthly') lines.push(`${offer.note} The intro price is for new subscribers only, as the ${store === 'web' ? 'checkout' : 'store'} determines.`);
   lines.push('Buying a plan makes capability available. It never gives APM permission to act for you; you grant that separately, and you can revoke it.');
   return lines;
 }

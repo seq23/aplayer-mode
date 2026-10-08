@@ -108,7 +108,11 @@ test('H2/H4: the paywall puts the buy buttons first, folds the 13 grid rows, and
   assert.match(paywall, /isCurrent \? <Pill tone="solid">Current<\/Pill> : planKey === recommended \? <Pill tone="solid">/, 'the plan card pills are solid: a soft pill on the accent card was invisible (successSoft = accentSoft)');
   assert.doesNotMatch(await src('app/(tabs)/goals.tsx'), /<Pill tone="success">Main goal/, 'the main-goal pill is visible on its accent card');
   assert.match(paywall, /disabledReason=\{busy \? undefined : buyBlockedReason\(pkg\)\}/, 'a disabled buy button says why');
-  assert.equal((paywall.match(/variant=\{planKey === recommended \? 'accent' : 'secondary'\}/g) ?? []).length, 1, 'one highlighted buy button: the recommended plan');
+  // One highlighted buy button per build: the store button (store builds) and the card button (web,
+  // sideload) sit behind mutually exclusive guards, so a screen shows exactly one of them.
+  assert.equal((paywall.match(/variant=\{planKey === recommended \? 'accent' : 'secondary'\}/g) ?? []).length, 2, 'one highlighted store button + one highlighted card button');
+  assert.match(paywall, /\{!isCurrent && availability\.available \? \(\s*<Button label=\{busy === planKey \? 'Opening the store…'[^\n]*variant=\{planKey === recommended \? 'accent' : 'secondary'\}/, 'the store one is behind availability.available');
+  assert.match(paywall, /cardCheckout\.kind === 'ready'[\s\S]{0,400}WEB_CHECKOUT_COPY\.button[^\n]*variant=\{planKey === recommended \? 'accent' : 'secondary'\}/, 'the card one is behind card checkout ready');
   const plan = await src('app/settings/plan.tsx');
   assert.doesNotMatch(plan, /value=\{entitlement\.status\}|maxAutonomyLevel/, 'Settings → plan shows words, not enums or levels');
 });

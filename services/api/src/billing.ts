@@ -71,8 +71,24 @@ export function sanitizeRevenueCatEvent(body: unknown): SanitizedBillingEvent | 
   return clean as SanitizedBillingEvent;
 }
 
-export function billingSandboxAllowed(env: ApiEnv): boolean {
-  return env.BILLING_ALLOW_SANDBOX === 'true';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** The explicit tester allowlist (BILLING_SANDBOX_TESTER_IDS): exact, lower-cased UUIDs only. */
+export function sandboxTesterIds(env: ApiEnv): ReadonlySet<string> {
+  const ids = (env.BILLING_SANDBOX_TESTER_IDS ?? '').split(',').map((id) => id.trim().toLowerCase()).filter((id) => UUID.test(id));
+  return new Set(ids);
+}
+
+/**
+ * May this event's SANDBOX environment be honoured? Staging: every sandbox event
+ * (BILLING_ALLOW_SANDBOX=true, refused in production by scripts/deploy-api-production.sh).
+ * Production: ONLY a sandbox event whose app_user_id is on the explicit tester allowlist.
+ * Anything else stays `ignored_environment` in the database.
+ */
+export function billingSandboxAllowed(env: ApiEnv, event?: Pick<SanitizedBillingEvent, 'environment' | 'app_user_id'>): boolean {
+  if (env.BILLING_ALLOW_SANDBOX === 'true') return true;
+  if (!event || event.environment !== 'SANDBOX' || !event.app_user_id) return false;
+  return sandboxTesterIds(env).has(event.app_user_id.toLowerCase());
 }
 
 export interface BillingApplyResult { outcome: string; replayed: boolean; plan?: string; status?: string }
@@ -104,7 +120,7 @@ export async function handleRevenueCatWebhook(env: ApiEnv, request: Request): Pr
   try {
     result = await supabaseRest<BillingApplyResult>(env, SERVICE_ROLE_TOKEN, '/rest/v1/rpc/apm_service_billing_apply_event', {
       method: 'POST',
-      body: JSON.stringify({ p_event: event, p_allow_sandbox: billingSandboxAllowed(env) }),
+      body: JSON.stringify({ p_event: event, p_allow_sandbox: billingSandboxAllowed(env, event) }),
     });
   } catch (error) {
     // The database refused the event's shape: a 400, not a retryable outage.
@@ -133,4 +149,32 @@ export async function runBillingSweep(env: ApiEnv): Promise<BillingSweepResult> 
   if (!env.SUPABASE_SECRET_KEY) return { skipped: 'no_service_credential', expired: 0 };
   const expired = await supabaseRest<number>(env, SERVICE_ROLE_TOKEN, '/rest/v1/rpc/apm_service_billing_expire_lapsed', { method: 'POST', body: '{}' });
   return { expired: Number(expired ?? 0) };
+}
+
+export type WebPortalResult = { url: string } | { url: null; reason: 'not_configured' | 'no_web_subscription' | 'unavailable' };
+
+/**
+ * The RevenueCat Web Billing customer portal for this user's card subscription (API v2,
+ * `management_url` of their newest RevenueCat Billing subscription). The customer id is the
+ * verified session's user id, never anything the request names. Never throws: a missing
+ * key or a RevenueCat error answers url:null and the app points to the receipt email.
+ */
+export async function webCustomerPortalFor(env: ApiEnv, userId: string, fetcher: typeof fetch = fetch): Promise<WebPortalResult> {
+  const key = env.REVENUECAT_API_V2_KEY;
+  const project = env.REVENUECAT_PROJECT_ID;
+  if (!key || !project || !/^proj[0-9a-z]+$/i.test(project)) return { url: null, reason: 'not_configured' };
+  try {
+    const response = await fetcher(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(project)}/customers/${encodeURIComponent(userId)}/subscriptions?limit=20`, {
+      headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
+    });
+    if (response.status === 404) return { url: null, reason: 'no_web_subscription' };
+    if (!response.ok) return { url: null, reason: 'unavailable' };
+    const body = await response.json() as { items?: Array<{ store?: string; management_url?: string | null; starts_at?: number }> };
+    const web = (body.items ?? [])
+      .filter((item) => (item.store === 'rc_billing' || item.store === 'stripe') && typeof item.management_url === 'string' && /^https:\/\//.test(item.management_url))
+      .sort((a, b) => (b.starts_at ?? 0) - (a.starts_at ?? 0));
+    return web[0]?.management_url ? { url: web[0].management_url } : { url: null, reason: 'no_web_subscription' };
+  } catch {
+    return { url: null, reason: 'unavailable' };
+  }
 }
