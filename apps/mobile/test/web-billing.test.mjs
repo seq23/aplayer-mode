@@ -139,9 +139,16 @@ test('build flags: APK = sideload, web deploy = web, every EAS profile with env 
   for (const script of [apk, web]) assert.match(script, /^eval "\$\(node scripts\/web-billing-env\.mjs\)"$/m);
   const eas = JSON.parse(await readFile(join(appDir, 'eas.json'), 'utf8'));
   for (const [name, profile] of Object.entries(eas.build)) if (profile.env) assert.equal(profile.env.EXPO_PUBLIC_APM_DISTRIBUTION, 'store', `eas ${name}`);
-  // The committed link config is valid (empty until the owner's dashboard step) and bad links are refused.
+  // The committed link config holds both live Web Purchase Links (production pay.rev.cat links, never the
+  // /sandbox/ ones, RUNBOOK step 7, 7 Oct 2026) and bad links are refused.
   const config = JSON.parse(await readFile(join(appDir, 'web-billing.json'), 'utf8'));
-  assert.deepEqual(Object.keys(envHelper.webBillingEnv(config, {})), envHelper.NAMES);
+  const committed = envHelper.webBillingEnv(config, {});
+  assert.deepEqual(Object.keys(committed), envHelper.NAMES);
+  for (const name of envHelper.NAMES) {
+    assert.match(committed[name], /^https:\/\/pay\.rev\.cat\/[a-z0-9]+\/$/, `${name} is a production Web Purchase Link`);
+    assert.doesNotMatch(committed[name], /sandbox/, `${name} is not the sandbox link`);
+  }
+  assert.notEqual(committed.EXPO_PUBLIC_RC_WEB_PURCHASE_URL, committed.EXPO_PUBLIC_RC_WEB_PURCHASE_URL_FOUNDING, 'default and founding are different offerings');
   assert.deepEqual(envHelper.webBillingEnv({}, { EXPO_PUBLIC_RC_WEB_PURCHASE_URL: LINK }), { EXPO_PUBLIC_RC_WEB_PURCHASE_URL: LINK, EXPO_PUBLIC_RC_WEB_PURCHASE_URL_FOUNDING: '' });
   for (const bad of ['http://pay.rev.cat/x', 'https://evil.example/x', "https://pay.rev.cat/x';rm -rf /"]) {
     assert.throws(() => envHelper.webBillingEnv({ EXPO_PUBLIC_RC_WEB_PURCHASE_URL: bad }, {}), /not a RevenueCat Web Purchase Link/);

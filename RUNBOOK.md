@@ -15,6 +15,8 @@ Operational entry point. Billing detail: `docs/33-BILLING-PHASE-D.md`; App Revie
 
 Card payments for the web app and the sideload APK (docs/33 §9) are built and deployed; until these steps are done the app shows "Card payments open shortly." Everything below is dashboard wiring; no code change except pasting two links.
 
+**Status (7 Oct 2026): steps 1–8 DONE in Stripe TEST mode** — Stripe account `acct_1UO7wiLaZ1UPI1NL` ("Spry / A Player Mode"); Web Billing app `app3a2bcfb2d0`; web products `prod55a7776fc5` (cos_monthly, $9.99 × 3 then $24.99), `prodd268ac7476` (founding $9.99), `prod5b26143a3c` ($249.99/yr), `prodc87e7e553f` ($39.99), `prod67b0cd398b` ($399.99/yr), `prod707eaae618` ($79.99), `prode5f37c9120` ($799.99/yr); Web Purchase Links `rcbchkconfef90a511080143aabace516c0f041bb9` (default) and `rcbchkconfe0930de8db45470bb056bc85b6c30062` (founding), production URLs committed in `apps/mobile/web-billing.json` (the `/sandbox/` twins are for testers only and are never committed — `apps/mobile/test/web-billing.test.mjs`). **Live mode is the owner's one step:** finish Stripe account activation; the links then take real cards with no code change. RevenueCat Web Billing products cannot be created through the public v2 API ("Web Billing product creation is still not supported"), so they were made in the dashboard.
+
 1. **Create or choose a Spry Stripe account — NOT West Peek.**
 2. **RevenueCat → project "A player Mode" (`proj2c0586cf`) → Apps → + New → Web Billing**, connect that Stripe account. Default currency USD.
 3. **Create the web products with exactly these identifiers** (same prices as the store products; docs/33 §9):
