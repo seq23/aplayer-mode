@@ -23,6 +23,42 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 export const JOIN_FOUNDING_LABEL = `Join the Founding 100 — ${formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents)}/month`;
 /** The Founding 100 card: Executive Roundtable monthly in the `founding` offering. */
 export const FOUNDING_PACKAGE_ID = REVENUECAT_CONFIG.packages.chief_of_staff.monthly;
+/** Once the Founding 100 is full: the same Executive Roundtable monthly package in the `default` offering (intro price, then standard). */
+export const STANDARD_PACKAGE_ID = REVENUECAT_CONFIG.packages.chief_of_staff.monthly;
+const INTRO = CHIEF_OF_STAFF_INTRO_OFFERS.introductory;
+/** The same button once the Founding 100 is full: the standard Executive Roundtable offer at its normal price. */
+export const JOIN_STANDARD_LABEL = `Join the Executive Roundtable — ${formatUsdCents(INTRO.monthlyUsdCents)}/month for ${INTRO.months} months, then ${formatUsdCents(INTRO.thenMonthlyUsdCents)}/month`;
+
+/** The server's public Founding 100 count (GET /v1/billing/founding). */
+export interface FoundingPlaces { total: number; remaining: number | null; open: boolean | null }
+export type JoinOffer = 'founding' | 'standard' | 'unknown';
+
+/**
+ * Which offer the join button sells, from the server's count ONLY: founding while places remain,
+ * standard once none do (never a founding price past 100), unknown when the count could not be
+ * read (the join page asks again rather than guessing either price).
+ */
+export function joinOfferFor(places: FoundingPlaces | null | undefined): JoinOffer {
+  const remaining = places?.remaining;
+  if (typeof remaining !== 'number' || !Number.isFinite(remaining) || typeof places?.open !== 'boolean') return 'unknown';
+  return remaining > 0 && places.open ? 'founding' : 'standard';
+}
+
+/** The button label for an offer; before the count arrives (or if it cannot) the founding label, since /join decides again. */
+export function joinLabelFor(offer: JoinOffer): string {
+  return offer === 'standard' ? JOIN_STANDARD_LABEL : JOIN_FOUNDING_LABEL;
+}
+
+/** What /join says when the Founding 100 is full, or when the count could not be read. */
+export const JOIN_COPY = {
+  foundingTitle: 'Opening the secure card checkout…',
+  fullEyebrow: 'Executive Roundtable',
+  fullTitle: 'The Founding 100 is full',
+  fullBody: `All 100 Founding places are taken. Executive Roundtable is ${formatUsdCents(INTRO.monthlyUsdCents)}/month for your first ${INTRO.months} months, then ${formatUsdCents(INTRO.thenMonthlyUsdCents)}/month. Cancel any time.`,
+  fullButton: `Continue to checkout — ${formatUsdCents(INTRO.monthlyUsdCents)}/month for ${INTRO.months} months`,
+  unknown: 'We could not check how many Founding 100 places are left just now, so we have not opened a checkout. Try again in a moment.',
+  tryAgain: 'Try again',
+} as const;
 
 export interface PendingCheckout { id: string; createdAt: number }
 
@@ -55,6 +91,12 @@ export function parsePendingCheckout(raw: string | null | undefined, nowMs: numb
 export function foundingCheckoutUrl(checkoutId: string, foundingLink: string | undefined): string | undefined {
   if (!UUID.test(checkoutId)) return undefined;
   return webPurchaseUrl(foundingLink, FOUNDING_PACKAGE_ID, checkoutId);
+}
+
+/** The standard checkout for a pending checkout id once the Founding 100 is full: the default link, never the founding one. */
+export function standardCheckoutUrl(checkoutId: string, defaultLink: string | undefined): string | undefined {
+  if (!UUID.test(checkoutId)) return undefined;
+  return webPurchaseUrl(defaultLink, STANDARD_PACKAGE_ID, checkoutId);
 }
 
 type Storage = { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void };
@@ -102,8 +144,9 @@ export function returnCheckout(search: string | undefined, nowMs: number = Date.
 
 /**
  * RevenueCat takes a few seconds to record a purchase, so a claim right after paying can read
- * not_paid. Seconds after the first try at which the claim is re-asked, quietly: about a minute in
- * all, and never more than 6 calls a minute (the server's per-checkout limit, RECONCILE_LIMIT).
+ * not_paid. Seconds after the first try at which the claim is re-asked, quietly: 55 s of waiting
+ * plus six round trips (each checks RevenueCat twice), so up to about a minute and a half in all
+ * (RETURN_COPY.waitingHint says so), and never more than 6 calls a minute (RECONCILE_LIMIT).
  */
 export const CLAIM_RETRY_SCHEDULE_S: readonly number[] = [5, 10, 20, 35, 55];
 
@@ -181,7 +224,7 @@ export async function attachUntilDone(
 
 /** What the return page says while it waits, when it gives up, and when another account is signed in. */
 export const RETURN_COPY = {
-  waitingHint: 'This can take up to a minute. Keep this page open.',
+  waitingHint: 'This usually takes under a minute, and can take up to two. Keep this page open.',
   stillConfirming: 'Still confirming. Your payment is safe with the card processor; tap Check again in a minute. If your plan is not on within an hour, write to support@aplayermode.com and we will turn it on.',
   checkAgain: 'Check again',
   otherAccount: (email: string) => `You're signed in as ${email}. This purchase was made with another email — sign out to attach it.`,

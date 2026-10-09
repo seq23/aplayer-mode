@@ -18,6 +18,7 @@ import { build } from 'esbuild';
 const appDir = fileURLToPath(new URL('../', import.meta.url));
 const src = (path) => readFile(join(appDir, path), 'utf8');
 const FOUNDING_LINK = 'https://pay.rev.cat/lyamzdqnlkwrwwxt/';
+const DEFAULT_LINK = 'https://pay.rev.cat/hbcpxjpbgwbzhdgo/';
 let outDir; let pay; let quotes; let sell; let summary; let greet; let menu;
 
 test.before(async () => {
@@ -53,6 +54,46 @@ test('the committed founding link is the one the button opens', async () => {
   assert.equal(links.EXPO_PUBLIC_RC_WEB_PURCHASE_URL_FOUNDING, FOUNDING_LINK);
   const join = await src('app/join.tsx');
   assert.match(join, /foundingCheckoutUrl\(pending\.id, WEB_PURCHASE_LINKS\.founding\)/);
+  // Once the Founding 100 is full the default link; neither link while the count is unknown.
+  assert.equal(links.EXPO_PUBLIC_RC_WEB_PURCHASE_URL, DEFAULT_LINK);
+  assert.match(join, /standardCheckoutUrl\(pending\.id, WEB_PURCHASE_LINKS\.default\)/);
+  assert.match(join, /decided = joinOfferFor\(await fetchFoundingPlaces\(\)\);/);
+  assert.match(join, /const pending = decided === 'unknown' \? undefined : pendingCheckout\(Date\.now\(\), true\);/);
+  assert.match(join, /if \(decided === 'unknown'\) \{ setMessage\(JOIN_COPY\.unknown\); return; \}/);
+  // Signed in: the server's offering (eligibility AND the count) decides, not the slot-holder flag.
+  assert.match(join, /decided = !offering \? 'unknown' : offering\.offering === 'founding' \? 'founding' : 'standard';/);
+  assert.doesNotMatch(join, /offering\?\.founding/);
+  // Only the founding offer redirects at once; the full page says so and waits for a tap.
+  assert.match(join, /if \(decided === 'founding'\) \{ if \(typeof window !== 'undefined'\) window\.location\.assign\(url\); return; \}\n\s+setStandardUrl\(url\);/);
+  assert.match(join, /<Screen fullBleed eyebrow=\{JOIN_COPY\.fullEyebrow\} title=\{JOIN_COPY\.fullTitle\}>/);
+});
+
+test('Founding 100 sell-out: under, at and over 100 places taken, from the server count only', () => {
+  const id = pay.mintCheckoutId();
+  // Under 100 taken: founding, the founding label and link.
+  assert.equal(pay.joinOfferFor({ total: 100, remaining: 37, open: true }), 'founding');
+  assert.equal(pay.joinOfferFor({ total: 100, remaining: 1, open: true }), 'founding');
+  assert.equal(pay.joinLabelFor('founding'), 'Join the Founding 100 — $9.99/month');
+  // At 100 taken: the standard offer at its normal price, the default link, the standard package.
+  assert.equal(pay.joinOfferFor({ total: 100, remaining: 0, open: false }), 'standard');
+  assert.equal(pay.joinLabelFor('standard'), 'Join the Executive Roundtable — $9.99/month for 3 months, then $24.99/month');
+  assert.equal(pay.JOIN_STANDARD_LABEL, pay.joinLabelFor('standard'));
+  assert.equal(pay.STANDARD_PACKAGE_ID, 'cos_monthly');
+  assert.equal(pay.standardCheckoutUrl(id, DEFAULT_LINK), `https://pay.rev.cat/hbcpxjpbgwbzhdgo/${id}?package_id=cos_monthly`);
+  assert.equal(pay.standardCheckoutUrl('not-a-uuid', DEFAULT_LINK), undefined);
+  assert.equal(pay.standardCheckoutUrl(id, undefined), undefined);
+  assert.match(pay.JOIN_COPY.fullTitle, /Founding 100 is full/);
+  assert.match(pay.JOIN_COPY.fullBody, /\$9\.99\/month for your first 3 months, then \$24\.99\/month/);
+  assert.doesNotMatch(pay.JOIN_COPY.fullButton, /Founding/);
+  // Over 100 / contradictory: never founding unless places remain AND the server says open.
+  assert.equal(pay.joinOfferFor({ total: 100, remaining: -2, open: false }), 'standard');
+  assert.equal(pay.joinOfferFor({ total: 100, remaining: 0, open: true }), 'standard');
+  assert.equal(pay.joinOfferFor({ total: 100, remaining: 5, open: false }), 'standard');
+  // Unknown count: neither price.
+  for (const places of [null, undefined, { total: 100, remaining: null, open: null }, { total: 100, remaining: Number.NaN, open: true }, { total: 100, remaining: 5, open: null }]) {
+    assert.equal(pay.joinOfferFor(places), 'unknown');
+  }
+  assert.equal(pay.joinLabelFor('unknown'), pay.JOIN_FOUNDING_LABEL, '/join decides again before any checkout opens');
 });
 
 test('pending checkout: stored per browser, stale or malformed reads as none', () => {
@@ -78,7 +119,11 @@ test('web app only: never the sideload APK, never a store build', async () => {
   assert.equal(pay.payFirstAllowed('sideload'), false);
   assert.equal(pay.payFirstAllowed('store'), false);
   const welcome = await src('app/welcome.tsx');
-  assert.match(welcome, /payFirst \? <Button label=\{JOIN_FOUNDING_LABEL\} large onPress=\{join\} \/> : null/);
+  assert.match(welcome, /payFirst \? <Button label=\{joinLabel\} large onPress=\{join\} \/> : null/);
+  assert.match(welcome, /payFirst \? <Button label=\{joinLabel\} onPress=\{join\} \/> : null/);
+  assert.doesNotMatch(welcome, /JOIN_FOUNDING_LABEL/, 'the welcome buttons follow the server count, never a fixed founding label');
+  assert.match(welcome, /fetchFoundingPlaces\(\)\.then\(\(places\) => \{ if \(active\) setJoinOffer\(joinOfferFor\(places\)\); \}\)/);
+  assert.match(welcome, /const joinLabel = joinLabelFor\(joinOffer\);/);
   assert.match(welcome, /const join = \(\) => router\.push\('\/join'\)/);
   const join = await src('app/join.tsx');
   assert.match(join, /if \(!payFirstAllowed\(appDistribution\(\)\)\) \{ router\.replace\('\/'\); return; \}/);
@@ -266,7 +311,11 @@ test('return page: a visible wait, a clear next step on timeout, and another sig
   const ret = await src('app/billing/return.tsx');
   // Waiting moves (spinner) and says how long.
   assert.match(ret, /<LoadingState label=\{WEB_CHECKOUT_COPY\.confirming\} \/>\n\s+<Muted align="center">\{RETURN_COPY\.waitingHint\}<\/Muted>/);
-  assert.match(pay.RETURN_COPY.waitingHint, /up to a minute/);
+  // The wait copy matches the real retry window: 55 s of waits plus six round trips (~1.5 min).
+  assert.equal(pay.RETURN_COPY.waitingHint, 'This usually takes under a minute, and can take up to two. Keep this page open.');
+  assert.doesNotMatch(pay.RETURN_COPY.waitingHint, /up to a minute/);
+  assert.equal(pay.CLAIM_RETRY_SCHEDULE_S.length + 1, 6, 'six claims in all');
+  assert.ok(pay.CLAIM_RETRY_SCHEDULE_S.at(-1) <= 60 && pay.ATTACH_RETRY_SCHEDULE_S.at(-1) <= 60, 'waiting alone stays within a minute; round trips make up the rest, under two');
   // Timeout: what happens next, plus Check again (one more round of the same checks).
   assert.match(ret, /<Button label=\{RETURN_COPY\.checkAgain\} icon="refresh-cw" onPress=\{\(\) => setRound\(\(n\) => n \+ 1\)\} \/>/);
   assert.match(ret, /attaching, ageConfirmed, round\]\);/);

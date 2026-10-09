@@ -135,6 +135,10 @@ test('build flags: APK = sideload, web deploy = web, every EAS profile with env 
   const web = await readFile(join(repoDir, 'scripts/deploy-web-production.sh'), 'utf8');
   assert.match(apk, /^export EXPO_PUBLIC_APM_DISTRIBUTION="sideload"$/m);
   assert.match(apk, /^unset EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY$/m);
+  // Every sideload APK installs over the last one (a versionCode that only goes up) and names its source SHA.
+  assert.match(apk, /^APM_ANDROID_VERSION_CODE="\$\{APM_ANDROID_VERSION_CODE:-\$\(git rev-list --count HEAD\)\}"$/m);
+  assert.match(apk, /-\$\(git rev-parse --short=7 HEAD\)"$/m);
+  assert.match(apk, /if \(!g\.includes\(`versionCode \$\{code\}`\)\) throw new Error\('versionCode not set'\);/);
   assert.match(web, /^export EXPO_PUBLIC_APM_DISTRIBUTION="web"$/m);
   for (const script of [apk, web]) assert.match(script, /^eval "\$\(node scripts\/web-billing-env\.mjs\)"$/m);
   const eas = JSON.parse(await readFile(join(appDir, 'eas.json'), 'utf8'));

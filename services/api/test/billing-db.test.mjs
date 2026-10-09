@@ -404,6 +404,9 @@ test('Founding 100: only paid founding subscriptions hold a slot — 99 gives on
   const viewers = [];
   for (let i = 0; i < 5; i += 1) { const v = await newUser(); viewers.push(v); assert.equal((await offering(v)).offering, 'founding'); }
   assert.equal(await claimedSlots(), 99);
+  // The public count (GET /v1/billing/founding, the join button and aplayermode.com) reads this.
+  const spotsLeft = async () => (await service('select public.apm_service_billing_founding_spots_left() as n')).rows[0].n;
+  assert.equal(await spotsLeft(), 1, 'under 100: places remain');
   assert.equal((await offering(viewers[0])).reservedUntil, null);
 
   // Two buyers race for the last slot: exactly one gets the lock; the other keeps access at standard.
@@ -415,11 +418,19 @@ test('Founding 100: only paid founding subscriptions hold a slot — 99 gives on
   const loser = (await ent(x)).offer === 'founding' ? y : x;
   assert.deepEqual([(await ent(loser)).plan, (await ent(loser)).status], ['chief_of_staff', 'active']);
   assert.equal((await admin("select count(*)::int as n from public.audit_events where user_id = $1 and event_type = 'billing.founding_without_slot'", [loser])).rows[0].n, 1);
-  // At 100 nobody new is offered it.
+  // At 100 nobody new is offered it, and the public count says none are left.
   assert.equal((await offering(viewers[2])).offering, 'default');
+  assert.equal(await spotsLeft(), 0, 'at 100: none left');
   assert.equal((await admin('select max(slot_no)::int as m from private.billing_founding_slots')).rows[0].m, 100);
   await rejects(admin("insert into private.billing_founding_slots (slot_no, user_id, status) values (101, $1, 'claimed')", [viewers[3]]), /check constraint/);
   await rejects(admin("insert into private.billing_founding_slots (slot_no, user_id, status) values (50, $1, 'reserved')", [viewers[3]]), /check constraint|duplicate key/);
+  // Over 100: a founding purchase with no place left claims nothing; the count stays 0, never negative.
+  const overflow = await newUser();
+  await apply(ev('INITIAL_PURCHASE', overflow, 'apm_web_cos_monthly_founding'));
+  assert.equal((await ent(overflow)).offer, 'standard');
+  assert.equal(await slot(overflow), undefined);
+  assert.equal(await claimedSlots(), 100);
+  assert.equal(await spotsLeft(), 0, 'over 100: still none, never negative');
 
   // A lapse frees the slot for someone else and the lapsed founder never gets it back.
   const lapsed = founders[0];

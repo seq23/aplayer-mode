@@ -152,6 +152,31 @@ export async function billingOfferingFor(env: ApiEnv, userId: string): Promise<B
   });
 }
 
+/** How many Founding 100 places exist; the database caps slot_no at the same number (0040). */
+export const FOUNDING_PLACES_TOTAL = 100;
+
+/**
+ * The PUBLIC Founding 100 count (GET /v1/billing/founding): the join button in the web app and
+ * aplayermode.com switch to the standard Executive Roundtable offer once `open` is false, so no
+ * founding price is sold past 100. `remaining` is the server's count of unclaimed places (0062),
+ * clamped to 0..100; null (and `open` null) when the count cannot be read: callers never guess.
+ */
+export interface FoundingPlaces { total: number; remaining: number | null; open: boolean | null }
+
+export function foundingPlacesFrom(raw: unknown): FoundingPlaces {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return { total: FOUNDING_PLACES_TOTAL, remaining: null, open: null };
+  const remaining = Math.max(0, Math.min(FOUNDING_PLACES_TOTAL, Math.floor(raw)));
+  return { total: FOUNDING_PLACES_TOTAL, remaining, open: remaining > 0 };
+}
+
+export async function foundingPlaces(env: ApiEnv, fetcher: typeof fetch = fetch): Promise<FoundingPlaces> {
+  if (!env.SUPABASE_SECRET_KEY || !env.SUPABASE_URL) return foundingPlacesFrom(null);
+  try {
+    const response = await serviceRpc(env, 'apm_service_billing_founding_spots_left', {}, fetcher);
+    return foundingPlacesFrom(response.ok ? await response.json() : null);
+  } catch { return foundingPlacesFrom(null); }
+}
+
 export interface BillingSweepResult { skipped?: 'no_service_credential'; expired: number }
 
 /** Cron safety net: expire store entitlements whose EXPIRATION webhook never arrived. */

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   CONTINUITY,
@@ -20,7 +20,8 @@ import {
 } from '../src/content/sell';
 import { useSession } from '../src/state/session';
 import { appDistribution } from '../src/billing/purchases';
-import { JOIN_FOUNDING_LABEL, payFirstAllowed } from '../src/billing/precheckout';
+import { joinLabelFor, joinOfferFor, payFirstAllowed, type JoinOffer } from '../src/billing/precheckout';
+import { fetchFoundingPlaces } from '../src/api/apmApi';
 import { Testimonials } from '../src/components/Testimonials';
 import { useIntake } from '../src/intake/store';
 import { useConsent } from '../src/state/consent';
@@ -45,6 +46,15 @@ export default function WelcomeScreen() {
   const shown = PERSONAS.personas.find((p) => p.title === persona) ?? PERSONAS.personas[0];
   // Pay first (docs/33 §10): web app only; straight to the Founding 100 card checkout.
   const payFirst = payFirstAllowed(appDistribution());
+  // The button follows the server's Founding 100 count: the standard offer once it is full.
+  const [joinOffer, setJoinOffer] = useState<JoinOffer>('unknown');
+  useEffect(() => {
+    if (!payFirst) return;
+    let active = true;
+    void fetchFoundingPlaces().then((places) => { if (active) setJoinOffer(joinOfferFor(places)); });
+    return () => { active = false; };
+  }, [payFirst]);
+  const joinLabel = joinLabelFor(joinOffer);
   const join = () => router.push('/join');
   const start = () => {
     // 18+ first, then the separate health-data choice; nothing is asked or saved before them.
@@ -61,7 +71,7 @@ export default function WelcomeScreen() {
       fullBleed
       footer={(
         <>
-          {payFirst ? <Button label={JOIN_FOUNDING_LABEL} large onPress={join} /> : null}
+          {payFirst ? <Button label={joinLabel} large onPress={join} /> : null}
           <Button label={CTA_LABEL} large variant={payFirst ? 'secondary' : 'primary'} onPress={start} />
           <LinkButton role="link" align="center" label={HAVE_ACCOUNT_LABEL} onPress={() => router.push('/account')} />
         </>
@@ -161,7 +171,7 @@ export default function WelcomeScreen() {
       <Section eyebrow="Plans" title={WELCOME_TIERS_TEASER.title}>
         <Card>{WELCOME_TIERS_TEASER.rows.map((row) => <ListItem key={row.title} title={row.title} detail={row.body} />)}</Card>
         <Pill tone="solid">{WELCOME_TIERS_TEASER.offer}</Pill>
-        {payFirst ? <Button label={JOIN_FOUNDING_LABEL} onPress={join} /> : null}
+        {payFirst ? <Button label={joinLabel} onPress={join} /> : null}
       </Section>
 
       <Section eyebrow="Privacy" title="Your data is yours">

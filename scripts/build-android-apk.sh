@@ -24,6 +24,12 @@ eval "$(node scripts/web-billing-env.mjs)"
 # A Play billing key in a sideload build would be dead code at best: never pass one.
 unset EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY
 export NODE_ENV=production
+# Each sideload APK carries a versionCode that only goes up (the commit count of the source, so
+# Android installs it over the previous APK) and the source SHA in its versionName, so a download
+# can be matched to the commit it was built from (aapt2 dump badging).
+APM_ANDROID_VERSION_CODE="${APM_ANDROID_VERSION_CODE:-$(git rev-list --count HEAD)}"
+APM_ANDROID_VERSION_NAME="$(node -p "require('./app.json').expo.version")-$(git rev-parse --short=7 HEAD)"
+export APM_ANDROID_VERSION_CODE APM_ANDROID_VERSION_NAME
 CI=1 npx expo prebuild --platform android --clean --no-install >/dev/null
 git checkout -- package.json 2>/dev/null || true   # prebuild rewrites the run scripts; keep ours
 node - <<'NODE'
@@ -40,6 +46,10 @@ const release = `        release {
 if (!g.includes("keyAlias 'upload'")) g = g.replace(/(signingConfigs \{\n)/, `$1${release}`);
 g = g.replace(/(release \{\n(?:\s*\/\/.*\n)*\s*)signingConfig signingConfigs\.debug/, '$1signingConfig signingConfigs.release');
 if (!/signingConfig signingConfigs\.release/.test(g)) throw new Error('release signing not wired');
+const code = Number(process.env.APM_ANDROID_VERSION_CODE);
+if (!Number.isInteger(code) || code < 2) throw new Error('APM_ANDROID_VERSION_CODE must be an integer above 1');
+g = g.replace(/versionCode \d+/, `versionCode ${code}`).replace(/versionName "[^"]*"/, `versionName "${process.env.APM_ANDROID_VERSION_NAME}"`);
+if (!g.includes(`versionCode ${code}`)) throw new Error('versionCode not set');
 fs.writeFileSync(p, g);
 NODE
 export APM_UPLOAD_STORE_FILE="$APM_KEYSTORE_DIR/upload.keystore"
@@ -48,4 +58,4 @@ APM_UPLOAD_STORE_PASSWORD="$(cat "$APM_KEYSTORE_DIR/upload.keystore.password")";
 APK=android/app/build/outputs/apk/release/app-release.apk
 PATH="$JAVA_HOME/bin:$PATH" "$ANDROID_HOME"/build-tools/37.0.0/apksigner verify --print-certs "$APK" | grep -q "certificate DN: CN=A Player Mode, O=Spry Labs" || { echo "APK is not signed with the upload key"; exit 1; }
 mkdir -p ../../dist-android && cp "$APK" ../../dist-android/aplayermode.apk
-echo "APK: dist-android/aplayermode.apk ($(du -h ../../dist-android/aplayermode.apk | cut -f1))"
+echo "APK: dist-android/aplayermode.apk ($(du -h ../../dist-android/aplayermode.apk | cut -f1)) versionCode $APM_ANDROID_VERSION_CODE versionName $APM_ANDROID_VERSION_NAME sha256 $(shasum -a 256 ../../dist-android/aplayermode.apk | cut -d' ' -f1)"
