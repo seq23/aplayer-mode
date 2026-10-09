@@ -595,6 +595,27 @@ export type PrecheckoutClaimResponse =
   | { claimed: true; outcomes: string[]; existingAccount?: boolean }
   | { claimed: false; error: string; message?: string };
 /**
+ * The public Founding 100 count (GET /v1/billing/founding, no session). Never throws: anything
+ * unreadable answers null, and joinOfferFor reads null as "unknown", never as a price.
+ */
+export async function fetchFoundingPlaces(): Promise<{ total: number; remaining: number | null; open: boolean | null } | null> {
+  if (!baseUrl) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+  try {
+    const response = await fetch(`${baseUrl}/v1/billing/founding`, { headers: { accept: 'application/json' }, signal: controller.signal });
+    if (!response.ok) return null;
+    const body = await response.json() as { total?: unknown; remaining?: unknown; open?: unknown };
+    return {
+      total: typeof body.total === 'number' ? body.total : 100,
+      remaining: typeof body.remaining === 'number' ? body.remaining : null,
+      open: typeof body.open === 'boolean' ? body.open : null,
+    };
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
+/**
  * Pay first, account after (docs/33 §10): claim a paid checkout for a new account with the email
  * typed at checkout. No session exists yet; the server creates the account with id = checkout id.
  */

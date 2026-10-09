@@ -10,7 +10,7 @@ import { synthesizeIntake } from './intakeSynthesis';
 import { AGE_GATE_OPEN_ROUTES, AGE_REQUIRED_BODY, AgeConfirmationRequired, ageConfirmed, carryConsents, CONSUMER_HEALTH_POLICY_VERSION, getConsentState, HEALTH_REQUIRED_BODY, healthConsentActive, recordConsent, withoutHealthData } from './consent';
 import type { ApiEnv } from './env';
 import { restErrorMessage, SERVICE_ROLE_TOKEN, supabaseRest } from './db';
-import { claimPrecheckout, attachPrecheckout, billingOfferingFor, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
+import { claimPrecheckout, attachPrecheckout, billingOfferingFor, foundingPlaces, foundingPlacesFrom, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
 import {
   completeNextAction,
   getLifeGraph,
@@ -588,13 +588,18 @@ app.use('*', async (c, next) => {
   c.header('cache-control', 'no-store');
   c.header('x-content-type-options', 'nosniff');
   c.header('referrer-policy', 'no-referrer');
-  // aplayermode.com may call ONLY the launch-updates route; everything else answers the app's origin.
+  // aplayermode.com may call ONLY the launch-updates route and read the public Founding 100
+  // count; everything else answers the app's origin.
   const origin = c.req.header('origin') ?? '';
   if (c.req.path === '/v1/launch-updates' && LAUNCH_UPDATES_ORIGINS.has(origin)) {
     c.header('access-control-allow-origin', origin);
     c.header('vary', 'origin');
     c.header('access-control-allow-headers', 'content-type');
     c.header('access-control-allow-methods', 'POST, OPTIONS');
+  } else if (c.req.path === FOUNDING_PLACES_PATH && LAUNCH_UPDATES_ORIGINS.has(origin)) {
+    c.header('access-control-allow-origin', origin);
+    c.header('vary', 'origin');
+    c.header('access-control-allow-methods', 'GET, OPTIONS');
   } else if (c.env.ALLOWED_ORIGIN) {
     c.header('access-control-allow-origin', c.env.ALLOWED_ORIGIN);
     c.header('access-control-allow-headers', 'authorization, content-type, x-request-id');
@@ -673,6 +678,24 @@ app.get('/v1/billing/offering', async (c) => {
     appUserId: user.id,
     products: BILLING_PRODUCTS.filter((item) => offering.offering === 'founding' || item.offer === 'standard').map(({ productId, store, plan, period, offer }) => ({ productId, store, plan, period, offer })),
   });
+});
+
+// The PUBLIC Founding 100 count: no session (the web app's join button before sign-up and
+// aplayermode.com read it). Cached at the edge for FOUNDING_PLACES_CACHE_S; an unreadable count
+// is answered null and never cached, so the buttons fall back to asking again, never guessing.
+const FOUNDING_PLACES_PATH = '/v1/billing/founding';
+const FOUNDING_PLACES_CACHE_S = 30;
+app.get(FOUNDING_PLACES_PATH, async (c) => {
+  const edge = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const key = new Request(new URL(FOUNDING_PLACES_PATH, c.req.url).toString());
+  const hit = await edge?.match(key).catch(() => undefined);
+  const places = hit ? foundingPlacesFrom((await hit.json() as { remaining?: unknown }).remaining) : await foundingPlaces(c.env);
+  if (!hit && edge && places.remaining !== null) {
+    const stored = edge.put(key, new Response(JSON.stringify(places), { headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${FOUNDING_PLACES_CACHE_S}` } })).catch(() => undefined);
+    try { c.executionCtx.waitUntil(stored); } catch { await stored; }
+  }
+  c.header('cache-control', places.remaining === null ? 'no-store' : `public, max-age=${FOUNDING_PLACES_CACHE_S}`);
+  return c.json(places);
 });
 
 // The webhook's safety net (after a card checkout, "I already paid"): read the SESSION user's
