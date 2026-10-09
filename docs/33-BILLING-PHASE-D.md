@@ -153,7 +153,7 @@ Cancellation, billing issue, expiration, refund and product-change events about 
 | Web paywall | **Superseded by §9 (7 Oct 2026):** the web app and the sideload APK pay by card (RevenueCat Web Billing); "Card payments open shortly" until the Web Purchase Links are set; no Restore button on web | `src/billing/webCheckout.ts`, `PlanChoice.tsx` |
 | docs/36 leftovers | **DONE**: A-1 spinners (`LoadingState`); A-5 AX5 clipping (tab label cap, Flow step number); B-1 the weekly debrief proposes one adjustment from the week's misses, prefilled | `test/dynamic-type.test.mjs`, `packages/planning` `suggestWeeklyAdjustment` |
 | Reviewer account | **BUILT and configured** (`APP_REVIEW_EMAIL` var, `APP_REVIEW_CODE` secret; closed-beta access through migration 0070, applied); answers 404 until `SUPABASE_SECRET_KEY` is set (the stop above) | docs/35 |
-| Android APK | signed release APK built on the Mac with an upload keystore (no Expo account) | `scripts/build-android-apk.sh` (JDK 17, Android SDK 37, NDK 27.1); first build: https://github.com/seq23/aplayer-mode/releases/download/android-beta-2026-10-07/aplayermode.apk |
+| Android APK | signed release APK built on the Mac with an upload keystore (no Expo account) | `scripts/build-android-apk.sh` (JDK 17, Android SDK 37, NDK 27.1); first build: https://github.com/seq23/aplayer-mode/releases/download/android-beta-2026-10-09/aplayermode.apk |
 | `presubmit:ios` | passes | `scripts/presubmit-ios.mjs` |
 | Supabase security advisor | one WARN, not new: `auth_leaked_password_protection` (Auth config; APM has no passwords, sign-in is a code) | |
 
