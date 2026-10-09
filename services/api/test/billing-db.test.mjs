@@ -578,3 +578,43 @@ test('0096 checkout links: a pay-first checkout attaches to an EXISTING account 
     await rejects(asRole(role, owner, 'select * from private.billing_checkout_links'), /permission denied/);
   }
 });
+
+test('0097: a paid, unclaimed pay-first founding checkout holds a place, so the founding price is never sold past 100', async () => {
+  await admin('delete from private.billing_founding_slots');
+  const spotsLeft = async () => (await service('select public.apm_service_billing_founding_spots_left() as n')).rows[0].n;
+  const founders = [];
+  for (let i = 0; i < 98; i += 1) founders.push(await newUser());
+  await admin(`insert into private.billing_founding_slots (slot_no, user_id, status, claimed_at)
+    select row_number() over (), u, 'claimed', now() from unnest($1::uuid[]) u`, [founders]);
+  const viewer = await newUser();
+  assert.equal(await spotsLeft(), 2, 'under 100: 98 claimed, none pending');
+  // Two buyers pay before any account exists (ignored_unknown_user): both places are now taken.
+  const [p1, p2] = [crypto.randomUUID(), crypto.randomUUID()];
+  for (const id of [p1, p2]) assert.equal((await apply(ev('INITIAL_PURCHASE', id, 'apm_web_cos_monthly_founding'))).outcome, 'ignored_unknown_user');
+  assert.equal(await spotsLeft(), 0, 'at 100: 98 claimed + 2 paid and waiting');
+  assert.equal((await offering(viewer)).offering, 'default', 'nobody new is offered the founding price');
+  // None of these hold a place: a standard product, a sandbox payment, an expired one, a malformed id.
+  await apply(ev('INITIAL_PURCHASE', crypto.randomUUID(), 'apm_web_cos_monthly'));
+  await apply(ev('INITIAL_PURCHASE', crypto.randomUUID(), 'apm_web_cos_monthly_founding', { environment: 'SANDBOX' }));
+  await apply(ev('INITIAL_PURCHASE', crypto.randomUUID(), 'apm_web_cos_monthly_founding', { expiration_at_ms: T0 - DAY }));
+  await apply(ev('INITIAL_PURCHASE', 'not-a-uuid', 'apm_web_cos_monthly_founding'));
+  assert.equal((await service('select private.apm_billing_founding_pending(now()) as n')).rows[0].n, 2);
+  // A repeat event for the same checkout is still one place.
+  await apply(ev('RENEWAL', p1, 'apm_web_cos_monthly_founding'));
+  assert.equal(await spotsLeft(), 0);
+  // Claimed: the account now exists with the checkout id, the purchase applies and takes a real slot.
+  await admin('insert into auth.users (id) values ($1)', [p1]);
+  await apply(ev('INITIAL_PURCHASE', p1, 'apm_web_cos_monthly_founding'));
+  assert.equal((await ent(p1)).offer, 'founding');
+  assert.equal((await admin('select count(*)::int as n from private.billing_founding_slots')).rows[0].n, 99);
+  assert.equal(await spotsLeft(), 0, '99 claimed + 1 still waiting');
+  // Over 100: the waiting buyer still gets the last slot when they claim; nobody else can.
+  assert.equal((await offering(viewer)).offering, 'default');
+  // Attached to an existing account instead (0096): it stops counting as waiting.
+  const owner = await newUser();
+  await admin('insert into private.billing_checkout_links (checkout_id, user_id) values ($1, $2)', [p2, owner]);
+  assert.equal(await spotsLeft(), 1, 'linked checkouts are counted through their account, not as waiting');
+  // Closed to every client role.
+  await rejects(asRole('anon', null, 'select private.apm_billing_founding_pending(now())'), /permission denied/);
+  await rejects(asRole('authenticated', viewer, 'select private.apm_billing_founding_taken(now())'), /permission denied/);
+});
