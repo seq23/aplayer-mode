@@ -46,6 +46,7 @@ import { syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
 import { reviewLogin } from './reviewLogin';
+import { LAUNCH_UPDATES_ORIGINS, launchUpdatesSignup } from './launchUpdates';
 import { COACH_CHOICES } from './coach/machine';
 import { applyModeToPlan, modeView, reconcileModeState, transitionMode, type ModeEvent, type ModeRequest, type ModeState } from './coach/modes';
 import { ACTIVE_TRACK_KEYS } from './coach/tracks';
@@ -586,7 +587,14 @@ app.use('*', async (c, next) => {
   c.header('cache-control', 'no-store');
   c.header('x-content-type-options', 'nosniff');
   c.header('referrer-policy', 'no-referrer');
-  if (c.env.ALLOWED_ORIGIN) {
+  // aplayermode.com may call ONLY the launch-updates route; everything else answers the app's origin.
+  const origin = c.req.header('origin') ?? '';
+  if (c.req.path === '/v1/launch-updates' && LAUNCH_UPDATES_ORIGINS.has(origin)) {
+    c.header('access-control-allow-origin', origin);
+    c.header('vary', 'origin');
+    c.header('access-control-allow-headers', 'content-type');
+    c.header('access-control-allow-methods', 'POST, OPTIONS');
+  } else if (c.env.ALLOWED_ORIGIN) {
     c.header('access-control-allow-origin', c.env.ALLOWED_ORIGIN);
     c.header('access-control-allow-headers', 'authorization, content-type, x-request-id');
     c.header('access-control-allow-methods', 'GET, PUT, POST, PATCH, DELETE, OPTIONS');
@@ -676,6 +684,17 @@ app.post('/v1/billing/reconcile', async (c) => {
 });
 
 // Web (card) subscribers: the RevenueCat customer portal link for the signed-in user only.
+// "Get launch updates" on aplayermode.com (migration 0095): no session; rate-limited per IP.
+app.post('/v1/launch-updates', async (c) => {
+  const ip = c.req.header('cf-connecting-ip') ?? 'unknown';
+  const allowed = async () => {
+    if (!c.env.RECONCILE_LIMITER) return true;
+    try { return (await c.env.RECONCILE_LIMITER.limit({ key: `launch-updates:${ip}` })).success; } catch { return true; }
+  };
+  const result = await launchUpdatesSignup(c.env as ApiEnv, await c.req.json().catch(() => null), allowed);
+  return c.json(result.body, result.status);
+});
+
 app.get('/v1/billing/web/portal', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   return c.json(await webCustomerPortalFor(c.env, user.id));
