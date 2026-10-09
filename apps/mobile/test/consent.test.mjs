@@ -26,7 +26,8 @@ test('Start: 18+ first, the health-data choice second, then the questions; nothi
 test('the gate covers every signed-in screen: the age screen for accounts the server has no 18+ for, then the health choice once', async () => {
   const layout = await src('app/_layout.tsx');
   assert.match(layout, /<ConsentProvider>\s*<ThemedStack \/>\s*<\/ConsentProvider>/);
-  assert.match(layout, /<\/Stack>\s*<ConsentGate \/>/, 'drawn over the navigator, which stays mounted');
+  // Drawn over the navigator (which stays mounted) AND over the account menu: the LAST thing drawn.
+  assert.match(layout, /<\/Stack>\s*(?:\{\/\*[^*]*\*\/\}\s*)?<AccountMenu \/>\s*<ConsentGate \/>\s*<\/>/, 'drawn over the navigator, which stays mounted, and over the account menu');
   const views = await src('src/components/consent/ConsentViews.tsx');
   assert.match(views, /needsAge \? <AgeGateView \/> : <HealthConsentView \/>/);
   const state = await src('src/state/consent.tsx');

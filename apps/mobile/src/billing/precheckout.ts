@@ -132,3 +132,58 @@ export const PRECHECKOUT_COPY = {
   unavailable: 'We could not check your payment just now. Wait a minute and try again; nothing is lost.',
   footnote: 'Paid from another browser or device? Open the link in your receipt email on that one, or write to support@aplayermode.com.',
 } as const;
+
+/**
+ * Attaching a pay-first checkout to an EXISTING account (0096) right after the 6-digit code.
+ * 9 Oct 2026: the one attach was sent the instant the code signed her in, BEFORE this device's
+ * 18+ tap reached the server (ConsentProvider sends it a few seconds later), so the server's age
+ * gate answered 403 age_confirmation_required; the page swallowed it, never asked again, and the
+ * paid plan never reached the account. Now the page waits for the 18+ record, and any answer that
+ * can change with time is re-asked on this schedule (seconds after the first try; at most 6 calls
+ * a minute, the server's per-checkout limit). Only a final answer stops it early.
+ */
+export const ATTACH_RETRY_SCHEDULE_S: readonly number[] = [4, 10, 20, 35, 55];
+/** Answers no retry can change: another email, or a checkout already on another account. */
+export const ATTACH_FINAL_ERRORS: ReadonlySet<string> = new Set(['email_mismatch', 'already_claimed', 'invalid_request']);
+
+export type AttachOutcome = { attached: true } | { attached: false; error: string; message?: string };
+
+/** The error code an API failure carries (ApiError.code), else 'unavailable'. */
+export function attachErrorCode(cause: unknown): string {
+  const code = (cause as { code?: unknown } | undefined)?.code;
+  return typeof code === 'string' && code ? code : 'unavailable';
+}
+
+/** Attaches, re-asking per ATTACH_RETRY_SCHEDULE_S until it is attached or the answer is final. */
+export async function attachUntilDone(
+  attach: () => Promise<unknown>,
+  sleep: (ms: number) => Promise<unknown> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  schedule: readonly number[] = ATTACH_RETRY_SCHEDULE_S,
+  stillWanted: () => boolean = () => true,
+): Promise<AttachOutcome> {
+  const once = async (): Promise<AttachOutcome> => {
+    try { await attach(); return { attached: true }; }
+    catch (cause) {
+      const message = (cause as { message?: unknown } | undefined)?.message;
+      return { attached: false, error: attachErrorCode(cause), ...(typeof message === 'string' && message ? { message } : {}) };
+    }
+  };
+  let result = await once();
+  let waited = 0;
+  for (const at of schedule) {
+    if (result.attached || ATTACH_FINAL_ERRORS.has(result.error) || !stillWanted()) return result;
+    await sleep((at - waited) * 1000);
+    waited = at;
+    result = await once();
+  }
+  return result;
+}
+
+/** What the return page says while it waits, when it gives up, and when another account is signed in. */
+export const RETURN_COPY = {
+  waitingHint: 'This can take up to a minute. Keep this page open.',
+  stillConfirming: 'Still confirming. Your payment is safe with the card processor; tap Check again in a minute. If your plan is not on within an hour, write to support@aplayermode.com and we will turn it on.',
+  checkAgain: 'Check again',
+  otherAccount: (email: string) => `You're signed in as ${email}. This purchase was made with another email — sign out to attach it.`,
+  signOut: 'Sign out to attach it',
+} as const;

@@ -18,17 +18,18 @@ import { build } from 'esbuild';
 const appDir = fileURLToPath(new URL('../', import.meta.url));
 const src = (path) => readFile(join(appDir, path), 'utf8');
 const FOUNDING_LINK = 'https://pay.rev.cat/lyamzdqnlkwrwwxt/';
-let outDir; let pay; let quotes; let sell; let summary; let greet;
+let outDir; let pay; let quotes; let sell; let summary; let greet; let menu;
 
 test.before(async () => {
   outDir = await mkdtemp(join(tmpdir(), 'apm-pay-first-'));
   await build({
-    entryPoints: { greet: join(appDir, 'src/content/greeting.ts'), summary: join(appDir, 'src/billing/planSummary.ts'), pay: join(appDir, 'src/billing/precheckout.ts'), quotes: join(appDir, 'src/content/testimonials.ts'), sell: join(appDir, 'src/content/sell.ts') },
+    entryPoints: { menu: join(appDir, 'src/content/accountMenu.ts'), greet: join(appDir, 'src/content/greeting.ts'), summary: join(appDir, 'src/billing/planSummary.ts'), pay: join(appDir, 'src/billing/precheckout.ts'), quotes: join(appDir, 'src/content/testimonials.ts'), sell: join(appDir, 'src/content/sell.ts') },
     bundle: true, format: 'esm', platform: 'neutral', outdir: outDir, logLevel: 'silent',
   });
   pay = await import(pathToFileURL(join(outDir, 'pay.js')).href);
   summary = await import(pathToFileURL(join(outDir, 'summary.js')).href);
   greet = await import(pathToFileURL(join(outDir, 'greet.js')).href);
+  menu = await import(pathToFileURL(join(outDir, 'menu.js')).href);
   quotes = await import(pathToFileURL(join(outDir, 'quotes.js')).href);
   sell = await import(pathToFileURL(join(outDir, 'sell.js')).href);
 });
@@ -100,7 +101,12 @@ test('after paying: claim first, then the email code, then the setup questions; 
   assert.match(ret, /PRECHECKOUT_COPY\.confirming/);
   // Email already has an account (0096): no claim-side grant; the code-proven session attaches.
   assert.match(ret, /if \(existingAccount\) \{ onExistingAccount\(\); return; \}/);
-  assert.match(ret, /await attachPrecheckout\(waiting\.id, accessToken\); clearPendingCheckout\(\);/);
+  // The attach waits for the 18+ record, re-asks until attached or refused for good, and only then
+  // forgets the checkout (9 Oct 2026: a single attach sent before 18+ got a 403 and was swallowed).
+  assert.match(ret, /if \(!ageConfirmed\) return;\n/);
+  assert.ok(ret.indexOf('if (!ageConfirmed) return;') < ret.indexOf('attachUntilDone(() => attachPrecheckout(target, accessToken)'), 'never attach before 18+ is on the server');
+  assert.match(ret, /const result = await attachUntilDone\(\(\) => attachPrecheckout\(target, accessToken\), sleep, undefined, \(\) => active\);\n\s+if \(!active\) return;\n\s+if \(result\.attached\) clearPendingCheckout\(\);/);
+  assert.doesNotMatch(ret, /attachPrecheckout\([^)]*\)[^;]*;\s*clearPendingCheckout\(\); \} catch \{/, 'an attach failure is never swallowed');
   const api = await src('src/api/apmApi.ts');
   assert.match(api, /\/v1\/billing\/precheckout\/claim/);
   assert.match(api, /\/v1\/billing\/precheckout\/attach/);
@@ -226,4 +232,83 @@ test('the typed name is saved to the identity Today reads, for a new and an exis
   const settings = await src('app/settings/index.tsx');
   assert.match(settings, /<TextField accessibilityLabel="Your first name" value=\{shownName\}/);
   assert.match(settings, /await updateName\(shownName\); await refresh\(\)/);
+});
+
+test('existing-account attach (9 Oct 2026 repro): a 403 before 18+ reaches the server is re-asked until it attaches', async () => {
+  // The live failure: the first attach answered 403 age_confirmation_required, nothing asked again.
+  const answers = [
+    Object.assign(new Error('Confirm you are 18 or older.'), { status: 403, code: 'age_confirmation_required' }),
+    Object.assign(new Error('busy'), { status: 429, code: 'rate_limited' }),
+    { attached: true, outcomes: ['applied'] },
+  ];
+  let calls = 0; const slept = [];
+  const result = await pay.attachUntilDone(async () => { const a = answers[calls++]; if (a instanceof Error) throw a; return a; }, async (ms) => { slept.push(ms); });
+  assert.deepEqual(result, { attached: true });
+  assert.equal(calls, 3);
+  assert.deepEqual(slept, [4000, 6000]);
+  // Never more than 6 calls a minute (the server's per-checkout limit), about a minute in all.
+  assert.equal(pay.ATTACH_RETRY_SCHEDULE_S.length + 1, 6);
+  assert.ok(pay.ATTACH_RETRY_SCHEDULE_S.at(-1) < 60);
+  // A final answer stops at once and is reported, never retried: the email-match rule stands.
+  for (const code of ['email_mismatch', 'already_claimed']) {
+    let n = 0;
+    const refused = await pay.attachUntilDone(async () => { n += 1; throw Object.assign(new Error('Use the same email address you entered at checkout.'), { status: 409, code }); }, async () => {});
+    assert.equal(n, 1); assert.equal(refused.attached, false); assert.equal(refused.error, code);
+  }
+  // Leaving the page stops the retries.
+  let m = 0;
+  const left = await pay.attachUntilDone(async () => { m += 1; throw Object.assign(new Error('x'), { code: 'not_paid' }); }, async () => {}, undefined, () => false);
+  assert.equal(m, 1); assert.equal(left.error, 'not_paid');
+  assert.equal(pay.attachErrorCode(new TypeError('Failed to fetch')), 'unavailable');
+});
+
+test('return page: a visible wait, a clear next step on timeout, and another signed-in email is named, never attached', async () => {
+  const ret = await src('app/billing/return.tsx');
+  // Waiting moves (spinner) and says how long.
+  assert.match(ret, /<LoadingState label=\{WEB_CHECKOUT_COPY\.confirming\} \/>\n\s+<Muted align="center">\{RETURN_COPY\.waitingHint\}<\/Muted>/);
+  assert.match(pay.RETURN_COPY.waitingHint, /up to a minute/);
+  // Timeout: what happens next, plus Check again (one more round of the same checks).
+  assert.match(ret, /<Button label=\{RETURN_COPY\.checkAgain\} icon="refresh-cw" onPress=\{\(\) => setRound\(\(n\) => n \+ 1\)\} \/>/);
+  assert.match(ret, /attaching, ageConfirmed, round\]\);/);
+  assert.doesNotMatch(pay.RETURN_COPY.stillConfirming, /as soon as it is confirmed/);
+  assert.match(pay.RETURN_COPY.stillConfirming, /Check again/);
+  // Signed in as someone else: the page says so and offers sign-out; the server refused the attach.
+  assert.equal(pay.RETURN_COPY.otherAccount('a@example.com'), "You're signed in as a@example.com. This purchase was made with another email — sign out to attach it.");
+  assert.match(ret, /else if \(result\.error === 'email_mismatch' && !attaching\) \{ setView\('otherAccount'\); return; \}/);
+  assert.match(ret, /RETURN_COPY\.otherAccount\(user\?\.email/);
+  // The id RevenueCat returned with is checked even when someone is already signed in.
+  assert.match(ret, /const fromUrl = payFirst \? checkoutIdFromReturn\(\(globalThis as \{ location\?: \{ search\?: string \} \}\)\.location\?\.search\) : undefined;/);
+  // An anonymous draft session is not an account: the buyer still claims.
+  assert.match(ret, /const signedIn = Boolean\(accessToken\) && !isAnonymous;/);
+});
+
+test('the typed name reaches the profile once 18+ is on the server, and mends a blank profile name', async () => {
+  assert.equal(greet.nameToCarry('', 'Boss'), 'Boss');
+  assert.equal(greet.nameToCarry('  ', '  Boss Bitch '), 'Boss Bitch');
+  assert.equal(greet.nameToCarry('Simone', 'Boss'), undefined, 'a saved name is never overwritten');
+  assert.equal(greet.nameToCarry('', ''), undefined);
+  assert.equal(greet.nameToCarry(undefined, 'x'.repeat(80)).length, 60);
+  const consent = await src('src/state/consent.tsx');
+  assert.match(consent, /if \(!signedIn \|\| !accessToken \|\| !server\?\.ageConfirmedAt \|\| syncStatus !== 'ready' \|\| !user \|\| graph\.identity\.userId !== user\.id\) return;/);
+  assert.match(consent, /const name = nameToCarry\(graph\.identity\.displayName, meta\?\.display_name \?\? meta\?\.given_name\);/);
+  assert.match(consent, /void saveDisplayName\(name, accessToken\)\.then\(\(\) => refresh\(\)\)/);
+  // One account's typed name never carries to the next account on this device.
+  const session = await src('src/state/session.tsx');
+  assert.match(session, /if \(!signOutError\) setFirstName\(undefined\);/);
+});
+
+test('account menu: top right of every signed-in page, with email, plan and Sign out', async () => {
+  for (const path of ['/today', '/radar', '/goals', '/apm', '/settings', '/settings/plan', '/billing/return', '/diary']) assert.equal(menu.accountMenuShown(path, true), true, path);
+  for (const path of ['/', '/welcome', '/age', '/join', '/health-consent', '/intake', '/account', '/welcome/']) assert.equal(menu.accountMenuShown(path, true), false, path);
+  assert.equal(menu.accountMenuShown('/today', false), false, 'never for an anonymous draft or a signed-out visitor');
+  assert.equal(menu.accountInitial('cryptoclearr@gmail.com'), 'C');
+  assert.equal(menu.accountInitial(''), '?');
+  const layout = await src('app/_layout.tsx');
+  assert.ok(layout.indexOf('<AccountMenu />') > layout.indexOf('</Stack>') && layout.indexOf('<AccountMenu />') < layout.indexOf('<ConsentGate />'));
+  const comp = await src('src/components/AccountMenu.tsx');
+  assert.match(comp, /<Small strong>\{user\.email\}<\/Small>/);
+  assert.match(comp, /planSummary\(product\.entitlement\) \?\? 'No plan yet'/);
+  assert.match(comp, /fetchProductPlan\(accessToken\)/, 'the plan comes from the same source as Settings');
+  assert.match(comp, /<Button label=\{busy \? 'Signing out…' : 'Sign out'\}/);
+  assert.match(comp, /accountMenuShown\(pathname, status === 'signed_in' && !isAnonymous && Boolean\(user\?\.email\)\)/);
 });
