@@ -23,7 +23,7 @@ git diff --quiet HEAD -- services packages || { echo "refusing: uncommitted chan
 # Each entry is name:param,param. PostgREST resolves an RPC by its named parameters, so a probe
 # with the wrong set answers PGRST202/404 even when the function exists. Probing with every named
 # parameter (null) makes 404 mean "missing" and 401/42501 mean "present but not for anon".
-REQUIRED_RPCS="apm_my_consents: apm_record_consent:p_kind,p_decision,p_policy_version apm_service_carry_consents:p_from,p_to apm_service_day_check_in_v2:p_user_id,p_day,p_mood,p_state,p_agenda"
+REQUIRED_RPCS="apm_my_consents: apm_record_consent:p_kind,p_decision,p_policy_version apm_service_carry_consents:p_from,p_to apm_service_day_check_in_v2:p_user_id,p_day,p_mood,p_state,p_agenda apm_service_launch_signup:p_email,p_source,p_consent_text,p_consent_version"
 SB_URL=$(node -e "const t=require('fs').readFileSync('services/api/wrangler.jsonc','utf8');process.stdout.write((t.match(/\"SUPABASE_URL\": \"([^\"]+)\"/)||[])[1]||'')")
 SB_KEY=$(node -e "const t=require('fs').readFileSync('services/api/wrangler.jsonc','utf8');process.stdout.write((t.match(/\"SUPABASE_PUBLISHABLE_KEY\": \"([^\"]+)\"/)||[])[1]||'')")
 [ -n "$SB_URL" ] && [ -n "$SB_KEY" ] || { echo "refusing: no SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY in services/api/wrangler.jsonc"; exit 2; }
