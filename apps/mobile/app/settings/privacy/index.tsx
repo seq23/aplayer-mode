@@ -50,6 +50,12 @@ const destinations = [
     icon: 'activity' as IconName,
   },
   {
+    title: 'Consumer health data',
+    detail: 'Give or withdraw consent for the health information APM uses, and read the health data policy.',
+    href: '/settings/privacy/health-data' as const,
+    icon: 'heart' as IconName,
+  },
+  {
     title: 'Export & Delete',
     detail: 'Export your APM data or start account/data deletion.',
     href: '/settings/privacy/export-delete' as const,

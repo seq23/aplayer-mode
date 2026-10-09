@@ -40,6 +40,8 @@ interface IntakeContextValue {
   /** Ids and timings only (docs/34 §6.1). */
   track: (event: string, properties?: Record<string, string | number | boolean | null>) => void;
   reset: () => void;
+  /** Pull and push again (after the 18+ confirmation opens the account routes). */
+  resync: () => void;
 }
 
 const IntakeContext = createContext<IntakeContextValue | null>(null);
@@ -60,6 +62,7 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
   const latest = useRef(draft);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pulledFor = useRef<string | undefined>(undefined);
+  const [syncNonce, setSyncNonce] = useState(0);
   const queue = useRef<Array<{ event: string; properties: Record<string, string | number | boolean | null> }>>([]);
 
   const commit = useCallback((next: IntakeDraft) => {
@@ -103,7 +106,7 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
       await pushNow();
       for (const item of queue.current.splice(0)) void trackEvent(item.event, item.properties, accessToken).catch(() => undefined);
     })();
-  }, [accessToken, commit, pushNow, status]);
+  }, [accessToken, commit, pushNow, status, syncNonce]);
 
   // Sign-out clears the device copy; the server draft stays with the account (docs/34 §6 rule 8).
   const previousStatus = useRef(status);
@@ -163,7 +166,7 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (pendingInstall && status === 'signed_in' && accessToken && !installing) void install().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, pendingInstall, status]);
+  }, [accessToken, pendingInstall, status, syncNonce]);
 
   const value = useMemo<IntakeContextValue>(() => ({
     draft,
@@ -176,6 +179,7 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
     install,
     track,
     reset: () => { removeSync(DRAFT_STORAGE_KEY); commit(emptyDraft(Date.now())); },
+    resync: () => { pulledFor.current = undefined; setSyncNonce((n) => n + 1); },
   }), [commit, draft, install, installing, pendingInstall, schedule, sync, track]);
 
   return <IntakeContext.Provider value={value}>{children}</IntakeContext.Provider>;

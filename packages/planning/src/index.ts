@@ -196,3 +196,4 @@ export * from './intake/bank.js';
 export * from './intake/engine.js';
 export * from './intake/profile.js';
 export * from './intake/draft.js';
+export * from './intake/healthData.js';

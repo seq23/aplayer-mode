@@ -22,3 +22,10 @@ export async function openExternal(target: ExternalTarget): Promise<boolean> {
   if (!url) return false;
   try { await Linking.openURL(url); return true; } catch { return false; }
 }
+
+/** The legal pages on the web app (the same pages ship in the build under /privacy and /terms). */
+const WEB_APP = 'https://app.aplayermode.com';
+export function legalPageUrl(page: 'privacy' | 'consumer-health'): string {
+  const privacy = (process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || `${WEB_APP}/privacy`).replace(/\/+$/, '');
+  return page === 'privacy' ? privacy : `${privacy}/consumer-health`;
+}

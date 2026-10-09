@@ -23,7 +23,7 @@ async function lifeOsRpc<T>(env: ApiEnv, accessToken: string, fn: string, args: 
       && typeof (error.body as { message?: unknown }).message === 'string'
       ? (error.body as { message: string }).message
       : undefined;
-    if (message && /^life_os_[a-z_]+$/.test(message)) throw new Error(message);
+    if (message && (/^life_os_[a-z_]+$/.test(message) || message === 'health_data_consent_required')) throw new Error(message);
     throw error;
   }
 }
@@ -453,6 +453,8 @@ const LIFE_OS_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 | 
   life_os_invalid_completion: { error: 'invalid_request', status: 400 },
   life_os_invalid_request: { error: 'invalid_request', status: 400 },
   life_os_field_not_allowed: { error: 'invalid_request', status: 400 },
+  // A health-routine reminder without the consumer health data consent (migration 0093).
+  health_data_consent_required: { error: 'health_data_consent_required', status: 403 },
 };
 
 export function lifeOsErrorResponse(error: unknown): { error: string; status: 400 | 403 | 404 | 409 } | undefined {

@@ -12,6 +12,9 @@ const CODE_COPY: Record<string, string> = {
   confirmation_required: 'Confirm first, then try again.',
   rate_limited: 'Too many tries. Wait a minute and try again.',
   service_unavailable: 'APM is busy right now. Try again in a minute.',
+  age_confirmation_required: 'A Player Mode is for adults. Confirm you are 18 or older to continue.',
+  health_data_consent_required: 'This needs your consent to health data. Turn it on in Settings → Privacy → Consumer health data.',
+  policy_version_outdated: 'The health data policy changed. Read the current version, then agree again.',
 };
 
 export const OFFLINE_COPY = 'You seem to be offline. Check your connection and try again.';

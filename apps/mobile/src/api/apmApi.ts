@@ -430,6 +430,25 @@ export async function applyOsChange(changeId: string, accessToken: string) {
 export async function discardOsChange(changeId: string, accessToken: string) {
   return request<TodayState>(`/v1/os/changes/${encodeURIComponent(changeId)}/discard`, accessToken, { method: 'POST' });
 }
+// ---------------------------------------------------------------- consents (server migration 0093)
+export type HealthDataDecision = 'granted' | 'declined' | 'withdrawn';
+export interface ConsentState {
+  ageConfirmedAt: string | null;
+  healthData: { decision: HealthDataDecision; recordedAt: string; policyVersion: string } | null;
+}
+export interface ConsentResponse { consents: ConsentState; healthPolicyVersion: string }
+export async function fetchConsents(accessToken: string): Promise<ConsentResponse> {
+  return request<ConsentResponse>('/v1/consents', accessToken);
+}
+/** "I'm 18 or older": the server records it with its own timestamp. */
+export async function confirmAdult(accessToken: string): Promise<ConsentResponse> {
+  return request<ConsentResponse>('/v1/consents/age', accessToken, { method: 'POST', body: JSON.stringify({ confirmed: true }) });
+}
+/** The separate consumer health data consent; a grant names the policy version shown. */
+export async function recordHealthDataDecision(decision: HealthDataDecision, policyVersion: string, accessToken: string): Promise<ConsentResponse> {
+  return request<ConsentResponse>('/v1/consents/health-data', accessToken, { method: 'POST', body: JSON.stringify(decision === 'granted' ? { decision, policyVersion } : { decision }) });
+}
+
 export async function recordClinicianClearance(accessToken: string) {
   return request<TodayState>('/v1/body/clearance', accessToken, { method: 'POST', body: JSON.stringify({ confirm: true }) });
 }

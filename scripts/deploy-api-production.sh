@@ -16,6 +16,19 @@ SECRETS_DIR=""
 [ "${1:-}" = "--secrets-dir" ] && SECRETS_DIR="${2:?--secrets-dir needs a path}"
 SHA=$(git rev-parse HEAD)
 git diff --quiet HEAD -- services packages || { echo "refusing: uncommitted changes under services/ or packages/ (the health SHA would lie)"; exit 2; }
+# Migrations first (RUNBOOK): every account route calls these database functions, so a Worker
+# deployed before its migration answers 500 everywhere. PostgREST answers 404 for a function that
+# does not exist and 401 for one the anonymous key may not run, so this probe changes nothing.
+# Add the entry point of each new migration the Worker depends on.
+REQUIRED_RPCS="apm_my_consents apm_record_consent apm_service_carry_consents"
+SB_URL=$(node -e "const t=require('fs').readFileSync('services/api/wrangler.jsonc','utf8');process.stdout.write((t.match(/\"SUPABASE_URL\": \"([^\"]+)\"/)||[])[1]||'')")
+SB_KEY=$(node -e "const t=require('fs').readFileSync('services/api/wrangler.jsonc','utf8');process.stdout.write((t.match(/\"SUPABASE_PUBLISHABLE_KEY\": \"([^\"]+)\"/)||[])[1]||'')")
+[ -n "$SB_URL" ] && [ -n "$SB_KEY" ] || { echo "refusing: no SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY in services/api/wrangler.jsonc"; exit 2; }
+for fn in $REQUIRED_RPCS; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$SB_URL/rest/v1/rpc/$fn" -H "apikey: $SB_KEY" -H 'content-type: application/json' -d '{}')
+  [ "$code" = "404" ] && { echo "refusing: database function $fn is missing; apply services/api/migrations in order first (RUNBOOK → Deploy)"; exit 2; }
+  [ "$code" = "000" ] && { echo "refusing: Supabase did not answer the migration probe for $fn"; exit 2; }
+done
 npm run typecheck >/dev/null && npm run test >/dev/null
 cd services/api
 npx wrangler deploy --env production \

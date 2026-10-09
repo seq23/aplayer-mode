@@ -64,6 +64,8 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
     const body = init.body ? JSON.parse(init.body) : undefined;
     const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
     const rpc = path.match(/^\/rest\/v1\/rpc\/([a-z_]+)/)?.[1];
+    // 0093: 18+ confirmed; the health-data consent is granted unless a test withdraws it.
+    if (rpc === 'apm_my_consents') return json({ ageConfirmedAt: '2026-10-08T00:00:00Z', healthData: store.healthConsent === false ? { decision: 'withdrawn', recordedAt: '2026-10-08T00:00:00Z', policyVersion: '2026-10-08' } : { decision: 'granted', recordedAt: '2026-10-08T00:00:00Z', policyVersion: '2026-10-08' } });
     if (rpc === 'apm_service_record_audit') {
       // Audits go through the service-role allow-list, with the server-only key.
       assert.equal(new Headers(init.headers).get('apikey'), env.SUPABASE_SECRET_KEY);
@@ -356,6 +358,14 @@ test('Diary: "Logged." with no coaching; a red flag pauses body coaching and reb
     assert.equal(flagged.today.bodyReferral.source, 'diary');
 
     assert.equal((await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({}) })).status, 400, 'clearance is an explicit confirmation');
+    // Without the consumer health data consent the clearance is refused and nothing is written (0093).
+    h.store.healthConsent = false;
+    const writesBefore = h.calls.rpc.length;
+    const refused = await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+    assert.equal(refused.status, 403);
+    assert.equal((await refused.json()).error, 'health_data_consent_required');
+    assert.ok(!h.calls.rpc.slice(writesBefore).some((c) => c.fn === 'apm_record_clinician_clearance' || c.fn === 'apm_service_save_goal_plan'));
+    h.store.healthConsent = true;
     await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({ confirm: true }) });
     const cleared = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').at(-1);
     assert.equal(cleared.args.p_source, 'clearance');

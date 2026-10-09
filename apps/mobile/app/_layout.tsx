@@ -3,6 +3,8 @@ import { StatusBar } from 'react-native';
 import { SessionProvider } from '../src/state/session';
 import { LifeGraphProvider } from '../src/state/lifeGraph';
 import { IntakeProvider } from '../src/intake/store';
+import { ConsentProvider } from '../src/state/consent';
+import { ConsentGate } from '../src/components/consent/ConsentViews';
 import * as WebBrowser from 'expo-web-browser';
 
 // Web: completes the Google sign-in popup (no-op on native).
@@ -15,7 +17,9 @@ export default function RootLayout() {
       <SessionProvider>
         <LifeGraphProvider>
           <IntakeProvider>
-            <ThemedStack />
+            <ConsentProvider>
+              <ThemedStack />
+            </ConsentProvider>
           </IntakeProvider>
         </LifeGraphProvider>
       </SessionProvider>
@@ -42,6 +46,9 @@ function ThemedStack() {
         >
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="welcome" options={{ headerShown: false }} />
+          {/* 18+ and the health-data choice come before the setup questions (server migration 0093). */}
+          <Stack.Screen name="age" options={{ headerShown: false }} />
+          <Stack.Screen name="health-consent" options={{ headerShown: false }} />
           {/* The one setup route: no header, no swipe-back; Android back is handled in-screen (docs/34 §6). */}
           <Stack.Screen name="intake" options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }} />
           <Stack.Screen name="account" options={{ headerShown: false }} />
@@ -59,6 +66,7 @@ function ThemedStack() {
           <Stack.Screen name="settings/privacy/autonomy" options={{ title: 'Permissions & Autonomy' }} />
           <Stack.Screen name="settings/privacy/activity" options={{ title: 'APM Activity' }} />
           <Stack.Screen name="settings/privacy/export-delete" options={{ title: 'Export & Delete' }} />
+          <Stack.Screen name="settings/privacy/health-data" options={{ title: 'Consumer health data' }} />
           <Stack.Screen name="radar/why" options={{ title: 'Why APM saw this' }} />
           {/* Every pushed route has a human title (an unregistered route shows its file name). */}
           <Stack.Screen name="diary" options={{ title: 'Diary' }} />
@@ -66,6 +74,7 @@ function ThemedStack() {
           <Stack.Screen name="review" options={{ title: 'Weekly debrief' }} />
           <Stack.Screen name="settings/os" options={{ title: 'Drafting Room' }} />
         </Stack>
+        <ConsentGate />
     </>
   );
 }
