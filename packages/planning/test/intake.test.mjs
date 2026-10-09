@@ -494,7 +494,7 @@ test('the express "Quick start or full setup" step stays on the intake path in d
 // ---------------------------------------------------------------- consumer health data (owner, 8 Oct 2026)
 test('without the health-data consent no health question is asked, and the weight game and health goals are not offered', () => {
   const body = SECTIONS.find((section) => section.id === 's5').questions.map((q) => q.id).filter((id) => id !== 'core_pillars');
-  assert.deepEqual([...HEALTH_DATA_QUESTION_IDS].sort(), [...body, 'bed', 'bed_move'].sort(), 'the list is the Body section plus the in-bed routine');
+  assert.deepEqual([...HEALTH_DATA_QUESTION_IDS].sort(), [...body, 'bed', 'bed_move', 'load'].sort(), 'the list is the Body section, the in-bed routine and the mental-load score');
   for (const [name, persona] of Object.entries(PERSONAS)) {
     for (const decision of [undefined, 'no']) {
       const script = { ...persona, _health: decision, games: persona.games.filter((g) => g !== 'weight').concat(persona.games.includes('weight') ? ['athlete'] : []) };
@@ -504,6 +504,7 @@ test('without the health-data consent no health question is asked, and the weigh
         const asked = run.questions.filter((id) => HEALTH_DATA_QUESTION_IDS.includes(id));
         assert.deepEqual(asked, [], `${name} ${mode} ${decision ?? 'never asked'}: ${asked.join(', ')}`);
         const payload = toInstallPayload(run.draft.answers, { startDate: START, draftVersion: run.draft.version });
+        assert.equal(payload.intakeProfile.loadBaseline, undefined, 'the mental-load score is not asked or installed');
         assert.equal(payload.intakeProfile.bodySafety, undefined);
         assert.equal(payload.intakeProfile.bedRoutine, undefined);
       }
@@ -517,11 +518,11 @@ test('without the health-data consent no health question is asked, and the weigh
   assert.ok(options(goal, { games: ['athlete'], _health: 'yes' }).some(([v]) => v === 'return_injury'));
   // With consent the same founder is asked the Body questions and the bed question.
   const consented = walk(PERSONAS.founder).questions;
-  for (const id of ['move', 'workout_days', 'food', 'bed']) assert.ok(consented.includes(id), `${id} asked with consent`);
+  for (const id of ['move', 'workout_days', 'food', 'bed', 'load']) assert.ok(consented.includes(id), `${id} asked with consent`);
 });
 
 test('withoutHealthAnswers removes every health item and keeps everything else', () => {
-  const answers = { _health: 'no', games: ['weight', 'founder'], foreground: 'weight', goal: 'eat_better', goal_size: 3, move: ['walk'], weight_now: 200, bed: 'yes', clinician_flag: 'yes', season: 'building', load: 7 };
-  assert.deepEqual(withoutHealthAnswers(answers), { _health: 'no', games: ['founder'], season: 'building', load: 7 });
+  const answers = { _health: 'no', games: ['weight', 'founder'], foreground: 'weight', goal: 'eat_better', goal_size: 3, move: ['walk'], weight_now: 200, bed: 'yes', clinician_flag: 'yes', season: 'building', load: 7, carry: ['money'] };
+  assert.deepEqual(withoutHealthAnswers(answers), { _health: 'no', games: ['founder'], season: 'building', carry: ['money'] });
   assert.deepEqual(withoutHealthAnswers({ games: ['founder'], goal: 'customers', goal_size: 10 }), { games: ['founder'], goal: 'customers', goal_size: 10 });
 });

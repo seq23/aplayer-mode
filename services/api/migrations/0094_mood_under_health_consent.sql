@@ -1,7 +1,10 @@
--- 0094: the daily 1–10 mood check-in under the consumer health data consent (coordinator,
+-- 0094: the two 1–10 mental-state scores under the consumer health data consent (coordinator,
 -- 8 Oct 2026: Washington's My Health My Data Act counts mental and psychological state as
--- consumer health data).
+-- consumer health data): the daily mood check-in and the intake's "How full does your head
+-- feel?" mental-load score.
 --
+--  * The intake lists from 0093 gain 'load' (packages/planning/src/intake/healthData.ts, pinned by
+--    test/consent-db.test.mjs): without a live grant the draft trigger strips it before it is stored.
 --  * private.apm_service_day_check_in (last defined in 0028) is redefined: without a live
 --    'consumer_health_data' grant (0093) the mood is discarded, from the row and from the agenda;
 --    with the grant it is required, 1 to 10, as before. The Mood Gate reads a missing mood as
@@ -79,3 +82,52 @@ set search_path = ''
 as $$ select private.apm_service_day_check_in(p_user_id, p_day, p_mood, p_state, p_agenda); $$;
 revoke all on function public.apm_service_day_check_in_v2(uuid, date, integer, text, jsonb) from public, anon, authenticated;
 grant execute on function public.apm_service_day_check_in_v2(uuid, date, integer, text, jsonb) to service_role;
+
+-- ---------------------------------------------------------------- the mental-load score (intake 'load')
+create or replace function private.apm_strip_health_answers(p_answers jsonb)
+returns jsonb
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  v jsonb := coalesce(p_answers, '{}'::jsonb);
+begin
+  v := v - array['move', 'workout_days', 'food', 'weight_now', 'weigh_in', 'clinician_flag', 'clinician_sup', 'health_routine', 'bed', 'bed_move', 'load']::text[];
+  if jsonb_typeof(v->'games') = 'array' then
+    v := jsonb_set(v, '{games}', coalesce((
+      select jsonb_agg(g) from jsonb_array_elements(v->'games') g
+      where not (g = any (array[to_jsonb('weight'::text)]))
+    ), '[]'::jsonb));
+  end if;
+  if v->>'foreground' in ('weight') then
+    v := v - 'foreground';
+  end if;
+  if v->>'goal' in ('lose_weight', 'workout_habit', 'eat_better', 'energy', 'return_injury') then
+    v := v - 'goal' - 'goal_size';
+  end if;
+  return v;
+end;
+$$;
+
+create or replace function private.apm_intake_drafts_consent_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  -- A signed-in (or anonymous) user starts a draft only after confirming 18+. The service
+  -- role's merge path has no auth.uid(); the Worker checks both sessions before it runs.
+  if tg_op = 'INSERT' and auth.uid() is not null
+     and not exists (select 1 from public.consent_records r where r.user_id = new.user_id and r.kind = 'age_18_plus') then
+    raise exception 'age_confirmation_required' using errcode = '42501';
+  end if;
+  if not private.apm_health_consent_active(new.user_id) then
+    new.answers := private.apm_strip_health_answers(new.answers);
+    new.answered_at := new.answered_at - array(select k from jsonb_object_keys(new.answered_at) k where not (new.answers ? k) and k in (
+      'move', 'workout_days', 'food', 'weight_now', 'weigh_in', 'clinician_flag', 'clinician_sup', 'health_routine', 'bed', 'bed_move', 'load', 'goal', 'goal_size', 'foreground'));
+  end if;
+  return new;
+end;
+$$;

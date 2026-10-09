@@ -95,13 +95,14 @@ export async function healthConsentActive(env: ApiEnv, accessToken: string): Pro
 const HEALTH_GAMES = HEALTH_DATA_GAME_IDS as readonly string[];
 
 /**
- * The install payload without consumer health data: the body context text, the body-safety
- * and in-bed-routine answers, and the weight game. (The draft is stripped by the database.)
+ * The install payload without consumer health data: the body context text, the body-safety,
+ * in-bed-routine and mental-load answers, and the weight game. (The draft is stripped by the database.)
  */
-export function withoutHealthData<T extends { bodyContext?: string; intakeProfile?: { games: string[]; foregroundGame?: string; bodySafety?: unknown; bedRoutine?: unknown } }>(payload: T): T {
+export function withoutHealthData<T extends { bodyContext?: string; intakeProfile?: { games: string[]; foregroundGame?: string; bodySafety?: unknown; bedRoutine?: unknown; loadBaseline?: unknown } }>(payload: T): T {
   const { bodyContext: _body, ...rest } = payload;
   if (!rest.intakeProfile) return rest as T;
-  const { bodySafety: _safety, bedRoutine: _bed, ...profile } = rest.intakeProfile;
+  // loadBaseline is the "How full does your head feel?" 1–10 mental-load score (0094).
+  const { bodySafety: _safety, bedRoutine: _bed, loadBaseline: _load, ...profile } = rest.intakeProfile;
   const games = profile.games.filter((game) => !HEALTH_GAMES.includes(game));
   const foregroundGame = profile.foregroundGame && HEALTH_GAMES.includes(profile.foregroundGame) ? undefined : profile.foregroundGame;
   return { ...rest, intakeProfile: { ...profile, games, ...(foregroundGame ? { foregroundGame } : { foregroundGame: undefined }) } } as T;

@@ -29,7 +29,7 @@ test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: 
 const rpc = async (user, fn, args = []) => (await h.as(user, `select public.${fn}(${args.map((_, i) => `$${i + 1}`).join(', ')}) as r`, args)).rows[0].r;
 const svc = async (fn, args = []) => (await h.service(`select public.${fn}(${args.map((_, i) => `$${i + 1}`).join(', ')}) as r`, args)).rows[0].r;
 const draft = (answers, answeredAt) => JSON.stringify({ bankVersion: 2, version: 1, answers, answeredAt, cursor: 'games', updatedAt: Date.now() });
-const HEALTHY = { games: ['weight', 'founder'], foreground: 'weight', goal: 'lose_weight', goal_size: 20, move: ['walk'], weight_now: 210, clinician_flag: 'no', bed: 'yes', season: 'building' };
+const HEALTHY = { games: ['weight', 'founder'], foreground: 'weight', goal: 'lose_weight', goal_size: 20, move: ['walk'], weight_now: 210, clinician_flag: 'no', bed: 'yes', load: 9, season: 'building' };
 const TIMES = Object.fromEntries(Object.keys(HEALTHY).map((key, i) => [key, i + 1]));
 
 test('age: only "confirmed" is accepted, stamped by the server, recorded once, audited; no client writes', async () => {
@@ -64,7 +64,7 @@ test('health data: nothing is stored without the grant; granted answers are kept
   // A: confirmed 18+, never asked about health data → every health item is stripped.
   const none = await rpc(A, 'apm_save_intake_draft', [draft(HEALTHY, TIMES)]);
   assert.deepEqual(none.answers, { games: ['founder'], season: 'building' });
-  for (const key of ['move', 'weight_now', 'clinician_flag', 'bed', 'goal', 'goal_size', 'foreground']) assert.ok(!(key in none.answeredAt), `${key} time dropped`);
+  for (const key of ['move', 'weight_now', 'clinician_flag', 'bed', 'load', 'goal', 'goal_size', 'foreground']) assert.ok(!(key in none.answeredAt), `${key} time dropped`);
 
   // Declined is the same as never asked.
   let state = await rpc(A, 'apm_record_consent', ['consumer_health_data', 'declined', V]);
@@ -82,7 +82,7 @@ test('health data: nothing is stored without the grant; granted answers are kept
   // Withdrawn: the next save drops what was stored and refuses new health answers.
   state = await rpc(A, 'apm_record_consent', ['consumer_health_data', 'withdrawn', V]);
   assert.equal(state.healthData.decision, 'withdrawn');
-  const after = await rpc(A, 'apm_save_intake_draft', [draft({ weigh_in: 'weekly', season: 'maintaining' }, { weigh_in: 300, season: 300 })]);
+  const after = await rpc(A, 'apm_save_intake_draft', [draft({ weigh_in: 'weekly', load: 3, season: 'maintaining' }, { weigh_in: 300, load: 300, season: 300 })]);
   assert.deepEqual(after.answers, { games: ['founder'], season: 'maintaining' });
   const events = (await h.admin(`select event_type from public.audit_events where user_id = $1 and event_type like 'consent.health_data_%' order by created_at`, [A])).rows.map((r) => r.event_type);
   assert.deepEqual(events, ['consent.health_data_declined', 'consent.health_data_granted', 'consent.health_data_withdrawn']);

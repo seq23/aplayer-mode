@@ -88,7 +88,8 @@ test.before(async () => {
   // 0093: no draft before the 18+ confirmation; health answers only with the health-data consent.
   await rejects(rpc(A, 'apm_save_intake_draft', [draft({ season: 'building' }, { season: 1 })]), /age_confirmation_required/);
   for (const user of [A, B, ANON, C]) await rpc(user, 'apm_record_consent', ['age_18_plus', 'confirmed', '2026-10-08']);
-  for (const user of [B, ANON]) await rpc(user, 'apm_record_consent', ['consumer_health_data', 'granted', '2026-10-08']);
+  // A answers the mental-load score below (0094: health data), so A has consented too.
+  for (const user of [A, B, ANON]) await rpc(user, 'apm_record_consent', ['consumer_health_data', 'granted', '2026-10-08']);
 });
 
 test('0060 migrates every stored legacy pillar key to its area, without loss', async () => {

@@ -131,7 +131,7 @@ const INSTALL = {
   weeklyCadence: { heavyDays: [], lightDays: [] }, coachingStyle: { firmness: 'direct' }, accountability: { dayStart: 'guided' },
   criticalPillars: ['work'], minimumFloors: { work: 'Ship one thing' }, activeAreas: ['work', 'movement'], pillarsEnabled: ['mind', 'body', 'spirit'], trackKeys: [],
   bodyContext: 'Walks most days; knee injury last year.',
-  intakeProfile: { bankVersion: 2, games: ['founder', 'weight'], foregroundGame: 'weight', mentalLoadItems: [], fixedCommitments: [], lineIds: [], deadlines: [], realWork: [], fakeWork: [], wealthContext: [], careerLevers: [], mindPractices: [], spiritPractices: [], faithLanguage: false, coachingHelps: [], coachingAvoid: [], quickStart: true, deferredQuestionIds: [], suggestedAreas: [], bodySafety: 'skip', bedRoutine: { gentle: true } },
+  intakeProfile: { bankVersion: 2, games: ['founder', 'weight'], foregroundGame: 'weight', mentalLoadItems: [], fixedCommitments: [], lineIds: [], deadlines: [], realWork: [], fakeWork: [], wealthContext: [], careerLevers: [], mindPractices: [], spiritPractices: [], faithLanguage: false, coachingHelps: [], coachingAvoid: [], quickStart: true, deferredQuestionIds: [], suggestedAreas: [], bodySafety: 'skip', bedRoutine: { gentle: true }, loadBaseline: 9 },
 };
 
 test('without a live health grant: the install and later answers lose every health field; clearance and health reminders are refused', async () => {
@@ -143,12 +143,14 @@ test('without a live health grant: the install and later answers lose every heal
       assert.equal(payload.body_context ?? null, null, `${health}: no body context`);
       assert.equal(payload.intake_profile.bodySafety, undefined);
       assert.equal(payload.intake_profile.bedRoutine, undefined);
+      assert.equal(payload.intake_profile.loadBaseline, undefined, `${health}: no mental-load score`);
       assert.deepEqual(payload.intake_profile.games, ['founder']);
       assert.equal(payload.intake_profile.foregroundGame, undefined);
       assert.equal(h.rpcs('apm_flag_body_referral').length, 0, 'no health answer, nothing to act on');
 
       assert.equal((await h.request('/v1/intake/profile', { method: 'PUT', body: JSON.stringify({ intakeProfile: INSTALL.intakeProfile }) })).status, 200);
       assert.equal(h.rpcs('apm_update_intake_profile')[0].body.p_profile.bodySafety, undefined);
+      assert.equal(h.rpcs('apm_update_intake_profile')[0].body.p_profile.loadBaseline, undefined);
 
       const clearance = await h.request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({ confirm: true }) });
       assert.equal(clearance.status, 403);
@@ -166,6 +168,7 @@ test('without a live health grant: the install and later answers lose every heal
     await h.request('/v1/methodology/intake', { method: 'PUT', body: JSON.stringify(INSTALL) });
     const payload = h.rpcs('apm_save_methodology_intake')[0].body.p_payload;
     assert.equal(payload.intake_profile.bodySafety, 'skip');
+    assert.equal(payload.intake_profile.loadBaseline, 9);
     assert.deepEqual(payload.intake_profile.games, ['founder', 'weight']);
     assert.equal(h.rpcs('apm_flag_body_referral').length, 1, 'prefer-not-to-say still pauses body pace');
   } finally { h.restore(); }

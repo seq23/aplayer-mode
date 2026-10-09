@@ -1,10 +1,11 @@
 // Consumer health data (Washington My Health My Data Act; owner ruling 8 Oct 2026): the Body
-// pillar answers, the in-bed Pilates-style routine answer, and the weight / injury goals.
+// pillar answers, the in-bed Pilates-style routine answer, the weight / injury goals, and the
+// "How full does your head feel, 1 to 10?" mental-load score (0094).
 // Nothing on these lists is collected until the person taps a separate, explicit consent,
 // and collection stops when they withdraw it.
 //
 // ONE list. The intake engine reads it to skip and hide these questions; the API reads it to
-// strip them from writes; the database trigger in services/api/migrations/0093 holds the same
+// strip them from writes; the database trigger (migration 0093, list extended in 0094) holds the same
 // ids, and services/api/test/consent-db.test.mjs pins the SQL lists to these.
 import { GOAL_TEMPLATES } from './bank.js';
 import type { IntakeAnswers } from './types.js';
@@ -12,9 +13,9 @@ import type { IntakeAnswers } from './types.js';
 /** Version of the Consumer Health Data Privacy Policy a consent is given against. */
 export const CONSUMER_HEALTH_POLICY_VERSION = '2026-10-08';
 
-/** Intake answers that are consumer health data (the Body section and the in-bed routine). */
+/** Intake answers that are consumer health data (the Body section, the in-bed routine, the mental-load score). */
 export const HEALTH_DATA_QUESTION_IDS = [
-  'move', 'workout_days', 'food', 'weight_now', 'weigh_in', 'clinician_flag', 'clinician_sup', 'health_routine', 'bed', 'bed_move',
+  'move', 'workout_days', 'food', 'weight_now', 'weigh_in', 'clinician_flag', 'clinician_sup', 'health_routine', 'bed', 'bed_move', 'load',
 ] as const;
 
 /** The game whose choice is itself health information ("Losing weight / getting healthy"). */
