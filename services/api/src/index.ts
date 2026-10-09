@@ -10,12 +10,13 @@ import { synthesizeIntake } from './intakeSynthesis';
 import { AGE_GATE_OPEN_ROUTES, AGE_REQUIRED_BODY, AgeConfirmationRequired, ageConfirmed, carryConsents, CONSUMER_HEALTH_POLICY_VERSION, getConsentState, HEALTH_REQUIRED_BODY, healthConsentActive, recordConsent, withoutHealthData } from './consent';
 import type { ApiEnv } from './env';
 import { restErrorMessage, SERVICE_ROLE_TOKEN, supabaseRest } from './db';
-import { claimPrecheckout, billingOfferingFor, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
+import { claimPrecheckout, attachPrecheckout, billingOfferingFor, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
 import {
   completeNextAction,
   getLifeGraph,
   saveMethodologyIntake,
   saveOnboarding,
+  saveDisplayName,
 } from './lifeGraphRepository';
 import {
   closeDay,
@@ -691,6 +692,14 @@ app.post('/v1/billing/precheckout/claim', async (c) => {
   return c.json(result.body, result.status);
 });
 
+// Pay first with an email that already has an account (migration 0096): the claim above granted
+// nothing; the buyer signed in with the 6-digit code, and THIS session attaches the checkout.
+app.post('/v1/billing/precheckout/attach', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const result = await attachPrecheckout(c.env as ApiEnv, user, await c.req.json().catch(() => null));
+  return c.json(result.body, result.status);
+});
+
 // Web (card) subscribers: the RevenueCat customer portal link for the signed-in user only.
 // "Get launch updates" on aplayermode.com (migration 0095): no session; rate-limited per IP.
 app.post('/v1/launch-updates', async (c) => {
@@ -803,6 +812,15 @@ app.post('/v1/life-os/items/:id/complete', async (c) => {
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
+});
+
+// The person's name (sign-up, /billing/return, Settings) -> identity.displayName (Today's greeting).
+app.put('/v1/profile/name', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ displayName: z.string().trim().min(1).max(60) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  await saveDisplayName(c.env, user.accessToken, user.id, parsed.data.displayName);
+  return c.json({ displayName: parsed.data.displayName });
 });
 
 app.put('/v1/onboarding', async (c) => {

@@ -174,19 +174,43 @@ export async function webCustomerPortalFor(env: ApiEnv, userId: string, fetcher:
   const project = env.REVENUECAT_PROJECT_ID;
   if (!key || !project || !/^proj[0-9a-z]+$/i.test(project)) return { url: null, reason: 'not_configured' };
   try {
-    const response = await fetcher(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(project)}/customers/${encodeURIComponent(userId)}/subscriptions?limit=20`, {
-      headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
-    });
-    if (response.status === 404) return { url: null, reason: 'no_web_subscription' };
-    if (!response.ok) return { url: null, reason: 'unavailable' };
-    const body = await response.json() as { items?: Array<{ store?: string; management_url?: string | null; starts_at?: number }> };
-    const web = (body.items ?? [])
-      .filter((item) => (item.store === 'rc_billing' || item.store === 'stripe') && typeof item.management_url === 'string' && /^https:\/\//.test(item.management_url))
-      .sort((a, b) => (b.starts_at ?? 0) - (a.starts_at ?? 0));
-    return web[0]?.management_url ? { url: web[0].management_url } : { url: null, reason: 'no_web_subscription' };
+    // The account's own RevenueCat customer first, then any pay-first checkout linked to it (0096).
+    for (const [index, customerId] of [userId, ...(await linkedCheckoutIds(env, userId, fetcher))].entries()) {
+      const response = await fetcher(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(project)}/customers/${encodeURIComponent(customerId)}/subscriptions?limit=20`, {
+        headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
+      });
+      if (response.status === 404) continue;
+      if (!response.ok) { if (index === 0) return { url: null, reason: 'unavailable' }; continue; }
+      const body = await response.json() as { items?: Array<{ store?: string; management_url?: string | null; starts_at?: number }> };
+      const web = (body.items ?? [])
+        .filter((item) => (item.store === 'rc_billing' || item.store === 'stripe') && typeof item.management_url === 'string' && /^https:\/\//.test(item.management_url))
+        .sort((a, b) => (b.starts_at ?? 0) - (a.starts_at ?? 0));
+      if (web[0]?.management_url) return { url: web[0].management_url };
+    }
+    return { url: null, reason: 'no_web_subscription' };
   } catch {
     return { url: null, reason: 'unavailable' };
   }
+}
+
+/**
+ * Pay-first checkouts linked to this EXISTING account (migration 0096). Read with the server key
+ * through the injected fetcher; any failure reads as none, so the account's own path never breaks.
+ */
+async function linkedCheckoutIds(env: ApiEnv, userId: string, fetcher: typeof fetch): Promise<string[]> {
+  if (!env.SUPABASE_SECRET_KEY || !env.SUPABASE_URL || !UUID.test(userId)) return [];
+  try {
+    const response = await serviceRpc(env, 'apm_service_billing_checkout_ids', { p_user_id: userId }, fetcher);
+    if (!response.ok) return [];
+    const ids = await response.json() as unknown;
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && UUID.test(id) && id !== userId).slice(0, 10) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function serviceRpc(env: ApiEnv, fn: string, args: Record<string, unknown>, fetcher: typeof fetch): Promise<Response> {
+  return authAdmin(env, `/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) }, fetcher);
 }
 
 /**
@@ -301,18 +325,25 @@ export async function reconcileBillingFor(env: ApiEnv, userId: string, fetcher: 
   const project = env.REVENUECAT_PROJECT_ID;
   if (!key || !project || !/^proj[0-9a-z]+$/i.test(project) || !env.SUPABASE_SECRET_KEY || !UUID.test(userId)) return { reconciled: false, reason: 'not_configured' };
   if (!(await reconcileAllowed(env, userId, nowMs))) return { reconciled: false, reason: 'rate_limited' };
-  let items: RevenueCatV2Subscription[];
-  try {
-    const response = await fetcher(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(project)}/customers/${encodeURIComponent(userId)}/subscriptions?limit=20`, {
-      headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
-    });
-    if (response.status === 404) return { reconciled: false, reason: 'no_active_subscription' };
-    if (!response.ok) return { reconciled: false, reason: 'unavailable' };
-    items = ((await response.json()) as { items?: RevenueCatV2Subscription[] }).items ?? [];
-  } catch {
-    return { reconciled: false, reason: 'unavailable' };
+  // The account's own RevenueCat customer, then any pay-first checkout linked to it (0096): those
+  // events keep the checkout id as app_user_id (and its sandbox rule); the writer follows the link.
+  const linked = await linkedCheckoutIds(env, userId, fetcher);
+  const events: SanitizedBillingEvent[] = [];
+  for (const [index, customerId] of [userId, ...linked].entries()) {
+    let items: RevenueCatV2Subscription[];
+    try {
+      const response = await fetcher(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(project)}/customers/${encodeURIComponent(customerId)}/subscriptions?limit=20`, {
+        headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
+      });
+      if (response.status === 404) continue;
+      if (!response.ok) { if (index === 0) return { reconciled: false, reason: 'unavailable' }; continue; }
+      items = ((await response.json()) as { items?: RevenueCatV2Subscription[] }).items ?? [];
+    } catch {
+      if (index === 0) return { reconciled: false, reason: 'unavailable' };
+      continue;
+    }
+    events.push(...reconcileEventsFor(customerId, items, nowMs));
   }
-  const events = reconcileEventsFor(userId, items, nowMs);
   if (events.length === 0) return { reconciled: false, reason: 'no_active_subscription' };
   const outcomes: string[] = [];
   for (const event of events) {
@@ -331,14 +362,13 @@ export async function reconcileBillingFor(env: ApiEnv, userId: string, fetcher: 
 // before the account existed was recorded as ignored_unknown_user; the claim reconciles it.
 
 export type PrecheckoutClaimResult =
-  | { status: 200; body: { claimed: true; outcomes: string[] } }
+  | { status: 200; body: { claimed: true; outcomes: string[]; existingAccount?: true } }
   | { status: 400 | 409 | 429 | 502 | 503; body: { error: string; message?: string } };
 
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/;
 const CLAIM_MESSAGES = {
   not_paid: 'We could not find a paid subscription for this checkout yet. If you just paid, wait a minute and try again.',
   email_mismatch: 'Use the same email address you entered at checkout.',
-  email_has_account: 'That email already has an A Player Mode account. Email support@aplayermode.com from that address and we will move your subscription to it.',
   already_claimed: 'This payment is already attached to an account. Sign in with the email you paid with.',
 } as const;
 
@@ -382,6 +412,10 @@ export async function claimPrecheckout(env: ApiEnv, input: unknown, fetcher: typ
     const paidWith = attrs.body?.items?.find((item) => item.name === '$email')?.value;
     if (typeof paidWith !== 'string' || paidWith.trim().toLowerCase() !== email) return { status: 409, body: { error: 'email_mismatch', message: CLAIM_MESSAGES.email_mismatch } };
 
+    // A checkout already attached to an existing account (0096) is never claimed again.
+    const owner = await serviceRpc(env, 'apm_service_billing_checkout_owner', { p_checkout_id: checkoutId }, fetcher);
+    if (!owner.ok) return { status: 502, body: { error: 'unavailable' } };
+    if (await owner.json()) return { status: 409, body: { error: 'already_claimed', message: CLAIM_MESSAGES.already_claimed } };
     const existing = await authAdmin(env, `/auth/v1/admin/users/${checkoutId}`, { method: 'GET' }, fetcher);
     if (existing.ok) {
       // A retry after the account was made (the code email was lost): same id AND same email only.
@@ -389,7 +423,9 @@ export async function claimPrecheckout(env: ApiEnv, input: unknown, fetcher: typ
       if ((user.email ?? '').toLowerCase() !== email) return { status: 409, body: { error: 'already_claimed', message: CLAIM_MESSAGES.already_claimed } };
     } else if (existing.status === 404) {
       const created = await authAdmin(env, '/auth/v1/admin/users', { method: 'POST', body: JSON.stringify({ id: checkoutId, email, email_confirm: true }) }, fetcher);
-      if (created.status === 422) return { status: 409, body: { error: 'email_has_account', message: CLAIM_MESSAGES.email_has_account } };
+      // The email already has an account: NOTHING is granted here. The buyer proves the inbox
+      // with the usual 6-digit code, and the signed-in session attaches it (attachPrecheckout).
+      if (created.status === 422) return { status: 200, body: { claimed: true, outcomes: [], existingAccount: true } };
       if (!created.ok) return { status: 502, body: { error: 'unavailable' } };
       const made = await created.json() as { id?: string };
       // Fail closed if the auth server ever ignored the requested id: the payment would be orphaned.
@@ -403,6 +439,53 @@ export async function claimPrecheckout(env: ApiEnv, input: unknown, fetcher: typ
     const outcomes: string[] = [];
     for (const event of events) outcomes.push((await applyBillingEvent(env, event)).outcome);
     return { status: 200, body: { claimed: true, outcomes } };
+  } catch {
+    return { status: 502, body: { error: 'unavailable' } };
+  }
+}
+
+export type PrecheckoutAttachResult =
+  | { status: 200; body: { attached: true; outcomes: string[] } }
+  | { status: 400 | 409 | 429 | 502 | 503; body: { error: string; message?: string } };
+
+/**
+ * Pay first with an email that ALREADY has an account (migration 0096). Only a SIGNED-IN session
+ * may attach, so the buyer has proven the inbox with the 6-digit code; a claim alone never grants
+ * anything. All of these must hold: RevenueCat says the checkout is paid for NOW (reconcile's
+ * filter + the one sandbox rule, on the checkout id); its $email is the session's verified email;
+ * the checkout id is not itself an account; and it is not linked to anyone else. Then the link is
+ * written once (the database re-checks the email) and the paid events go through the one writer,
+ * which follows the link for this and every later webhook event of that subscription.
+ */
+export async function attachPrecheckout(env: ApiEnv, user: { id: string; email?: string }, input: unknown, fetcher: typeof fetch = fetch, nowMs: number = Date.now()): Promise<PrecheckoutAttachResult> {
+  const checkoutId = typeof (input as { checkoutId?: unknown })?.checkoutId === 'string' ? (input as { checkoutId: string }).checkoutId.trim().toLowerCase() : '';
+  const email = (user.email ?? '').trim().toLowerCase();
+  if (!UUID.test(checkoutId) || !UUID.test(user.id) || checkoutId === user.id.toLowerCase()) return { status: 400, body: { error: 'invalid_request' } };
+  if (!EMAIL.test(email)) return { status: 409, body: { error: 'email_mismatch', message: CLAIM_MESSAGES.email_mismatch } };
+  if (!env.REVENUECAT_API_V2_KEY || !env.REVENUECAT_PROJECT_ID || !/^proj[0-9a-z]+$/i.test(env.REVENUECAT_PROJECT_ID) || !env.SUPABASE_SECRET_KEY || !env.SUPABASE_URL) {
+    return { status: 503, body: { error: 'not_configured' } };
+  }
+  if (!(await reconcileAllowed(env, `attach:${checkoutId}`, nowMs))) return { status: 429, body: { error: 'rate_limited' } };
+  try {
+    const subs = await revenueCatGet<{ items?: RevenueCatV2Subscription[] }>(env, `/customers/${encodeURIComponent(checkoutId)}/subscriptions?limit=20`, fetcher);
+    if (subs.status !== 200 && subs.status !== 404) return { status: 502, body: { error: 'unavailable' } };
+    const events = reconcileEventsFor(checkoutId, subs.body?.items ?? [], nowMs).filter((event) => event.environment === 'PRODUCTION' || billingSandboxAllowed(env, event));
+    if (events.length === 0) return { status: 409, body: { error: 'not_paid', message: CLAIM_MESSAGES.not_paid } };
+    const attrs = await revenueCatGet<{ items?: Array<{ name?: string; value?: unknown }> }>(env, `/customers/${encodeURIComponent(checkoutId)}/attributes?limit=50`, fetcher);
+    if (attrs.status !== 200) return { status: 502, body: { error: 'unavailable' } };
+    const paidWith = attrs.body?.items?.find((item) => item.name === '$email')?.value;
+    if (typeof paidWith !== 'string' || paidWith.trim().toLowerCase() !== email) return { status: 409, body: { error: 'email_mismatch', message: CLAIM_MESSAGES.email_mismatch } };
+    const link = await serviceRpc(env, 'apm_service_billing_link_checkout', { p_checkout_id: checkoutId, p_user_id: user.id, p_email: email }, fetcher);
+    if (!link.ok) return { status: 502, body: { error: 'unavailable' } };
+    const linked = await link.json() as { linked?: boolean; reason?: string };
+    if (linked.linked !== true) {
+      return linked.reason === 'email_mismatch'
+        ? { status: 409, body: { error: 'email_mismatch', message: CLAIM_MESSAGES.email_mismatch } }
+        : { status: 409, body: { error: 'already_claimed', message: CLAIM_MESSAGES.already_claimed } };
+    }
+    const outcomes: string[] = [];
+    for (const event of events) outcomes.push((await applyBillingEvent(env, event)).outcome);
+    return { status: 200, body: { attached: true, outcomes } };
   } catch {
     return { status: 502, body: { error: 'unavailable' } };
   }

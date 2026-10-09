@@ -7,7 +7,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { getSupabaseClient, isSupabaseConfigured } from '../auth/supabase';
 import { forgetBillingUser, identifyBillingUser } from '../billing/purchases';
 import { disableApmPushForSignOut } from '../integrations/push';
-import { mergeAnonymousIntakeDraft, reviewerSignIn, setAccessTokenRefresher } from '../api/apmApi';
+import { mergeAnonymousIntakeDraft, reviewerSignIn, saveDisplayName, setAccessTokenRefresher } from '../api/apmApi';
 
 type SessionStatus = 'loading' | 'signed_out' | 'signed_in' | 'unconfigured';
 
@@ -40,6 +40,8 @@ interface SessionContextValue {
   startAnonymous: () => Promise<boolean>;
   sendEmailCode: (email: string) => Promise<void>;
   verifyEmailCode: (email: string, code: string, firstName?: string) => Promise<AccountResult>;
+  /** Settings: change the name APM greets you with. Throws when it did not save. */
+  updateName: (name: string) => Promise<void>;
   signInWithApple: () => Promise<AccountResult>;
   signInWithGoogle: () => Promise<AccountResult>;
   signOut: () => Promise<void>;
@@ -114,11 +116,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<SessionContextValue>(() => {
     const supabase = () => getSupabaseClient();
-    const saveName = async (name?: string) => {
+    // The typed name goes to BOTH the auth profile and the identity Today greets with
+    // (PUT /v1/profile/name -> user_profiles.display_name), as the account just signed in to.
+    // Sign-in never fails over a name; Settings (`strict`) reports a failure.
+    const saveName = async (name?: string, strict = false) => {
       const clean = name?.trim().slice(0, 60);
       if (!clean) return;
       setFirstName(clean);
       await supabase().auth.updateUser({ data: { display_name: clean } }).catch(() => undefined);
+      try {
+        const token = (await supabase().auth.getSession()).data.session?.access_token;
+        if (!token) throw new Error('not signed in');
+        await saveDisplayName(clean, token);
+      } catch (cause) { if (strict) throw cause; }
     };
     /** After signing in to an EXISTING account: the server merges the anonymous draft. */
     const mergeFromAnonymous = async (nextToken?: string): Promise<string | undefined> => {
@@ -173,6 +183,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           if (otpError) throw otpError;
         } catch (cause) { fail(cause); }
       },
+      updateName: (name) => saveName(name, true),
       verifyEmailCode: async (email, code, name) => {
         setError(undefined);
         const address = email.trim().toLowerCase();

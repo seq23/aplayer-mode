@@ -78,10 +78,57 @@ export function clearPendingCheckout(): void {
   try { storage()?.removeItem(PRECHECKOUT_STORAGE_KEY); } catch { /* nothing to clear */ }
 }
 
+/**
+ * The checkout id the buyer ACTUALLY paid under. RevenueCat's return URL carries it as
+ * `app_user_id`; it wins over this browser's stored id (a receipt link, another tab, or a stale
+ * stored id would otherwise claim the wrong checkout and read not_paid forever). Safe: the claim
+ * still needs the email typed at checkout and the 6-digit code. Anything malformed is ignored.
+ */
+export function checkoutIdFromReturn(search: string | undefined): string | undefined {
+  try {
+    const id = new URLSearchParams(search ?? '').get('app_user_id')?.trim().toLowerCase();
+    return id && UUID.test(id) ? id : undefined;
+  } catch { return undefined; }
+}
+
+/** The checkout to claim on /billing/return: the URL's `app_user_id`, else this browser's stored one. */
+export function returnCheckout(search: string | undefined, nowMs: number = Date.now()): PendingCheckout | undefined {
+  const fromUrl = checkoutIdFromReturn(search);
+  if (!fromUrl) return pendingCheckout(nowMs);
+  const chosen = { id: fromUrl, createdAt: nowMs };
+  try { storage()?.setItem(PRECHECKOUT_STORAGE_KEY, JSON.stringify(chosen)); } catch { /* still claimable on this page load */ }
+  return chosen;
+}
+
+/**
+ * RevenueCat takes a few seconds to record a purchase, so a claim right after paying can read
+ * not_paid. Seconds after the first try at which the claim is re-asked, quietly: about a minute in
+ * all, and never more than 6 calls a minute (the server's per-checkout limit, RECONCILE_LIMIT).
+ */
+export const CLAIM_RETRY_SCHEDULE_S: readonly number[] = [5, 10, 20, 35, 55];
+
+/** Claims, re-asking on not_paid / rate_limited per CLAIM_RETRY_SCHEDULE_S; any other answer returns at once. */
+export async function claimUntilPaid<T extends { claimed: boolean; error?: string }>(
+  claim: () => Promise<T>,
+  sleep: (ms: number) => Promise<unknown> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  schedule: readonly number[] = CLAIM_RETRY_SCHEDULE_S,
+): Promise<T> {
+  let result = await claim();
+  let waited = 0;
+  for (const at of schedule) {
+    if (result.claimed || (result.error !== 'not_paid' && result.error !== 'rate_limited')) return result;
+    await sleep((at - waited) * 1000);
+    waited = at;
+    result = await claim();
+  }
+  return result;
+}
+
 export const PRECHECKOUT_COPY = {
   title: 'Payment received. Now your account.',
   lead: 'Type the email you used at checkout. We send a 6-digit code; your subscription is attached to the account it opens. Then the setup questions start.',
   claim: 'Attach my subscription',
+  confirming: 'Confirming your payment…',
   unavailable: 'We could not check your payment just now. Wait a minute and try again; nothing is lost.',
   footnote: 'Paid from another browser or device? Open the link in your receipt email on that one, or write to support@aplayermode.com.',
 } as const;

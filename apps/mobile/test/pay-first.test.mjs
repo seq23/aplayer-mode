@@ -18,15 +18,17 @@ import { build } from 'esbuild';
 const appDir = fileURLToPath(new URL('../', import.meta.url));
 const src = (path) => readFile(join(appDir, path), 'utf8');
 const FOUNDING_LINK = 'https://pay.rev.cat/lyamzdqnlkwrwwxt/';
-let outDir; let pay; let quotes; let sell;
+let outDir; let pay; let quotes; let sell; let summary; let greet;
 
 test.before(async () => {
   outDir = await mkdtemp(join(tmpdir(), 'apm-pay-first-'));
   await build({
-    entryPoints: { pay: join(appDir, 'src/billing/precheckout.ts'), quotes: join(appDir, 'src/content/testimonials.ts'), sell: join(appDir, 'src/content/sell.ts') },
+    entryPoints: { greet: join(appDir, 'src/content/greeting.ts'), summary: join(appDir, 'src/billing/planSummary.ts'), pay: join(appDir, 'src/billing/precheckout.ts'), quotes: join(appDir, 'src/content/testimonials.ts'), sell: join(appDir, 'src/content/sell.ts') },
     bundle: true, format: 'esm', platform: 'neutral', outdir: outDir, logLevel: 'silent',
   });
   pay = await import(pathToFileURL(join(outDir, 'pay.js')).href);
+  summary = await import(pathToFileURL(join(outDir, 'summary.js')).href);
+  greet = await import(pathToFileURL(join(outDir, 'greet.js')).href);
   quotes = await import(pathToFileURL(join(outDir, 'quotes.js')).href);
   sell = await import(pathToFileURL(join(outDir, 'sell.js')).href);
 });
@@ -88,12 +90,20 @@ test('web app only: never the sideload APK, never a store build', async () => {
 
 test('after paying: claim first, then the email code, then the setup questions; the paywall is skipped', async () => {
   const ret = await src('app/billing/return.tsx');
-  const claimAt = ret.indexOf('await claimPrecheckout({ checkoutId: pending.id');
+  const claimAt = ret.indexOf('await claimUntilPaid(() => claimPrecheckout({ checkoutId: pending.id');
   const codeAt = ret.indexOf('await sendEmailCode(email);\n    setStage');
   assert.ok(claimAt > 0 && codeAt > claimAt, 'the account must exist (id = checkout id) before the code is sent');
   assert.match(ret, /clearPendingCheckout\(\);\n    router\.replace\(healthDecision \? '\/intake' : '\/health-consent'\)/);
+  // The page claims the id RevenueCat returned with, and retries quietly while it confirms.
+  assert.match(ret, /returnCheckout\(\(globalThis as \{ location\?: \{ search\?: string \} \}\)\.location\?\.search\)/);
+  assert.doesNotMatch(ret, /\? pendingCheckout\(\) : undefined;\n      if \(waiting\) \{ setPending/, 'the signed-out claim never reads the stored id alone');
+  assert.match(ret, /PRECHECKOUT_COPY\.confirming/);
+  // Email already has an account (0096): no claim-side grant; the code-proven session attaches.
+  assert.match(ret, /if \(existingAccount\) \{ onExistingAccount\(\); return; \}/);
+  assert.match(ret, /await attachPrecheckout\(waiting\.id, accessToken\); clearPendingCheckout\(\);/);
   const api = await src('src/api/apmApi.ts');
   assert.match(api, /\/v1\/billing\/precheckout\/claim/);
+  assert.match(api, /\/v1\/billing\/precheckout\/attach/);
   const plan = await src('src/billing/PlanChoice.tsx');
   assert.match(plan, /if \(onboarding && product && product\.entitlement\.plan !== 'beta' && hasDailyLoopAccess\(product\.entitlement\)\) onFinished\?\.\('purchased'\)/);
 });
@@ -123,4 +133,97 @@ test('Autopilot ($79.99) is never the recommended plan, for any mix of games', (
     const chosen = games.filter((_, i) => mask & (1 << i));
     assert.notEqual(sell.recommendedTier(chosen), 'autopilot', chosen.join(','));
   }
+});
+
+test('return page: the app_user_id RevenueCat returned with wins over the stored checkout id', () => {
+  const paid = 'd3fa1e01-1047-4b41-8aaa-4a30a8a0fe98';
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  try {
+    const NOW = 1_791_462_000_000;
+    store.set(pay.PRECHECKOUT_STORAGE_KEY, JSON.stringify({ id: '11111111-1111-4111-8111-111111111111', createdAt: NOW - 1000 }));
+    assert.equal(pay.checkoutIdFromReturn(`?app_user_id=${paid}`), paid);
+    assert.equal(pay.checkoutIdFromReturn(`?foo=1&app_user_id=${paid.toUpperCase()}`), paid);
+    assert.equal(pay.returnCheckout(`?app_user_id=${paid}`, NOW).id, paid);
+    assert.equal(JSON.parse(store.get(pay.PRECHECKOUT_STORAGE_KEY)).id, paid, 'kept for a reload');
+    // Malformed or absent: the stored id, never a guess.
+    for (const bad of ['?app_user_id=not-a-uuid', '?app_user_id=', '', undefined, '?app_user_id=%24RCAnonymousID%3Aabc']) assert.equal(pay.checkoutIdFromReturn(bad), undefined, String(bad));
+    assert.equal(pay.returnCheckout('?app_user_id=nope', NOW).id, paid);
+    store.clear();
+    assert.equal(pay.returnCheckout('', NOW), undefined);
+  } finally { delete globalThis.localStorage; }
+});
+
+test('return page: not_paid right after paying is re-asked quietly for about a minute, within the server limit', async () => {
+  const schedule = pay.CLAIM_RETRY_SCHEDULE_S;
+  assert.ok(schedule.at(-1) >= 50 && schedule.at(-1) <= 60, 'about a minute');
+  assert.ok(schedule.length + 1 <= 6, 'never more than the 6-a-minute claim limit');
+  assert.equal(schedule[0], 5);
+  const slept = [];
+  const sleep = async (ms) => { slept.push(ms); };
+  // RevenueCat records it on the third ask: the buyer never sees not_paid.
+  let calls = 0;
+  const r = await pay.claimUntilPaid(async () => (++calls < 3 ? { claimed: false, error: 'not_paid' } : { claimed: true }), sleep);
+  assert.deepEqual([r.claimed, calls], [true, 3]);
+  assert.deepEqual(slept, [5000, 5000]);
+  // Never recorded: every scheduled ask, then the message.
+  calls = 0; slept.length = 0;
+  const never = await pay.claimUntilPaid(async () => { calls += 1; return { claimed: false, error: 'not_paid' }; }, sleep);
+  assert.deepEqual([never.error, calls, slept.reduce((a, b) => a + b, 0)], ['not_paid', schedule.length + 1, schedule.at(-1) * 1000]);
+  // Any other answer (wrong email, already claimed) is shown at once.
+  calls = 0;
+  const mismatch = await pay.claimUntilPaid(async () => { calls += 1; return { claimed: false, error: 'email_mismatch' }; }, sleep);
+  assert.deepEqual([mismatch.error, calls], ['email_mismatch', 1]);
+});
+
+test('Settings home names the current plan and its status, from the plan screen\'s own source, and taps through', async () => {
+  assert.equal(summary.planSummary({ displayName: 'Executive Suite', status: 'active' }), 'Executive Suite · active');
+  assert.equal(summary.planSummary({ displayName: 'Executive Roundtable', status: 'trialing' }), 'Executive Roundtable · active');
+  assert.equal(summary.planSummary({ displayName: 'Life OS', status: 'past_due' }), 'Life OS · payment problem');
+  assert.equal(summary.planSummary({ displayName: 'Life OS', status: 'expired' }), 'Life OS · ended');
+  assert.equal(summary.planSummary({ displayName: 'Life OS', status: 'weird' }), 'Life OS · not active');
+  assert.equal(summary.planSummary(undefined), undefined);
+  const settings = await src('app/settings/index.tsx');
+  assert.match(settings, /fetchProductPlan\(accessToken\)\.then\(\(next\) => \{ if \(active\) setProduct\(next\); \}\)/, 'the same GET /v1/product/plan the plan screen reads');
+  assert.match(settings, /<ListRow icon="credit-card" title=\{planSummary\(product\?\.entitlement\) \?\? 'Loading your plan…'\}[^>]*onPress=\{\(\) => router\.push\('\/settings\/plan'\)\}/);
+  // One set of status words for both screens.
+  const plan = await src('app/settings/plan.tsx');
+  assert.match(plan, /import \{ PLAN_STATUS_WORDS as STATUS_WORDS \} from '\.\.\/\.\.\/src\/billing\/planSummary'/);
+  assert.doesNotMatch(plan, /const STATUS_WORDS/);
+});
+
+test('Today: the greeting and the date are in HER time zone and locale, never UTC', async () => {
+  // 03:30 UTC on Sat 10 Oct 2026 is still Friday evening in Chicago and already Saturday afternoon in Tokyo.
+  const now = new Date('2026-10-10T03:30:00Z');
+  assert.equal(greet.todayLine(now, 'America/Chicago', 'en-US'), 'Friday, October 9');
+  assert.equal(greet.todayLine(now, 'Asia/Tokyo', 'en-US'), 'Saturday, October 10');
+  assert.equal(greet.todayLine(now, 'UTC', 'en-US'), 'Saturday, October 10');
+  assert.equal(greet.hourIn(now, 'America/Chicago'), 22);
+  assert.equal(greet.greeting(greet.hourIn(now, 'America/Chicago')), 'Good evening');
+  assert.equal(greet.greeting(greet.hourIn(new Date('2026-10-09T14:00:00Z'), 'America/Chicago')), 'Good morning');
+  // Her locale, not a fixed one.
+  assert.equal(greet.todayLine(now, 'America/Chicago', 'fr-FR'), 'vendredi 9 octobre');
+  // A bad zone never throws: the device's own zone.
+  assert.equal(typeof greet.todayLine(now, 'Not/AZone', 'en-US'), 'string');
+  const today = await src('app/(tabs)/today.tsx');
+  assert.match(today, /title=\{`\$\{greeting\(hourIn\(now, graph\.identity\.timezone\)\)\}, \$\{name\}\.`\}/);
+  assert.match(today, /subtitle=\{`\$\{todayLine\(now, graph\.identity\.timezone\)\} · /);
+  assert.doesNotMatch(today, /new Date\(\)\.getHours\(\)/, 'never the device clock alone');
+});
+
+test('the typed name is saved to the identity Today reads, for a new and an existing account, and editable in Settings', async () => {
+  const session = await src('src/state/session.tsx');
+  // Every sign-in path's saveName also writes PUT /v1/profile/name with the signed-in token.
+  assert.match(session, /const token = \(await supabase\(\)\.auth\.getSession\(\)\)\.data\.session\?\.access_token;\n\s+if \(!token\) throw new Error\('not signed in'\);\n\s+await saveDisplayName\(clean, token\);/);
+  assert.match(session, /updateName: \(name\) => saveName\(name, true\)/);
+  const api = await src('src/api/apmApi.ts');
+  assert.match(api, /request\('\/v1\/profile\/name', accessToken, \{ method: 'PUT', body: JSON\.stringify\(\{ displayName \}\) \}\)/);
+  // /billing/return asks for the name on BOTH paths and passes it to the code check.
+  const ret = await src('app/billing/return.tsx');
+  assert.match(ret, /\n\s+<TextField accessibilityLabel="First name" value=\{name\}/, 'never hidden for an existing account');
+  assert.match(ret, /await verifyEmailCode\(email, code, name\);\n\s+\/\/ An existing account/);
+  // Settings: edit it.
+  const settings = await src('app/settings/index.tsx');
+  assert.match(settings, /<TextField accessibilityLabel="Your first name" value=\{shownName\}/);
+  assert.match(settings, /await updateName\(shownName\); await refresh\(\)/);
 });

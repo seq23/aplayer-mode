@@ -53,7 +53,7 @@ import { hasDailyLoopAccess, noPlanCopy } from '../../src/billing/access';
 import { appDistribution, billingAvailability } from '../../src/billing/purchases';
 import { webCheckoutAllowed } from '../../src/billing/distribution';
 import { plainError } from '../../src/api/errors';
-import { greeting } from '../../src/content/greeting';
+import { greeting, hourIn, todayLine } from '../../src/content/greeting';
 import { GATE_WORDS, ITEM_KIND_WORDS, MODE_WORDS, TODAY_COPY, VERDICT_WORDS, actionTag, radarTag, shortDate } from '../../src/content/words';
 
 function timeLabel(value?: string) {
@@ -152,6 +152,8 @@ export default function TodayScreen() {
   const completionEvidence = graph.evidence.find((item) => item.relatedActionId === primaryAction?.id);
   const firstRadarItem = graph.radarItems[0];
   const name = graph.identity.displayName || 'there';
+  // The greeting and the date in HER time zone (identity.timezone), in her locale; never UTC.
+  const now = new Date();
   const mode = modeState?.mode ?? todayPlan?.mode ?? graph.personalOS?.activeMode ?? 'standard';
   // The agenda's own state counts: a mood-2 day or a missed yesterday is an MVD even outside Recovery Mode.
   const recovery = mode === 'recovery' || todayLoop?.agenda.mode === 'recovery';
@@ -214,8 +216,8 @@ export default function TodayScreen() {
   return (
     <Screen
       eyebrow="Today"
-      title={`${greeting(new Date().getHours())}, ${name}.`}
-      subtitle={primaryGoal ? recovery ? TODAY_COPY.subtitleRecovery : TODAY_COPY.subtitle : TODAY_COPY.subtitleNoOs}
+      title={`${greeting(hourIn(now, graph.identity.timezone))}, ${name}.`}
+      subtitle={`${todayLine(now, graph.identity.timezone)} · ${primaryGoal ? recovery ? TODAY_COPY.subtitleRecovery : TODAY_COPY.subtitle : TODAY_COPY.subtitleNoOs}`}
     >
       {/* Summary first (docs/35 U9): where the day stands, then the ONE next step; the rest is folded below. */}
       {/* Only what tells her something: a non-standard mode and the done count. "Standard" and

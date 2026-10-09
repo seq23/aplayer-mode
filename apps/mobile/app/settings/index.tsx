@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
-import { Body, Button, Card, CardTitle, ChoiceRow, ErrorState, KeyValue, ListRow, Muted, Screen, SectionTitle, Toast } from '../../src/components/ui';
+import { Body, Button, Card, CardTitle, ChoiceRow, ErrorState, KeyValue, ListRow, Muted, Screen, SectionTitle, TextField, Toast } from '../../src/components/ui';
 import { useTheme, type SchemePreference } from '../../src/theme';
 import { useSession } from '../../src/state/session';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { PLAN_PRICES } from '@apm/policy';
-import { requestDeletion } from '../../src/api/apmApi';
+import { fetchProductPlan, requestDeletion, type ProductPlanResponse } from '../../src/api/apmApi';
+import { planSummary } from '../../src/billing/planSummary';
 import { plainError } from '../../src/api/errors';
 import { UNAVAILABLE_COPY, billingAvailability, restoreStorePurchases } from '../../src/billing/purchases';
 import { WEB_CHECKOUT_COPY } from '../../src/billing/webCheckout';
@@ -18,15 +19,33 @@ function planTitle(plan: string | undefined, usable: boolean): string {
 }
 
 export default function SettingsScreen() {
-  const { user, status, accessToken, signOut } = useSession();
+  const { user, status, accessToken, signOut, updateName } = useSession();
   const { refresh, graph } = useLifeGraph();
   const entitlement = graph.entitlement;
   const usable = entitlement?.status === 'active' || entitlement?.status === 'trialing';
-  const [busy, setBusy] = useState<'restore' | 'delete' | 'signout'>();
+  const [busy, setBusy] = useState<'restore' | 'delete' | 'signout' | 'name'>();
+  // Your name: the one Today greets you with (identity.displayName), editable here.
+  const [nameDraft, setNameDraft] = useState<string>();
+  const shownName = nameDraft ?? graph.identity.displayName ?? '';
+  const saveName = async () => {
+    if (busy || !shownName.trim()) return;
+    setBusy('name'); setError(undefined);
+    try { await updateName(shownName); await refresh().catch(() => undefined); setNameDraft(undefined); setNotice('Saved. APM will use this name.'); }
+    catch (cause) { setError(plainError(cause, 'Your name did not save. Try again.')); }
+    finally { setBusy(undefined); }
+  };
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { preference, setPreference } = useTheme();
+  // The plan line reads the SAME source as Settings → Your plan (GET /v1/product/plan).
+  const [product, setProduct] = useState<ProductPlanResponse>();
+  useEffect(() => {
+    if (status !== 'signed_in' || !accessToken) return;
+    let active = true;
+    fetchProductPlan(accessToken).then((next) => { if (active) setProduct(next); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [status, accessToken]);
 
   const handleSignOut = async () => {
     if (busy) return;
@@ -78,12 +97,26 @@ export default function SettingsScreen() {
       ) : null}
 
       <SectionTitle>Your plan</SectionTitle>
+      {status === 'signed_in' ? (
+        <ListRow icon="credit-card" title={planSummary(product?.entitlement) ?? 'Loading your plan…'} detail="See your plan, billing and renewal." onPress={() => router.push('/settings/plan')} />
+      ) : null}
       <Card>
         <CardTitle>{planTitle(entitlement?.plan, usable)}</CardTitle>
         <Body muted>{usable ? 'Change how much APM carries, or manage your subscription.' : 'Pick how much APM carries for you.'}</Body>
         <Button label={usable ? 'Change plan' : 'See plans'} onPress={() => router.push('/settings/plan')} />
         <Button label={busy === 'restore' ? 'Restoring…' : 'Restore purchases'} variant="secondary" busy={busy === 'restore'} onPress={() => restore()} />
       </Card>
+
+      {status === 'signed_in' ? (
+        <>
+          <SectionTitle>Your name</SectionTitle>
+          <Card>
+            <Muted>What APM calls you on Today.</Muted>
+            <TextField accessibilityLabel="Your first name" value={shownName} onChangeText={setNameDraft} autoComplete="given-name" textContentType="givenName" placeholder="First name" />
+            <Button label={busy === 'name' ? 'Saving…' : 'Save name'} busy={busy === 'name'} disabled={!shownName.trim() || shownName.trim() === (graph.identity.displayName ?? '')} onPress={() => void saveName()} />
+          </Card>
+        </>
+      ) : null}
 
       <SectionTitle>Appearance</SectionTitle>
       <Card>

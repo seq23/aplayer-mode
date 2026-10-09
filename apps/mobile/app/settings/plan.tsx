@@ -3,8 +3,7 @@ import { Body, Card, CardTitle, KeyValue, Screen } from '../../src/components/ui
 import { type ProductPlanResponse } from '../../src/api/apmApi';
 import { PlanChoice } from '../../src/billing/PlanChoice';
 import { PLAN_SCREEN } from '../../src/content/sell';
-
-const STATUS_WORDS: Record<string, string> = { active: 'Active', trialing: 'Active', past_due: 'Payment problem', cancelled: 'Cancelled', expired: 'Ended' };
+import { PLAN_STATUS_WORDS as STATUS_WORDS } from '../../src/billing/planSummary';
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';

@@ -291,6 +291,11 @@ export async function fetchTodayState(accessToken: string): Promise<TodayState> 
 export async function fetchRetainedLifeOsState(accessToken: string): Promise<{ lifeRelationships: LifeRelationship[]; lifeAdminItems: LifeAdminItem[] }> {
   return request<{ lifeRelationships: LifeRelationship[]; lifeAdminItems: LifeAdminItem[] }>('/v1/privacy/life-os', accessToken);
 }
+/** Saves the name the person typed to the identity Today greets with (user_profiles.display_name). */
+export async function saveDisplayName(displayName: string, accessToken: string): Promise<{ displayName: string }> {
+  return request('/v1/profile/name', accessToken, { method: 'PUT', body: JSON.stringify({ displayName }) });
+}
+
 export async function fetchProductPlan(accessToken: string): Promise<ProductPlanResponse> {
   return request<ProductPlanResponse>('/v1/product/plan', accessToken);
 }
@@ -587,7 +592,7 @@ export async function fetchRetainedAutopilotState(accessToken: string): Promise<
  * whether to skip the email step; with the code it returns a session for that account.
  */
 export type PrecheckoutClaimResponse =
-  | { claimed: true; outcomes: string[] }
+  | { claimed: true; outcomes: string[]; existingAccount?: boolean }
   | { claimed: false; error: string; message?: string };
 /**
  * Pay first, account after (docs/33 §10): claim a paid checkout for a new account with the email
@@ -602,9 +607,17 @@ export async function claimPrecheckout(input: { checkoutId: string; email: strin
     try { response = await fetch(`${baseUrl}/v1/billing/precheckout/claim`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(input), signal: controller.signal }); }
     finally { clearTimeout(timer); }
   } catch { return { claimed: false, error: 'unavailable' }; }
-  const body = await response.json().catch(() => ({})) as { claimed?: boolean; outcomes?: string[]; error?: string; message?: string };
-  if (response.ok && body.claimed) return { claimed: true, outcomes: body.outcomes ?? [] };
+  const body = await response.json().catch(() => ({})) as { claimed?: boolean; outcomes?: string[]; existingAccount?: boolean; error?: string; message?: string };
+  if (response.ok && body.claimed) return { claimed: true, outcomes: body.outcomes ?? [], ...(body.existingAccount ? { existingAccount: true } : {}) };
   return { claimed: false, error: body.error ?? 'unavailable', ...(body.message ? { message: body.message } : {}) };
+}
+
+/**
+ * Pay first with an email that already has an account (migration 0096): once the buyer has signed
+ * in with the 6-digit code, THIS session attaches the paid checkout to their existing account.
+ */
+export async function attachPrecheckout(checkoutId: string, accessToken: string): Promise<{ attached: true; outcomes: string[] }> {
+  return request('/v1/billing/precheckout/attach', accessToken, { method: 'POST', body: JSON.stringify({ checkoutId }) });
 }
 
 export async function reviewerSignIn(input: { email: string; code?: string }): Promise<{ review: true; session?: { access_token: string; refresh_token: string } } | null> {
