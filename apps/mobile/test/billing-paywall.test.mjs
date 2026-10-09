@@ -86,7 +86,10 @@ test('the app never reports a purchase to the API or decides Founding eligibilit
   const files = [...await sources(join(appDir, 'app')), ...await sources(join(appDir, 'src'))];
   const api = files.find(([path]) => path.endsWith('src/api/apmApi.ts'))[1];
   const billingRoutes = [...api.matchAll(/'\/v1\/billing\/[^']*'/g)].map((m) => m[0]);
-  assert.deepEqual(billingRoutes, ["'/v1/billing/offering'", "'/v1/billing/reconcile'", "'/v1/billing/web/portal'"], 'the only billing routes the app calls are reconcile (server reads RevenueCat), the read-only offering and the web customer-portal link');
+  assert.deepEqual(billingRoutes, ["'/v1/billing/offering'", "'/v1/billing/reconcile'", "'/v1/billing/web/portal'", "'/v1/billing/precheckout/attach'"], 'the only billing routes the app calls are reconcile (server reads RevenueCat), the read-only offering, the web customer-portal link and the pay-first attach');
+  // Attach (0096) carries ONLY the checkout id: never a plan, product or status; the server reads RevenueCat.
+  assert.match(api, /request\('\/v1\/billing\/precheckout\/attach', accessToken, \{ method: 'POST', body: JSON\.stringify\(\{ checkoutId \}\) \}\)/);
+  assert.equal([...api.matchAll(/\/v1\/billing\/precheckout\/attach/g)].length, 1, 'one attach call site');
   // Reconcile carries NO purchase claim: an empty body; the server asks RevenueCat about the session user.
   assert.match(api, /'\/v1\/billing\/reconcile', accessToken, \{ method: 'POST', body: '\{\}' \}\)/);
   assert.equal([...api.matchAll(/\/v1\/billing\/reconcile/g)].length, 1, 'one call site, and it is the empty-body one');

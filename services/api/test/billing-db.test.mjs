@@ -126,7 +126,7 @@ test('clients never write entitlements or reach any billing function or table', 
     where p.schemaname = 'private' and p.tablename = c.relname) as quals from pg_class c join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'private' and c.relname like 'billing%' and c.relkind = 'r' order by c.relname`)).rows;
   assert.deepEqual(tables.map((t) => [t.relname, t.relrowsecurity, t.quals]), [
-    ['billing_events', true, ['false']], ['billing_founding_lapsed', true, ['false']], ['billing_founding_slots', true, ['false']], ['billing_products', true, ['false']],
+    ['billing_checkout_links', true, ['false']], ['billing_events', true, ['false']], ['billing_founding_lapsed', true, ['false']], ['billing_founding_slots', true, ['false']], ['billing_products', true, ['false']],
   ]);
   // 0044: the beta allowlist is server-only too.
   for (const role of ['authenticated', 'anon']) {
@@ -516,4 +516,54 @@ test('reconcile (8 Oct 2026): RevenueCat\'s own record grants through the webhoo
   const c = await newUser();
   assert.deepEqual((await reconcile(c, [sub(c, { auto_renewal_status: 'will_not_renew' })])).map((r) => r.outcome), ['applied', 'applied']);
   assert.deepEqual([(await ent(c)).status, (await ent(c)).cancel_at_period_end], ['active', true]);
+});
+
+test('0096 checkout links: a pay-first checkout attaches to an EXISTING account only with its email, once, and the writer follows it', async () => {
+  const owner = await newUser();
+  await admin("update auth.users set email = 'Buyer@Example.com' where id = $1", [owner]);
+  const other = await newUser();
+  await admin("update auth.users set email = 'other@example.com' where id = $1", [other]);
+  const checkout = U(9601);
+  const link = async (c, u, e) => (await service('select public.apm_service_billing_link_checkout($1::uuid, $2::uuid, $3) as r', [c, u, e])).rows[0].r;
+  const ownerOf = async (c) => (await service('select public.apm_service_billing_checkout_owner($1::uuid)::text as r', [c])).rows[0].r;
+  const idsOf = async (u) => (await service('select public.apm_service_billing_checkout_ids($1::uuid) as r', [u])).rows[0].r;
+  // Before any link: the webhook for the checkout id is ignored_unknown_user (nothing granted).
+  assert.equal((await apply(ev('INITIAL_PURCHASE', checkout, 'apm_web_cos_monthly'))).outcome, 'ignored_unknown_user');
+  assert.equal((await ent(owner))?.plan ?? 'beta', 'beta');
+  // The email must be the account's own (the code-proven session's): a wrong one links nothing.
+  assert.deepEqual(await link(checkout, owner, 'someone@else.com'), { linked: false, reason: 'email_mismatch' });
+  assert.equal(await ownerOf(checkout), null);
+  // A checkout id that is itself an account is never linked; a self-link is invalid.
+  assert.deepEqual(await link(other, owner, 'buyer@example.com'), { linked: false, reason: 'already_claimed' });
+  await rejects(link(owner, owner, 'buyer@example.com'), /billing_invalid_request/);
+  // The link (case-insensitive email), then a replay by the same account.
+  assert.deepEqual(await link(checkout, owner, ' buyer@EXAMPLE.com '), { linked: true, replayed: false });
+  assert.deepEqual(await link(checkout, owner, 'buyer@example.com'), { linked: true, replayed: true });
+  // A second claim by another account never moves it.
+  await admin("update auth.users set email = 'buyer@example.com' where id = $1", [other]);
+  assert.deepEqual(await link(checkout, other, 'buyer@example.com'), { linked: false, reason: 'already_claimed' });
+  assert.equal(await ownerOf(checkout), owner);
+  assert.deepEqual(await idsOf(owner), [checkout]);
+  assert.deepEqual(await idsOf(other), []);
+  // The writer follows the link: grant, renewal, cancellation all land on the existing account.
+  assert.equal((await apply(ev('INITIAL_PURCHASE', checkout, 'apm_web_cos_monthly_founding'))).outcome, 'applied');
+  assert.deepEqual([(await ent(owner)).plan, (await ent(owner)).status, (await ent(owner)).provider], ['chief_of_staff', 'active', 'web']);
+  assert.equal((await apply(ev('CANCELLATION', checkout, 'apm_web_cos_monthly_founding', { cancel_reason: 'UNSUBSCRIBE' }))).outcome, 'applied');
+  assert.equal((await ent(owner)).cancel_at_period_end, true);
+  assert.equal((await admin('select user_id::text from private.billing_events where app_user_id = $1 and outcome = $2 limit 1', [checkout, 'applied'])).rows[0].user_id, owner);
+  // Even if an account with id = checkout id appeared later, the link wins: one payment, one account.
+  await admin('insert into auth.users (id, email) values ($1, $2)', [checkout, 'late@example.com']);
+  const renewal = ev('RENEWAL', checkout, 'apm_web_cos_monthly_founding');
+  assert.equal((await apply(renewal)).outcome, 'applied');
+  assert.equal((await admin('select user_id::text from private.billing_events where event_id = $1', [renewal.id])).rows[0].user_id, owner);
+  assert.notEqual((await ent(checkout))?.plan, 'chief_of_staff', 'the late account got nothing');
+  assert.equal((await ent(owner)).cancel_at_period_end, false, 'the renewal landed on the owner');
+  // Audited; and no client can link, read the links, or ask who owns a checkout.
+  assert.equal((await admin("select count(*)::int as n from public.audit_events where user_id = $1 and event_type = 'billing.checkout_linked'", [owner])).rows[0].n, 1);
+  for (const role of ['authenticated', 'anon']) {
+    await rejects(asRole(role, owner, 'select public.apm_service_billing_link_checkout($1::uuid, $2::uuid, $3)', [U(9602), owner, 'buyer@example.com']), /permission denied/);
+    await rejects(asRole(role, owner, 'select public.apm_service_billing_checkout_ids($1::uuid)', [owner]), /permission denied/);
+    await rejects(asRole(role, owner, 'select public.apm_service_billing_checkout_owner($1::uuid)', [checkout]), /permission denied/);
+    await rejects(asRole(role, owner, 'select * from private.billing_checkout_links'), /permission denied/);
+  }
 });

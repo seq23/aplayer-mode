@@ -545,3 +545,17 @@ export async function completeNextAction(
     },
   };
 }
+
+/**
+ * The name the person typed (sign-up, the pay-first return page, Settings) saved to the identity
+ * the app greets with (user_profiles.display_name, read back as identity.displayName). Written as
+ * the user (RLS: own row only); an upsert, so an account the server created without a profile row
+ * still gets one.
+ */
+export async function saveDisplayName(env: ApiEnv, accessToken: string, userId: string, displayName: string): Promise<void> {
+  await supabaseRest<void>(env, accessToken, '/rest/v1/user_profiles?on_conflict=user_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify([{ user_id: userId, display_name: displayName, updated_at: new Date().toISOString() }]),
+  });
+}

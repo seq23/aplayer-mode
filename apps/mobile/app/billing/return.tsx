@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import { Body, Button, Card, LinkButton, Muted, Reason, Screen, TextField } from '../../src/components/ui';
-import { claimPrecheckout, fetchProductPlan, reconcileBilling } from '../../src/api/apmApi';
+import { attachPrecheckout, claimPrecheckout, fetchProductPlan, reconcileBilling } from '../../src/api/apmApi';
 import { useSession } from '../../src/state/session';
 import { useConsent } from '../../src/state/consent';
 import { hasDailyLoopAccess } from '../../src/billing/access';
 import { webCheckoutAllowed } from '../../src/billing/distribution';
 import { appDistribution } from '../../src/billing/purchases';
 import { WEB_CHECKOUT_COPY } from '../../src/billing/webCheckout';
-import { PRECHECKOUT_COPY, clearPendingCheckout, payFirstAllowed, pendingCheckout, type PendingCheckout } from '../../src/billing/precheckout';
+import { PRECHECKOUT_COPY, claimUntilPaid, clearPendingCheckout, payFirstAllowed, pendingCheckout, returnCheckout, type PendingCheckout } from '../../src/billing/precheckout';
 import { plainError } from '../../src/api/errors';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,26 +25,39 @@ export const RECONCILE_ATTEMPTS: ReadonlySet<number> = new Set([0, 2, 5, 9, 14])
  * Pay first (docs/33 §10): a buyer who came from "Join the Founding 100" has no account yet,
  * only this browser's checkout id. They type the email they paid with, the server creates the
  * account with id = checkout id and applies the payment, they type the 6-digit code, and the
- * setup questions start (health-data choice first when it is not made yet).
+ * setup questions start (health-data choice first when it is not made yet). When that email
+ * ALREADY has an account (0096) the claim grants nothing: the 6-digit code signs them into that
+ * account, and the signed-in session attaches the checkout (POST /v1/billing/precheckout/attach)
+ * before the usual plan check below.
  */
 export default function BillingReturn() {
   const { accessToken, status, user } = useSession();
   const [message, setMessage] = useState<string>(WEB_CHECKOUT_COPY.confirming);
   const [done, setDone] = useState(false);
   const [pending, setPending] = useState<PendingCheckout>();
+  // The code signed the buyer into an EXISTING account: attach `pending` instead of claiming it.
+  const [attaching, setAttaching] = useState(false);
 
   useEffect(() => {
     if (!webCheckoutAllowed(appDistribution())) { router.replace('/'); return; }
     if (status === 'loading') return;
     if (!accessToken) {
-      const waiting = payFirstAllowed(appDistribution()) ? pendingCheckout() : undefined;
+      if (attaching) return;
+      // The id RevenueCat returned with (?app_user_id=) wins over this browser's stored one.
+      const waiting = payFirstAllowed(appDistribution()) ? returnCheckout((globalThis as { location?: { search?: string } }).location?.search) : undefined;
       if (waiting) { setPending(waiting); return; }
       router.replace('/'); return;
     }
     // Signed in by the claim below: the payment is already applied, go to the questions.
-    if (pending && user?.id === pending.id) return;
+    if (pending && user?.id === pending.id && !attaching) return;
     let active = true;
     (async () => {
+      // A pay-first checkout this browser still holds, paid with an email that already had an
+      // account: attach it to the signed-in account (the server re-checks everything).
+      const waiting = payFirstAllowed(appDistribution()) ? (pending ?? pendingCheckout()) : undefined;
+      if (waiting && waiting.id !== user?.id) {
+        try { await attachPrecheckout(waiting.id, accessToken); clearPendingCheckout(); } catch { /* not paid / not this account: the plan check below decides */ }
+      }
       for (let attempt = 0; attempt < 15 && active; attempt += 1) {
         // Never rely on the webhook alone: ask the server to reconcile from RevenueCat now and then.
         if (RECONCILE_ATTEMPTS.has(attempt)) await reconcileBilling(accessToken).catch(() => undefined);
@@ -60,9 +73,9 @@ export default function BillingReturn() {
       if (active) { setMessage(WEB_CHECKOUT_COPY.pending); setDone(true); }
     })();
     return () => { active = false; };
-  }, [accessToken, status, pending, user?.id]);
+  }, [accessToken, status, pending, user?.id, attaching]);
 
-  if (pending) return <ClaimAccount pending={pending} />;
+  if (pending && !attaching) return <ClaimAccount pending={pending} onExistingAccount={() => setAttaching(true)} />;
 
   return (
     <Screen title="Your plan">
@@ -75,7 +88,7 @@ export default function BillingReturn() {
 }
 
 /** Pay first, account after: the email typed at checkout, then its 6-digit code. */
-function ClaimAccount({ pending }: { pending: PendingCheckout }) {
+function ClaimAccount({ pending, onExistingAccount }: { pending: PendingCheckout; onExistingAccount: () => void }) {
   const { sendEmailCode, verifyEmailCode } = useSession();
   const { healthDecision } = useConsent();
   const [stage, setStage] = useState<'email' | 'code'>('email');
@@ -84,6 +97,7 @@ function ClaimAccount({ pending }: { pending: PendingCheckout }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [existingAccount, setExistingAccount] = useState(false);
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   const run = async (call: () => Promise<void>) => {
@@ -94,8 +108,10 @@ function ClaimAccount({ pending }: { pending: PendingCheckout }) {
 
   const claim = () => run(async () => {
     if (!validEmail) { setError('Enter a full email address.'); return; }
-    const result = await claimPrecheckout({ checkoutId: pending.id, email: email.trim() });
+    // Right after paying RevenueCat may not have recorded it yet: re-ask quietly for about a minute.
+    const result = await claimUntilPaid(() => claimPrecheckout({ checkoutId: pending.id, email: email.trim() }));
     if (!result.claimed) { setError(result.message ?? PRECHECKOUT_COPY.unavailable); return; }
+    setExistingAccount(result.existingAccount === true);
     await sendEmailCode(email);
     setStage('code');
   });
@@ -103,6 +119,8 @@ function ClaimAccount({ pending }: { pending: PendingCheckout }) {
   const verify = () => run(async () => {
     if (code.length !== 6) { setError('The code has 6 digits.'); return; }
     await verifyEmailCode(email, code, name);
+    // An existing account: keep the checkout id; the signed-in page attaches it, then checks the plan.
+    if (existingAccount) { onExistingAccount(); return; }
     clearPendingCheckout();
     router.replace(healthDecision ? '/intake' : '/health-consent');
   });
@@ -120,7 +138,7 @@ function ClaimAccount({ pending }: { pending: PendingCheckout }) {
       )}
       {error ? <Reason>{error}</Reason> : null}
       {stage === 'email'
-        ? <Button label={busy ? 'Checking your payment…' : PRECHECKOUT_COPY.claim} icon="mail" busy={busy} onPress={() => void claim()} />
+        ? <Button label={busy ? PRECHECKOUT_COPY.confirming : PRECHECKOUT_COPY.claim} icon="mail" busy={busy} onPress={() => void claim()} />
         : (
           <>
             <Button label={busy ? 'Checking…' : 'Verify and start setup'} busy={busy} onPress={() => void verify()} />
