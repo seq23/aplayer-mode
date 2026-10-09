@@ -280,6 +280,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const supabase = getSupabaseClient();
         if (session?.access_token) await disableApmPushForSignOut(session.access_token);
         const { error: signOutError } = await supabase.auth.signOut();
+        // The name typed this session belongs to the account just left, never to the next one.
+        if (!signOutError) setFirstName(undefined);
         if (signOutError) {
           setError(friendlyAuthError(signOutError));
           throw signOutError;

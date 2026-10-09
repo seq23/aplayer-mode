@@ -1,10 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CONSUMER_HEALTH_POLICY_VERSION, HEALTH_CONSENT_ANSWER_KEY } from '@apm/planning';
-import { confirmAdult, fetchConsents, isApmApiConfigured, recordHealthDataDecision, type ConsentState, type HealthDataDecision } from '../api/apmApi';
+import { confirmAdult, fetchConsents, isApmApiConfigured, recordHealthDataDecision, saveDisplayName, type ConsentState, type HealthDataDecision } from '../api/apmApi';
 import { readSync, removeSync, writeSync } from '../intake/storage';
 import { useIntake } from '../intake/store';
 import { useLifeGraph } from './lifeGraph';
 import { useSession } from './session';
+import { nameToCarry } from '../content/greeting';
 
 /**
  * The 18+ confirmation and the consumer health data consent (server migration 0093).
@@ -42,9 +43,9 @@ function readPendingHealth(): PendingHealth | undefined {
 }
 
 export function ConsentProvider({ children }: { children: ReactNode }) {
-  const { status, accessToken } = useSession();
+  const { status, accessToken, user } = useSession();
   const { draft, answer, resync } = useIntake();
-  const { refresh } = useLifeGraph();
+  const { refresh, graph, syncStatus } = useLifeGraph();
   const [server, setServer] = useState<ConsentState | undefined>();
   const [localAge, setLocalAge] = useState<string | undefined>(() => readSync(AGE_KEY) ?? undefined);
   const [localHealth, setLocalHealth] = useState<PendingHealth | undefined>(readPendingHealth);
@@ -83,6 +84,22 @@ export function ConsentProvider({ children }: { children: ReactNode }) {
     })();
     return () => { active = false; };
   }, [accessToken, localAge, localHealth, reopen, signedIn, retry]);
+
+  // The name typed at sign-in reaches the identity Today reads only once the account routes are
+  // open (18+ on the server); a save tried before that was refused. Carry it over then, once per
+  // session and name, and mend an account whose profile name is still blank (nameToCarry).
+  const nameCarried = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!signedIn || !accessToken || !server?.ageConfirmedAt || syncStatus !== 'ready' || !user || graph.identity.userId !== user.id) return;
+    // The auth profile's own name (saveName writes it first, and it belongs to THIS account).
+    const meta = user.user_metadata as { display_name?: string; given_name?: string } | undefined;
+    const name = nameToCarry(graph.identity.displayName, meta?.display_name ?? meta?.given_name);
+    if (!name) return;
+    const key = `${accessToken.slice(-24)}:${name}`;
+    if (nameCarried.current === key) return;
+    nameCarried.current = key;
+    void saveDisplayName(name, accessToken).then(() => refresh()).catch(() => undefined);
+  }, [accessToken, graph.identity.displayName, graph.identity.userId, refresh, server?.ageConfirmedAt, signedIn, syncStatus, user]);
 
   // Sign-out forgets this device's taps: the next person on this phone is asked again.
   const previous = useRef(status);

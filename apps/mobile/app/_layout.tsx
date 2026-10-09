@@ -5,6 +5,7 @@ import { LifeGraphProvider } from '../src/state/lifeGraph';
 import { IntakeProvider } from '../src/intake/store';
 import { ConsentProvider } from '../src/state/consent';
 import { ConsentGate } from '../src/components/consent/ConsentViews';
+import { AccountMenu } from '../src/components/AccountMenu';
 import * as WebBrowser from 'expo-web-browser';
 
 // Web: completes the Google sign-in popup (no-op on native).
@@ -75,6 +76,8 @@ function ThemedStack() {
           <Stack.Screen name="review" options={{ title: 'Weekly debrief' }} />
           <Stack.Screen name="settings/os" options={{ title: 'Drafting Room' }} />
         </Stack>
+        {/* Top right of every signed-in page: email, plan, Sign out. Under the consent screens. */}
+        <AccountMenu />
         <ConsentGate />
     </>
   );

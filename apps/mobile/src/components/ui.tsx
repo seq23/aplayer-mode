@@ -632,6 +632,21 @@ export function EmptyState({ icon = 'inbox', title, body, actionLabel, onAction 
   );
 }
 
+/** The account control: her initial in a round button (top right of every signed-in page). */
+export function AvatarButton({ initial, label, expanded, onPress }: { initial: string; label: string; expanded: boolean; onPress: () => void }) {
+  const s = useThemedStyles(avatarStyles);
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded }} onPress={onPress} hitSlop={4}
+      style={({ pressed }) => [s.avatar, pressed && s.pressed]}>
+      <Txt variant="cardTitle" tone="onAccent">{initial}</Txt>
+    </Pressable>
+  );
+}
+const avatarStyles = ({ colors }: Theme) => ({
+  avatar: { width: tap.min - 4, height: tap.min - 4, borderRadius: radius.pill, backgroundColor: colors.accent, alignItems: 'center' as const, justifyContent: 'center' as const },
+  pressed: { opacity: 0.8 },
+});
+
 /** Something failed: a plain sentence (never a code) and, when it can be retried, Try again. */
 /** A loading screen that visibly moves: a spinner plus a short line, announced once (docs/36 A-1). */
 export function LoadingState({ label }: { label: string }) {
@@ -703,7 +718,8 @@ const styles = StyleSheet.create({
   center: { textAlign: 'center' },
   upper: { textTransform: 'uppercase' },
   strike: { textDecorationLine: 'line-through' },
-  header: { gap: spacing.xs },
+  // Room on the right for the account menu (src/components/AccountMenu.tsx) on signed-in pages.
+  header: { gap: spacing.xs, paddingRight: tap.min },
   sectionTitle: { marginTop: spacing.xs, marginBottom: -spacing.xs },
   pressed: { opacity: 0.86 },
   dim: { opacity: 0.5 },

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
-import { Body, Button, Card, LinkButton, Muted, Reason, Screen, TextField } from '../../src/components/ui';
+import { Body, Button, Card, ErrorState, LinkButton, LoadingState, Muted, Reason, Screen, TextField } from '../../src/components/ui';
 import { attachPrecheckout, claimPrecheckout, fetchProductPlan, reconcileBilling } from '../../src/api/apmApi';
 import { useSession } from '../../src/state/session';
 import { useConsent } from '../../src/state/consent';
+import { useLifeGraph } from '../../src/state/lifeGraph';
 import { hasDailyLoopAccess } from '../../src/billing/access';
 import { webCheckoutAllowed } from '../../src/billing/distribution';
 import { appDistribution } from '../../src/billing/purchases';
 import { WEB_CHECKOUT_COPY } from '../../src/billing/webCheckout';
-import { PRECHECKOUT_COPY, claimUntilPaid, clearPendingCheckout, payFirstAllowed, pendingCheckout, returnCheckout, type PendingCheckout } from '../../src/billing/precheckout';
+import { ATTACH_FINAL_ERRORS, PRECHECKOUT_COPY, RETURN_COPY, attachUntilDone, checkoutIdFromReturn, claimUntilPaid, clearPendingCheckout, payFirstAllowed, pendingCheckout, returnCheckout, type PendingCheckout } from '../../src/billing/precheckout';
 import { plainError } from '../../src/api/errors';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -31,17 +32,24 @@ export const RECONCILE_ATTEMPTS: ReadonlySet<number> = new Set([0, 2, 5, 9, 14])
  * before the usual plan check below.
  */
 export default function BillingReturn() {
-  const { accessToken, status, user } = useSession();
-  const [message, setMessage] = useState<string>(WEB_CHECKOUT_COPY.confirming);
-  const [done, setDone] = useState(false);
+  const { accessToken, status, user, isAnonymous, signOut } = useSession();
+  const { ageConfirmed } = useConsent();
+  const { refresh } = useLifeGraph();
+  const [view, setView] = useState<'confirming' | 'pending' | 'otherAccount' | 'refused'>('confirming');
+  const [refusal, setRefusal] = useState<string>();
+  // "Check again" after the minute runs out: one more round of the same checks.
+  const [round, setRound] = useState(0);
   const [pending, setPending] = useState<PendingCheckout>();
   // The code signed the buyer into an EXISTING account: attach `pending` instead of claiming it.
   const [attaching, setAttaching] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  // An anonymous draft session is not an account: the buyer still claims with the email they paid with.
+  const signedIn = Boolean(accessToken) && !isAnonymous;
 
   useEffect(() => {
     if (!webCheckoutAllowed(appDistribution())) { router.replace('/'); return; }
     if (status === 'loading') return;
-    if (!accessToken) {
+    if (!signedIn || !accessToken) {
       if (attaching) return;
       // The id RevenueCat returned with (?app_user_id=) wins over this browser's stored one.
       const waiting = payFirstAllowed(appDistribution()) ? returnCheckout((globalThis as { location?: { search?: string } }).location?.search) : undefined;
@@ -50,13 +58,30 @@ export default function BillingReturn() {
     }
     // Signed in by the claim below: the payment is already applied, go to the questions.
     if (pending && user?.id === pending.id && !attaching) return;
+    // Every account route is shut until the 18+ record is on the server (0093); ConsentGate asks
+    // for it, or this device's earlier tap is sent a few seconds after sign-in. Attaching before
+    // that got a 403 and lost the payment (9 Oct 2026), so nothing below runs until it is there.
+    if (!ageConfirmed) return;
     let active = true;
     (async () => {
-      // A pay-first checkout this browser still holds, paid with an email that already had an
-      // account: attach it to the signed-in account (the server re-checks everything).
-      const waiting = payFirstAllowed(appDistribution()) ? (pending ?? pendingCheckout()) : undefined;
-      if (waiting && waiting.id !== user?.id) {
-        try { await attachPrecheckout(waiting.id, accessToken); clearPendingCheckout(); } catch { /* not paid / not this account: the plan check below decides */ }
+      setView('confirming'); setRefusal(undefined);
+      // A pay-first checkout to attach to the signed-in account (the server re-checks everything,
+      // the email above all): the one just claimed, else the id RevenueCat returned with, else
+      // this browser's stored one. A different email is NEVER attached; the page says so.
+      const payFirst = payFirstAllowed(appDistribution());
+      const fromUrl = payFirst ? checkoutIdFromReturn((globalThis as { location?: { search?: string } }).location?.search) : undefined;
+      const target = attaching ? pending?.id : (fromUrl ?? (payFirst ? pendingCheckout()?.id : undefined));
+      const named = attaching || Boolean(fromUrl);
+      if (target && target !== user?.id) {
+        const result = await attachUntilDone(() => attachPrecheckout(target, accessToken), sleep, undefined, () => active);
+        if (!active) return;
+        if (result.attached) clearPendingCheckout();
+        else if (ATTACH_FINAL_ERRORS.has(result.error)) {
+          // A stale id this browser kept is simply dropped; one this visit named is explained.
+          if (!named) clearPendingCheckout();
+          else if (result.error === 'email_mismatch' && !attaching) { setView('otherAccount'); return; }
+          else { setRefusal(result.message ?? PRECHECKOUT_COPY.unavailable); setView('refused'); return; }
+        }
       }
       for (let attempt = 0; attempt < 15 && active; attempt += 1) {
         // Never rely on the webhook alone: ask the server to reconcile from RevenueCat now and then.
@@ -64,25 +89,54 @@ export default function BillingReturn() {
         const plan = await fetchProductPlan(accessToken).catch(() => undefined);
         if (plan && plan.entitlement.plan !== 'beta' && hasDailyLoopAccess(plan.entitlement)) {
           if (!active) return;
-          setMessage(WEB_CHECKOUT_COPY.confirmed);
+          await refresh().catch(() => undefined);
           router.replace('/(tabs)/today');
           return;
         }
         await sleep(2000);
       }
-      if (active) { setMessage(WEB_CHECKOUT_COPY.pending); setDone(true); }
+      if (active) setView('pending');
     })();
     return () => { active = false; };
-  }, [accessToken, status, pending, user?.id, attaching]);
+  }, [accessToken, status, signedIn, pending, user?.id, attaching, ageConfirmed, round]);
 
   if (pending && !attaching) return <ClaimAccount pending={pending} onExistingAccount={() => setAttaching(true)} />;
 
+  const leave = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    // Signed out, this page asks for the email the purchase was made with (the claim above).
+    try { await signOut(); } catch { /* the session provider shows the error */ } finally { setSigningOut(false); }
+  };
+
   return (
     <Screen title="Your plan">
-      <Card tone="muted">
-        <Body>{message}</Body>
-        {done ? <Button label="Go to Today" variant="secondary" onPress={() => router.replace('/(tabs)/today')} /> : null}
-      </Card>
+      {view === 'confirming' ? (
+        <Card tone="muted">
+          <LoadingState label={WEB_CHECKOUT_COPY.confirming} />
+          <Muted align="center">{RETURN_COPY.waitingHint}</Muted>
+        </Card>
+      ) : null}
+      {view === 'pending' ? (
+        <Card tone="muted">
+          <Body>{RETURN_COPY.stillConfirming}</Body>
+          <Button label={RETURN_COPY.checkAgain} icon="refresh-cw" onPress={() => setRound((n) => n + 1)} />
+          <Button label="Go to Today" variant="secondary" onPress={() => router.replace('/(tabs)/today')} />
+        </Card>
+      ) : null}
+      {view === 'otherAccount' ? (
+        <Card tone="warning">
+          <Body>{RETURN_COPY.otherAccount(user?.email ?? 'another account')}</Body>
+          <Button label={signingOut ? 'Signing out…' : RETURN_COPY.signOut} busy={signingOut} onPress={() => void leave()} />
+          <LinkButton label="Go to Today" onPress={() => router.replace('/(tabs)/today')} />
+        </Card>
+      ) : null}
+      {view === 'refused' ? (
+        <>
+          <ErrorState message={refusal ?? PRECHECKOUT_COPY.unavailable} />
+          <Button label="Go to Today" variant="secondary" onPress={() => router.replace('/(tabs)/today')} />
+        </>
+      ) : null}
     </Screen>
   );
 }
