@@ -320,3 +320,90 @@ export async function reconcileBillingFor(env: ApiEnv, userId: string, fetcher: 
   }
   return { reconciled: true, outcomes };
 }
+
+// ---------------------------------------------------------------- pay first, account after
+// "Join the Founding 100" (aplayermode.com and the welcome page) opens the card checkout BEFORE
+// any account exists (docs/33 §10). The web app mints a random UUID, the checkout id, keeps it in
+// that browser and passes it to the Web Purchase Link as the RevenueCat app user id. Afterwards
+// the buyer claims it: the server creates the APM account WITH THAT SAME ID, so the RevenueCat
+// app user id IS the account's user id and every existing path (webhook, reconcile, portal,
+// Founding 100 slot) works unchanged, with no mapping table to drift. The webhook that arrived
+// before the account existed was recorded as ignored_unknown_user; the claim reconciles it.
+
+export type PrecheckoutClaimResult =
+  | { status: 200; body: { claimed: true; outcomes: string[] } }
+  | { status: 400 | 409 | 429 | 502 | 503; body: { error: string; message?: string } };
+
+const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/;
+const CLAIM_MESSAGES = {
+  not_paid: 'We could not find a paid subscription for this checkout yet. If you just paid, wait a minute and try again.',
+  email_mismatch: 'Use the same email address you entered at checkout.',
+  email_has_account: 'That email already has an A Player Mode account. Email support@aplayermode.com from that address and we will move your subscription to it.',
+  already_claimed: 'This payment is already attached to an account. Sign in with the email you paid with.',
+} as const;
+
+async function authAdmin(env: ApiEnv, path: string, init: RequestInit, fetcher: typeof fetch): Promise<Response> {
+  const secret = env.SUPABASE_SECRET_KEY!;
+  const headers = new Headers({ apikey: secret, 'content-type': 'application/json' });
+  if (secret.split('.').length === 3) headers.set('authorization', `Bearer ${secret}`);
+  return fetcher(`${env.SUPABASE_URL}${path}`, { ...init, headers });
+}
+
+async function revenueCatGet<T>(env: ApiEnv, path: string, fetcher: typeof fetch): Promise<{ status: number; body?: T }> {
+  const response = await fetcher(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(env.REVENUECAT_PROJECT_ID!)}${path}`, {
+    headers: { authorization: `Bearer ${env.REVENUECAT_API_V2_KEY}`, accept: 'application/json' },
+  });
+  return { status: response.status, body: response.ok ? await response.json() as T : undefined };
+}
+
+/**
+ * Claims a pay-first checkout for an account that does not exist yet. All of these must hold:
+ * the checkout id is a UUID no account uses; RevenueCat says that customer has a subscription
+ * paid for NOW (the same filter and sandbox rule as reconcile); the email given is the one the
+ * buyer typed at checkout (RevenueCat's $email attribute). Then the account is created with
+ * id = checkout id and the paid events are applied through the one billing writer. The caller
+ * still has to prove the email with the usual 6-digit code before it gets a session.
+ */
+export async function claimPrecheckout(env: ApiEnv, input: unknown, fetcher: typeof fetch = fetch, nowMs: number = Date.now()): Promise<PrecheckoutClaimResult> {
+  const checkoutId = typeof (input as { checkoutId?: unknown })?.checkoutId === 'string' ? (input as { checkoutId: string }).checkoutId.trim().toLowerCase() : '';
+  const email = typeof (input as { email?: unknown })?.email === 'string' ? (input as { email: string }).email.trim().toLowerCase() : '';
+  if (!UUID.test(checkoutId) || !EMAIL.test(email)) return { status: 400, body: { error: 'invalid_request' } };
+  if (!env.REVENUECAT_API_V2_KEY || !env.REVENUECAT_PROJECT_ID || !/^proj[0-9a-z]+$/i.test(env.REVENUECAT_PROJECT_ID) || !env.SUPABASE_SECRET_KEY || !env.SUPABASE_URL) {
+    return { status: 503, body: { error: 'not_configured' } };
+  }
+  if (!(await reconcileAllowed(env, `claim:${checkoutId}`, nowMs))) return { status: 429, body: { error: 'rate_limited' } };
+  try {
+    const subs = await revenueCatGet<{ items?: RevenueCatV2Subscription[] }>(env, `/customers/${encodeURIComponent(checkoutId)}/subscriptions?limit=20`, fetcher);
+    if (subs.status !== 200 && subs.status !== 404) return { status: 502, body: { error: 'unavailable' } };
+    const events = reconcileEventsFor(checkoutId, subs.body?.items ?? [], nowMs).filter((event) => event.environment === 'PRODUCTION' || billingSandboxAllowed(env, event));
+    if (events.length === 0) return { status: 409, body: { error: 'not_paid', message: CLAIM_MESSAGES.not_paid } };
+    const attrs = await revenueCatGet<{ items?: Array<{ name?: string; value?: unknown }> }>(env, `/customers/${encodeURIComponent(checkoutId)}/attributes?limit=50`, fetcher);
+    if (attrs.status !== 200) return { status: 502, body: { error: 'unavailable' } };
+    const paidWith = attrs.body?.items?.find((item) => item.name === '$email')?.value;
+    if (typeof paidWith !== 'string' || paidWith.trim().toLowerCase() !== email) return { status: 409, body: { error: 'email_mismatch', message: CLAIM_MESSAGES.email_mismatch } };
+
+    const existing = await authAdmin(env, `/auth/v1/admin/users/${checkoutId}`, { method: 'GET' }, fetcher);
+    if (existing.ok) {
+      // A retry after the account was made (the code email was lost): same id AND same email only.
+      const user = await existing.json() as { email?: string };
+      if ((user.email ?? '').toLowerCase() !== email) return { status: 409, body: { error: 'already_claimed', message: CLAIM_MESSAGES.already_claimed } };
+    } else if (existing.status === 404) {
+      const created = await authAdmin(env, '/auth/v1/admin/users', { method: 'POST', body: JSON.stringify({ id: checkoutId, email, email_confirm: true }) }, fetcher);
+      if (created.status === 422) return { status: 409, body: { error: 'email_has_account', message: CLAIM_MESSAGES.email_has_account } };
+      if (!created.ok) return { status: 502, body: { error: 'unavailable' } };
+      const made = await created.json() as { id?: string };
+      // Fail closed if the auth server ever ignored the requested id: the payment would be orphaned.
+      if (made.id !== checkoutId) {
+        await authAdmin(env, `/auth/v1/admin/users/${encodeURIComponent(String(made.id))}`, { method: 'DELETE' }, fetcher).catch(() => undefined);
+        return { status: 502, body: { error: 'unavailable' } };
+      }
+    } else {
+      return { status: 502, body: { error: 'unavailable' } };
+    }
+    const outcomes: string[] = [];
+    for (const event of events) outcomes.push((await applyBillingEvent(env, event)).outcome);
+    return { status: 200, body: { claimed: true, outcomes } };
+  } catch {
+    return { status: 502, body: { error: 'unavailable' } };
+  }
+}

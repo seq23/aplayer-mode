@@ -19,6 +19,9 @@ import {
   WITHOUT_WITH,
 } from '../src/content/sell';
 import { useSession } from '../src/state/session';
+import { appDistribution } from '../src/billing/purchases';
+import { JOIN_FOUNDING_LABEL, payFirstAllowed } from '../src/billing/precheckout';
+import { Testimonials } from '../src/components/Testimonials';
 import { useIntake } from '../src/intake/store';
 import { useConsent } from '../src/state/consent';
 import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Screen, Eyebrow, Fill, Flow, Heading, Hero, Icon, Label, LinkButton, ListItem, Muted, Pill, PlateLine, Row, Stack, Toast, type IconName } from '../src/components/ui';
@@ -40,6 +43,9 @@ export default function WelcomeScreen() {
   const { deleted } = useLocalSearchParams<{ deleted?: string }>();
   const [persona, setPersona] = useState<string>(PERSONAS.personas[0].title);
   const shown = PERSONAS.personas.find((p) => p.title === persona) ?? PERSONAS.personas[0];
+  // Pay first (docs/33 §10): web app only; straight to the Founding 100 card checkout.
+  const payFirst = payFirstAllowed(appDistribution());
+  const join = () => router.push('/join');
   const start = () => {
     // 18+ first, then the separate health-data choice; nothing is asked or saved before them.
     if (!ageConfirmed) { router.push('/age'); return; }
@@ -55,7 +61,8 @@ export default function WelcomeScreen() {
       fullBleed
       footer={(
         <>
-          <Button label={CTA_LABEL} large onPress={start} />
+          {payFirst ? <Button label={JOIN_FOUNDING_LABEL} large onPress={join} /> : null}
+          <Button label={CTA_LABEL} large variant={payFirst ? 'secondary' : 'primary'} onPress={start} />
           <LinkButton role="link" align="center" label={HAVE_ACCOUNT_LABEL} onPress={() => router.push('/account')} />
         </>
       )}
@@ -149,9 +156,12 @@ export default function WelcomeScreen() {
         <Expandable title={WITHOUT_WITH.with.label} body={[...WITHOUT_WITH.with.lines, WITHOUT_WITH.with.result].join('\n')} initiallyOpen />
       </Section>
 
+      <Testimonials />
+
       <Section eyebrow="Plans" title={WELCOME_TIERS_TEASER.title}>
         <Card>{WELCOME_TIERS_TEASER.rows.map((row) => <ListItem key={row.title} title={row.title} detail={row.body} />)}</Card>
         <Pill tone="solid">{WELCOME_TIERS_TEASER.offer}</Pill>
+        {payFirst ? <Button label={JOIN_FOUNDING_LABEL} onPress={join} /> : null}
       </Section>
 
       <Section eyebrow="Privacy" title="Your data is yours">
