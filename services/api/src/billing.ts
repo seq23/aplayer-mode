@@ -467,14 +467,17 @@ export async function attachPrecheckout(env: ApiEnv, user: { id: string; email?:
   }
   if (!(await reconcileAllowed(env, `attach:${checkoutId}`, nowMs))) return { status: 429, body: { error: 'rate_limited' } };
   try {
+    // The email first (9 Oct 2026): a session signed in with ANOTHER email is told so whatever the
+    // checkout's state, so /billing/return can say "sign out to attach it" (a later not_paid would
+    // hide that). Nothing is written either way.
+    const attrs = await revenueCatGet<{ items?: Array<{ name?: string; value?: unknown }> }>(env, `/customers/${encodeURIComponent(checkoutId)}/attributes?limit=50`, fetcher);
+    if (attrs.status !== 200 && attrs.status !== 404) return { status: 502, body: { error: 'unavailable' } };
+    const paidWith = attrs.body?.items?.find((item) => item.name === '$email')?.value;
+    if (typeof paidWith !== 'string' || paidWith.trim().toLowerCase() !== email) return { status: 409, body: { error: 'email_mismatch', message: CLAIM_MESSAGES.email_mismatch } };
     const subs = await revenueCatGet<{ items?: RevenueCatV2Subscription[] }>(env, `/customers/${encodeURIComponent(checkoutId)}/subscriptions?limit=20`, fetcher);
     if (subs.status !== 200 && subs.status !== 404) return { status: 502, body: { error: 'unavailable' } };
     const events = reconcileEventsFor(checkoutId, subs.body?.items ?? [], nowMs).filter((event) => event.environment === 'PRODUCTION' || billingSandboxAllowed(env, event));
     if (events.length === 0) return { status: 409, body: { error: 'not_paid', message: CLAIM_MESSAGES.not_paid } };
-    const attrs = await revenueCatGet<{ items?: Array<{ name?: string; value?: unknown }> }>(env, `/customers/${encodeURIComponent(checkoutId)}/attributes?limit=50`, fetcher);
-    if (attrs.status !== 200) return { status: 502, body: { error: 'unavailable' } };
-    const paidWith = attrs.body?.items?.find((item) => item.name === '$email')?.value;
-    if (typeof paidWith !== 'string' || paidWith.trim().toLowerCase() !== email) return { status: 409, body: { error: 'email_mismatch', message: CLAIM_MESSAGES.email_mismatch } };
     const link = await serviceRpc(env, 'apm_service_billing_link_checkout', { p_checkout_id: checkoutId, p_user_id: user.id, p_email: email }, fetcher);
     if (!link.ok) return { status: 502, body: { error: 'unavailable' } };
     const linked = await link.json() as { linked?: boolean; reason?: string };

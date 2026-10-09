@@ -237,6 +237,9 @@ test('existing account: without the proven email nothing attaches (no session, o
       [{ id: EXISTING, email: 'buyer@example.com' }, { world: { paidWith: 'other@example.com' } }, 409, 'email_mismatch'],
       // Not paid for now.
       [{ id: EXISTING, email: 'buyer@example.com' }, { sub: { gives_access: false, status: 'expired' } }, 409, 'not_paid'],
+      // Another email on a checkout that is no longer paid: still email_mismatch (checked FIRST), so
+      // the page can say "signed in as X, sign out to attach it" (live, 9 Oct 2026).
+      [{ id: '00000000-0000-4000-8000-00000000e2e2', email: 'attacker@example.com' }, { sub: { gives_access: false, status: 'expired' } }, 409, 'email_mismatch'],
       // Sandbox off the tester allowlist.
       [{ id: EXISTING, email: 'buyer@example.com' }, { sub: { environment: 'sandbox' } }, 409, 'not_paid'],
     ];
