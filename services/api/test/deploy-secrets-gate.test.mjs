@@ -24,14 +24,20 @@ test('deploy-api-production pushes only Worker-declared secrets from --secrets-d
 });
 
 test('deploy-api-production refuses before wrangler when a database function the Worker needs is missing (migrations first)', () => {
-  const required = script.match(/REQUIRED_RPCS="([^"]+)"/)[1].split(/\s+/);
+  const entries = script.match(/REQUIRED_RPCS="([^"]+)"/)[1].split(/\s+/);
+  const required = entries.map((e) => e.split(':')[0]);
   assert.ok(required.includes('apm_my_consents'), 'the 18+ gate reads it on every account route');
-  assert.ok(script.indexOf('for fn in $REQUIRED_RPCS') < script.indexOf('npx wrangler deploy'), 'probed before deploying');
+  assert.ok(script.indexOf('for entry in $REQUIRED_RPCS') < script.indexOf('npx wrangler deploy'), 'probed before deploying');
   assert.match(script, /\[ "\$code" = "404" \] && \{ echo "refusing: database function \$fn is missing/);
   const migrations = readdirSync(join(root, 'services/api/migrations')).map((name) => readFileSync(join(root, 'services/api/migrations', name), 'utf8')).join('\n');
   const worker = readdirSync(join(root, 'services/api/src')).filter((n) => n.endsWith('.ts')).map((n) => readFileSync(join(root, 'services/api/src', n), 'utf8')).join('\n');
-  for (const fn of required) {
-    assert.match(migrations, new RegExp(`create or replace function public\\.${fn}\\(`), `${fn} is created by a migration`);
+  for (const entry of entries) {
+    assert.ok(entry.includes(':'), `${entry} names its parameters (name:p_a,p_b); PostgREST answers 404 for a probe whose parameter set does not match, which reads as "missing"`);
+    const [fn, params] = entry.split(':');
+    const sig = migrations.match(new RegExp(`create or replace function public\\.${fn}\\(([^)]*)\\)`));
+    assert.ok(sig, `${fn} is created by a migration`);
+    const names = sig[1].split(',').map((a) => a.trim().split(/\s+/)[0]).filter(Boolean);
+    assert.deepEqual(params ? params.split(',') : [], names, `${fn}: the probe sends exactly the function's named parameters`);
     assert.match(worker, new RegExp(`'${fn}'`), `${fn} is called by the Worker`);
   }
 });
