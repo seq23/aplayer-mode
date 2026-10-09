@@ -972,8 +972,13 @@ app.post('/v1/methodology/day/close', async (c) => {
 // ---------------------------------------------------------------- BHPC daily loop (migration 0021)
 app.post('/v1/today/check-in', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ mood: z.number().int().min(1).max(10) }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ mood: z.number().int().min(1).max(10).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  // The 1–10 mood is consumer health data (0094): with consent it is required; without it a
+  // score sent anyway is discarded here, never used for the agenda and never stored.
+  const moodAllowed = await healthConsentActive(c.env, user.accessToken);
+  if (moodAllowed && parsed.data.mood === undefined) return c.json({ error: 'invalid_request', message: 'Tap a number from 1 to 10 first.' }, 400);
+  const mood = moodAllowed ? parsed.data.mood : undefined;
   const state = await buildUserState(c.env, user.accessToken, user.id);
   if (!state.graph.personalOS) return c.json({ error: 'personal_os_missing', message: 'Complete the Personal OS intake first.' }, 409);
   if (state.today.checkedIn) return c.json({ replayed: true, ...state });
@@ -983,8 +988,8 @@ app.post('/v1/today/check-in', async (c) => {
     return c.json({ error: 'plans_updating', message: 'Your Drafting Room change is still reaching your plans. Try the check-in again in a moment.' }, 503);
   }
   // The Mood Gate runs here, in the morning: mood ≤ 2 prints a Minimum Viable Day.
-  const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, mood: parsed.data.mood });
-  try { await checkInDay(c.env, user.id, { day: state.today.date, mood: parsed.data.mood, agenda }); }
+  const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, ...(mood !== undefined ? { mood } : {}) });
+  try { await checkInDay(c.env, user.id, { day: state.today.date, ...(mood !== undefined ? { mood } : {}), agenda }); }
   catch (error) { return loopFailure(c, error); }
   return c.json({ replayed: false, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });

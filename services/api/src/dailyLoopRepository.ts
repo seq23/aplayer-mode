@@ -201,8 +201,9 @@ export function setForegroundGoal(env: ApiEnv, accessToken: string, goalId: stri
   return loopRpc<{ foregroundGoalId: string; changed: boolean }>(env, accessToken, 'apm_set_foreground_goal', { p_goal_id: goalId });
 }
 
-export function checkInDay(env: ApiEnv, userId: string, input: { day: string; mood: number; agenda: DailyAgenda }) {
-  return loopRpc<{ day: DayRow; replayed: boolean }>(env, serviceToken(env), 'apm_service_day_check_in', { p_user_id: userId, p_day: input.day, p_mood: input.mood, p_state: input.agenda.state, p_agenda: input.agenda });
+/** The mood is consumer health data (0094): absent without consent, and the database discards it then too. */
+export function checkInDay(env: ApiEnv, userId: string, input: { day: string; mood?: number; agenda: DailyAgenda }) {
+  return loopRpc<{ day: DayRow; replayed: boolean }>(env, serviceToken(env), 'apm_service_day_check_in_v2', { p_user_id: userId, p_day: input.day, p_mood: input.mood ?? null, p_state: input.agenda.state, p_agenda: input.agenda });
 }
 
 export function replanDay(env: ApiEnv, userId: string, input: { day: string; reason: string; detail?: string; agenda: DailyAgenda }) {

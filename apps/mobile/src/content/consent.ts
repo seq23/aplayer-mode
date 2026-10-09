@@ -23,6 +23,7 @@ export const HEALTH_CONSENT = {
     'The Body questions: how you like to move and how many days, food habits, your weight and weigh-in rhythm, and whether you have a daily health routine (APM never stores medication names).',
     'Whether pregnancy, diabetes medication, a heart condition or a history of disordered eating applies to you, whether a clinician supervises your plan, and a clinician clearance you record later.',
     'Whether getting out of bed is hard (it adds a gentle in-bed movement routine), and a weight-loss or injury-return goal if you pick one.',
+    'The 1 to 10 energy score you tap each morning, which sizes the day and turns a 2 or lower into a light day.',
   ],
   why: 'APM uses this only to shape your Body steps and keep their pace safe. It is not medical advice. It is never sold or used for ads, and AI providers may not train on it.',
   noLine: 'If you say no, APM skips these questions and the weight-loss goal, and plans your Body steps from general habits only.',

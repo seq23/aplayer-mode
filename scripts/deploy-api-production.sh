@@ -20,7 +20,7 @@ git diff --quiet HEAD -- services packages || { echo "refusing: uncommitted chan
 # deployed before its migration answers 500 everywhere. PostgREST answers 404 for a function that
 # does not exist and 401 for one the anonymous key may not run, so this probe changes nothing.
 # Add the entry point of each new migration the Worker depends on.
-REQUIRED_RPCS="apm_my_consents apm_record_consent apm_service_carry_consents"
+REQUIRED_RPCS="apm_my_consents apm_record_consent apm_service_carry_consents apm_service_day_check_in_v2"
 SB_URL=$(node -e "const t=require('fs').readFileSync('services/api/wrangler.jsonc','utf8');process.stdout.write((t.match(/\"SUPABASE_URL\": \"([^\"]+)\"/)||[])[1]||'')")
 SB_KEY=$(node -e "const t=require('fs').readFileSync('services/api/wrangler.jsonc','utf8');process.stdout.write((t.match(/\"SUPABASE_PUBLISHABLE_KEY\": \"([^\"]+)\"/)||[])[1]||'')")
 [ -n "$SB_URL" ] && [ -n "$SB_KEY" ] || { echo "refusing: no SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY in services/api/wrangler.jsonc"; exit 2; }

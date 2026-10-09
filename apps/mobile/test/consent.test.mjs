@@ -54,3 +54,12 @@ test('Settings → Privacy → Consumer health data: withdraw, the policy, and E
   assert.match(await src('src/links/external.ts'), /`\$\{privacy\}\/consumer-health`/);
   await access(join(appDir, 'public/privacy/consumer-health/index.html'));
 });
+
+test('the morning 1–10 energy score is asked and sent only with the health-data consent (server 0094)', async () => {
+  const today = await src('app/(tabs)/today.tsx');
+  assert.match(today, /const askScore = healthDecision === 'granted';/);
+  assert.match(today, /\{askScore \? <ChoiceRow /, 'the number row is not shown without consent');
+  assert.match(today, /checkInToday\(askScore \? mood : undefined, token\)/, 'and no score is sent');
+  assert.match(today, /disabled=\{askScore && mood === undefined\}/);
+  assert.match(await src('src/api/apmApi.ts'), /JSON\.stringify\(mood === undefined \? \{\} : \{ mood \}\)/);
+});

@@ -60,6 +60,8 @@ test.before(async () => {
   for (const name of (await readdir(migrationsDir)).filter((n) => n.endsWith('.sql')).sort()) await db.exec(await migration(name));
   const users = [EARLY, DUE, QUIETDEV, OFF, NODEVICE, CANCELLED];
   await admin(`insert into auth.users (id) values ${users.map((id) => `('${id}')`).join(', ')}`);
+  // 0094: these users gave the consumer health data consent, so their mood is kept.
+  await admin("insert into public.consent_records (user_id, kind, decision, policy_version) select u.id, 'consumer_health_data', 'granted', '2026-10-08' from auth.users u where not exists (select 1 from public.consent_records r where r.user_id = u.id and r.kind = 'consumer_health_data')");
   await admin(`update public.user_profiles set timezone = 'America/Chicago'`);
   await admin(`insert into public.personal_os (user_id, active_mode) values ${users.map((id) => `('${id}', 'standard')`).join(', ')}`);
   await admin(`insert into public.push_subscriptions (user_id, expo_push_token) values ${users.filter((id) => id !== NODEVICE).map((id) => `('${id}', 'ExponentPushToken[${id.slice(-3)}]')`).join(', ')}`);

@@ -130,7 +130,7 @@ test('H5: Button never sits dead: a disabled one shows its reason; a promise loc
   assert.match(ui, /disabled && \(showReason \? s\.waiting : s\.disabled\)/, 'a disabled button with a reason looks like it is waiting, not dead');
   assert.match(ui, /waiting: \{ backgroundColor: colors\.surfaceMuted, borderColor: colors\.lineStrong/);
   const today = await src('app/(tabs)/today.tsx');
-  assert.match(today, /disabled=\{mood === undefined\} disabledReason=\{TODAY_COPY\.checkInReason\}/, 'T3: the check-in button says what unlocks it');
+  assert.match(today, /disabled=\{askScore && mood === undefined\} disabledReason=\{TODAY_COPY\.checkInReason\}/, 'T3: the check-in button says what unlocks it (the score, when it is asked: 0094)');
   assert.match(today, /label=\{busyItemId === item\.id \? 'Recording…' : 'Mark done'\}/, 'E22: only the saving card says Recording…');
   const coach = await src('app/(tabs)/apm.tsx');
   assert.match(coach, /disabled=\{!message\.trim\(\) && !coachingBusy\}/, 'Send is not a silent no-op on an empty box');

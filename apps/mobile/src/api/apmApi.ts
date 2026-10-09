@@ -371,8 +371,9 @@ export async function closeDay(verdict: 'full_day' | 'mvd' | 'miss', note: strin
   return request<TodayState>('/v1/methodology/day/close', accessToken, { method: 'POST', body: JSON.stringify({ verdict, note }) });
 }
 
-export async function checkInToday(mood: number, accessToken: string): Promise<TodayState> {
-  return request<TodayState>('/v1/today/check-in', accessToken, { method: 'POST', body: JSON.stringify({ mood }) });
+/** The 1–10 score is health data: sent only with the health-data consent (server 0094). */
+export async function checkInToday(mood: number | undefined, accessToken: string): Promise<TodayState> {
+  return request<TodayState>('/v1/today/check-in', accessToken, { method: 'POST', body: JSON.stringify(mood === undefined ? {} : { mood }) });
 }
 export async function completeAgendaAction(input: { planId: string; actionKey: string; note?: string }, accessToken: string): Promise<TodayState> {
   return request<TodayState>('/v1/today/actions/complete', accessToken, { method: 'POST', body: JSON.stringify(input) });

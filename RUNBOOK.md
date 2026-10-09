@@ -5,7 +5,7 @@ Operational entry point. Billing detail: `docs/33-BILLING-PHASE-D.md`; App Revie
 ## Deploy
 
 - **API (Worker `aplayer-mode-api`, api.aplayermode.com):** `scripts/deploy-api-production.sh [--secrets-dir ~/.config/aplayermode/secrets]`. Never a bare `wrangler deploy`. Health: `https://api.aplayermode.com/v1/health` reports the deployed SHA.
-- **Database migrations:** `services/api/migrations/NNNN_*.sql`, applied to the Supabase project `klzbnchgoqmnwsgolwoe` through the Management API (`POST /v1/projects/{ref}/database/migrations`), in number order, after the PR lands and BEFORE the API deploy. `scripts/deploy-api-production.sh` refuses while a database function the Worker needs is missing (`REQUIRED_RPCS`; 0093 adds the 18+ and health-data consent functions every account route reads).
+- **Database migrations:** `services/api/migrations/NNNN_*.sql`, applied to the Supabase project `klzbnchgoqmnwsgolwoe` through the Management API (`POST /v1/projects/{ref}/database/migrations`), in number order, after the PR lands and BEFORE the API deploy. `scripts/deploy-api-production.sh` refuses while a database function the Worker needs is missing (`REQUIRED_RPCS`; 0093 adds the 18+ and health-data consent functions every account route reads; 0094 adds `apm_service_day_check_in_v2`, the mood-under-consent check-in).
 - **Web app (app.aplayermode.com):** `scripts/deploy-web-production.sh`.
 - **Sideload Android APK:** `scripts/build-android-apk.sh`, then upload `dist-android/aplayermode.apk` to a GitHub release.
 
