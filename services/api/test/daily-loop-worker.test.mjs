@@ -63,7 +63,9 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
     const method = init.method ?? 'GET';
     const body = init.body ? JSON.parse(init.body) : undefined;
     const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
-    const rpc = path.match(/^\/rest\/v1\/rpc\/([a-z_]+)/)?.[1];
+    const rpc = path.match(/^\/rest\/v1\/rpc\/([a-z0-9_]+)/)?.[1];
+    // 0093: 18+ confirmed; the health-data consent is granted unless a test withdraws it.
+    if (rpc === 'apm_my_consents') return json({ ageConfirmedAt: '2026-10-08T00:00:00Z', healthData: store.healthConsent === false ? { decision: 'withdrawn', recordedAt: '2026-10-08T00:00:00Z', policyVersion: '2026-10-08' } : { decision: 'granted', recordedAt: '2026-10-08T00:00:00Z', policyVersion: '2026-10-08' } });
     if (rpc === 'apm_service_record_audit') {
       // Audits go through the service-role allow-list, with the server-only key.
       assert.equal(new Headers(init.headers).get('apikey'), env.SUPABASE_SECRET_KEY);
@@ -82,7 +84,7 @@ function harness({ installed = true, rpcErrors = {}, tracks = [], os = {} } = {}
         store.goal_plans = store.goal_plans.filter((existing) => existing.goal_id !== goalId).concat(row);
         return json(rpc === 'apm_service_create_goal' ? { goal: { id: goalId }, plan: row } : row);
       }
-      if (rpc === 'apm_service_day_check_in') {
+      if (rpc === 'apm_service_day_check_in_v2') {
         calls.serviceAuth = new Headers(init.headers).get('apikey');
         const row = { id: 'd1', day: body.p_day, mode: 'standard', verdict: null, completed_action_ids: [], note: null, closed_at: null, mood: body.p_mood, day_state: body.p_state, agenda: body.p_agenda, agenda_status: 'locked', checked_in_at: new Date().toISOString(), replans: [] };
         store.day_records = [row];
@@ -179,7 +181,7 @@ test('check-in runs the Mood Gate for the local day: mood 2 locks a Minimum Viab
     await request('/v1/me/today');
     const response = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 2 }) });
     assert.equal(response.status, 200);
-    const checkIn = h.calls.rpc.find((c) => c.fn === 'apm_service_day_check_in');
+    const checkIn = h.calls.rpc.find((c) => c.fn === 'apm_service_day_check_in_v2');
     assert.equal(checkIn.args.p_user_id, USER);
     assert.equal(h.calls.serviceAuth, 'sb_secret_test', 'the agenda is written with the server-only key, not the user JWT');
     assert.equal(checkIn.args.p_day, localToday());
@@ -193,7 +195,7 @@ test('check-in runs the Mood Gate for the local day: mood 2 locks a Minimum Viab
 
     const again = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 9 }) });
     assert.equal((await again.json()).replayed, true);
-    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 1, 'the mood is not renegotiated');
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in_v2').length, 1, 'the mood is not renegotiated');
   } finally { h.restore(); }
 });
 
@@ -356,6 +358,14 @@ test('Diary: "Logged." with no coaching; a red flag pauses body coaching and reb
     assert.equal(flagged.today.bodyReferral.source, 'diary');
 
     assert.equal((await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({}) })).status, 400, 'clearance is an explicit confirmation');
+    // Without the consumer health data consent the clearance is refused and nothing is written (0093).
+    h.store.healthConsent = false;
+    const writesBefore = h.calls.rpc.length;
+    const refused = await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+    assert.equal(refused.status, 403);
+    assert.equal((await refused.json()).error, 'health_data_consent_required');
+    assert.ok(!h.calls.rpc.slice(writesBefore).some((c) => c.fn === 'apm_record_clinician_clearance' || c.fn === 'apm_service_save_goal_plan'));
+    h.store.healthConsent = true;
     await request('/v1/body/clearance', { method: 'POST', body: JSON.stringify({ confirm: true }) });
     const cleared = h.calls.rpc.filter((c) => c.fn === 'apm_service_save_goal_plan').at(-1);
     assert.equal(cleared.args.p_source, 'clearance');
@@ -518,11 +528,11 @@ test('rebuilds use the pillar state in effect today, and a check-in waits while 
     h.store.rpcErrorOnce = { apm_service_save_goal_plan: 'loop_service_unavailable' };
     const blocked = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
     assert.equal(blocked.status, 503, 'no agenda is locked from a plan still missing an in-effect change');
-    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 0);
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in_v2').length, 0);
     // Fail closed: if the pending check itself errors, the check-in waits too.
     h.store.pendingFails = 2;
     assert.equal((await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) })).status, 503, 'an unknown rebuild state never locks');
-    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in').length, 0);
+    assert.equal(h.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in_v2').length, 0);
     const ok = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 7 }) });
     assert.ok(ok.status < 300, 'once the retry lands, the check-in proceeds');
   } finally { h.restore(); }
@@ -565,4 +575,33 @@ test('trust activity: a malformed limit falls back to 100; analytics keeps only 
     assert.equal(free.status, 200);
     assert.deepEqual(h.calls.writes.filter((w) => w.path.startsWith('/rest/v1/analytics_events')).at(-1).body[0].properties, { severity: 'high' });
   } finally { h.restore(); }
+});
+
+test('0094: without the health-data consent the mood is neither required nor used nor sent; with it, it is required', async () => {
+  const h = harness();
+  try {
+    h.store.healthConsent = false;
+    await request('/v1/me/today');
+    const response = await request('/v1/today/check-in', { method: 'POST', body: JSON.stringify({ mood: 1 }) });
+    assert.equal(response.status, 200);
+    const checkIn = h.calls.rpc.find((c) => c.fn === 'apm_service_day_check_in_v2');
+    assert.equal(checkIn.args.p_mood, null, 'a score sent anyway is discarded');
+    assert.ok(!('mood' in checkIn.args.p_agenda), 'not in the agenda either');
+    assert.notEqual(checkIn.args.p_agenda.mode, 'recovery', 'and it gates nothing');
+    assert.ok(!checkIn.args.p_agenda.reasons.includes('low_mood_mvd'));
+  } finally { h.restore(); }
+  const bare = harness();
+  try {
+    bare.store.healthConsent = false;
+    await request('/v1/me/today');
+    assert.equal((await request('/v1/today/check-in', { method: 'POST', body: '{}' })).status, 200, 'no score needed without consent');
+    assert.equal(bare.calls.rpc.find((c) => c.fn === 'apm_service_day_check_in_v2').args.p_mood, null);
+  } finally { bare.restore(); }
+  const consented = harness();
+  try {
+    await request('/v1/me/today');
+    const missing = await request('/v1/today/check-in', { method: 'POST', body: '{}' });
+    assert.equal(missing.status, 400, 'with consent the score is still required');
+    assert.equal(consented.calls.rpc.filter((c) => c.fn === 'apm_service_day_check_in_v2').length, 0);
+  } finally { consented.restore(); }
 });

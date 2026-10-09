@@ -1,5 +1,6 @@
 import type { PillarName } from '@apm/domain';
 import { FLOOR_CHIPS, GAMES, GOAL_TEMPLATES, SECTIONS } from './bank.js';
+import { HEALTH_DATA_GAME_IDS, HEALTH_DATA_GOAL_IDS, healthConsentGiven, isHealthQuestion } from './healthData.js';
 import type {
   AnswerValue,
   GameKey,
@@ -120,7 +121,9 @@ export function registry(a: IntakeAnswers, mode: IntakeMode | undefined = str(a,
     if (section.kind === 'express') { past = true; out.push({ id: 'express', kind: 'express', group: 'Choice', on: true }); continue; }
     const sectionOn = section.gate ? section.gate(a, helpers) : true;
     for (const question of section.questions) {
-      const on = sectionOn && (question.gate ? question.gate(a, helpers) : true) && (!quick || !past || question.essential === true);
+      // Consumer health data is asked only after the separate consent tap (healthData.ts).
+      const on = sectionOn && (question.gate ? question.gate(a, helpers) : true) && (!quick || !past || question.essential === true)
+        && (!isHealthQuestion(question.id) || healthConsentGiven(a));
       out.push({ id: question.id, kind: 'question', group: section.name, question, section, on });
     }
     // Owner ruling (7 Oct 2026): the questionnaire is questions only. Breaks that ask nothing are never
@@ -141,13 +144,15 @@ export function answered(question: QuestionDef, a: IntakeAnswers): boolean {
 
 export function options(question: QuestionDef, a: IntakeAnswers): Array<[string, string]> {
   const source = question.options;
+  // Without health-data consent the weight game is not offered (its choice is health information).
+  if (question.id === 'games' && Array.isArray(source) && !healthConsentGiven(a)) return source.filter(([v]) => !(HEALTH_DATA_GAME_IDS as readonly string[]).includes(v)).map(([v, l]) => [v, l]);
   if (Array.isArray(source)) return source.map(([v, l]) => [v, l]);
   if (source === 'fromGames') return gameIds(a).map((game) => [game, gameLabel(game)]);
   if (source === 'fromIncome') {
     const income = questionById('income')!.options as ReadonlyArray<readonly [string, string]>;
     return arr(a, 'income').filter((x) => x !== 'none').map((x) => [x, income.find(([v]) => v === x)?.[1] ?? x]);
   }
-  if (source === 'goalTemplates') return goalTemplates(a).map((goal) => [goal.id, goal.label]);
+  if (source === 'goalTemplates') return goalTemplates(a).filter((goal) => healthConsentGiven(a) || !HEALTH_DATA_GOAL_IDS.includes(goal.id)).map((goal) => [goal.id, goal.label]);
   if (source === 'goalSteps') return [...(chosenGoal(a) ?? goalTemplates(a)[0]!).steps].map((s) => [s, s]);
   if (source === 'floorOptions') {
     const out: Array<[string, string]> = [];

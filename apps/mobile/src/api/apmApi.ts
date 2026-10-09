@@ -371,8 +371,9 @@ export async function closeDay(verdict: 'full_day' | 'mvd' | 'miss', note: strin
   return request<TodayState>('/v1/methodology/day/close', accessToken, { method: 'POST', body: JSON.stringify({ verdict, note }) });
 }
 
-export async function checkInToday(mood: number, accessToken: string): Promise<TodayState> {
-  return request<TodayState>('/v1/today/check-in', accessToken, { method: 'POST', body: JSON.stringify({ mood }) });
+/** The 1–10 score is health data: sent only with the health-data consent (server 0094). */
+export async function checkInToday(mood: number | undefined, accessToken: string): Promise<TodayState> {
+  return request<TodayState>('/v1/today/check-in', accessToken, { method: 'POST', body: JSON.stringify(mood === undefined ? {} : { mood }) });
 }
 export async function completeAgendaAction(input: { planId: string; actionKey: string; note?: string }, accessToken: string): Promise<TodayState> {
   return request<TodayState>('/v1/today/actions/complete', accessToken, { method: 'POST', body: JSON.stringify(input) });
@@ -430,6 +431,25 @@ export async function applyOsChange(changeId: string, accessToken: string) {
 export async function discardOsChange(changeId: string, accessToken: string) {
   return request<TodayState>(`/v1/os/changes/${encodeURIComponent(changeId)}/discard`, accessToken, { method: 'POST' });
 }
+// ---------------------------------------------------------------- consents (server migration 0093)
+export type HealthDataDecision = 'granted' | 'declined' | 'withdrawn';
+export interface ConsentState {
+  ageConfirmedAt: string | null;
+  healthData: { decision: HealthDataDecision; recordedAt: string; policyVersion: string } | null;
+}
+export interface ConsentResponse { consents: ConsentState; healthPolicyVersion: string }
+export async function fetchConsents(accessToken: string): Promise<ConsentResponse> {
+  return request<ConsentResponse>('/v1/consents', accessToken);
+}
+/** "I'm 18 or older": the server records it with its own timestamp. */
+export async function confirmAdult(accessToken: string): Promise<ConsentResponse> {
+  return request<ConsentResponse>('/v1/consents/age', accessToken, { method: 'POST', body: JSON.stringify({ confirmed: true }) });
+}
+/** The separate consumer health data consent; a grant names the policy version shown. */
+export async function recordHealthDataDecision(decision: HealthDataDecision, policyVersion: string, accessToken: string): Promise<ConsentResponse> {
+  return request<ConsentResponse>('/v1/consents/health-data', accessToken, { method: 'POST', body: JSON.stringify(decision === 'granted' ? { decision, policyVersion } : { decision }) });
+}
+
 export async function recordClinicianClearance(accessToken: string) {
   return request<TodayState>('/v1/body/clearance', accessToken, { method: 'POST', body: JSON.stringify({ confirm: true }) });
 }

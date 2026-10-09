@@ -38,6 +38,7 @@ function fakeSupabase({ rpcStatus = 200, rpcBody = { outcome: 'applied', replaye
     calls.push({ href, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : undefined, apikey: headers.get('apikey'), authorization: headers.get('authorization') });
     const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
     if (href.endsWith('/auth/v1/user')) return headers.get('authorization') === 'Bearer user-jwt' ? json({ id: USER }) : json({ message: 'bad jwt' }, 401);
+    if (href.includes('/rest/v1/rpc/apm_my_consents')) return json({ ageConfirmedAt: '2026-10-08T00:00:00Z', healthData: null });
     if (href.includes('/rest/v1/rpc/apm_service_billing_offering')) return json({ offering: 'founding', founding: false, reservedUntil: '2026-10-07T13:00:00Z' });
     if (href.includes('/rest/v1/rpc/apm_service_billing_expire_lapsed')) return json(2);
     if (href.includes('/rest/v1/rpc/apm_service_billing_apply_event')) return json(rpcBody, rpcStatus);

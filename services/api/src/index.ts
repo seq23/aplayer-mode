@@ -7,6 +7,7 @@ import { autonomyLabels, BILLING_PRODUCTS, capabilitiesForPlan, formatUsdCents, 
 import { authenticateRequest, devBypassMisconfigured, verifyAccessToken } from './auth';
 import { claimIntakeInstall, deleteAuthUser, finishIntakeInstall, getIntakeDraft, hasServiceCredential, mergeAnonymousDraft, saveIntakeDraft } from './intakeRepository';
 import { synthesizeIntake } from './intakeSynthesis';
+import { AGE_GATE_OPEN_ROUTES, AGE_REQUIRED_BODY, AgeConfirmationRequired, ageConfirmed, carryConsents, CONSUMER_HEALTH_POLICY_VERSION, getConsentState, HEALTH_REQUIRED_BODY, healthConsentActive, recordConsent, withoutHealthData } from './consent';
 import type { ApiEnv } from './env';
 import { restErrorMessage, SERVICE_ROLE_TOKEN, supabaseRest } from './db';
 import { billingOfferingFor, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
@@ -565,6 +566,12 @@ function loopFailure(c: any, error: unknown) {
 
 async function requireUser(c: any) {
   const user = await authenticateRequest(c.req.raw, c.env as ApiEnv);
+  if (!user) return null;
+  // 18+ (migration 0093): every account route refuses until the confirmation is on file.
+  // The local dev bypass (development only, auth.ts) has no real session to look it up with.
+  if (user.accessToken !== 'apm-dev-bypass' && !AGE_GATE_OPEN_ROUTES.has(c.req.routePath) && !(await ageConfirmed(c.env as ApiEnv, user))) {
+    throw new AgeConfirmationRequired();
+  }
   return user;
 }
 
@@ -593,6 +600,31 @@ app.get('/v1/health', (c) => {
     return c.json({ ok: false, service: 'aplayer-mode-api', error: 'dev_auth_bypass_configured', message: 'AUTH_DEV_BYPASS_USER_ID must never be set on a deployed Worker; it is ignored, remove it.' }, 503);
   }
   return c.json({ ok: true, service: 'aplayer-mode-api', dataPlatform: 'supabase', time: new Date().toISOString() });
+});
+
+// ---------------------------------------------------------------- consents (migration 0093)
+app.get('/v1/consents', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  return c.json({ consents: await getConsentState(c.env, user.accessToken), healthPolicyVersion: CONSUMER_HEALTH_POLICY_VERSION });
+});
+
+// "I'm 18 or older": only an explicit true is accepted; the server stamps the time.
+app.post('/v1/consents/age', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ confirmed: z.literal(true) }).strict().safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json(AGE_REQUIRED_BODY, 400);
+  return c.json({ consents: await recordConsent(c.env, user, 'age_18_plus', 'confirmed'), healthPolicyVersion: CONSUMER_HEALTH_POLICY_VERSION });
+});
+
+// The separate consumer health data consent: a grant must name the policy version on screen.
+app.post('/v1/consents/health-data', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ decision: z.enum(['granted', 'declined', 'withdrawn']), policyVersion: z.string().max(20).optional() }).strict().safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (parsed.data.decision === 'granted' && parsed.data.policyVersion !== CONSUMER_HEALTH_POLICY_VERSION) {
+    return c.json({ error: 'policy_version_outdated', message: 'The Consumer Health Data Privacy Policy has changed. Read the current version, then agree again.', healthPolicyVersion: CONSUMER_HEALTH_POLICY_VERSION }, 409);
+  }
+  return c.json({ consents: await recordConsent(c.env, user, 'consumer_health_data', parsed.data.decision), healthPolicyVersion: CONSUMER_HEALTH_POLICY_VERSION });
 });
 
 app.get('/v1/me/life-graph', async (c) => {
@@ -701,6 +733,7 @@ app.post('/v1/life-os/items', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = lifeAdminCreateSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (parsed.data.kind === 'health_routine' && !(await healthConsentActive(c.env, user.accessToken))) return c.json(HEALTH_REQUIRED_BODY, 403);
   const before = await getLifeGraph(c.env, user.accessToken, user.id);
   if (!hasLifeOsAccess(before.entitlement)) return c.json({ error: 'life_os_required' }, 403);
   try {
@@ -758,6 +791,8 @@ app.put('/v1/methodology/intake', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = methodologyIntakeSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request', fields: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) }, 400);
+  // Consumer health data is installed only with a live consent (migration 0093).
+  if (!(await healthConsentActive(c.env, user.accessToken))) parsed.data = withoutHealthData(parsed.data);
   // Install idempotency (docs/34 §6 rule 7, AT8): a retry or a double tap installs once.
   const key = parsed.data.idempotencyKey;
   if (key) {
@@ -839,6 +874,10 @@ app.post('/v1/intake/draft/merge', async (c) => {
   if (!hasServiceCredential(c.env)) return c.json({ error: 'merge_unavailable' }, 503);
   const anonymous = await verifyAccessToken(parsed.data.anonymousAccessToken, c.env);
   if (!anonymous || !anonymous.isAnonymous || anonymous.id === user.id) return c.json({ error: 'invalid_anonymous_session' }, 403);
+  // The account takes the anonymous session's 18+ and health-data decisions it lacks, first,
+  // so the merged answers are kept or stripped by the same decision the person just made.
+  const consents = await carryConsents(c.env, anonymous.id, user.id);
+  if (!consents.ageConfirmedAt) return c.json(AGE_REQUIRED_BODY, 403);
   const result = await mergeAnonymousDraft(c.env, anonymous.id, user.id);
   await deleteAuthUser(c.env, anonymous.id).catch((error: unknown) => console.error('APM anonymous user delete failed', { message: error instanceof Error ? error.message : String(error) }));
   return c.json({ outcome: result.outcome, draft: await getIntakeDraft(c.env, user.accessToken) });
@@ -850,6 +889,7 @@ app.put('/v1/intake/profile', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ intakeProfile: intakeProfileSchema }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (!(await healthConsentActive(c.env, user.accessToken))) parsed.data = withoutHealthData(parsed.data);
   const safety = parsed.data.intakeProfile.bodySafety;
   try {
     if (safety === 'yes' || safety === 'skip') await pauseBodyCoachingIfFlagged(c.env, user.accessToken, user.id, [], 'intake', new Date(), true);
@@ -932,8 +972,13 @@ app.post('/v1/methodology/day/close', async (c) => {
 // ---------------------------------------------------------------- BHPC daily loop (migration 0021)
 app.post('/v1/today/check-in', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ mood: z.number().int().min(1).max(10) }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ mood: z.number().int().min(1).max(10).optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  // The 1–10 mood is consumer health data (0094): with consent it is required; without it a
+  // score sent anyway is discarded here, never used for the agenda and never stored.
+  const moodAllowed = await healthConsentActive(c.env, user.accessToken);
+  if (moodAllowed && parsed.data.mood === undefined) return c.json({ error: 'invalid_request', message: 'Tap a number from 1 to 10 first.' }, 400);
+  const mood = moodAllowed ? parsed.data.mood : undefined;
   const state = await buildUserState(c.env, user.accessToken, user.id);
   if (!state.graph.personalOS) return c.json({ error: 'personal_os_missing', message: 'Complete the Personal OS intake first.' }, 409);
   if (state.today.checkedIn) return c.json({ replayed: true, ...state });
@@ -943,8 +988,8 @@ app.post('/v1/today/check-in', async (c) => {
     return c.json({ error: 'plans_updating', message: 'Your Drafting Room change is still reaching your plans. Try the check-in again in a moment.' }, 503);
   }
   // The Mood Gate runs here, in the morning: mood ≤ 2 prints a Minimum Viable Day.
-  const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, mood: parsed.data.mood });
-  try { await checkInDay(c.env, user.id, { day: state.today.date, mood: parsed.data.mood, agenda }); }
+  const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, ...(mood !== undefined ? { mood } : {}) });
+  try { await checkInDay(c.env, user.id, { day: state.today.date, ...(mood !== undefined ? { mood } : {}), agenda }); }
   catch (error) { return loopFailure(c, error); }
   return c.json({ replayed: false, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });
@@ -1165,6 +1210,7 @@ app.post('/v1/body/clearance', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ confirm: z.literal(true) }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'confirmation_required', message: 'Confirm that a clinician has cleared you to continue body goals.' }, 400);
+  if (!(await healthConsentActive(c.env, user.accessToken))) return c.json(HEALTH_REQUIRED_BODY, 403);
   try {
     await recordClinicianClearance(c.env, user.accessToken);
     await rebuildBodyPlans(c.env, user.accessToken, user.id, 'clearance', new Date());
@@ -1785,6 +1831,7 @@ app.post('/v1/analytics/event', async (c) => {
 });
 
 app.onError((error, c) => {
+  if (error instanceof AgeConfirmationRequired) return c.json(AGE_REQUIRED_BODY, 403);
   const requestId = c.res.headers.get('x-request-id') ?? 'unknown';
   console.error('APM API error', { requestId, name: error.name, message: error.message });
   return c.json({ error: 'internal_error', requestId }, 500);

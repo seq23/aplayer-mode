@@ -36,8 +36,9 @@ const BASE_ENV = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_PUBLISH
 const TOKENS = { 'tok-account-0000000000000000': { id: USER, is_anonymous: false }, 'tok-anon-00000000000000000000': { id: ANON, is_anonymous: true } };
 const COACHING_ROUTE = { route_id: 'r1', model_id: 'm', provider_id: 'p', status: 'approved', cost_class: 'low', capabilities: ['conversation', 'reasoning', 'structured_output'], data_classes_allowed: ['private_life'], training_allowed: false, retention: 'zero', approved_for_highly_sensitive: false, quality_score: 100, reliability_score: 100, latency_score: 95, last_policy_reviewed_at: '2026-10-07', last_eval_run_at: null };
 
-function harness({ claim = 'claimed', routes = [COACHING_ROUTE], spotsLeft = 37, weekOne = false, goals = [], planError, permissionError } = {}) {
+function harness({ claim = 'claimed', routes = [COACHING_ROUTE], spotsLeft = 37, weekOne = false, goals = [], planError, permissionError, age = true, health = 'granted', carriedAge = true } = {}) {
   const calls = { rpc: [], analytics: [], deletes: [], openrouter: 0 };
+  const consentState = () => ({ ageConfirmedAt: age ? '2026-10-08T00:00:00Z' : null, healthData: health ? { decision: health, recordedAt: '2026-10-08T00:00:00Z', policyVersion: '2026-10-08' } : null });
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -53,6 +54,8 @@ function harness({ claim = 'claimed', routes = [COACHING_ROUTE], spotsLeft = 37,
     const rpc = path.match(/^\/rest\/v1\/rpc\/([a-z_]+)/)?.[1];
     if (rpc) {
       calls.rpc.push({ fn: rpc, args: body });
+      if (rpc === 'apm_my_consents') return json(consentState());
+      if (rpc === 'apm_service_carry_consents') return json({ ...consentState(), ageConfirmedAt: carriedAge ? '2026-10-08T00:00:00Z' : null });
       if (rpc === 'apm_claim_intake_install') return json(claim);
       if (rpc === 'apm_set_permission') return permissionError ? json({ message: permissionError }, 400) : json({ id: 'p1', domain: body.p_domain, action_type: body.p_action_type, autonomy_level: body.p_autonomy_level, constraints: {}, enabled: body.p_enabled, granted_at: null, updated_at: '2026-10-07T00:00:00Z' });
       if (rpc === 'apm_service_save_goal_plan' && planError) return json({ message: planError }, 400);

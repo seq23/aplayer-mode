@@ -89,6 +89,8 @@ test.before(async () => {
   assert.ok(files.includes('0021_goal_plans_and_daily_loop.sql'));
   for (const name of files) await db.exec(await migration(name));
   await admin(`insert into auth.users (id) values ('${USER_A}'), ('${USER_B}')`);
+  // 0094: these users gave the consumer health data consent, so their mood is kept.
+  await admin("insert into public.consent_records (user_id, kind, decision, policy_version) select u.id, 'consumer_health_data', 'granted', '2026-10-08' from auth.users u where not exists (select 1 from public.consent_records r where r.user_id = u.id and r.kind = 'consumer_health_data')");
   // 0044: no account gets beta by default; these users hold a paid plan.
   await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`update public.user_profiles set timezone = 'America/Chicago' where user_id = '${USER_A}'`);
@@ -351,6 +353,8 @@ test('the database checks the day’s supply, the Mood Gate and Never Miss Twice
   const USER_C = '00000000-0000-4000-8000-0000000000c1';
   const GOAL_C = '00000000-0000-4000-8000-00000000c0c1';
   await admin(`insert into auth.users (id) values ('${USER_C}')`);
+  // 0094: these users gave the consumer health data consent, so their mood is kept.
+  await admin("insert into public.consent_records (user_id, kind, decision, policy_version) select u.id, 'consumer_health_data', 'granted', '2026-10-08' from auth.users u where not exists (select 1 from public.consent_records r where r.user_id = u.id and r.kind = 'consumer_health_data')");
   // 0044: no account gets beta by default; these users hold a paid plan.
   await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`update public.user_profiles set timezone = 'Europe/London' where user_id = '${USER_C}'`);
@@ -399,6 +403,8 @@ test('a Full Day needs the whole locked agenda done; setup days supply only setu
   const USER_D = '00000000-0000-4000-8000-0000000000d1';
   const GOAL_D = '00000000-0000-4000-8000-00000000d0d1';
   await admin(`insert into auth.users (id) values ('${USER_D}')`);
+  // 0094: these users gave the consumer health data consent, so their mood is kept.
+  await admin("insert into public.consent_records (user_id, kind, decision, policy_version) select u.id, 'consumer_health_data', 'granted', '2026-10-08' from auth.users u where not exists (select 1 from public.consent_records r where r.user_id = u.id and r.kind = 'consumer_health_data')");
   // 0044: no account gets beta by default; these users hold a paid plan.
   await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_D}', 'standard', current_date - 10)`);
@@ -436,6 +442,8 @@ test('a locked agenda must carry the floors the supply requires; the day-90 deci
   const USER_E = '00000000-0000-4000-8000-0000000000e1';
   const GOAL_E = '00000000-0000-4000-8000-00000000e0e1';
   await admin(`insert into auth.users (id) values ('${USER_E}')`);
+  // 0094: these users gave the consumer health data consent, so their mood is kept.
+  await admin("insert into public.consent_records (user_id, kind, decision, policy_version) select u.id, 'consumer_health_data', 'granted', '2026-10-08' from auth.users u where not exists (select 1 from public.consent_records r where r.user_id = u.id and r.kind = 'consumer_health_data')");
   // 0044: no account gets beta by default; these users hold a paid plan.
   await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER_E}', 'standard', current_date - 100)`);
@@ -463,6 +471,8 @@ test('a locked agenda must carry the floors the supply requires; the day-90 deci
 test('next_actions are RPC-only (0035): no direct owner writes, intake still seeds, completion stays governed', async () => {
   const USER_F = '00000000-0000-4000-8000-0000000000f1';
   await admin(`insert into auth.users (id) values ('${USER_F}')`);
+  // 0094: these users gave the consumer health data consent, so their mood is kept.
+  await admin("insert into public.consent_records (user_id, kind, decision, policy_version) select u.id, 'consumer_health_data', 'granted', '2026-10-08' from auth.users u where not exists (select 1 from public.consent_records r where r.user_id = u.id and r.kind = 'consumer_health_data')");
   // 0044: no account gets beta by default; these users hold a paid plan.
   await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   // Onboarding (SECURITY INVOKER) seeds its first action through the governed writer.
@@ -489,4 +499,45 @@ test('next_actions are RPC-only (0035): no direct owner writes, intake still see
   // The governed completion (no daily loop yet for this user) still works.
   const done = await rpc(USER_F, 'apm_complete_next_action', [seeded[0].id]);
   assert.equal(done.action.status, 'done');
+});
+
+test('0094: the 1–10 mood is consumer health data: discarded without a live consent, required with it', async () => {
+  const setup = async (n) => {
+    const user = `00000000-0000-4000-8000-0000000009${String(n).padStart(2, '0')}`;
+    const goal = `00000000-0000-4000-8000-0000000019${String(n).padStart(2, '0')}`;
+    await admin(`insert into auth.users (id) values ('${user}')`);
+    await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
+    await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${user}', 'standard', current_date - 10)`);
+    await admin(`insert into public.goals (id, user_id, title, status, health, priority, provenance_kind, source_type) values ('${goal}', '${user}', 'Launch my business', 'active', 'unknown', 1, 'stated', 'manual')`);
+    const today = await localToday(user);
+    const stored = await svc('apm_service_save_goal_plan', [user, goal, JSON.stringify(planning.generateGoalPlan('Launch my business', { roles: ['Building a business'], startDate: shift(today, -9) })), 'intake']);
+    await admin(`insert into public.day_records (user_id, day, mode, verdict, closed_at) values ('${user}', $1::date - 1, 'standard', 'full_day', now())`, [today]);
+    const entry = { record: { id: stored.id, goalId: goal, status: 'active', gateReviews: {}, startDate: stored.start_date }, plan: stored.plan };
+    const agenda = (mood) => planning.composeAgenda({ date: today, state: 'normal', mood, plans: [entry], goals: [{ id: goal, title: 'Launch my business', status: 'active', priority: 1 }], completions: [], morningSequence: [] });
+    return { user, today, agenda };
+  };
+  // Never asked, and withdrawn: a mood sent anyway is not stored, not kept in the agenda, and gates nothing.
+  const never = await setup(1);
+  const withdrawn = await setup(2);
+  await rpc(withdrawn.user, 'apm_record_consent', ['consumer_health_data', 'granted', '2026-10-08']);
+  await rpc(withdrawn.user, 'apm_record_consent', ['consumer_health_data', 'withdrawn', '2026-10-08']);
+  for (const { user, today, agenda } of [never, withdrawn]) {
+    const sent = { ...agenda(7), mood: 1 };
+    const result = await svc('apm_service_day_check_in_v2', [user, today, 1, 'normal', JSON.stringify(sent)]);
+    assert.equal(result.replayed, false);
+    assert.equal(result.day.mood, null, 'the score is discarded');
+    assert.ok(!('mood' in result.day.agenda), 'and not kept inside the agenda');
+    const row = (await admin('select mood, agenda ? \'mood\' as has from public.day_records where user_id = $1 and day = $2::date', [user, today])).rows[0];
+    assert.deepEqual(row, { mood: null, has: false });
+    const audit = (await admin(`select metadata from public.audit_events where user_id = $1 and event_type = 'day.checked_in'`, [user])).rows[0].metadata;
+    assert.equal(audit.mvd, false, 'a discarded score never turns the day light');
+  }
+  // With consent the score is required and kept, as before.
+  const consented = await setup(3);
+  await rpc(consented.user, 'apm_record_consent', ['consumer_health_data', 'granted', '2026-10-08']);
+  await rejects(svc('apm_service_day_check_in_v2', [consented.user, consented.today, null, 'normal', JSON.stringify(consented.agenda())]), /loop_invalid_request/);
+  await rejects(svc('apm_service_day_check_in_v2', [consented.user, consented.today, 11, 'normal', JSON.stringify(consented.agenda())]), /loop_invalid_request/);
+  assert.equal((await svc('apm_service_day_check_in_v2', [consented.user, consented.today, 7, 'normal', JSON.stringify(consented.agenda(7))])).day.mood, 7);
+  // Service role only.
+  await rejects(rpc(consented.user, 'apm_service_day_check_in_v2', [consented.user, consented.today, 7, 'normal', JSON.stringify(consented.agenda(7))]), /permission denied/);
 });

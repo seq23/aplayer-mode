@@ -63,6 +63,8 @@ test.before(async () => {
   await db.exec(SUBSTRATE);
   for (const name of (await readdir(migrationsDir)).filter((n) => n.endsWith('.sql')).sort()) await db.exec(await migration(name));
   await admin(`insert into auth.users (id) values ('${USER}'), ('${NEWBIE}')`);
+  // 0094: these users gave the consumer health data consent, so their mood is kept.
+  await admin("insert into public.consent_records (user_id, kind, decision, policy_version) select u.id, 'consumer_health_data', 'granted', '2026-10-08' from auth.users u where not exists (select 1 from public.consent_records r where r.user_id = u.id and r.kind = 'consumer_health_data')");
   // 0044: no account gets beta by default; these users hold a paid plan.
   await admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'active' where plan = 'beta' and provider is null");
   await admin(`insert into public.personal_os (user_id, active_mode, stabilization_started_at) values ('${USER}', 'standard', current_date - 20), ('${NEWBIE}', 'standard', current_date)`);

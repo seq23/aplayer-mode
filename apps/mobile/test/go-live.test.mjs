@@ -35,9 +35,10 @@ test('store and web builds point at the same API and the hosted Terms and Privac
 });
 
 test('the legal pages are real, dated, and name the entity and contact', async () => {
-  for (const page of ['public/terms/index.html', 'public/privacy/index.html']) {
+  const dated = { 'public/terms/index.html': '2026-10-07', 'public/privacy/index.html': '2026-10-08', 'public/privacy/consumer-health/index.html': '2026-10-08' };
+  for (const [page, date] of Object.entries(dated)) {
     const html = await read(page);
-    assert.match(html, /Last updated 2026-10-07/);
+    assert.match(html, new RegExp(`Last updated ${date}`));
     assert.match(html, /Spry Labs/);
     assert.match(html, /support@aplayermode\.com/);
     assert.ok(html.length > 6000, `${page} is a full policy`);
@@ -46,6 +47,22 @@ test('the legal pages are real, dated, and name the entity and contact', async (
   for (const must of [/No free trial/, /Autopilot never spends your money/, /not medical/i, /auto-renew/i]) assert.match(terms, must);
   const privacy = await read('public/privacy/index.html');
   for (const must of [/OpenRouter/, /United States/, /Export/, /Delete/, /Limited Use/]) assert.match(privacy, must);
+  // The privacy policy links the consumer health data policy (owner, 8 Oct 2026), and states the 18+ confirmation.
+  assert.match(privacy, /href="\/privacy\/consumer-health"/);
+  assert.match(privacy, /confirm you are 18 or older before an account is created/);
+});
+
+test('the Consumer Health Data Privacy Policy matches what the app collects and the version it asks consent for', async () => {
+  const html = await read('public/privacy/consumer-health/index.html');
+  const CONSUMER_HEALTH_POLICY_VERSION = (await read('../../packages/planning/src/intake/healthData.ts')).match(/CONSUMER_HEALTH_POLICY_VERSION = '(\d{4}-\d{2}-\d{2})'/)[1];
+  assert.match(html, new RegExp(`Policy version ${CONSUMER_HEALTH_POLICY_VERSION}`), 'the page carries the version a grant is recorded against');
+  // Every health item the intake gates is named on the page (packages/planning/src/intake/healthData.ts).
+  for (const must of [/movement/, /food habits/, /current weight/, /weigh in/, /health routine/, /pregnancy/, /diabetes medication/, /heart condition/, /disordered eating/, /clinician/, /getting out of bed/, /Pilates-style/, /Losing weight \/ getting healthy/, /1 to 10 score you tap at the morning check-in/, /how full your head feels, from 1 to 10/, /return from an injury/]) assert.match(html, must);
+  // The rights the law requires, where they live in the app, and the promises.
+  for (const must of [/Settings → Privacy → Consumer health data/, /Settings → Privacy → Export &amp; Delete/, /withdraw/i, /45 days/, /appeal/i, /never sell/i, /not a medical service/, /Supabase/, /Cloudflare/, /OpenRouter/, /support@aplayermode\.com/, /Spry Labs/, /href="\/privacy"/]) assert.match(html, must);
+  assert.doesNotMatch(html, /\b(cure|treat(s|ment)? (your|any)|diagnos(e|is)|clinically proven)\b/i, 'no medical claims');
+  const web = await read('../../scripts/deploy-web-production.sh');
+  assert.match(web, /privacy\/consumer-health\/index\.html/, 'the deploy refuses a build without the page');
 });
 
 test('the web app is installable: manifest, icons, standalone', async () => {

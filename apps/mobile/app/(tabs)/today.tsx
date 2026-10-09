@@ -47,6 +47,7 @@ import { useLifeGraph } from '../../src/state/lifeGraph';
 import { areaDisplay } from '../../src/content/areas';
 import { BedRoutineToday, CoachingModeChips, PillarRollUpLine, PracticesToday, QuickTaps, SaveAccountBanner } from '../../src/components/today/FirstRunCards';
 import { useSession } from '../../src/state/session';
+import { useConsent } from '../../src/state/consent';
 import { sourceAccountLabel } from '../../src/integrations/accounts';
 import { hasDailyLoopAccess, noPlanCopy } from '../../src/billing/access';
 import { appDistribution, billingAvailability } from '../../src/billing/purchases';
@@ -71,6 +72,7 @@ export default function TodayScreen() {
   const [closing, setClosing] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [mood, setMood] = useState<number>();
+  const { healthDecision } = useConsent();
   const [notice, setNotice] = useState<string>();
   const [decision, setDecision] = useState<'promote' | 'maintain' | 'park'>();
   const [decisionReason, setDecisionReason] = useState('');
@@ -96,7 +98,9 @@ export default function TodayScreen() {
     catch (error) { setActionError(plainError(error, 'That did not save. Try again.')); }
     finally { setBusy(false); }
   };
-  const checkIn = () => mood !== undefined && run('check-in', () => perform((token) => checkInToday(mood, token)));
+  // The 1–10 energy score is health data: asked only with the health-data consent (server 0094).
+  const askScore = healthDecision === 'granted';
+  const checkIn = () => (!askScore || mood !== undefined) && run('check-in', () => perform((token) => checkInToday(askScore ? mood : undefined, token)));
   const completeItem = (item: AgendaItem) => run('complete', async () => {
     setBusyItemId(item.id);
     try {
@@ -263,10 +267,10 @@ export default function TodayScreen() {
           {loopOpen && !todayLoop.checkedIn && !todayLoop.closed ? (
             <Card tone="feature">
               <Label tone="accent">{TODAY_COPY.checkInLabel}</Label>
-              <Heading>{TODAY_COPY.checkInQuestion}</Heading>
-              <Body muted>{todayLoop.dayStart === 'hard' ? TODAY_COPY.checkInBodyHard : TODAY_COPY.checkInBody}</Body>
-              <ChoiceRow options={Array.from({ length: 10 }, (_, i) => ({ id: i + 1, label: String(i + 1) }))} value={mood} onChange={setMood} />
-              <Button label={busy ? TODAY_COPY.checkInBusy : TODAY_COPY.checkInButton} large busy={busy} disabled={mood === undefined} disabledReason={TODAY_COPY.checkInReason} onPress={() => checkIn() || undefined} />
+              <Heading>{askScore ? TODAY_COPY.checkInQuestion : TODAY_COPY.checkInQuestionNoScore}</Heading>
+              <Body muted>{askScore ? (todayLoop.dayStart === 'hard' ? TODAY_COPY.checkInBodyHard : TODAY_COPY.checkInBody) : TODAY_COPY.checkInBodyNoScore}</Body>
+              {askScore ? <ChoiceRow options={Array.from({ length: 10 }, (_, i) => ({ id: i + 1, label: String(i + 1) }))} value={mood} onChange={setMood} /> : null}
+              <Button label={busy ? TODAY_COPY.checkInBusy : TODAY_COPY.checkInButton} large busy={busy} disabled={askScore && mood === undefined} disabledReason={TODAY_COPY.checkInReason} onPress={() => checkIn() || undefined} />
             </Card>
           ) : null}
 

@@ -20,6 +20,7 @@ import {
 } from '../src/content/sell';
 import { useSession } from '../src/state/session';
 import { useIntake } from '../src/intake/store';
+import { useConsent } from '../src/state/consent';
 import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Screen, Eyebrow, Fill, Flow, Heading, Hero, Icon, Label, LinkButton, ListItem, Muted, Pill, PlateLine, Row, Stack, Toast, type IconName } from '../src/components/ui';
 
 /** One icon per role, so the five jobs scan as five people, not five paragraphs. */
@@ -35,10 +36,14 @@ const ROLE_ICONS: readonly IconName[] = ['compass', 'list', 'map', 'shield', 're
 export default function WelcomeScreen() {
   const { startAnonymous } = useSession();
   const { track } = useIntake();
+  const { ageConfirmed, healthDecision } = useConsent();
   const { deleted } = useLocalSearchParams<{ deleted?: string }>();
   const [persona, setPersona] = useState<string>(PERSONAS.personas[0].title);
   const shown = PERSONAS.personas.find((p) => p.title === persona) ?? PERSONAS.personas[0];
   const start = () => {
+    // 18+ first, then the separate health-data choice; nothing is asked or saved before them.
+    if (!ageConfirmed) { router.push('/age'); return; }
+    if (!healthDecision) { router.push('/health-consent'); return; }
     // Silent anonymous session (when the project allows it); the draft is saved on this phone either way.
     void startAnonymous().catch(() => false);
     track('onboarding_started', {});

@@ -11,6 +11,8 @@ import {
   BED_ROUTINE_STEP,
   FLOOR_CHIPS,
   GOAL_TEMPLATES,
+  HEALTH_DATA_GOAL_IDS,
+  HEALTH_DATA_QUESTION_IDS,
   JOURNAL_PROMPTS,
   MEDITATION_SCRIPTS,
   MIND_PRACTICES,
@@ -51,6 +53,7 @@ import {
   toggleOption,
   validatePlan,
   visibleAnswers,
+  withoutHealthAnswers,
 } from '../.test-dist/index.js';
 
 const START = '2026-10-05';
@@ -58,6 +61,8 @@ const START = '2026-10-05';
 /** Walks the intake like a user: answers every on-path question, then continues. */
 function walk(script, mode = 'full', { stopAt } = {}) {
   let draft = emptyDraft(1);
+  // The health-data choice is made before the questions (its own screen); '_health' mirrors it.
+  if ('_health' in script) draft = setDraftAnswer(draft, '_health', script._health, 1);
   let now = 2;
   let cursor = 'games';
   const seen = [];
@@ -90,12 +95,13 @@ function walk(script, mode = 'full', { stopAt } = {}) {
   return { draft, seen, questions: seen.filter((id) => questionById(id)) };
 }
 
+// Every persona here gave the consumer health data consent; the no-consent path has its own tests.
 const PERSONAS = {
-  weight: { games: ['weight'], goal: 'lose_weight', clinician_flag: 'no' },
-  wealth: { games: ['wealth'], goal: 'emergency_fund' },
-  founder: { games: ['founder'], goal: 'customers', equity: true },
-  operator: { games: ['operator'], goal: 'promotion' },
-  parentPlus: { games: ['parent', 'founder'], foreground: 'founder', goal: 'customers' },
+  weight: { _health: 'yes', games: ['weight'], goal: 'lose_weight', clinician_flag: 'no' },
+  wealth: { _health: 'yes', games: ['wealth'], goal: 'emergency_fund' },
+  founder: { _health: 'yes', games: ['founder'], goal: 'customers', equity: true },
+  operator: { _health: 'yes', games: ['operator'], goal: 'promotion' },
+  parentPlus: { _health: 'yes', games: ['parent', 'founder'], foreground: 'founder', goal: 'customers' },
 };
 
 test('the bank: every question has a plate line, a field and a BHPC mapping; ids are unique (AT10, AT11)', () => {
@@ -305,12 +311,12 @@ test('the in-bed routine: Yes/Sometimes → 8 moves, 10 minutes, morning step 1;
     assert.equal(gentle.gentle, true);
     assert.ok(!gentle.moves.some((m) => /dead bug|glute bridges/i.test(m.move)), 'loaded moves swapped out');
   }
-  const s = synthesizeProfile({ games: ['weight'], bed: 'sometimes', clinician_flag: 'skip', launch: 'calm' }, { startDate: START });
+  const s = synthesizeProfile({ _health: 'yes', games: ['weight'], bed: 'sometimes', clinician_flag: 'skip', launch: 'calm' }, { startDate: START });
   assert.equal(s.morning[0], BED_ROUTINE_STEP);
   assert.ok(s.morning.length <= 5);
   assert.equal(s.bedRoutine.gentle, true);
-  assert.equal(synthesizeProfile({ games: ['weight'], bed: 'no' }, { startDate: START }).morning[0] === BED_ROUTINE_STEP, false);
-  const payload = toInstallPayload({ games: ['weight'], goal: 'lose_weight', bed: 'yes', clinician_flag: 'yes' }, { startDate: START, draftVersion: 3 });
+  assert.equal(synthesizeProfile({ _health: 'yes', games: ['weight'], bed: 'no' }, { startDate: START }).morning[0] === BED_ROUTINE_STEP, false);
+  const payload = toInstallPayload({ _health: 'yes', games: ['weight'], goal: 'lose_weight', bed: 'yes', clinician_flag: 'yes' }, { startDate: START, draftVersion: 3 });
   assert.equal(payload.morningSequence[0], BED_ROUTINE_STEP);
   assert.deepEqual(payload.intakeProfile.bedRoutine, { gentle: true });
   assert.equal(payload.intakeProfile.bodySafety, 'yes');
@@ -483,4 +489,40 @@ test('the express "Quick start or full setup" step stays on the intake path in d
     assert.equal(path(answers, mode).find((screen) => screen.id === 'express').kind, 'express');
     assert.ok(ids.indexOf('express') > 0 && ids.indexOf('express') < ids.indexOf('summary'), `${label}: after the first questions, before the reveal`);
   }
+});
+
+// ---------------------------------------------------------------- consumer health data (owner, 8 Oct 2026)
+test('without the health-data consent no health question is asked, and the weight game and health goals are not offered', () => {
+  const body = SECTIONS.find((section) => section.id === 's5').questions.map((q) => q.id).filter((id) => id !== 'core_pillars');
+  assert.deepEqual([...HEALTH_DATA_QUESTION_IDS].sort(), [...body, 'bed', 'bed_move', 'load'].sort(), 'the list is the Body section, the in-bed routine and the mental-load score');
+  for (const [name, persona] of Object.entries(PERSONAS)) {
+    for (const decision of [undefined, 'no']) {
+      const script = { ...persona, _health: decision, games: persona.games.filter((g) => g !== 'weight').concat(persona.games.includes('weight') ? ['athlete'] : []) };
+      if (decision === undefined) delete script._health;
+      for (const mode of ['full', 'quick']) {
+        const run = walk(script, mode);
+        const asked = run.questions.filter((id) => HEALTH_DATA_QUESTION_IDS.includes(id));
+        assert.deepEqual(asked, [], `${name} ${mode} ${decision ?? 'never asked'}: ${asked.join(', ')}`);
+        const payload = toInstallPayload(run.draft.answers, { startDate: START, draftVersion: run.draft.version });
+        assert.equal(payload.intakeProfile.loadBaseline, undefined, 'the mental-load score is not asked or installed');
+        assert.equal(payload.intakeProfile.bodySafety, undefined);
+        assert.equal(payload.intakeProfile.bedRoutine, undefined);
+      }
+    }
+  }
+  const games = questionById('games');
+  assert.ok(!options(games, {}).some(([v]) => v === 'weight'), 'no weight game without consent');
+  assert.ok(options(games, { _health: 'yes' }).some(([v]) => v === 'weight'), 'offered with consent');
+  const goal = questionById('goal');
+  assert.ok(!options(goal, { games: ['athlete'] }).some(([v]) => HEALTH_DATA_GOAL_IDS.includes(v)), 'no injury-return goal without consent');
+  assert.ok(options(goal, { games: ['athlete'], _health: 'yes' }).some(([v]) => v === 'return_injury'));
+  // With consent the same founder is asked the Body questions and the bed question.
+  const consented = walk(PERSONAS.founder).questions;
+  for (const id of ['move', 'workout_days', 'food', 'bed', 'load']) assert.ok(consented.includes(id), `${id} asked with consent`);
+});
+
+test('withoutHealthAnswers removes every health item and keeps everything else', () => {
+  const answers = { _health: 'no', games: ['weight', 'founder'], foreground: 'weight', goal: 'eat_better', goal_size: 3, move: ['walk'], weight_now: 200, bed: 'yes', clinician_flag: 'yes', season: 'building', load: 7, carry: ['money'] };
+  assert.deepEqual(withoutHealthAnswers(answers), { _health: 'no', games: ['founder'], season: 'building', carry: ['money'] });
+  assert.deepEqual(withoutHealthAnswers({ games: ['founder'], goal: 'customers', goal_size: 10 }), { games: ['founder'], goal: 'customers', goal_size: 10 });
 });

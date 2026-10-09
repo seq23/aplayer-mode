@@ -16,6 +16,9 @@ export const TODAY_COPY = {
   checkInButton: 'Show my plan for today',
   checkInBusy: 'Setting up your day…',
   checkInReason: 'Tap a number above first.',
+  // Without the health-data consent the energy score is never asked (server 0094).
+  checkInQuestionNoScore: 'Ready to start your day?',
+  checkInBodyNoScore: 'Your plan for today appears next. APM asks how your energy is only if you allow health data in Settings → Privacy → Consumer health data.',
   priorityLabel: 'Do this first',
   afterCheckIn: 'Unlocks after you answer the energy question above.',
   drift: "Welcome back. Want APM to set up today's plan and restart the day?",
