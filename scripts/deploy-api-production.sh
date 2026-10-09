@@ -20,12 +20,17 @@ git diff --quiet HEAD -- services packages || { echo "refusing: uncommitted chan
 # deployed before its migration answers 500 everywhere. PostgREST answers 404 for a function that
 # does not exist and 401 for one the anonymous key may not run, so this probe changes nothing.
 # Add the entry point of each new migration the Worker depends on.
-REQUIRED_RPCS="apm_my_consents apm_record_consent apm_service_carry_consents apm_service_day_check_in_v2"
+# Each entry is name:param,param. PostgREST resolves an RPC by its named parameters, so a probe
+# with the wrong set answers PGRST202/404 even when the function exists. Probing with every named
+# parameter (null) makes 404 mean "missing" and 401/42501 mean "present but not for anon".
+REQUIRED_RPCS="apm_my_consents: apm_record_consent:p_kind,p_decision,p_policy_version apm_service_carry_consents:p_from,p_to apm_service_day_check_in_v2:p_user_id,p_day,p_mood,p_state,p_agenda"
 SB_URL=$(node -e "const t=require('fs').readFileSync('services/api/wrangler.jsonc','utf8');process.stdout.write((t.match(/\"SUPABASE_URL\": \"([^\"]+)\"/)||[])[1]||'')")
 SB_KEY=$(node -e "const t=require('fs').readFileSync('services/api/wrangler.jsonc','utf8');process.stdout.write((t.match(/\"SUPABASE_PUBLISHABLE_KEY\": \"([^\"]+)\"/)||[])[1]||'')")
 [ -n "$SB_URL" ] && [ -n "$SB_KEY" ] || { echo "refusing: no SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY in services/api/wrangler.jsonc"; exit 2; }
-for fn in $REQUIRED_RPCS; do
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$SB_URL/rest/v1/rpc/$fn" -H "apikey: $SB_KEY" -H 'content-type: application/json' -d '{}')
+for entry in $REQUIRED_RPCS; do
+  fn="${entry%%:*}"; params="${entry#*:}"
+  body=$(node -e 'const p=process.argv[1];process.stdout.write(JSON.stringify(Object.fromEntries(p?p.split(",").map(k=>[k,null]):[])))' "$params")
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$SB_URL/rest/v1/rpc/$fn" -H "apikey: $SB_KEY" -H 'content-type: application/json' -d "$body")
   [ "$code" = "404" ] && { echo "refusing: database function $fn is missing; apply services/api/migrations in order first (RUNBOOK → Deploy)"; exit 2; }
   [ "$code" = "000" ] && { echo "refusing: Supabase did not answer the migration probe for $fn"; exit 2; }
 done
