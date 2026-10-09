@@ -5,6 +5,7 @@ import type { BillingPeriod, PaidPlan } from '@apm/policy';
 import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Figure, Heading, KeyValue, Label, Pill, Row, SectionTitle, Small, Stack, Tile, Toast, uiStyles } from '../components/ui';
 import { fetchBillingOffering, fetchProductPlan, fetchWebBillingPortal, reconcileBilling, type BillingOfferingResponse, type ProductPlanResponse } from '../api/apmApi';
 import { useSession } from '../state/session';
+import { hasDailyLoopAccess } from './access';
 import { APPLE_STANDARD_EULA_URL, PAID_PLANS, STORE_LABELS, storeManageUrl, subscriptionDisclosure, tierOffers, type StorePrice } from './catalog';
 import { UNAVAILABLE_COPY, appDistribution, billingAvailability, buyPackage, identifyBillingUser, legalUrls, loadOffering, managementUrl, restoreStorePurchases } from './purchases';
 // iOS resolves this to webCheckout.ios.ts (no card checkout in an iPhone build; App Store 3.1.1).
@@ -13,6 +14,7 @@ import { PLAN_SCREEN, TIER_GRID_WHAT, TIER_GRID_WHO, offerBanner, recommendedTie
 import { openExternal } from '../links/external';
 import { plainError } from '../api/errors';
 import { AccountPanel } from '../components/intake/AccountPanel';
+import { Testimonials } from '../components/Testimonials';
 
 const PLAN_RANK: Record<string, number> = { beta: 0, chief_of_staff: 1, life_os: 2, autopilot: 3, household: 0 };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,6 +49,10 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   /** A card checkout was opened in the browser; confirm with the server when the user comes back. */
   const [awaitingCard, setAwaitingCard] = useState(false);
   const recommended = recommendedTier(games);
+  // Pay first (docs/33 §10): a buyer who paid before the setup questions never sees the paywall again.
+  useEffect(() => {
+    if (onboarding && product && product.entitlement.plan !== 'beta' && hasDailyLoopAccess(product.entitlement)) onFinished?.('purchased');
+  }, [onboarding, product, onFinished]);
 
   const loadPlan = useCallback(async () => {
     if (!accessToken) return undefined;
@@ -222,6 +228,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       <Toast message={notice} />
 
       <OfferBannerCard banner={banner} />
+      <Testimonials />
 
       {/* The buy buttons come right after the offer (docs/36 H2): the 13 grid rows used to sit
           in front of them, four screens of reading before the one thing to do. The grids fold

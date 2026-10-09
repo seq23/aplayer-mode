@@ -1,0 +1,4 @@
+{
+  "_doc": "THE one testimonials file for aplayermode.com (fetched from https://app.aplayermode.com/testimonials.json) and the app's welcome page and paywall (bundled at build time). Both hide the section while `testimonials` is empty. Only REAL quotes from real users, with their written permission: never invented, never edited beyond trimming. Each entry: quote (<= 400 chars), name (as they agreed to be shown, e.g. 'Dana R.'), context (optional, e.g. 'Founder and parent of two'), consent (where and when the permission is recorded, e.g. 'email to support@, 2026-11-02'; never shown). apps/mobile/test/testimonials.test.mjs validates this file. After an edit, redeploy the web app (scripts/deploy-web-production.sh); aplayermode.com picks it up on the next page load.",
+  "testimonials": []
+}

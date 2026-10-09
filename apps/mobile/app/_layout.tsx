@@ -48,6 +48,7 @@ function ThemedStack() {
           <Stack.Screen name="welcome" options={{ headerShown: false }} />
           {/* 18+ and the health-data choice come before the setup questions (server migration 0093). */}
           <Stack.Screen name="age" options={{ headerShown: false }} />
+          <Stack.Screen name="join" options={{ headerShown: false }} />
           <Stack.Screen name="health-consent" options={{ headerShown: false }} />
           {/* The one setup route: no header, no swipe-back; Android back is handled in-screen (docs/34 §6). */}
           <Stack.Screen name="intake" options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }} />

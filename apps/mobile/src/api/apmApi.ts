@@ -586,6 +586,27 @@ export async function fetchRetainedAutopilotState(accessToken: string): Promise<
  * APP_REVIEW_CODE set; then it answers ONLY for that one address. Without `code` it says
  * whether to skip the email step; with the code it returns a session for that account.
  */
+export type PrecheckoutClaimResponse =
+  | { claimed: true; outcomes: string[] }
+  | { claimed: false; error: string; message?: string };
+/**
+ * Pay first, account after (docs/33 §10): claim a paid checkout for a new account with the email
+ * typed at checkout. No session exists yet; the server creates the account with id = checkout id.
+ */
+export async function claimPrecheckout(input: { checkoutId: string; email: string }): Promise<PrecheckoutClaimResponse> {
+  if (!baseUrl) return { claimed: false, error: 'not_configured' };
+  let response: Response;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+    try { response = await fetch(`${baseUrl}/v1/billing/precheckout/claim`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(input), signal: controller.signal }); }
+    finally { clearTimeout(timer); }
+  } catch { return { claimed: false, error: 'unavailable' }; }
+  const body = await response.json().catch(() => ({})) as { claimed?: boolean; outcomes?: string[]; error?: string; message?: string };
+  if (response.ok && body.claimed) return { claimed: true, outcomes: body.outcomes ?? [] };
+  return { claimed: false, error: body.error ?? 'unavailable', ...(body.message ? { message: body.message } : {}) };
+}
+
 export async function reviewerSignIn(input: { email: string; code?: string }): Promise<{ review: true; session?: { access_token: string; refresh_token: string } } | null> {
   if (!baseUrl) return null;
   let response: Response;

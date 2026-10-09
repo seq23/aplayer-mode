@@ -10,7 +10,7 @@ import { synthesizeIntake } from './intakeSynthesis';
 import { AGE_GATE_OPEN_ROUTES, AGE_REQUIRED_BODY, AgeConfirmationRequired, ageConfirmed, carryConsents, CONSUMER_HEALTH_POLICY_VERSION, getConsentState, HEALTH_REQUIRED_BODY, healthConsentActive, recordConsent, withoutHealthData } from './consent';
 import type { ApiEnv } from './env';
 import { restErrorMessage, SERVICE_ROLE_TOKEN, supabaseRest } from './db';
-import { billingOfferingFor, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
+import { claimPrecheckout, billingOfferingFor, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
 import {
   completeNextAction,
   getLifeGraph,
@@ -673,6 +673,14 @@ app.post('/v1/billing/reconcile', async (c) => {
   const result = await reconcileBillingFor(c.env, user.id);
   if (!result.reconciled && result.reason === 'rate_limited') return c.json(result, 429);
   return c.json(result);
+});
+
+// Pay first, account after (docs/33 §10): no session yet, so the checkout id plus the email the
+// buyer typed at checkout are the claim; the account is created with id = checkout id and the
+// buyer then signs in with the usual email code. Rate-limited per checkout id.
+app.post('/v1/billing/precheckout/claim', async (c) => {
+  const result = await claimPrecheckout(c.env as ApiEnv, await c.req.json().catch(() => null));
+  return c.json(result.body, result.status);
 });
 
 // Web (card) subscribers: the RevenueCat customer portal link for the signed-in user only.
