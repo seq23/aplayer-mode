@@ -1,5 +1,7 @@
-import { Stack } from 'expo-router';
-import { StatusBar } from 'react-native';
+import { Stack, usePathname } from 'expo-router';
+import { useEffect } from 'react';
+import { Platform, StatusBar } from 'react-native';
+import { applyRobots } from '../src/web/robots';
 import { SessionProvider } from '../src/state/session';
 import { LifeGraphProvider } from '../src/state/lifeGraph';
 import { IntakeProvider } from '../src/intake/store';
@@ -31,6 +33,11 @@ export default function RootLayout() {
 /** The navigator in the current scheme: Stone header and content, Ink title in Outfit, no shadow. */
 function ThemedStack() {
   const { colors, scheme, type } = useTheme();
+  // Web: only the front door is indexable; sign-up, account, billing and signed-in routes get noindex.
+  const pathname = usePathname();
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') applyRobots(pathname, document as never);
+  }, [pathname]);
   const { maxFontSizeMultiplier: _scale, ...titleFont } = type.cardTitle;
   return (
     <>

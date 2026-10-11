@@ -7,3 +7,17 @@
 /testimonials.json
   Access-Control-Allow-Origin: https://aplayermode.com
   Cache-Control: public, max-age=300
+/join
+  X-Robots-Tag: noindex, nofollow
+/account
+  X-Robots-Tag: noindex, nofollow
+/billing/*
+  X-Robots-Tag: noindex, nofollow
+/settings/*
+  X-Robots-Tag: noindex, nofollow
+/intake
+  X-Robots-Tag: noindex, nofollow
+/age
+  X-Robots-Tag: noindex, nofollow
+/health-consent
+  X-Robots-Tag: noindex, nofollow
