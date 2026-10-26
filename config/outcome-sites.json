@@ -1,0 +1,29 @@
+{
+  "_why": "The hosts the weekly outcome report measures, week over week. A host is listed once, with the repository that can fix it: a red host whose repo is not this one gets an issue here that names where the fix lives, never a silent pass.",
+  "sites": [
+    {
+      "host": "aplayermode.com",
+      "label": "A Player Mode front door",
+      "repo": "sprylabs-hpc-site",
+      "path": "/",
+      "expect_status": 200,
+      "artifacts": ["/robots.txt", "/sitemap.xml", "/llms.txt"]
+    },
+    {
+      "host": "app.aplayermode.com",
+      "label": "A Player Mode web app",
+      "repo": "aplayer-mode",
+      "path": "/",
+      "expect_status": 200,
+      "artifacts": ["/robots.txt", "/sitemap.xml"]
+    },
+    {
+      "host": "api.aplayermode.com",
+      "label": "A Player Mode API",
+      "repo": "aplayer-mode",
+      "path": "/v1/health",
+      "expect_status": 200,
+      "artifacts": []
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+name: Weekly Outcome Report
+
+# "Is the site work helping?" answered once a week, per host, week over week
+# (Search Readiness Checklist i9). Mondays 08:00 America/Chicago: two UTC crons
+# (13:00 in CDT, 14:00 in CST) and a guard step that lets only the one matching
+# Chicago's current offset run.
+#
+# Report -> committed reports/outcomes/<ISO-week>.{md,json} -> one self-closing
+# issue per red host (opened, updated while red, commented and closed when the
+# host comes back green) -> email through Resend's free tier.
+#
+# Without RESEND_API_KEY the email step is a NAMED STOP and the rest still runs:
+# the committed report and the issues are the record either way. This workflow
+# deploys nothing.
+on:
+  schedule:
+    - cron: "0 13 * * 1"
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: weekly-outcome-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Guard Monday 08:00 Chicago
+        id: guard
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          offset=$(TZ=America/Chicago date +%z)
+          run=true
+          if [ "$SCHEDULE" = "0 13 * * 1" ] && [ "$offset" != "-0500" ]; then run=false; fi
+          if [ "$SCHEDULE" = "0 14 * * 1" ] && [ "$offset" != "-0600" ]; then run=false; fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "schedule='${SCHEDULE:-dispatch}' chicago_offset=$offset run=$run"
+
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.run == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.run == 'true'
+        with:
+          node-version: '22.13.0'
+
+      - name: Self-check the reporter before trusting it
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          node scripts/weekly-outcome-report.mjs --self-check
+          node scripts/weekly-outcome-issues.mjs --self-check
+
+      - name: Measure every host and write the report
+        id: measure
+        if: steps.guard.outputs.run == 'true'
+        run: node scripts/weekly-outcome-report.mjs
+
+      - name: Commit the report
+        if: steps.guard.outputs.run == 'true'
+        env:
+          WEEK: ${{ steps.measure.outputs.week }}
+          SUMMARY: ${{ steps.measure.outputs.summary }}
+        run: |
+          test -f "reports/outcomes/${WEEK}.json" || { echo "NAMED STOP: the reporter wrote no report for ${WEEK}"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/outcomes
+          if git diff --cached --quiet; then
+            echo "Report for ${WEEK} is unchanged; nothing to commit."
+          else
+            git commit -m "Weekly outcome report ${WEEK}: ${SUMMARY}"
+            git push
+          fi
+
+      - name: One self-closing issue per red host
+        if: steps.guard.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/weekly-outcome-issues.mjs "reports/outcomes/${{ steps.measure.outputs.week }}.json"
+
+      - name: Email the report (Resend free tier)
+        if: steps.guard.outputs.run == 'true'
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          REPORT_FROM: ${{ secrets.OUTCOME_REPORT_FROM }}
+          REPORT_TO: ${{ secrets.OUTCOME_REPORT_TO }}
+          WEEK: ${{ steps.measure.outputs.week }}
+          SUMMARY: ${{ steps.measure.outputs.summary }}
+        run: |
+          if [ -z "${RESEND_API_KEY:-}" ] || [ -z "${REPORT_FROM:-}" ] || [ -z "${REPORT_TO:-}" ]; then
+            echo "NAMED STOP [NO_RESEND_CONFIG] the weekly report was written and its issues filed, but no email went out:"
+            echo "  set repository secrets RESEND_API_KEY, OUTCOME_REPORT_FROM and OUTCOME_REPORT_TO to turn the email on."
+            exit 0
+          fi
+          node -e '
+            const { readFileSync } = require("node:fs");
+            const week = process.env.WEEK;
+            const markdown = readFileSync(`reports/outcomes/${week}.md`, "utf8");
+            const body = { from: process.env.REPORT_FROM, to: [process.env.REPORT_TO],
+              subject: `A Player Mode — weekly outcome report ${week}: ${process.env.SUMMARY}`,
+              text: markdown };
+            fetch("https://api.resend.com/emails", { method: "POST",
+              headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
+              body: JSON.stringify(body) })
+              .then(async (r) => { const t = await r.text();
+                if (!r.ok) { console.error(`NAMED STOP [RESEND_${r.status}] ${t.slice(0, 300)}`); process.exit(1); }
+                console.log(`emailed the ${week} report: ${t.slice(0, 120)}`); });
+          '
+
+      - name: Upload the report
+        if: always() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-outcome-report-${{ github.run_id }}
+          path: reports/outcomes
+          if-no-files-found: warn
+          retention-days: 90

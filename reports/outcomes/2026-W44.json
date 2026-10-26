@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "week": "2026-W44",
+  "generated_at": "2026-10-26T04:22:38.551Z",
+  "compared_with": null,
+  "hosts": 3,
+  "red_hosts": 0,
+  "sites": [
+    {
+      "host": "aplayermode.com",
+      "repo": "sprylabs-hpc-site",
+      "label": "A Player Mode front door",
+      "path": "/",
+      "status": 200,
+      "ms": 777,
+      "bytes": 85437,
+      "final_url": "https://aplayermode.com/",
+      "html": true,
+      "title": "A Player Mode | Your five-person executive team",
+      "artifacts": {
+        "/robots.txt": 200,
+        "/sitemap.xml": 200,
+        "/llms.txt": 200
+      },
+      "sitemap_urls": 2,
+      "llms_words": 327,
+      "red": [],
+      "deltas": null
+    },
+    {
+      "host": "app.aplayermode.com",
+      "repo": "aplayer-mode",
+      "label": "A Player Mode web app",
+      "path": "/",
+      "status": 200,
+      "ms": 124,
+      "bytes": 2541,
+      "final_url": "https://app.aplayermode.com/",
+      "html": true,
+      "title": "A Player Mode",
+      "artifacts": {
+        "/robots.txt": 200,
+        "/sitemap.xml": 200
+      },
+      "sitemap_urls": 0,
+      "red": [],
+      "deltas": null
+    },
+    {
+      "host": "api.aplayermode.com",
+      "repo": "aplayer-mode",
+      "label": "A Player Mode API",
+      "path": "/v1/health",
+      "status": 200,
+      "ms": 193,
+      "bytes": 188,
+      "final_url": "https://api.aplayermode.com/v1/health",
+      "html": false,
+      "title": null,
+      "artifacts": {},
+      "red": [],
+      "deltas": null
+    }
+  ]
+}
