@@ -165,9 +165,13 @@ if (suite === COACHING_SUITE_ID) {
   process.exit();
 }
 
+// Free by default (docs/cost/zero-paid-llm.md): a dispatch with no inputs costs nothing, so
+// every default route is a :free model. inclusionai/ling-3.1-flash was here under a routeId
+// that called it free; OpenRouter prices it at $0.075/$0.225 per MTok (checked 2026-10-26), so
+// a bare dispatch was billing. Evaluate a priced candidate by naming it in
+// APM_EVAL_ROUTES_JSON — spending stays a deliberate act with a route id in it.
 const defaults = [
   { routeId: COACHING_ROUTE_ID, modelId: 'apodex/apodex-1.1-mini:free', providerId: 'Novita' },
-  { routeId: 'or_ling_3_1_flash_novita_free', modelId: 'inclusionai/ling-3.1-flash', providerId: 'Novita' },
 ];
 
 const routes = process.env.APM_EVAL_ROUTES_JSON ? JSON.parse(process.env.APM_EVAL_ROUTES_JSON) : defaults;

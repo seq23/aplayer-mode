@@ -19,6 +19,9 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "presubmit:ios": "node scripts/presubmit-ios.mjs",
+    "validate:cost": "node scripts/validate-cost-posture.mjs",
+    "validate:outcomes": "node scripts/weekly-outcome-report.mjs --self-check && node scripts/weekly-outcome-issues.mjs --self-check",
+    "report:outcomes": "node scripts/weekly-outcome-report.mjs",
     "lint:design": "npm run lint:design -w @apm/mobile"
   },
   "engines": {
