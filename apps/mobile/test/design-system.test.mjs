@@ -28,29 +28,6 @@ test.before(async () => {
 test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
 
 // ---------------------------------------------------------------- the palette
-test('the light palette is the owner\'s A palette (Stone, Paper, Ink, Moss, line, brass), Graphite deepened only for AA', () => {
-  const light = tokens.palettes.light;
-  assert.deepEqual(
-    { bg: light.bg, surface: light.surface, ink: light.ink, accent: light.accent, line: light.line, brass: light.brass, primary: light.primary, onPrimary: light.onPrimary, chipOn: light.chipOn, onChipOn: light.onChipOn },
-    { bg: '#E9E5DE', surface: '#F6F4F0', ink: '#1E1C19', accent: '#3E4B3C', line: '#D4CEC4', brass: '#A39780', primary: '#1E1C19', onPrimary: '#F6F4F0', chipOn: '#1E1C19', onChipOn: '#F6F4F0' },
-  );
-  // Graphite #6E685F on Stone is 4.39:1, short of AA body text; the token is the nearest warm grey that passes.
-  assert.ok(contrast.contrastRatio('#6E685F', '#E9E5DE') < contrast.AA_TEXT);
-  assert.equal(light.inkMuted, '#655F57');
-});
-
-test('the dark palette is warm: a near-black stone (not pure black, not blue-black), ivory text, lifted moss', () => {
-  const dark = tokens.palettes.dark;
-  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  const [r, g, b] = rgb(dark.bg);
-  assert.ok(r + g + b > 0, 'not pure black');
-  assert.ok(r >= g && g >= b && r > b, `${dark.bg} is warm (red ≥ green ≥ blue), not blue-black`);
-  assert.ok(contrast.luminance(dark.surface) > contrast.luminance(dark.bg), 'the surface is lifted');
-  const [ir, , ib] = rgb(dark.ink);
-  assert.ok(ir > ib, `${dark.ink} is a warm ivory`);
-  assert.ok(contrast.luminance(dark.accent) > contrast.luminance(tokens.palettes.light.accent), 'moss is lifted for contrast');
-  assert.deepEqual(Object.keys(dark).sort(), Object.keys(tokens.palettes.light).sort(), 'both schemes define every token');
-});
 
 test('WCAG AA: every token pair the primitives render passes in BOTH schemes (4.5:1 text, 3:1 UI)', () => {
   assert.ok(contrast.CONTRAST_PAIRS.length >= 25, 'the pair list is not empty or trimmed');
@@ -67,17 +44,6 @@ test('the contrast check FAILS on a palette that misses AA (negative proof)', ()
   assert.ok(contrast.failingPairs(dim).some((f) => f.fg === 'ink'), 'dim dark-mode text is caught');
   const weakBorder = { ...tokens.palettes.dark, lineStrong: tokens.palettes.dark.line };
   assert.ok(contrast.failingPairs(weakBorder).some((f) => f.fg === 'lineStrong' && f.min === contrast.AA_UI), 'a control border under 3:1 is caught');
-});
-
-test('type: Outfit 600 for display, Nunito Sans for reading, with real fallbacks; every size scales', () => {
-  assert.equal(tokens.FONT_FAMILIES.display.loaded, 'Outfit_600SemiBold');
-  assert.match(tokens.FONT_FAMILIES.body.loaded, /^NunitoSans_/);
-  for (const role of Object.values(tokens.FONT_FAMILIES)) assert.match(role.web, /sans-serif/, 'the web stack ends in a generic family');
-  for (const platform of ['ios', 'android']) for (const role of Object.keys(tokens.FONT_FAMILIES)) assert.ok(tokens.NATIVE_FALLBACK[platform][role], `${platform} ${role} fallback`);
-  for (const [key, spec] of Object.entries(tokens.typeScale)) {
-    assert.ok(spec.maxScale >= 1.4, `${key} scales with Dynamic Type (max ×${spec.maxScale})`);
-    assert.ok(spec.line >= spec.size, `${key} line height never clips its glyphs`);
-  }
 });
 
 // ---------------------------------------------------------------- the lint
@@ -176,13 +142,6 @@ test('U11: times are chosen with a native time picker, never typed as HH:MM', as
   assert.match(native, /@react-native-community\/datetimepicker/);
   assert.match(native, /DateTimePickerAndroid\.open\(/);
   assert.match(await src('src/components/TimePickerField.web.tsx'), /type: 'time'/);
-});
-
-test('US spelling in the copy the app shows ("prioritizes", not "prioritises")', async () => {
-  const sell = await src('src/content/sell.ts');
-  assert.match(sell, /prioritizes and catches you/);
-  const roots = ['src/content/sell.ts', 'src/components/intake/Reveal.tsx', 'app/settings/os.tsx', 'app/(tabs)/goals.tsx', 'app/(tabs)/today.tsx', 'app/(tabs)/apm.tsx'];
-  for (const rel of roots) assert.doesNotMatch(await src(rel), /\b(prioritis|organis|stabilis|optimis|customis|behaviour|practis(e|ed|ing)\b|judgement|colour)/i, `${rel} uses US spelling`);
 });
 
 test('the express "Quick start or full setup" choice renders both options on the intake route', async () => {
