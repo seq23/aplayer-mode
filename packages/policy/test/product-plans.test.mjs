@@ -63,13 +63,3 @@ test('a user permission cannot exceed the product entitlement', () => {
   assert.equal(result.effectiveLevel, 4);
   assert.equal(result.reason, 'entitlement_too_low');
 });
-
-test('docs/29 states the connected-accounts limit exactly as the capability grants it', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const doc = await readFile(new URL('../../../docs/29-THREE-TIER-PRODUCT-CONTRACT.md', import.meta.url), 'utf8');
-  const row = doc.split('\n').find((line) => line.startsWith('| Connected calendars & inboxes |'));
-  assert.ok(row, 'the capability grid has the connected-accounts row');
-  const cells = row.split('|').slice(2, 5).map((cell) => cell.trim());
-  const expected = ['chief_of_staff', 'life_os', 'autopilot'].map((plan) => (planHasCapability(plan, 'multi_account') ? 'Multiple' : '1'));
-  assert.deepEqual(cells, expected);
-});

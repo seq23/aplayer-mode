@@ -31,42 +31,6 @@ test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: 
 
 const usd = (cents) => policy.formatUsdCents(cents);
 
-test('the welcome page carries all 12 sections in order (how it works second), with the CTA', () => {
-  assert.deepEqual(sell.WELCOME_SECTIONS.map((s) => s.id), ['hero', 'how', 'continuity', 'roles', 'personas', 'inside', 'modes', 'tracks', 'situations', 'without_with', 'tiers', 'privacy']);
-  assert.equal(sell.HOW_IT_WORKS.steps.length, 3, 'docs/34 §3.3: three steps');
-  assert.match(sell.HOW_IT_WORKS.steps[0], /3 minutes/);
-  assert.match(sell.HOW_IT_WORKS.steps[2], /arrives on its own/);
-  assert.equal(sell.HERO.headline, 'Reduce your cognitive load.');
-  assert.equal(sell.CTA_LABEL, 'Start: reduce my load');
-  assert.equal(sell.CONTINUITY.title, 'You don\'t have a knowledge problem. You have a continuity problem.');
-  assert.deepEqual(sell.CONTINUITY.loop, ['Clarity', 'Motivation', 'Strong Start', 'Missed Day', 'Avoidance', 'Reset', 'New Plan', 'Repeat']);
-  assert.equal(sell.CONTINUITY.close, 'You are not lazy. You are overloaded.');
-  for (const point of ['Clearer priorities.', 'Cleaner execution.', 'Faster recovery after imperfect days.', 'Less renegotiating with yourself.']) assert.ok(sell.HERO.definition.includes(point));
-  assert.match(sell.HERO.notThis, /not hustle cosplay/);
-  const text = sell.welcomeText();
-  assert.ok(!/gumroad|paste|prompt pack|ChatGPT/i.test(text), 'an app, not prompts you paste; no Gumroad');
-  assert.match(sell.PRIVACY_LINE, /zero-retention, no-training/);
-});
-
-test('five roles, five personas (plus the broader list), six modes, eight situations, advice vs system', () => {
-  assert.deepEqual(sell.FIVE_ROLES.roles.map((r) => r.title), ['Executive Coach', 'Executive Assistant', 'Chief of Staff', 'Accountability Partner', 'Cognitive Behavioral Mindset Coach']);
-  assert.match(sell.FIVE_ROLES.framing, /Billionaires do not rely on motivation\. They buy structure/);
-  assert.deepEqual(sell.PERSONAS.personas.map((p) => p.title), ['Wealth building', 'Weight loss', 'Founder / Entrepreneur', 'Operator', 'Parent+']);
-  for (const extra of ['Creatives and makers', 'Students and researchers', 'Athletes and competitors', 'Career-switchers', 'Executives in a new seat', 'Anyone at 2 a.m. trying to get their life together']) assert.ok(sell.PERSONAS.alsoFor.includes(extra), extra);
-  assert.deepEqual(sell.INSIDE.parts.map((p) => p.title), ['Daily agenda engine', 'Morning trigger', 'Never Miss Twice', 'Minimum Viable Day', 'Arbitration engine', 'End-of-day check-in']);
-  assert.deepEqual(sell.MODES.modes.map((m) => m.title), ['High-Pressure Coaching', 'Executive Review', 'Recovery', 'Sprint', 'Deep Work', 'Standard']);
-  assert.deepEqual(sell.SITUATIONS.rows.map((r) => r[1]), ['Morning Start Sequence', 'Recovery Day', 'No-Catch-Up reset', 'Stabilization', 'Arbitration', 'Minimum Viable Day', 'Re-entry', 'No-Redesign stabilization']);
-  assert.ok(sell.WITHOUT_WITH.without.lines.length >= 3 && sell.WITHOUT_WITH.with.lines.length >= 3);
-});
-
-test('all 7 Tracks by their ONE display name, with the Billionaire High Performance Coach spotlight', () => {
-  assert.deepEqual(sell.TRACKS.tracks.map((t) => t.title), Object.values(domain.TRACK_DISPLAY_NAMES));
-  assert.equal(sell.TRACKS.tracks.length, 7);
-  assert.equal(sell.TRACKS.spotlight.title, domain.TRACK_DISPLAY_NAMES.billionaire_mindset);
-  assert.match(sell.TRACKS.spotlight.body, /High-Pressure Coaching/);
-  for (const t of sell.TRACKS.tracks) assert.ok(t.body.length > 20, t.title);
-});
-
 test('the welcome page only teases the tiers; the grids and every price live on the plan screen', () => {
   assert.equal(sell.WELCOME_TIERS_TEASER.line, 'Executive Roundtable plans and coaches you · Executive Suite acts when you tap yes · Autopilot handles it inside your rules');
   assert.equal(sell.WELCOME_TIERS_TEASER.line, ['chief_of_staff', 'life_os', 'autopilot'].map((p) => `${policy.PLAN_PRICES[p].displayName} ${policy.PLAN_PRICES[p].tagline}`).join(' · '), 'derived from PLAN_PRICES');

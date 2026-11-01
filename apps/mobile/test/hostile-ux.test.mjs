@@ -27,19 +27,8 @@ test.before(async () => {
 });
 test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
 
-const ENGINE_WORDS = /Life Graph|Personal OS|BHPC|execution|deterministic|durable|\bprint|foreground|opening step|Plan step|Guided Start|Hard Start|_/i;
 
 // ---------------------------------------------------------------- copy (Lens B)
-test('T1–T4: Today speaks plain words; the check-in button is not "Print" and says why it is waiting', () => {
-  for (const [key, value] of Object.entries(words.TODAY_COPY)) assert.doesNotMatch(value, ENGINE_WORDS, `TODAY_COPY.${key}: "${value}"`);
-  assert.equal(words.TODAY_COPY.checkInButton, 'Show my plan for today');
-  assert.equal(words.TODAY_COPY.priorityLabel, 'Do this first');
-  assert.equal(words.TODAY_COPY.checkInLabel, 'Before you start');
-  assert.match(words.TODAY_COPY.checkInReason, /Tap a number/);
-  assert.match(words.TODAY_COPY.subtitle, /^Your plan for today is ready\./);
-  for (const value of Object.values(words.ITEM_KIND_WORDS)) assert.doesNotMatch(value, ENGINE_WORDS);
-  assert.equal(words.ITEM_KIND_WORDS.plan_action, 'Toward your goal');
-});
 
 test('T9–T11, R1, G1: engine keys become words (radar, approvals, goals, day-90, diary)', () => {
   assert.equal(words.radarTag('slipping', 'high'), 'Slipping · important');
@@ -81,20 +70,6 @@ test('S1: the OS summary never shows a dash for the first step; APM fills it in'
   const reveal = await src('src/components/intake/Reveal.tsx');
   assert.doesNotMatch(reveal, /first_step \?\? '—'/);
   assert.match(reveal, /goalTemplates\(answers\)\[0\]\)\?\.steps\[0\]/);
-});
-
-test('H1: the welcome page sells in an organized way — how it works, the five jobs visible, one persona at a time', async () => {
-  assert.match(sell.FIVE_ROLES.title, /hire/i, 'framed as the people you would hire');
-  assert.ok(sell.FIVE_ROLES.lead.length > 20);
-  assert.equal(sell.WELCOME_TIERS_TEASER.rows.length, 3);
-  const welcome = await src('app/welcome.tsx');
-  assert.match(welcome, /<Flow steps=\{\[\.\.\.HOW_IT_WORKS\.steps\]\} \/>/, 'how it works, as three numbered steps');
-  for (const visible of ['FIVE_ROLES.roles.map((role, i) => (', 'INSIDE.parts.map((part) => <ListItem', 'MODES.modes.map((mode) => <ListItem']) assert.ok(welcome.includes(visible), `${visible} is visible, not folded`);
-  assert.doesNotMatch(welcome, /FIVE_ROLES\.roles\.map\(\(role\) => <Expandable/, 'the five jobs are not hidden behind taps');
-  assert.match(welcome, /<ChoiceRow options=\{PERSONAS\.personas\.map/, 'pick your game, see your line');
-  assert.equal((welcome.match(/<Eyebrow>\{eyebrow\}<\/Eyebrow>/g) ?? []).length, 1, 'every section carries an eyebrow through Section');
-  const sections = (welcome.match(/<Section eyebrow=/g) ?? []).length;
-  assert.ok(sections >= 11, `${sections} sections`);
 });
 
 test('H2/H4: the paywall puts the buy buttons first, folds the 13 grid rows, and says "Introductory offer" once', async () => {

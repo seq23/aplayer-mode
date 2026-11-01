@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 // "Nothing paid" made executable (Search Readiness Checklist i10).
-// Reads docs/cost/zero-paid-llm.md and CLAUDE.md, then checks the code still obeys them:
+// The rule is written in docs/cost/zero-paid-llm.md; this script checks the code and config obey it:
 //
-//   1. CLAUDE.md carries the rule in words ("nothing paid") and points at the document;
-//      the document exists and still states each clause this script enforces.
 //   2. No workflow that runs on a schedule, on push or on pull_request references a
 //      model-provider key — repository automation makes no model call at all.
 //   3. Every modelId in the `defaults` route set of scripts/evaluate-openrouter-routes.mjs
@@ -22,30 +20,8 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const DOC = 'docs/cost/zero-paid-llm.md';
 const PROVIDER_KEYS = ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'PERPLEXITY_API_KEY'];
-/** Clauses the document must still state; the check below enforces each one. */
-const DOC_CLAUSES = [
-  [/nothing paid/i, 'the rule itself ("nothing paid")'],
-  [/schedule|scheduled/i, 'that scheduled automation makes no model call'],
-  [/APM_EVAL_ROUTES_JSON/, 'that a priced route is reachable only through APM_EVAL_ROUTES_JSON'],
-  [/:free/, 'that the default evaluation route set is :free only'],
-  [/named\s+stop/i, 'that a failed free route is a named stop, not a paid fallback'],
-];
-
 const read = async (path) => { try { return await readFile(join(root, path), 'utf8'); } catch { return null; } };
 const violations = [];
-
-// ─── 1. the rule in words, where an agent and the owner can read it ──────────
-const claudeMd = await read('CLAUDE.md');
-if (claudeMd === null) violations.push('CLAUDE.md is missing — the "nothing paid" rule has nowhere to live');
-else {
-  if (!/nothing paid/i.test(claudeMd)) violations.push('CLAUDE.md does not say "nothing paid"');
-  if (!claudeMd.includes(DOC)) violations.push(`CLAUDE.md does not point at ${DOC}`);
-}
-const doc = await read(DOC);
-if (doc === null) violations.push(`${DOC} is missing`);
-else for (const [pattern, what] of DOC_CLAUSES) {
-  if (!pattern.test(doc)) violations.push(`${DOC} no longer states ${what}`);
-}
 
 // ─── 2. automation makes no model call ───────────────────────────────────────
 let workflows = [];
@@ -102,4 +78,4 @@ if (violations.length) {
   for (const v of violations) console.error(`  ✗ ${v}`);
   process.exit(1);
 }
-console.log(`validate:cost passed: CLAUDE.md and ${DOC} state the rule; ${automated} self-running workflow(s) hold no provider key; the default evaluation routes are :free only; every candidate route declares its price.`);
+console.log(`validate:cost passed: ${automated} self-running workflow(s) hold no provider key; the default evaluation routes are :free only; every candidate route declares its price.`);

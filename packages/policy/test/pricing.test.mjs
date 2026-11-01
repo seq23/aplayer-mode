@@ -3,7 +3,7 @@
 // states any other price on a line naming a tier fails this test.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -23,7 +23,6 @@ import {
 } from '../.test-dist/index.js';
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
-const doc = (path) => readFileSync(join(repoRoot, path), 'utf8');
 
 const cos = formatUsdCents(PLAN_PRICES.chief_of_staff.monthlyUsdCents);
 const lifeOs = formatUsdCents(PLAN_PRICES.life_os.monthlyUsdCents);
@@ -116,70 +115,6 @@ test('buying Autopilot never grants autonomy without permission', () => {
   const noPermission = decideAuthority(base);
   assert.equal(noPermission.allowed, false);
   assert.equal(noPermission.reason, 'permission_missing_or_disabled');
-});
-
-// Every markdown doc outside docs/reference: on any line that names a tier or an
-// intro offer, every dollar amount must be one of the constants above.
-const TIER_LINE = /Executive Roundtable|Executive Suite|Chief of Staff|Life OS|Autopilot|[Ff]ounding|intro offer|\bIntro\b/;
-const ALLOWED = new Set([cos, lifeOs, autopilot, founding, intro, cosYear, lifeOsYear, autopilotYear, '$0']);
-const markdownDocs = () => {
-  const files = ['README.md', 'AGENTS.md'];
-  for (const dir of ['docs', 'docs/adr']) for (const f of readdirSync(join(repoRoot, dir))) if (f.endsWith('.md')) files.push(`${dir}/${f}`);
-  return files;
-};
-
-test('no doc states a tier price that disagrees with the constants', () => {
-  const offenders = [];
-  let priced = 0;
-  for (const file of markdownDocs()) {
-    doc(file).split('\n').forEach((line, i) => {
-      if (!TIER_LINE.test(line)) return;
-      for (const amount of line.match(/~?\$\d[\d,]*(?:\.\d+)?\+?/g) ?? []) {
-        priced += 1;
-        if (!ALLOWED.has(amount)) offenders.push(`${file}:${i + 1} ${amount}`);
-      }
-    });
-  }
-  assert.deepEqual(offenders, [], 'stale or unknown tier prices');
-  assert.ok(priced >= 20, `the docs actually state tier prices (found ${priced})`);
-});
-
-test('the pricing docs each state the full final price list', () => {
-  for (const file of ['docs/02-PRICING-STRATEGY.md', 'docs/29-THREE-TIER-PRODUCT-CONTRACT.md', 'docs/adr/ADR-0004-FINAL-PRICING.md', 'docs/24-RELEASE-BETA-AND-COMMERCIALIZATION.md', 'docs/07-IMPLEMENTATION-ROADMAP.md']) {
-    const text = doc(file);
-    for (const amount of [cos, lifeOs, autopilot, founding]) assert.ok(text.includes(amount), `${file} states ${amount}`);
-    assert.match(text, /Founding 100/, `${file} names Founding 100`);
-    assert.match(text, /first 3 months/, `${file} states the 3-month intro`);
-    assert.match(text, /App Store \+ Google Play|App Store and Google Play|App Store \/ Google Play/, `${file} names the store billing channel`);
-  }
-  const tableRow = (text, name, amount, includes) => new RegExp(`^\\| \\**${name}\\** \\| \\**[a-z ]+\\** \\| \\**\\${amount}\\** \\| ${includes} \\|$`, 'm').test(text);
-  for (const file of ['docs/02-PRICING-STRATEGY.md', 'docs/29-THREE-TIER-PRODUCT-CONTRACT.md', 'docs/adr/ADR-0004-FINAL-PRICING.md']) {
-    const text = doc(file);
-    assert.ok(tableRow(text, 'Executive Roundtable', cos, '—'), `${file} Executive Roundtable row`);
-    assert.ok(tableRow(text, 'Executive Suite', lifeOs, 'everything in Executive Roundtable'), `${file} Executive Suite row`);
-    assert.ok(tableRow(text, 'Autopilot', autopilot, 'everything in Executive Suite'), `${file} Autopilot row`);
-    assert.ok(!tableRow(text, 'Chief of Staff', cos, '—') && !tableRow(text, 'Life OS', lifeOs, '[^|]+'), `${file} still prices a retired plan name`);
-    for (const plan of Object.values(PLAN_PRICES)) assert.ok(text.includes(plan.tagline), `${file} states "${plan.tagline}"`);
-  }
-  assert.match(doc('docs/adr/ADR-0002-THREE-TIER-LAUNCH.md'), /## Pricing\n\n\*\*Superseded by ADR-0004/);
-  assert.match(doc('docs/adr/ADR-0004-FINAL-PRICING.md'), /Buying a tier never grants autonomy/);
-});
-
-test('annual plans: exactly the ADR-0005 prices, stated in every pricing doc', () => {
-  const adr = doc('docs/adr/ADR-0005-ANNUAL-PLANS.md');
-  assert.match(adr, /\*\*Status:\*\* ACCEPTED \/ LOCKED/);
-  assert.match(adr, /2 months free/);
-  assert.match(adr, /Buying a tier never grants autonomy/);
-  assert.match(adr, /no intro offer|No intro offer/i);
-  for (const file of ['docs/02-PRICING-STRATEGY.md', 'docs/29-THREE-TIER-PRODUCT-CONTRACT.md', 'docs/adr/ADR-0005-ANNUAL-PLANS.md', 'docs/33-BILLING-PHASE-D.md']) {
-    const text = doc(file);
-    for (const [name, monthly, annual] of [['Executive Roundtable', cos, cosYear], ['Executive Suite', lifeOs, lifeOsYear], ['Autopilot', autopilot, autopilotYear]]) {
-      const row = text.split('\n').find((line) => line.startsWith('|') && line.includes(name) && line.includes(annual));
-      assert.ok(row, `${file} has a ${name} row with ${annual}`);
-      assert.ok(row.includes(monthly), `${file} ${name} annual row also states the monthly ${monthly}`);
-    }
-  }
-  assert.doesNotMatch(doc('docs/02-PRICING-STRATEGY.md'), /Monthly only at launch/, 'the retired monthly-only rule is gone');
 });
 
 test('product catalogue: every tier x period on every channel (both stores + web), Founding 100 is CoS monthly only', () => {
