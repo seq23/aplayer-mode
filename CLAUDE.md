@@ -4,6 +4,10 @@
 non-negotiable rules. Read it first; everything there applies here. This file adds only what an
 agent has to know before it spends anything or ships anything.
 
+## Company brain
+
+Read `~/Brains/spry.md` before any work (business facts, priorities, voice, settled decisions). New business facts go to the brain via Boss OS, not into this repo or memory. Repo how-tos stay in `docs/`.
+
 ## Cost: nothing paid
 
 **Nothing paid.** No scheduled or CI-triggered workflow in this repository may make a paid model
