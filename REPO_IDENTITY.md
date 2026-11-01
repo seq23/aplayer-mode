@@ -21,4 +21,4 @@
 
 ## Weekly outcome
 
-`.github/workflows/weekly-outcome-report.yml` (Mondays 08:00 America/Chicago) measures every host in `config/outcome-sites.json` week over week, commits `reports/outcomes/<ISO-week>.{json,md}`, and opens one self-closing issue per red host.
+`.github/workflows/weekly-outcome-report.yml` (Wednesdays 07:13 America/Chicago) measures every host in `config/outcome-sites.json` week over week, commits `reports/outcomes/<ISO-week>.{json,md}`, and opens one self-closing issue per red host.
