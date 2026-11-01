@@ -26,7 +26,7 @@ npm run typecheck && npm run test && npm run presubmit:ios && npm run validate:c
 ```
 
 `validate:outcomes` self-checks the weekly outcome report
-(`.github/workflows/weekly-outcome-report.yml`, Mondays 08:00 America/Chicago): it measures every
+(`.github/workflows/weekly-outcome-report.yml`, Wednesdays 07:13 America/Chicago; no email of its own, its summary goes to Boss OS for the one Spry Labs weekly email): it measures every
 host in `config/outcome-sites.json` week over week, commits
 `reports/outcomes/<ISO-week>.{json,md}`, and opens one self-closing issue per red host. Adding a
 host is one entry in that config file.

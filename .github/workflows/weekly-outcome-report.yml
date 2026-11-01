@@ -1,21 +1,23 @@
 name: Weekly Outcome Report
 
 # "Is the site work helping?" answered once a week, per host, week over week
-# (Search Readiness Checklist i9). Mondays 08:00 America/Chicago: two UTC crons
-# (13:00 in CDT, 14:00 in CST) and a guard step that lets only the one matching
-# Chicago's current offset run.
+# (Search Readiness Checklist i9). Wednesdays 07:13 America/Chicago (owner's
+# rebalanced week, 1 Nov 2026): two UTC crons (12:13 in CDT, 13:13 in CST) and a
+# guard step that lets only the one matching Chicago's current offset run.
 #
 # Report -> committed reports/outcomes/<ISO-week>.{md,json} -> one self-closing
 # issue per red host (opened, updated while red, commented and closed when the
-# host comes back green) -> email through Resend's free tier.
+# host comes back green) -> spry-weekly-summary.json, uploaded as the artifact
+# `spry-weekly-summary`.
 #
-# Without RESEND_API_KEY the email step is a NAMED STOP and the rest still runs:
-# the committed report and the issues are the record either way. This workflow
+# NO EMAIL FROM HERE (1 Nov 2026). Boss OS reads that artifact at 08:15 Central
+# and sends the ONE "Spry Labs weekly" email, a short section per business. A
+# week this does not run, that email says so in a plain line. This workflow
 # deploys nothing.
 on:
   schedule:
-    - cron: "0 13 * * 1"
-    - cron: "0 14 * * 1"
+    - cron: "13 12 * * 3"
+    - cron: "13 13 * * 3"
   workflow_dispatch:
 
 permissions:
@@ -31,15 +33,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Guard Monday 08:00 Chicago
+      - name: Guard Wednesday 07:13 Chicago
         id: guard
         env:
           SCHEDULE: ${{ github.event.schedule }}
         run: |
           offset=$(TZ=America/Chicago date +%z)
           run=true
-          if [ "$SCHEDULE" = "0 13 * * 1" ] && [ "$offset" != "-0500" ]; then run=false; fi
-          if [ "$SCHEDULE" = "0 14 * * 1" ] && [ "$offset" != "-0600" ]; then run=false; fi
+          if [ "$SCHEDULE" = "13 12 * * 3" ] && [ "$offset" != "-0500" ]; then run=false; fi
+          if [ "$SCHEDULE" = "13 13 * * 3" ] && [ "$offset" != "-0600" ]; then run=false; fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "schedule='${SCHEDULE:-dispatch}' chicago_offset=$offset run=$run"
 
@@ -56,6 +58,7 @@ jobs:
         run: |
           node scripts/weekly-outcome-report.mjs --self-check
           node scripts/weekly-outcome-issues.mjs --self-check
+          node .github/scripts/spry-weekly-summary.mjs --self-check
 
       - name: Measure every host and write the report
         id: measure
@@ -86,34 +89,20 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node scripts/weekly-outcome-issues.mjs "reports/outcomes/${{ steps.measure.outputs.week }}.json"
 
-      - name: Email the report (Resend free tier)
+      - name: Hand the week to Boss OS (the Spry Labs weekly email)
         if: steps.guard.outputs.run == 'true'
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          REPORT_FROM: ${{ secrets.OUTCOME_REPORT_FROM }}
-          REPORT_TO: ${{ secrets.OUTCOME_REPORT_TO }}
-          WEEK: ${{ steps.measure.outputs.week }}
-          SUMMARY: ${{ steps.measure.outputs.summary }}
-        run: |
-          if [ -z "${RESEND_API_KEY:-}" ] || [ -z "${REPORT_FROM:-}" ] || [ -z "${REPORT_TO:-}" ]; then
-            echo "NAMED STOP [NO_RESEND_CONFIG] the weekly report was written and its issues filed, but no email went out:"
-            echo "  set repository secrets RESEND_API_KEY, OUTCOME_REPORT_FROM and OUTCOME_REPORT_TO to turn the email on."
-            exit 0
-          fi
-          node -e '
-            const { readFileSync } = require("node:fs");
-            const week = process.env.WEEK;
-            const markdown = readFileSync(`reports/outcomes/${week}.md`, "utf8");
-            const body = { from: process.env.REPORT_FROM, to: [process.env.REPORT_TO],
-              subject: `A Player Mode — weekly outcome report ${week}: ${process.env.SUMMARY}`,
-              text: markdown };
-            fetch("https://api.resend.com/emails", { method: "POST",
-              headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
-              body: JSON.stringify(body) })
-              .then(async (r) => { const t = await r.text();
-                if (!r.ok) { console.error(`NAMED STOP [RESEND_${r.status}] ${t.slice(0, 300)}`); process.exit(1); }
-                console.log(`emailed the ${week} report: ${t.slice(0, 120)}`); });
-          '
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node .github/scripts/spry-weekly-summary.mjs "reports/outcomes/${{ steps.measure.outputs.week }}.json" spry-weekly-summary.json
+
+      - name: Upload the summary for Boss OS
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: spry-weekly-summary
+          path: spry-weekly-summary.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload the report
         if: always() && steps.guard.outputs.run == 'true'
