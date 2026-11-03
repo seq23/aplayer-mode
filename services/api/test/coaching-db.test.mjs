@@ -54,9 +54,12 @@ const setMode = (userId, args) => as(userId,
   'select public.apm_set_mode_state($1, $2::timestamptz, $3::timestamptz, $4, $5::timestamptz, $6::jsonb)',
   [args.mode, args.startedAt ?? null, args.endsAt ?? null, args.focus ?? null, args.lockedUntil ?? null, args.resume ? JSON.stringify(args.resume) : null]);
 const osRow = async (userId) => (await admin('select active_mode, mode_started_at, mode_ends_at, mode_focus, recovery_locked_until, mode_resume from public.personal_os where user_id = $1', [userId])).rows[0];
-// One clock for the whole file: two Date.now() reads a millisecond apart made a 4-hour Deep Work
-// block 4 h + 1 ms long and tripped personal_os_mode_timing_check at random.
-const BASE_MS = Date.now();
+// One clock per test, so a bound like "Deep Work <= 4 h" is never off by the millisecond between
+// two Date.now() reads. A mode change must then carry its own start: the mode guard (0020) treats an
+// unchanged mode_started_at as "no timing supplied" and clears it (which, when two reads landed in
+// the same millisecond, failed personal_os_mode_timing_check at random).
+let BASE_MS = Date.now();
+test.beforeEach(() => { BASE_MS = Date.now(); });
 const iso = (offsetHours) => new Date(BASE_MS + offsetHours * 3_600_000).toISOString();
 
 test.before(async () => {
@@ -140,7 +143,7 @@ test('Sprint and Deep Work invariants hold for every writer', async () => {
   assert.equal((await osRow(USER_A)).active_mode, 'sprint');
   const active = (await admin(`select key from public.operating_modes where user_id = '${USER_A}' and active`)).rows;
   assert.ok(active.every((r) => r.key === 'sprint'));
-  await setMode(USER_A, { mode: 'deep_work', startedAt: iso(0), endsAt: iso(4), focus: 'Draft the methods section', resume: { mode: 'sprint', endsAt: iso(14 * 24), focus: 'Chapter 3' } });
+  await setMode(USER_A, { mode: 'deep_work', startedAt: iso(0.01), endsAt: iso(4), focus: 'Draft the methods section', resume: { mode: 'sprint', endsAt: iso(14 * 24), focus: 'Chapter 3' } });
   assert.equal((await osRow(USER_A)).mode_resume.mode, 'sprint');
 });
 
