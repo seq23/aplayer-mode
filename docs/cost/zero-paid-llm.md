@@ -48,7 +48,8 @@ A Player Mode is a product people pay for, and serving a subscriber's own infere
 goods. That spend is a settled product decision with its own key, its own cap and its own
 authority (`docs/05-MODEL-REGISTRY.md`, `docs/23-MODEL-EVAL-AND-PROMOTION.md`,
 `docs/14-DEPLOYMENT-AND-SECRETS.md`), and it runs through the Privacy Gateway like every other
-production call. "Nothing paid" is about what the *repository* spends on its own behalf — audits,
+production call. The cap is code: `services/api/src/paidCalls.ts` (per-user burst limit on every
+route that can reach a billed model, per-user and global daily ceilings inside `runUserInference`). "Nothing paid" is about what the *repository* spends on its own behalf — audits,
 reports, evaluations, probes, sweeps — not about what the product costs to run.
 
 Two things that are therefore not violations: the production API calling a promoted model on the

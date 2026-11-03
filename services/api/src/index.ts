@@ -47,6 +47,7 @@ import { syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
 import { reviewLogin } from './reviewLogin';
+import { limiterAllows, PaidCallRefused, paidRouteAllowed } from './paidCalls';
 import { LAUNCH_UPDATES_ORIGINS, launchUpdatesSignup } from './launchUpdates';
 import { COACH_CHOICES } from './coach/machine';
 import { applyModeToPlan, modeView, reconcileModeState, transitionMode, type ModeEvent, type ModeRequest, type ModeState } from './coach/modes';
@@ -117,6 +118,8 @@ export function intakeAnalyticsProblem(properties: Record<string, unknown>): str
   return null;
 }
 const app = new Hono<WorkerEnv>();
+/** A route that can reach a billed model was called too fast (src/paidCalls.ts). */
+const PAID_RATE_LIMITED = { error: 'rate_limited', message: 'Too many requests. Wait a minute and try again.' } as const;
 
 /**
  * An AREA key (three pillars, areas inside them: 0060). Older clients may still send a
@@ -711,6 +714,8 @@ app.post('/v1/billing/reconcile', async (c) => {
 // buyer typed at checkout are the claim; the account is created with id = checkout id and the
 // buyer then signs in with the usual email code. Rate-limited per checkout id.
 app.post('/v1/billing/precheckout/claim', async (c) => {
+  // No session: the per-checkout limit alone lets one caller walk new ids into RevenueCat's quota.
+  if (!(await limiterAllows(c.env.RECONCILE_LIMITER, `precheckout-claim:${c.req.header('cf-connecting-ip') ?? 'unknown'}`, 6))) return c.json({ error: 'rate_limited' }, 429);
   const result = await claimPrecheckout(c.env as ApiEnv, await c.req.json().catch(() => null));
   return c.json(result.body, result.status);
 });
@@ -975,6 +980,7 @@ app.put('/v1/intake/profile', async (c) => {
 // intake_profile_synthesis (docs/34 §7.2): candidate only, deterministic fallback, 8 s cap.
 app.post('/v1/intake/synthesis', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await paidRouteAllowed(c.env, user.id))) return c.json(PAID_RATE_LIMITED, 429);
   const parsed = z.object({
     catchAll: z.string().max(4000).optional(),
     games: idList(9),
@@ -1376,6 +1382,7 @@ app.post('/v1/next-actions/:id/complete', async (c) => {
 
 app.post('/v1/apm/coach', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await paidRouteAllowed(c.env, user.id))) return c.json(PAID_RATE_LIMITED, 429);
   const parsed = z.object({
     message: z.string().trim().max(8000).optional(),
     choice: z.enum(COACH_CHOICES as [string, ...string[]]).optional(),
@@ -1417,8 +1424,14 @@ app.post('/v1/apm/coach/report', async (c) => {
     throw error;
   }
 });
+/** A fixed code is guessable without a limit: per IP AND across everyone (a slow global ceiling). */
+async function reviewLoginAllowed(c: any): Promise<boolean> {
+  const ip = c.req.header('cf-connecting-ip') ?? 'unknown';
+  return (await limiterAllows(c.env.RECONCILE_LIMITER, `review-login:${ip}`, 6)) && (await limiterAllows(c.env.RECONCILE_LIMITER, 'review-login:all', 6));
+}
 // App Review demo sign-in (docs/33 §8): off (404) unless APP_REVIEW_EMAIL and APP_REVIEW_CODE are set.
 app.post('/v1/auth/review-login', async (c) => {
+  if (!(await reviewLoginAllowed(c))) return c.json({ error: 'rate_limited' }, 429);
   const result = await reviewLogin(c.env as ApiEnv, await c.req.json().catch(() => null));
   return c.json(result.body, result.status);
 });
@@ -1509,11 +1522,15 @@ app.post('/v1/calendar/connections/:id/sync', async (c) => {
 
 app.post('/v1/email/connections/:id/sync', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await paidRouteAllowed(c.env, user.id))) return c.json(PAID_RATE_LIMITED, 429);
   const parsed = z.object({ maxMessages: z.number().int().min(1).max(50).optional() }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   let result: Awaited<ReturnType<typeof syncEmailSignals>>;
   try { result = await syncEmailSignals({ env: c.env, accessToken: user.accessToken, userId: user.id, connectionId: c.req.param('id'), maxMessages: parsed.data.maxMessages }); }
-  catch (error) { return connectionFailure(c, error); }
+  catch (error) {
+    if (error instanceof PaidCallRefused) return c.json({ ...PAID_RATE_LIMITED, reason: error.reason }, 429);
+    return connectionFailure(c, error);
+  }
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'email_synced', { provider: result.provider, messagesProcessed: result.messagesProcessed, signalsStored: result.signalsStored });
   return c.json({ ...result, ...(await buildUserState(c.env, user.accessToken, user.id)) });
 });

@@ -382,6 +382,7 @@ export async function completeLifeAdminItem(
   userId: string,
   itemId: string,
   timezone?: string,
+  now: Date = new Date(),
 ): Promise<LifeAdminItem> {
   const rows = await supabaseRest<LifeAdminRow[]>(
     env,
@@ -392,7 +393,7 @@ export async function completeLifeAdminItem(
   if (!existing) throw new Error('life_os_item_not_found');
   if (existing.status === 'cancelled') throw new Error('life_os_item_cancelled');
 
-  const completedAt = new Date();
+  const completedAt = now;
   const parseDate = (value: string | null): Date | undefined => {
     if (!value) return undefined;
     const parsed = new Date(value);

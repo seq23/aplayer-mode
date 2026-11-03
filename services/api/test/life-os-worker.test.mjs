@@ -89,7 +89,8 @@ test('completion passes the planning engine schedule and the row version; DB own
   const existing = itemRow();
   const mock = mockFetch((call) => ({ json: call.url.startsWith('/rest/v1/rpc/') ? itemRow({ due_at: '2026-11-01T15:00:00.000Z' }) : [existing] }));
   try {
-    await repo.completeLifeAdminItem(env, 'jwt', USER, 'item-1', 'America/Chicago');
+    // Completed the day after the October occurrence: the test never depends on today's date.
+    await repo.completeLifeAdminItem(env, 'jwt', USER, 'item-1', 'America/Chicago', new Date('2026-10-02T12:00:00Z'));
   } finally { mock.restore(); }
 
   assertNoDirectLifeOsWrites(mock.calls);
