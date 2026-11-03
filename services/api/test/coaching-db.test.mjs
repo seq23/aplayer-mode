@@ -54,7 +54,10 @@ const setMode = (userId, args) => as(userId,
   'select public.apm_set_mode_state($1, $2::timestamptz, $3::timestamptz, $4, $5::timestamptz, $6::jsonb)',
   [args.mode, args.startedAt ?? null, args.endsAt ?? null, args.focus ?? null, args.lockedUntil ?? null, args.resume ? JSON.stringify(args.resume) : null]);
 const osRow = async (userId) => (await admin('select active_mode, mode_started_at, mode_ends_at, mode_focus, recovery_locked_until, mode_resume from public.personal_os where user_id = $1', [userId])).rows[0];
-const iso = (offsetHours) => new Date(Date.now() + offsetHours * 3_600_000).toISOString();
+// One clock for the whole file: two Date.now() reads a millisecond apart made a 4-hour Deep Work
+// block 4 h + 1 ms long and tripped personal_os_mode_timing_check at random.
+const BASE_MS = Date.now();
+const iso = (offsetHours) => new Date(BASE_MS + offsetHours * 3_600_000).toISOString();
 
 test.before(async () => {
   db = new PGlite();
