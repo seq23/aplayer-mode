@@ -101,6 +101,7 @@ function harness({ routeStatus = 'candidate', modelText, session } = {}) {
       db.audits.push({ user_id: body.p_user_id, event_type: body.p_event_type, actor_type: body.p_actor_type, object_type: body.p_object_type, object_id: body.p_object_id, metadata: body.p_metadata });
       return new Response(null, { status: 204 });
     }
+    if (path.startsWith('/rest/v1/ai_usage_events') && method === 'HEAD') return new Response(null, { status: 206, headers: { 'content-range': '0-0/0' } });
     if (path.startsWith('/rest/v1/ai_usage_events')) return new Response(null, { status: 201 });
     throw new Error(`unexpected ${method} ${path}`);
   };

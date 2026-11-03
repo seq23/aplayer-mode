@@ -11,6 +11,7 @@ import type { DataClass, RetentionClass } from '@apm/privacy';
 import type { ApiEnv } from './env';
 import { requireOpenRouterKey } from './env';
 import { supabaseRest } from './db';
+import { claimPaidCall } from './paidCalls';
 
 function mapRetention(value: string): RetentionClass {
   if (value === 'zero') return 'zero';
@@ -77,6 +78,8 @@ export async function runUserInference<T>(input: {
   userId: string;
   task: InferenceTask;
 }): Promise<T> {
+  // Per-user and global daily ceilings before anything billed is called (src/paidCalls.ts).
+  await claimPaidCall(input.env, input.userId);
   const routes = await modelRoutesForRuntime(input.env, input.accessToken);
   const started = Date.now();
   let result: Awaited<ReturnType<typeof runOpenRouterInference<T>>>;

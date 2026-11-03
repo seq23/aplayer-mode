@@ -16,7 +16,10 @@
     "staging": {
       "name": "aplayer-mode-api-staging",
       "triggers": { "crons": ["*/15 * * * *"] },
-      "ratelimits": [{ "name": "RECONCILE_LIMITER", "namespace_id": "4101", "simple": { "limit": 6, "period": 60 } }]
+      "ratelimits": [
+        { "name": "RECONCILE_LIMITER", "namespace_id": "4101", "simple": { "limit": 6, "period": 60 } },
+        { "name": "PAID_CALL_LIMITER", "namespace_id": "4103", "simple": { "limit": 20, "period": 60 } }
+      ]
     },
     "production": {
       "name": "aplayer-mode-api",
@@ -25,7 +28,11 @@
       // zone redirect rules matching http.host (apex and www only), checked 2026-10-07.
       "routes": [{ "pattern": "api.aplayermode.com", "custom_domain": true }],
       // POST /v1/billing/reconcile: 6 per user per minute (RECONCILE_LIMIT in src/billing.ts).
-      "ratelimits": [{ "name": "RECONCILE_LIMITER", "namespace_id": "4102", "simple": { "limit": 6, "period": 60 } }],
+      "ratelimits": [
+        { "name": "RECONCILE_LIMITER", "namespace_id": "4102", "simple": { "limit": 6, "period": 60 } },
+        // Every route that can reach a billed model: 20 per user per minute (PAID_CALL_LIMITS in src/paidCalls.ts).
+        { "name": "PAID_CALL_LIMITER", "namespace_id": "4104", "simple": { "limit": 20, "period": 60 } }
+      ],
       // Public values only (the publishable key ships in every app build). Secrets are set with
       // `wrangler secret put` (scripts/deploy-api-production.sh); BILLING_ALLOW_SANDBOX is never set here.
       "vars": {

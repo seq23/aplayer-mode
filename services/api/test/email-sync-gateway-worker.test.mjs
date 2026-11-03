@@ -23,7 +23,7 @@ test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: 
 
 const USER = '00000000-0000-4000-8000-00000000000a';
 const CONN = '11111111-1111-4111-8111-111111111111';
-const env = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', OPENROUTER_API_KEY: 'sk-or-test-key', CONNECTOR_CREDENTIAL_KEY: Buffer.alloc(32, 9).toString('base64') };
+const env = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', SUPABASE_SECRET_KEY: 'sb_secret_test', OPENROUTER_API_KEY: 'sk-or-test-key', CONNECTOR_CREDENTIAL_KEY: Buffer.alloc(32, 9).toString('base64') };
 const routeRow = { route_id: 'zdr', model_id: 'vendor/model', provider_id: 'Vendor', status: 'approved', cost_class: 'standard', capabilities: ['extraction', 'structured_output'],
   data_classes_allowed: ['private_life', 'highly_sensitive'], training_allowed: false, retention: 'zero', approved_for_highly_sensitive: false, quality_score: 90, reliability_score: 90, latency_score: 90,
   last_policy_reviewed_at: '2026-10-06T00:00:00Z', last_eval_run_at: null };
@@ -52,6 +52,7 @@ test('email sync: bad answers and sensitive messages are skipped, secrets redact
       const body = JSON.parse(init.body); calls.openrouter.push(body.messages[1].content);
       return json({ choices: [{ message: { content: answers.shift() } }], usage: { prompt_tokens: 5, completion_tokens: 5, cost: 0.0002 } });
     }
+    if (href.includes('/rest/v1/ai_usage_events') && method === 'HEAD') return new Response(null, { status: 206, headers: { 'content-range': '0-0/0' } });
     if (href.includes('/rest/v1/ai_usage_events')) { calls.usage.push(JSON.parse(init.body)[0]); return new Response(null, { status: 201 }); }
     if (href.includes('/rest/v1/message_signals') && method === 'POST') return json([{ id: 'sig1' }]);
     if (href.includes('/rest/v1/message_signals') && method === 'PATCH') return new Response(null, { status: 204 });
@@ -78,8 +79,9 @@ test('email sync: bad answers and sensitive messages are skipped, secrets redact
 test('a failed usage write never throws away a successful inference', async () => {
   const original = globalThis.fetch;
   let usageWrites = 0;
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
+    if (href.includes('/rest/v1/ai_usage_events') && init.method === 'HEAD') return new Response(null, { status: 206, headers: { 'content-range': '0-0/0' } });
     if (href.includes('/rest/v1/model_routes')) return new Response(JSON.stringify([routeRow]), { status: 200 });
     if (href.startsWith('https://openrouter.ai/')) return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }], usage: { cost: 0.001 } }), { status: 200 });
     if (href.includes('/rest/v1/ai_usage_events')) { usageWrites += 1; return new Response('{}', { status: 500 }); }

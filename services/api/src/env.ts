@@ -51,6 +51,8 @@ export interface ApiEnv {
   REVENUECAT_API_V2_KEY?: string;
   /** Workers Rate Limiting binding for POST /v1/billing/reconcile (per user); a per-isolate limiter stands in without it. */
   RECONCILE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  /** Workers Rate Limiting binding: per-user burst limit on every route that can reach a billed model (src/paidCalls.ts). */
+  PAID_CALL_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   /** App Review demo account (docs/33 §8): the one address whose fixed code signs in. Off unless set. */
   APP_REVIEW_EMAIL?: string;
   /** Its fixed code, 6–12 digits (Worker secret). Off unless set together with APP_REVIEW_EMAIL. */
