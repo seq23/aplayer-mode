@@ -25,7 +25,7 @@ import { fetchFoundingPlaces } from '../src/api/apmApi';
 import { Testimonials } from '../src/components/Testimonials';
 import { useIntake } from '../src/intake/store';
 import { useConsent } from '../src/state/consent';
-import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Screen, Eyebrow, Fill, Flow, Heading, Hero, Icon, Label, LinkButton, ListItem, Muted, Pill, PlateLine, Row, Stack, Toast, type IconName } from '../src/components/ui';
+import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Screen, Eyebrow, Fill, Flow, Heading, Hero, Icon, Label, LinkButton, ListItem, Logo, Muted, Pill, PlateLine, Row, Stack, Toast, type IconName } from '../src/components/ui';
 
 /** One icon per role, so the five jobs scan as five people, not five paragraphs. */
 const ROLE_ICONS: readonly IconName[] = ['compass', 'list', 'map', 'shield', 'refresh-cw'];
@@ -78,6 +78,7 @@ export default function WelcomeScreen() {
       )}
     >
       {deleted === '1' ? <Toast tone="success" message="Your account deletion is under way. Everything is erased within 24 hours, and you are signed out." /> : null}
+      <Logo />
       <Stack gap="md">
         <Eyebrow>{HERO.eyebrow}</Eyebrow>
         <Hero>{HERO.headline}</Hero>
