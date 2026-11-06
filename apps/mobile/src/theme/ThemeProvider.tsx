@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { AccessibilityInfo, Platform, StyleSheet, useColorScheme, type TextStyle } from 'react-native';
 import { useFonts } from 'expo-font';
 import { Outfit_600SemiBold } from '@expo-google-fonts/outfit/600SemiBold';
+import { Outfit_700Bold } from '@expo-google-fonts/outfit/700Bold';
 import { NunitoSans_400Regular } from '@expo-google-fonts/nunito-sans/400Regular';
 import { NunitoSans_600SemiBold } from '@expo-google-fonts/nunito-sans/600SemiBold';
 import { NunitoSans_700Bold } from '@expo-google-fonts/nunito-sans/700Bold';
@@ -67,7 +68,7 @@ export function useReducedMotion(): boolean {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const system = useColorScheme();
   const [preference, setPreferenceState] = useState<SchemePreference>(readPreference);
-  const [fontsLoaded, fontError] = useFonts({ Outfit_600SemiBold, NunitoSans_400Regular, NunitoSans_600SemiBold, NunitoSans_700Bold });
+  const [fontsLoaded, fontError] = useFonts({ Outfit_600SemiBold, Outfit_700Bold, NunitoSans_400Regular, NunitoSans_600SemiBold, NunitoSans_700Bold });
   const [waited, setWaited] = useState(false);
   const reducedMotion = useReducedMotion();
   useEffect(() => { const t = setTimeout(() => setWaited(true), FONT_WAIT_MS); return () => clearTimeout(t); }, []);

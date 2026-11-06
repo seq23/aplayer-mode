@@ -1,0 +1,73 @@
+# THE SIMULATOR PREVIEW: builds the iOS app for the simulator (no Apple account; ad-hoc signed)
+# and puts the build on Appetize, so the owner taps through every build in a browser before
+# anyone pays for a store build (her standing rule, 2 Nov 2026; pattern from seq23/keepmyproof).
+# GitHub-hosted runners only (free for this public repo). Not a merge gate: it runs after app
+# changes reach main, on demand, and on pull requests that change the app.
+name: Simulator preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['apps/mobile/**', 'packages/**', 'package.json', 'scripts/preview/**', '.github/workflows/preview.yml']
+  pull_request:
+    paths: ['apps/mobile/**', 'packages/**', 'scripts/preview/**', '.github/workflows/preview.yml']
+permissions:
+  contents: read
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  preview:
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      EXPO_NO_TELEMETRY: '1'
+      CI: '1'
+      # The same public endpoints as the EAS "preview" profile (apps/mobile/eas.json).
+      EXPO_PUBLIC_APM_API_URL: https://api.aplayermode.com
+      EXPO_PUBLIC_TERMS_URL: https://app.aplayermode.com/terms
+      EXPO_PUBLIC_PRIVACY_POLICY_URL: https://app.aplayermode.com/privacy
+      EXPO_PUBLIC_APM_DISTRIBUTION: store
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - run: npm install --legacy-peer-deps --no-audit --no-fund > install.log 2>&1 || { tail -40 install.log; exit 1; }
+      - name: Generate the iOS project
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform ios --no-install > ../../prebuild.log 2>&1 || { tail -40 ../../prebuild.log; exit 1; }
+      - name: Install pods
+        working-directory: apps/mobile/ios
+        run: pod install --repo-update > ../../../pods.log 2>&1 || { tail -60 ../../../pods.log; exit 1; }
+      - name: Build for the simulator
+        working-directory: apps/mobile
+        # Ad-hoc signed ("sign to run locally", no Apple account).
+        run: |
+          ws=$(ls -d ios/*.xcworkspace | head -1); scheme=$(basename "$ws" .xcworkspace)
+          [ -n "$ws" ] || { echo "NAMED STOP [PREVIEW_NO_WORKSPACE] prebuild made no Xcode workspace"; exit 1; }
+          xcodebuild -workspace "$ws" -scheme "$scheme" -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= build > ../../xcodebuild.log 2>&1 \
+            || { grep -E 'error:|BUILD FAILED' ../../xcodebuild.log | head -40; tail -40 ../../xcodebuild.log; exit 1; }
+          app=$(ls -d build/Build/Products/Release-iphonesimulator/*.app | head -1)
+          test -d "$app" || { echo "NAMED STOP [PREVIEW_NO_APP] no .app was built"; exit 1; }
+          ditto -c -k --sequesterRsrc --keepParent "$app" ../../APlayerMode-simulator.zip
+          echo "Simulator build: $(du -h ../../APlayerMode-simulator.zip | cut -f1) zipped, attached as **aplayermode-simulator-build**." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-logs
+          path: '*.log'
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aplayermode-simulator-build
+          path: APlayerMode-simulator.zip
+          retention-days: 30
+      - name: Put the build on Appetize
+        env:
+          APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+          APPETIZE_PUBLIC_KEY: ${{ vars.APPETIZE_PUBLIC_KEY }}
+        run: scripts/preview/appetize.sh APlayerMode-simulator.zip

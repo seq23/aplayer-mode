@@ -74,6 +74,38 @@ function Txt({ variant, tone = 'ink', children, align, upper, strike, role, live
   );
 }
 
+/**
+ * The logo (design system, approved 6 Nov 2026): an Ink rounded square (22 % corners) with an
+ * Outfit 700 "A" and, under it, a brass rule cut into five bars, one per role (the app icon).
+ * Under 40 pt the five bars become one, so in the app it shows the single bar. It flips with the primary colour, so in dark it is an ivory square.
+ */
+export function BrandMark() {
+  const { colors } = useTheme();
+  // 36 pt, the in-app size (the "A" is the fixed-size `mark` type key): five bars from 40 pt
+  // up, so here the single bar, as on the favicon.
+  const size = 36;
+  return (
+    <View
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.mark, { backgroundColor: colors.primary }]}
+    >
+      <Txt variant="mark" tone="onPrimary">A</Txt>
+      <View style={[styles.markBar, { height: Math.max(1, Math.round(size * 0.035)), backgroundColor: colors.brass }]} />
+    </View>
+  );
+}
+
+/** The mark and the "A Player Mode" wordmark, read as one name by screen readers. */
+export function Logo() {
+  return (
+    <View accessible accessibilityRole="image" accessibilityLabel="A Player Mode" style={styles.logo}>
+      <BrandMark />
+      <Txt variant="wordmark">A Player Mode</Txt>
+    </View>
+  );
+}
+
 /** The welcome promise. */
 export function Hero({ children }: { children: ReactNode }) { return <Txt variant="hero" role="header">{children}</Txt>; }
 /** A screen's title. */
@@ -707,6 +739,9 @@ const toastStyles = ({ colors }: Theme) => ({
 });
 
 const styles = StyleSheet.create({
+  logo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  mark: { width: 36, height: 36, borderRadius: 36 * 0.22, alignItems: 'center', justifyContent: 'center', paddingBottom: 5 },
+  markBar: { position: 'absolute', left: '22%', right: '22%', bottom: '19%' },
   flex: { flex: 1 },
   tabIcon: { width: 48, height: 26, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
   fill: { flex: 1, minWidth: 0, gap: 2 },

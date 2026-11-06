@@ -128,10 +128,12 @@ export const elevation = {
 } as const;
 
 /** Font roles. The families (and their fallbacks) are resolved in fonts.ts. */
-export type FontRole = 'display' | 'body' | 'bodySemi' | 'bodyBold';
+export type FontRole = 'display' | 'mark' | 'body' | 'bodySemi' | 'bodyBold';
 
 export const FONT_FAMILIES: Readonly<Record<FontRole, { loaded: string; weight: '400' | '600' | '700'; web: string }>> = {
   display: { loaded: 'Outfit_600SemiBold', weight: '600', web: '"Avenir Next", "Century Gothic", -apple-system, system-ui, sans-serif' },
+  /** The logo's "A" (Outfit 700, design system 6 Nov 2026): the mark only, never running text. */
+  mark: { loaded: 'Outfit_700Bold', weight: '700', web: '"Avenir Next", "Century Gothic", -apple-system, system-ui, sans-serif' },
   body: { loaded: 'NunitoSans_400Regular', weight: '400', web: '"Avenir Next", -apple-system, "Segoe UI", system-ui, sans-serif' },
   bodySemi: { loaded: 'NunitoSans_600SemiBold', weight: '600', web: '"Avenir Next", -apple-system, "Segoe UI", system-ui, sans-serif' },
   bodyBold: { loaded: 'NunitoSans_700Bold', weight: '700', web: '"Avenir Next", -apple-system, "Segoe UI", system-ui, sans-serif' },
@@ -139,8 +141,8 @@ export const FONT_FAMILIES: Readonly<Record<FontRole, { loaded: string; weight: 
 
 /** Native fallbacks when the bundled fonts have not loaded (system fonts in the same spirit). */
 export const NATIVE_FALLBACK: Readonly<Record<'ios' | 'android', Readonly<Record<FontRole, string>>>> = {
-  ios: { display: 'Avenir Next', body: 'Avenir Next', bodySemi: 'Avenir Next', bodyBold: 'Avenir Next' },
-  android: { display: 'sans-serif-medium', body: 'sans-serif', bodySemi: 'sans-serif-medium', bodyBold: 'sans-serif' },
+  ios: { display: 'Avenir Next', mark: 'Avenir Next', body: 'Avenir Next', bodySemi: 'Avenir Next', bodyBold: 'Avenir Next' },
+  android: { display: 'sans-serif-medium', mark: 'sans-serif-medium', body: 'sans-serif', bodySemi: 'sans-serif-medium', bodyBold: 'sans-serif' },
 };
 
 /** The type scale (C): Outfit 600 for display, Nunito Sans for reading. Sizes scale with Dynamic Type. */
@@ -158,5 +160,8 @@ export const typeScale = {
   chip: { role: 'bodySemi', size: 15, line: 20, tracking: 0, maxScale: 2 },
   label: { role: 'bodyBold', size: 12, line: 16, tracking: 1.2, maxScale: 2 },
   tab: { role: 'bodySemi', size: 11, line: 16, tracking: 0.2, maxScale: 1.4 },
+  /** The logo (design system 6 Nov 2026): the mark's "A" and the "A Player Mode" wordmark. Fixed size: a logo does not scale. */
+  mark: { role: 'mark', size: 19, line: 22, tracking: -0.4, maxScale: 1 },
+  wordmark: { role: 'display', size: 20, line: 24, tracking: -0.2, maxScale: 1 },
 } as const satisfies Record<string, { role: FontRole; size: number; line: number; tracking: number; maxScale: number }>;
 export type TypeKey = keyof typeof typeScale;
