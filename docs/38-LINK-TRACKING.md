@@ -29,7 +29,7 @@
 | Parameter | Values |
 |---|---|
 | `utm_source` | `kdp` · `pinterest` · `instagram` · `tiktok` · `direct-share` |
-| `utm_medium` | on buy buttons: `site`; otherwise leave it out |
+| `utm_medium` | always set (Gumroad needs all three): `site` on buy buttons, `book` for KDP, `social` for pins and posts, `share` for links she sends by hand |
 | `utm_campaign` | the book or post slug (lower-case, hyphens), e.g. `executive-dysfunction` |
 
 Buy buttons on our own pages use `utm_source=<site host>`, `utm_medium=site`,
