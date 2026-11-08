@@ -102,6 +102,7 @@ flowchart LR
 Use `13-IMPLEMENTATION-STATUS.md` for current implementation truth, `21-FULL-PROGRAM-EXECUTION-LEDGER.md` for the complete program/gates, `27-RUNTIME-EVIDENCE-PACKET.md` for the active external validation work, and `28-RUNTIME-EVIDENCE-HARDENING.md` for receipt and workflow rules.
 
 - [37 — Store launch plan (App Store + Google Play)](./37-STORE-LAUNCH-PLAN.md): Codex's Tuesday task list and the steps only the owner can do.
+- [38 — Link tracking (BHPC and aplayermode.com)](./38-LINK-TRACKING.md): what Gumroad records, the utm scheme and the share link.
 
 ## Documentation standard
 
