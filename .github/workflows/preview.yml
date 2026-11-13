@@ -1,11 +1,20 @@
-# THE SIMULATOR PREVIEW: builds the iOS app for the simulator (no Apple account; ad-hoc signed)
-# and puts the build on Appetize, so the owner taps through every build in a browser before
-# anyone pays for a store build (her standing rule, 2 Nov 2026; pattern from seq23/keepmyproof).
-# GitHub-hosted runners only (free for this public repo). Not a merge gate: it runs after app
-# changes reach main, on demand, and on pull requests that change the app.
+# THE SIMULATOR BUILD: builds the iOS app for the simulator (no Apple account; ad-hoc signed)
+# and keeps it as a run artifact. GitHub-hosted runners only (free for this public repo). Not a
+# merge gate: it runs after app changes reach main, on demand, and on pull requests that change
+# the app.
+#
+# The owner's everyday look at a build is the FREE web preview (.github/workflows/app-preview.yml,
+# https://aplayer-mode-app-preview.pages.dev). Appetize is only her final look before a store
+# submission (her rule, 6 Nov 2026): the upload runs ONLY when this workflow is started by hand
+# with "appetize" ticked. A push or a pull request never spends Appetize minutes.
 name: Simulator preview
 on:
   workflow_dispatch:
+    inputs:
+      appetize:
+        description: Put this build on Appetize (her final look before a store submission only)
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths: ['apps/mobile/**', 'packages/**', 'package.json', 'scripts/preview/**', '.github/workflows/preview.yml']
@@ -67,6 +76,7 @@ jobs:
           path: APlayerMode-simulator.zip
           retention-days: 30
       - name: Put the build on Appetize
+        if: github.event_name == 'workflow_dispatch' && inputs.appetize
         env:
           APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
           APPETIZE_PUBLIC_KEY: ${{ vars.APPETIZE_PUBLIC_KEY }}

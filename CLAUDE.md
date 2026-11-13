@@ -43,3 +43,14 @@ for the API. Nothing deploys on a push or a schedule — the one workflow that d
 `.github/workflows/deploy-cloudflare.yml`, is `workflow_dispatch` only, takes the environment as
 an input and writes a deployment receipt. `docs/14-DEPLOYMENT-AND-SECRETS.md` is the authority
 for all three.
+
+## Her look at a build
+
+Every build of the phone app gets a free web preview: `.github/workflows/app-preview.yml` exports
+`apps/mobile` in preview mode (`EXPO_PUBLIC_APM_PREVIEW=1`: sample data from
+`apps/mobile/src/preview/server.ts`, no real sign-in, no purchase, no call to the production API)
+and publishes it to the Pages project `aplayer-mode-app-preview`. Main is always at
+https://aplayer-mode-app-preview.pages.dev; a pull request gets its own link in a comment. That
+project is a preview, not the product. Appetize is only her final look before a store submission:
+start `.github/workflows/preview.yml` by hand with "appetize" ticked. Agents never spend Appetize
+minutes.

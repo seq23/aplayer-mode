@@ -1,5 +1,6 @@
 import * as Calendar from 'expo-calendar';
 import { syncDeviceCalendar } from '../api/apmApi';
+import { PREVIEW, PREVIEW_COPY } from '../preview/flag';
 
 const DAY_MS = 86_400_000;
 
@@ -16,6 +17,8 @@ function availability(value: string | undefined): 'free' | 'busy' | 'tentative' 
  * fields APM needs for schedule reasoning. It does not upload calendar credentials.
  */
 export async function syncConfiguredDeviceCalendars(accessToken: string) {
+  // Free web preview: a browser has no phone calendars to read.
+  if (PREVIEW) throw new Error(PREVIEW_COPY.deviceCalendar);
   const permission = await Calendar.requestCalendarPermissionsAsync();
   if (permission.status !== 'granted') throw new Error('Calendar permission was not granted');
 

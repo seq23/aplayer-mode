@@ -6,6 +6,7 @@ import { Body, Button, Card, CardTitle, LinkButton, Muted, QuestionTitle, Reason
 import { radius, tap, useTheme } from '../../theme';
 import { intakeStyles } from './primitives';
 import { plainError } from '../../api/errors';
+import { PREVIEW, PREVIEW_COPY } from '../../preview/flag';
 
 /**
  * "Save your plan" (docs/34 §5): Apple (iOS only, first and at least as prominent as
@@ -82,6 +83,7 @@ export function AccountPanel({ title, sub, answeredCount, onDone, onLater, later
     <View style={intakeStyles.stack}>
       <QuestionTitle>{title}</QuestionTitle>
       <Body muted>{`${sub}${answeredCount !== undefined ? ` ${answeredCount} answers so far.` : ''}`}</Body>
+      {PREVIEW ? <Reason>{PREVIEW_COPY.signIn}</Reason> : null}
       {Platform.OS === 'ios' ? <AppleButton busy={busy === 'apple'} onPress={() => void run('apple', signInWithApple)} /> : null}
       <Button label={busy === 'google' ? 'Opening Google…' : 'Continue with Google'} variant="secondary" large onPress={() => void run('google', signInWithGoogle)} />
       <Button label="Email me a 6-digit code" variant="secondary" icon="mail" large onPress={() => setStage('email')} />

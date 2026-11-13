@@ -15,6 +15,7 @@ import { openExternal } from '../links/external';
 import { plainError } from '../api/errors';
 import { AccountPanel } from '../components/intake/AccountPanel';
 import { Testimonials } from '../components/Testimonials';
+import { PREVIEW, PREVIEW_COPY } from '../preview/flag';
 
 const PLAN_RANK: Record<string, number> = { beta: 0, chief_of_staff: 1, life_os: 2, autopilot: 3, household: 0 };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -236,6 +237,11 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       <SectionTitle>Choose your plan</SectionTitle>
       <ChoiceRow<BillingPeriod> options={[{ id: 'monthly', label: 'Monthly' }, { id: 'annual', label: 'Annual · 2 months free' }]} value={period} onChange={setPeriod} />
       {!availability.available && !cardPay ? <Card tone="muted"><Body>{UNAVAILABLE_COPY[availability.reason]}</Body></Card> : null}
+      {/* Free web preview only: nothing is bought; the sample plan lets the owner see the paid app. */}
+      {PREVIEW && accessToken && !(usable && currentPlan !== 'beta') ? (
+        <Button label={PREVIEW_COPY.samplePlan} variant="accent" busy={busy === 'reconcile'} disabled={Boolean(busy)}
+          onPress={() => { setBusy('reconcile'); void reconcileBilling(accessToken).then(() => loadPlan()).then(() => onFinished?.('purchased')).finally(() => setBusy(undefined)); }} />
+      ) : null}
       {cardCheckout.kind === 'not_configured' ? <Card tone="muted"><Body>{WEB_CHECKOUT_COPY.notConfigured}</Body></Card> : null}
       {storeSubscriberHere && billing && billing.store !== 'web' ? <Card tone="muted"><Body>{`Your plan is billed through ${STORE_LABELS[billing.store].settings}. Change or cancel it there; it works here on the same account.`}</Body></Card> : null}
       {(availability.available || cardCheckout.kind === 'ready') && isAnonymous ? (

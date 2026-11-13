@@ -2,8 +2,11 @@ import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { registerPushToken, unregisterPushToken } from '../api/apmApi';
+import { PREVIEW, PREVIEW_COPY } from '../preview/flag';
 
 export async function enableApmPush(accessToken: string) {
+  // Free web preview: no browser permission prompt and no push token; say so and let her carry on.
+  if (PREVIEW) throw new Error(PREVIEW_COPY.notifications);
   const current = await Notifications.getPermissionsAsync();
   const permission = current.status === 'granted' ? current : await Notifications.requestPermissionsAsync();
   if (permission.status !== 'granted') throw new Error('Notification permission was not granted');
