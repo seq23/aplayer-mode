@@ -20,6 +20,8 @@ import type {
 } from '@apm/domain';
 import type { DailyAgenda, IntakeInstallPayload } from '@apm/planning';
 import { ApiError, networkError } from './errors';
+import { PREVIEW } from '../preview/flag';
+import { previewRequest } from '../preview/server';
 
 /** The first-run install payload (packages/planning toInstallPayload). */
 export type ApiIntakeInstallInput = IntakeInstallPayload;
@@ -240,7 +242,9 @@ export interface IntakeSynthesisResult {
 
 const baseUrl = process.env.EXPO_PUBLIC_APM_API_URL?.replace(/\/$/, '');
 
-export function isApmApiConfigured(): boolean { return Boolean(baseUrl); }
+// The free web preview answers every call from its own sample server (src/preview/server.ts):
+// no network, so nothing is read from or written to the production API.
+export function isApmApiConfigured(): boolean { return PREVIEW || Boolean(baseUrl); }
 
 /** Every API call gives up after this long, so no screen can spin forever (docs/35 E2). */
 export const REQUEST_TIMEOUT_MS = 20_000;
@@ -269,6 +273,7 @@ async function send(url: string, options: RequestInit, accessToken: string): Pro
 }
 
 async function request<T>(path: string, accessToken: string, options: RequestInit = {}): Promise<T> {
+  if (PREVIEW) return previewRequest<T>(path, options);
   if (!baseUrl) throw new Error('EXPO_PUBLIC_APM_API_URL is not configured');
   if (!accessToken) throw new ApiError(401, { error: 'unauthorized' });
   let response = await send(`${baseUrl}${path}`, options, accessToken);
@@ -639,6 +644,11 @@ export async function claimPrecheckout(input: { checkoutId: string; email: strin
  */
 export async function attachPrecheckout(checkoutId: string, accessToken: string): Promise<{ attached: true; outcomes: string[] }> {
   return request('/v1/billing/precheckout/attach', accessToken, { method: 'POST', body: JSON.stringify({ checkoutId }) });
+}
+
+/** Preview only: the finished sample account behind "I already have an account" / reset on sign-out. */
+export async function previewSample(action: 'sample-account' | 'reset'): Promise<void> {
+  if (PREVIEW) await previewRequest(`/v1/preview/${action}`, { method: 'POST' });
 }
 
 export async function reviewerSignIn(input: { email: string; code?: string }): Promise<{ review: true; session?: { access_token: string; refresh_token: string } } | null> {

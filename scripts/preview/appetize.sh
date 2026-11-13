@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Uploads the simulator build to Appetize so the owner can tap through the app in a browser
-# (.github/workflows/preview.yml). One stable app: the repo variable APPETIZE_PUBLIC_KEY if set, else the app
+# Uploads the simulator build to Appetize for the owner's FINAL look before a store submission
+# (.github/workflows/preview.yml, by hand with "appetize" ticked; never on a push or pull request:
+# her everyday look is the free web preview, .github/workflows/app-preview.yml). One stable app: the repo variable APPETIZE_PUBLIC_KEY if set, else the app
 # whose note is "aplayermode-preview", else a new one, so the public link never changes.
 #   APPETIZE_API_TOKEN=… [APPETIZE_PUBLIC_KEY=…] scripts/preview/appetize.sh <app.zip>
 # No token: NAMED STOP [APPETIZE_TOKEN_MISSING] in the job summary, exit 0 (only the owner's

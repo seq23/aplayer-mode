@@ -1,0 +1,75 @@
+# THE FREE PHONE-APP PREVIEW: the phone app (apps/mobile) exported for the web in PREVIEW mode
+# (sample data only: no real sign-in, no purchase, no call to the production API) and published
+# to the Cloudflare Pages project aplayer-mode-app-preview. The owner clicks through every build
+# in a browser (her standing rule, 6 Nov 2026; pattern from seq23/dream-wedding-builder).
+#   main          -> https://aplayer-mode-app-preview.pages.dev (always the latest main build)
+#   pull request  -> its own link, commented on the pull request
+# Its own workflow, so it never slows the CI merge gate. This is not the product: the live web
+# app and the API deploy only through .github/workflows/deploy-cloudflare.yml. No Appetize minutes.
+name: App preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['apps/mobile/**', 'packages/**', 'services/api/src/coach/**', 'package.json', '.github/workflows/app-preview.yml']
+  pull_request:
+    paths: ['apps/mobile/**', 'packages/**', 'services/api/src/coach/**', 'package.json', '.github/workflows/app-preview.yml']
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: app-preview-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      # Sample data only. No API address and no database address are given to this build on purpose.
+      EXPO_PUBLIC_APM_PREVIEW: '1'
+      EXPO_PUBLIC_APM_DISTRIBUTION: store
+      EXPO_PUBLIC_TERMS_URL: https://app.aplayermode.com/terms
+      EXPO_PUBLIC_PRIVACY_POLICY_URL: https://app.aplayermode.com/privacy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - run: npm install --legacy-peer-deps --no-audit --no-fund > install.log 2>&1 || { tail -40 install.log; exit 1; }
+      - run: node --test apps/mobile/scripts/preview/host.unit.mjs
+      - name: Export the phone app for the web (preview mode)
+        run: npm run preview:web -w @apm/mobile
+      - name: Every screen is in the export, sample data only, no live endpoint or key
+        run: node apps/mobile/scripts/preview/check.mjs export apps/mobile/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phone-web-preview
+          path: apps/mobile/dist
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish the free phone preview
+        id: hosted
+        working-directory: apps/mobile
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIEW_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: node scripts/preview/host.mjs aplayer-mode-app-preview
+      - name: The published address serves this build
+        env:
+          # main is the stable address she keeps; any other branch is checked at its own link.
+          PREVIEW_URL: ${{ (github.head_ref || github.ref_name) == 'main' && 'https://aplayer-mode-app-preview.pages.dev' || steps.hosted.outputs.url }}
+        run: |
+          node apps/mobile/scripts/preview/check.mjs served "$PREVIEW_URL" apps/mobile/dist
+          echo "[Open the phone app preview]($PREVIEW_URL)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Link the preview on the pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.hosted.outputs.url }}
+        with:
+          script: |
+            const body = `Open the phone app preview: ${process.env.PREVIEW_URL}\n\nCommit: ${context.sha}. Free web preview with sample data; no Appetize minutes. After merge the stable link is https://aplayer-mode-app-preview.pages.dev`;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });

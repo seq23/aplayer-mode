@@ -7,13 +7,16 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import Purchases, { type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases';
 import type { StoreChannel } from '@apm/policy';
 import { DISTRIBUTION_FLAG, resolveDistribution, type Distribution } from './distribution';
+import { PREVIEW, PREVIEW_COPY } from '../preview/flag';
 
 export type BillingAvailability =
   | { available: true; store: StoreChannel }
-  | { available: false; reason: 'web' | 'sideload' | 'expo_go' | 'not_configured' };
+  | { available: false; reason: 'web' | 'sideload' | 'expo_go' | 'not_configured' | 'preview' };
 
 /** This build's distribution (store / sideload / web), from EXPO_PUBLIC_APM_DISTRIBUTION; fail closed to store. */
 export function appDistribution(): Distribution {
+  // The free web preview shows the PHONE app (a store build): no card checkout, no pay-first door.
+  if (PREVIEW) return 'store';
   return resolveDistribution(Platform.OS, DISTRIBUTION_FLAG);
 }
 
@@ -24,6 +27,7 @@ function apiKey(): string | undefined {
 }
 
 export function billingAvailability(): BillingAvailability {
+  if (PREVIEW) return { available: false, reason: 'preview' };
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') return { available: false, reason: 'web' };
   // The sideload APK is not from Google Play: there is no store to buy from (card checkout instead).
   if (appDistribution() === 'sideload') return { available: false, reason: 'sideload' };
@@ -37,6 +41,7 @@ export const UNAVAILABLE_COPY: Record<Extract<BillingAvailability, { available: 
   sideload: 'Plans are paid by card in this version of the app. Your plan follows your account to every device you sign in on.',
   expo_go: 'In-app purchases need the A Player Mode app build; Expo Go cannot make purchases.',
   not_configured: 'In-app purchases are not configured in this build yet.',
+  preview: PREVIEW_COPY.purchases,
 };
 
 export function legalUrls(store: StoreChannel | 'web' | undefined, appleEula: string): { termsUrl?: string; privacyUrl?: string } {

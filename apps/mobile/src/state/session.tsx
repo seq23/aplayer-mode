@@ -7,7 +7,9 @@ import * as WebBrowser from 'expo-web-browser';
 import { getSupabaseClient, isSupabaseConfigured } from '../auth/supabase';
 import { forgetBillingUser, identifyBillingUser } from '../billing/purchases';
 import { disableApmPushForSignOut } from '../integrations/push';
-import { mergeAnonymousIntakeDraft, reviewerSignIn, saveDisplayName, setAccessTokenRefresher } from '../api/apmApi';
+import { mergeAnonymousIntakeDraft, previewSample, reviewerSignIn, saveDisplayName, setAccessTokenRefresher } from '../api/apmApi';
+import { readSync, removeSync, writeSync } from '../intake/storage';
+import { PREVIEW } from '../preview/flag';
 
 type SessionStatus = 'loading' | 'signed_out' | 'signed_in' | 'unconfigured';
 
@@ -62,7 +64,60 @@ export function friendlyAuthError(error: unknown): string {
 const alreadyExists = (error: { code?: string; message?: string } | null | undefined) =>
   Boolean(error && (/identity_already_exists|email_exists|user_already_exists/.test(error.code ?? '') || /already (been )?(registered|exists|linked)/i.test(error.message ?? '')));
 
+/**
+ * The free web preview's session (EXPO_PUBLIC_APM_PREVIEW=1): the same three states the app
+ * knows (signed out, anonymous, account) with no auth provider behind them. "Start" makes the
+ * anonymous session; any sign-in button makes the sample account at once. Nothing is sent
+ * anywhere; the sample server (src/preview/server.ts) holds the data in this browser.
+ */
+const PREVIEW_SESSION_KEY = 'apm.preview.session.v1';
+type PreviewAccount = { kind: 'anonymous' | 'account'; name?: string };
+function PreviewSessionProvider({ children }: { children: ReactNode }) {
+  const [account, setAccount] = useState<PreviewAccount | undefined>(() => {
+    try { const raw = readSync(PREVIEW_SESSION_KEY); return raw ? (JSON.parse(raw) as PreviewAccount) : undefined; } catch { return undefined; }
+  });
+  const value = useMemo<SessionContextValue>(() => {
+    const become = (next: PreviewAccount | undefined) => {
+      if (next) writeSync(PREVIEW_SESSION_KEY, JSON.stringify(next)); else removeSync(PREVIEW_SESSION_KEY);
+      setAccount(next);
+    };
+    /** Any sign-in: an anonymous setup is kept ("linked"); otherwise the finished sample account. */
+    const signIn = async (provider: AccountProvider, name?: string): Promise<AccountResult> => {
+      const linked = account?.kind === 'anonymous';
+      if (!linked) await previewSample('sample-account');
+      const clean = name?.trim().slice(0, 60);
+      if (clean) await saveDisplayName(clean, 'preview').catch(() => undefined);
+      become({ kind: 'account', ...(clean ? { name: clean } : account?.name ? { name: account.name } : {}) });
+      return { outcome: linked ? 'linked' : 'signed_in', provider, ...(clean ? { firstName: clean } : {}) };
+    };
+    const session = account ? ({
+      access_token: `preview-${account.kind}`,
+      user: { id: '00000000-0000-4000-8000-0000000000aa', is_anonymous: account.kind === 'anonymous', user_metadata: account.name ? { display_name: account.name } : {}, ...(account.kind === 'account' ? { email: 'sample@example.com' } : {}) },
+    } as unknown as Session) : null;
+    return {
+      status: account ? 'signed_in' : 'signed_out',
+      session,
+      user: session?.user ?? null,
+      ...(session ? { accessToken: session.access_token } : {}),
+      isAnonymous: account?.kind === 'anonymous',
+      ...(account?.name ? { firstName: account.name } : {}),
+      startAnonymous: async () => { if (!account) become({ kind: 'anonymous' }); return true; },
+      sendEmailCode: async () => undefined,
+      verifyEmailCode: (_email, _code, name) => signIn('email', name),
+      updateName: async (name) => { await saveDisplayName(name, 'preview'); if (account) become({ ...account, name: name.trim().slice(0, 60) }); },
+      signInWithApple: () => signIn('apple'),
+      signInWithGoogle: () => signIn('google'),
+      signOut: async () => { await previewSample('reset'); become(undefined); },
+    };
+  }, [account]);
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
+  return PREVIEW ? <PreviewSessionProvider>{children}</PreviewSessionProvider> : <LiveSessionProvider>{children}</LiveSessionProvider>;
+}
+
+function LiveSessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string>();

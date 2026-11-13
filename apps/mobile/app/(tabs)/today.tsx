@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { PREVIEW } from '../../src/preview/flag';
 import { useState } from 'react';
 import {
   Body,
@@ -130,7 +131,7 @@ export default function TodayScreen() {
   // No plan yet (or a lapsed one): Today offers the plan, never a check-in the server refuses (docs/35 E5).
   const loopOpen = hasDailyLoopAccess(graph.entitlement);
   // Web app and sideload APK pay by card here: never told to use a store app.
-  const planCopy = noPlanCopy(billingAvailability().available || webCheckoutAllowed(appDistribution()));
+  const planCopy = noPlanCopy(PREVIEW || billingAvailability().available || webCheckoutAllowed(appDistribution()));
 
   const itemCard = (item: AgendaItem, label?: string) => (
     <Card key={item.id} tone={item.kind === 'plan_action' ? 'accent' : 'default'}>

@@ -8,6 +8,11 @@ const defaultResolve = config.resolver.resolveRequest;
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const resolve = defaultResolve ?? context.resolveRequest;
+  // The preview's sample server and its sample data exist only in the free web preview build
+  // (EXPO_PUBLIC_APM_PREVIEW=1); every other build gets the empty stand-in.
+  if (moduleName === '../preview/server' && process.env.EXPO_PUBLIC_APM_PREVIEW !== '1') {
+    return resolve(context, '../preview/server.off', platform);
+  }
   if (moduleName.startsWith('.') && moduleName.endsWith('.js')) {
     try {
       return resolve(context, moduleName.slice(0, -3), platform);

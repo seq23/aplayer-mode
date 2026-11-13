@@ -24,7 +24,7 @@ Finish line (Open Loops): A Player Mode live in both stores. Rulings: brand appr
 4. **Age rating and content answers.** 12+ for coaching content (no medical claims; "not medical advice" line stays). *Proof:* in `app-store.json`, pinned by the listing test.
 5. **EAS submit profiles.** `submit.production` for iOS (App Store Connect app id placeholder `ASC_APP_ID`) and Android (service-account key path `GOOGLE_PLAY_KEY`), secrets referenced by name only. *Proof:* `eas.json` parses; presubmit passes; no secret value in the repo.
 6. **RevenueCat store wiring, behind a named stop.** Map each product id above to its App Store / Play product in `src/billing/catalog.ts` config; when the store products do not exist yet, the paywall shows the named stop `STORE_PRODUCTS_MISSING` in logs and the plan list says "not available yet" (never a fake price). *Proof:* a test with no offerings shows no price and logs the stop.
-7. **Preview build for her look.** `preview.yml` web preview link from CI on the branch (free); Appetize only when she asks for the final look. *Proof:* the CI run's link.
+7. **Preview build for her look.** `app-preview.yml` web preview link from CI on the branch (free; main is always at https://aplayer-mode-app-preview.pages.dev); Appetize only when she asks for the final look (`preview.yml` started by hand with "appetize" ticked). *Proof:* the CI run's link.
 8. **Pre-submit run.** `npm run presubmit:ios` and the full `apps/mobile` test suite green on the branch, then a draft PR; nothing is submitted.
 
 ## What needs her (and only her)
