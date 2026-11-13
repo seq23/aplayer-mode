@@ -6,5 +6,7 @@ export const PREVIEW = process.env.EXPO_PUBLIC_APM_PREVIEW === '1';
 export const PREVIEW_COPY = {
   purchases: 'Purchases are switched off in this preview. In the phone app, plans are bought through the App Store or Google Play.',
   samplePlan: 'Continue with a sample plan',
+  notifications: 'Notifications are switched off in this preview. In the phone app, this is where your phone asks once.',
+  deviceCalendar: 'This preview cannot read a phone\'s calendars. In the phone app, this is where your phone asks once. The sample calendar below shows a connected one.',
   signIn: 'Preview: no real sign-in. Any email and any 6 digits work, and nothing is sent.',
 } as const;
