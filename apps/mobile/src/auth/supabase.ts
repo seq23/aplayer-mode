@@ -1,5 +1,6 @@
 import { AppState, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { secureStoreKey } from './secureKey';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
@@ -13,12 +14,12 @@ interface StoredMeta {
 
 const secureStorage = {
   async getItem(key: string): Promise<string | null> {
-    const rawMeta = await SecureStore.getItemAsync(`${key}:meta`);
+    const rawMeta = await SecureStore.getItemAsync(secureStoreKey(key, 'meta'));
     if (!rawMeta) return null;
 
     const meta = JSON.parse(rawMeta) as StoredMeta;
     const chunks = await Promise.all(
-      Array.from({ length: meta.count }, (_, index) => SecureStore.getItemAsync(`${key}:${index}`)),
+      Array.from({ length: meta.count }, (_, index) => SecureStore.getItemAsync(secureStoreKey(key, index))),
     );
 
     if (chunks.some((chunk) => chunk == null)) {
@@ -30,42 +31,42 @@ const secureStorage = {
   },
 
   async setItem(key: string, value: string): Promise<void> {
-    const previousMetaRaw = await SecureStore.getItemAsync(`${key}:meta`);
+    const previousMetaRaw = await SecureStore.getItemAsync(secureStoreKey(key, 'meta'));
     const previousMeta = previousMetaRaw ? (JSON.parse(previousMetaRaw) as StoredMeta) : null;
     const chunks = value.match(new RegExp(`.{1,${CHUNK_SIZE}}`, 'gs')) ?? [''];
 
     await Promise.all(
       chunks.map((chunk, index) =>
-        SecureStore.setItemAsync(`${key}:${index}`, chunk, {
+        SecureStore.setItemAsync(secureStoreKey(key, index), chunk, {
           keychainAccessible: SecureStore.WHEN_UNLOCKED,
         }),
       ),
     );
 
-    await SecureStore.setItemAsync(`${key}:meta`, JSON.stringify({ count: chunks.length }), {
+    await SecureStore.setItemAsync(secureStoreKey(key, 'meta'), JSON.stringify({ count: chunks.length }), {
       keychainAccessible: SecureStore.WHEN_UNLOCKED,
     });
 
     if (previousMeta && previousMeta.count > chunks.length) {
       await Promise.all(
         Array.from({ length: previousMeta.count - chunks.length }, (_, index) =>
-          SecureStore.deleteItemAsync(`${key}:${chunks.length + index}`),
+          SecureStore.deleteItemAsync(secureStoreKey(key, chunks.length + index)),
         ),
       );
     }
   },
 
   async removeItem(key: string): Promise<void> {
-    const rawMeta = await SecureStore.getItemAsync(`${key}:meta`);
+    const rawMeta = await SecureStore.getItemAsync(secureStoreKey(key, 'meta'));
     const meta = rawMeta ? (JSON.parse(rawMeta) as StoredMeta) : null;
 
     if (meta) {
       await Promise.all(
-        Array.from({ length: meta.count }, (_, index) => SecureStore.deleteItemAsync(`${key}:${index}`)),
+        Array.from({ length: meta.count }, (_, index) => SecureStore.deleteItemAsync(secureStoreKey(key, index))),
       );
     }
 
-    await SecureStore.deleteItemAsync(`${key}:meta`);
+    await SecureStore.deleteItemAsync(secureStoreKey(key, 'meta'));
   },
 };
 
