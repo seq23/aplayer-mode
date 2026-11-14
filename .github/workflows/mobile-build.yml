@@ -34,6 +34,11 @@ jobs:
     timeout-minutes: 20
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      # The repo has no lockfile (npm install, as above); eas-cli refuses to build without one unless told.
+      EAS_BUILD_SKIP_LOCKFILE_CHECK: "1"
+      # eas-cli's capability sync sends a Sign in with Apple setting Apple no longer accepts;
+      # the bundle ID's capabilities are set in the developer portal instead.
+      EXPO_NO_CAPABILITY_SYNC: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
