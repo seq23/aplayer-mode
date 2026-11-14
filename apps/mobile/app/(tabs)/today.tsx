@@ -45,7 +45,7 @@ import {
   type ReplanReason,
 } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
-import { areaDisplay } from '../../src/content/areas';
+import { areaDisplay, areaShort } from '../../src/content/areas';
 import { BedRoutineToday, CoachingModeChips, PillarRollUpLine, PracticesToday, QuickTaps, SaveAccountBanner } from '../../src/components/today/FirstRunCards';
 import { useSession } from '../../src/state/session';
 import { useConsent } from '../../src/state/consent';
@@ -54,7 +54,7 @@ import { hasDailyLoopAccess, noPlanCopy } from '../../src/billing/access';
 import { appDistribution, billingAvailability } from '../../src/billing/purchases';
 import { webCheckoutAllowed } from '../../src/billing/distribution';
 import { plainError } from '../../src/api/errors';
-import { greeting, hourIn, todayLine } from '../../src/content/greeting';
+import { greetingLine, hourIn, todayLine } from '../../src/content/greeting';
 import { GATE_WORDS, ITEM_KIND_WORDS, MODE_WORDS, TODAY_COPY, VERDICT_WORDS, actionTag, radarTag, shortDate } from '../../src/content/words';
 
 function timeLabel(value?: string) {
@@ -139,20 +139,21 @@ export default function TodayScreen() {
       <Row wrap gap="xs">
         <Pill tone={item.status === 'done' ? 'success' : 'neutral'}>{item.status === 'done' ? 'Done' : item.scope === 'mvd' ? 'Minimum version' : ITEM_KIND_WORDS[item.kind]}</Pill>
         {item.durationMinutes ? <Pill>{`${item.durationMinutes} min`}</Pill> : null}
-        {item.pillar ? <Pill>{areaDisplay(item.pillar)}</Pill> : null}
+        {areaShort(item.pillar) ? <Pill>{areaShort(item.pillar)}</Pill> : null}
       </Row>
       <CardTitle>{item.title}</CardTitle>
       {item.output ? <Body muted>{`Done means: ${item.output}`}</Body> : null}
       {item.status === 'open' && executionOpen && phaseOpen ? <Button label={busyItemId === item.id ? 'Recording…' : 'Mark done'} busy={busyItemId === item.id} disabled={busy && busyItemId !== item.id} onPress={() => completeItem(item)} /> : null}
       {item.status === 'open' && executionOpen && phaseOpen && todayLoop?.locked ? <Button label="Can't do this as written? Rewrite it" variant="ghost" onPress={() => reprint([item.id])} /> : null}
-      {item.status === 'open' && !executionOpen && !todayLoop?.closed ? <Body muted>{TODAY_COPY.afterCheckIn}</Body> : null}
+      {/* No plan (or a lapsed one) hides the check-in: never point at a question that is not there. */}
+      {item.status === 'open' && !executionOpen && !todayLoop?.closed ? <Body muted>{loopOpen ? TODAY_COPY.afterCheckIn : TODAY_COPY.afterPlan}</Body> : null}
     </Card>
   );
   const primaryGoal = graph.goals.find((goal) => goal.priority === 1) ?? graph.goals[0];
   const primaryAction = todayPlan?.numberOneMove;
   const completionEvidence = graph.evidence.find((item) => item.relatedActionId === primaryAction?.id);
   const firstRadarItem = graph.radarItems[0];
-  const name = graph.identity.displayName || 'there';
+  const name = graph.identity.displayName?.trim();
   // The greeting and the date in HER time zone (identity.timezone), in her locale; never UTC.
   const now = new Date();
   const mode = modeState?.mode ?? todayPlan?.mode ?? graph.personalOS?.activeMode ?? 'standard';
@@ -217,7 +218,7 @@ export default function TodayScreen() {
   return (
     <Screen
       eyebrow="Today"
-      title={`${greeting(hourIn(now, graph.identity.timezone))}, ${name}.`}
+      title={greetingLine(hourIn(now, graph.identity.timezone), name)}
       subtitle={`${todayLine(now, graph.identity.timezone)} · ${primaryGoal ? recovery ? TODAY_COPY.subtitleRecovery : TODAY_COPY.subtitle : TODAY_COPY.subtitleNoOs}`}
     >
       {/* Summary first (docs/35 U9): where the day stands, then the ONE next step; the rest is folded below. */}
@@ -356,9 +357,9 @@ export default function TodayScreen() {
           <CoachingModeChips graph={graph} activeMode={mode} />
 
           {agenda && !hideAgenda ? (
-            <Disclosure icon="list" title="Today's agenda" summary={`${agenda.foregroundPriority?.label ?? 'Your main goal'}${agenda.dailyStack.length ? ` · ${agenda.dailyStack.length} more for today` : ''}`}>
+            <Disclosure icon="list" title="Today's agenda" summary={`${agenda.foregroundPriority?.label ?? primaryGoal?.title ?? 'Your main goal'}${agenda.dailyStack.length ? ` · ${agenda.dailyStack.length} more for today` : ''}`}>
               <Label>Your main goal</Label>
-              <CardTitle>{agenda.foregroundPriority?.label ?? 'No main goal yet'}</CardTitle>
+              <CardTitle>{agenda.foregroundPriority?.label ?? primaryGoal?.title ?? 'No main goal yet'}</CardTitle>
               <Row wrap gap="xs">
                 <Pill tone={agenda.mode === 'recovery' ? 'warning' : 'neutral'}>{agenda.mode === 'recovery' ? 'Light day' : 'Full day'}</Pill>
                 {agenda.dayIndex ? <Pill>{`Day ${Math.max(agenda.dayIndex, 0)} of 90`}</Pill> : null}
@@ -368,7 +369,7 @@ export default function TodayScreen() {
               {agenda.firstHour.sequence.length ? (
                 <Card tone="accent"><Label>The first hour</Label>{agenda.firstHour.sequence.map((step, index) => <KeyValue key={`${index}-${step}`} label={`${index + 1}`} value={step} />)}</Card>
               ) : null}
-              {agenda.firstHour.priority ? null : <Body>No step toward a goal today. Add a goal in Goals and APM plans it.</Body>}
+              {agenda.firstHour.priority ? null : <Body>{primaryGoal ? TODAY_COPY.planBeingBuilt : TODAY_COPY.noGoal}</Body>}
               {!todayLoop.checkedIn && agenda.dailyStack.length ? <Label>The rest of today</Label> : null}
               {!todayLoop.checkedIn ? agenda.dailyStack.map((item) => itemCard(item)) : null}
               {(agenda.trackFlags ?? []).length ? <Card tone="warning"><Label>Your Tracks</Label>{(agenda.trackFlags ?? []).map((flag) => <Body key={`${flag.code}-${flag.message}`}>{`• ${flag.message}`}</Body>)}</Card> : null}

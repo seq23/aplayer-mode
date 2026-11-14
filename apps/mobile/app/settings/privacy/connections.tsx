@@ -1,3 +1,4 @@
+import { syncedWords } from '../../../src/content/words';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
@@ -93,7 +94,7 @@ export default function ConnectionsScreen() {
         </View>
         <KeyValue label="Provider" value={PROVIDER_NAMES[kind]?.[provider] ?? account.provider} />
         <KeyValue label="Account" value={account.accountLabel ?? 'Connected account'} />
-        <KeyValue label="Last sync" value={account.lastSyncAt ?? 'Not synced yet'} />
+        <KeyValue label="Last sync" value={syncedWords(account.lastSyncAt)} />
         <KeyValue label="Autopilot can act" value={hasWriteScope(kind, account.scopes) ? 'Yes · write consent given' : 'No · read only'} />
         {note ? <Body>{note}</Body> : null}
         <TextField label="Your name for this account" placeholder="Work, Personal…" value={draft} onChangeText={(value) => setLabels((current) => ({ ...current, [account.id]: value }))} />
@@ -161,8 +162,8 @@ export default function ConnectionsScreen() {
       subtitle="Every account is connected separately. Calendar access never silently grants email access, and reading never grants write or send authority: that is a separate consent you give per account."
     >
       <Card tone="accent">
-        <CardTitle>Provider-neutral Calendar Fabric</CardTitle>
-        <Body muted>APM normalizes device, Google, Microsoft and iCloud-backed device calendars into one schedule model while preserving which account each event came from.</Body>
+        <CardTitle>All your calendars in one day</CardTitle>
+        <Body muted>APM puts the calendars on this phone, Google and Outlook into one schedule, and always shows which account each event came from.</Body>
       </Card>
 
       {error ? <ErrorState message={error} /> : null}

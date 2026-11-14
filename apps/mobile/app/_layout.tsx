@@ -82,7 +82,7 @@ function ThemedStack() {
           <Stack.Screen name="diary" options={{ title: 'Diary' }} />
           <Stack.Screen name="billing/return" options={{ title: 'Your plan' }} />
           <Stack.Screen name="review" options={{ title: 'Weekly debrief' }} />
-          <Stack.Screen name="settings/os" options={{ title: 'Drafting Room' }} />
+          <Stack.Screen name="settings/os" options={{ title: 'Change my plan' }} />
         </Stack>
         {/* Top right of every signed-in page: email, plan, Sign out. Under the consent screens. */}
         <AccountMenu />

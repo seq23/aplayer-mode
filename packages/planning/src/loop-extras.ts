@@ -117,9 +117,8 @@ export const FIRST_SEVEN_DAYS = [
 ] as const;
 
 export const WEEK_ONE_RULES = [
-  'Do NOT optimize: the system needs to stabilize before you improve it.',
-  'Do NOT customize: changes before Week 1 ends break the baseline.',
-  'Do NOT add projects: one foreground only — always.',
+  'Let the plan settle for a week before you fine-tune it.',
+  'One main goal at a time. New projects wait for your first review.',
 ];
 
 export function firstWeekProgramme(installedOn: string | undefined, today: string) {

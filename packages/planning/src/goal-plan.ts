@@ -120,6 +120,14 @@ function toPlanAction(spec: ActionSpec, context: GoalPlanContext, referral: bool
  * Deterministic goal → 30/60/90 plan. There is no model refinement path: any future one
  * must re-validate every edit through validatePlan before it can be stored.
  */
+/** "Foundation: prove the concept…" under the Foundation label → "Prove the concept…". */
+export function stripGateLabel(outcome: string, label: string): string {
+  const prefix = `${label}:`;
+  if (!outcome.startsWith(prefix)) return outcome;
+  const rest = outcome.slice(prefix.length).trim();
+  return rest ? rest[0]!.toUpperCase() + rest.slice(1) : outcome;
+}
+
 export function generateGoalPlan(goalText: string, context: GoalPlanContext): GoalPlan {
   assertDate(context.startDate, 'startDate');
   if (context.targetDate) assertDate(context.targetDate, 'targetDate');
@@ -182,7 +190,8 @@ export function generateGoalPlan(goalText: string, context: GoalPlanContext): Go
       endDay: window.endDay,
       startDate: addDays(context.startDate, window.startDay - 1),
       endDate: addDays(context.startDate, window.endDay - 1),
-      outcome: spec.outcome,
+      // The label is shown beside the outcome everywhere; an outcome that repeats it ("Foundation: …") reads "Foundation: Foundation:".
+      outcome: stripGateLabel(spec.outcome, window.label),
       milestones: spec.milestones.map(([day, title], m) => ({
         id: `${id}:${window.key}:m${m + 1}`,
         title,

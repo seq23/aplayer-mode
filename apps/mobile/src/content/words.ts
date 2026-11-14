@@ -1,3 +1,5 @@
+import { setupMinutes } from '@apm/planning';
+
 // Plain words for the daily screens (docs/36): every engine key a person could see on Today,
 // Goals, Radar, the coach or the Diary is turned into words here, in ONE place, so no screen
 // shows "plan_action", "at_risk", "slipping · high" or "Priority execution". Pure TS (no React
@@ -21,6 +23,9 @@ export const TODAY_COPY = {
   checkInBodyNoScore: 'Your plan for today appears next. APM asks how your energy is only if you allow health data in Settings → Privacy → Consumer health data.',
   priorityLabel: 'Do this first',
   afterCheckIn: 'Unlocks after you answer the energy question above.',
+  afterPlan: 'Pick a plan to unlock. Tap the plan button above.',
+  planBeingBuilt: 'Your plan is being built. Your first step toward this goal shows here as soon as it is ready.',
+  noGoal: 'No step toward a goal today. Add a goal in Goals and APM plans it.',
   drift: "Welcome back. Want APM to set up today's plan and restart the day?",
   noOsTitle: 'Answer a few quick questions so APM can plan around your real life.',
   noOsButton: 'Set up my plan',
@@ -101,9 +106,17 @@ export function targetDateFor(horizon: string, from: Date = new Date()): string 
   return date.toISOString().slice(0, 10);
 }
 
-/** The intake's top line: how long is left, never "1 of 54" (docs/36 I1). About 7 s a tap. */
+/** The intake's top line: how long is left, never "1 of 54" (docs/36 I1). The same per-question time as the welcome promise. */
 export function minutesLeftLabel(unanswered: number): string {
   if (unanswered <= 0) return 'Almost done';
-  const minutes = Math.max(1, Math.round((unanswered * 7) / 60));
-  return `About ${minutes} min left`;
+  return `About ${setupMinutes(unanswered)} min left`;
+}
+
+/** "Synced 2:49 PM" today, "Synced 12 Nov, 2:49 PM" before; never a raw timestamp. */
+export function syncedWords(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return 'Not synced yet';
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return 'Not synced yet';
+  const time = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return at.toDateString() === now.toDateString() ? `Synced ${time}` : `Synced ${at.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, ${time}`;
 }

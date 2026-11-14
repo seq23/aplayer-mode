@@ -1,15 +1,42 @@
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { registerPushToken, unregisterPushToken } from '../api/apmApi';
 import { PREVIEW, PREVIEW_COPY } from '../preview/flag';
+
+/** She said no once: iOS never asks again, so only the phone's Settings can turn it back on. */
+export class PushBlockedError extends Error {
+  constructor() { super(PUSH_BLOCKED_COPY.body); this.name = 'PushBlockedError'; }
+}
+
+export const PUSH_BLOCKED_COPY = {
+  title: 'Notifications are off for APM',
+  body: 'Your phone is blocking them. Open Settings, tap Notifications, and switch them on for A Player Mode. Then come back.',
+  action: 'Open Settings',
+} as const;
+
+/** 'blocked' = refused and the phone will not ask again (the system prompt never reappears). */
+export async function pushPermissionState(): Promise<'granted' | 'blocked' | 'ask'> {
+  if (PREVIEW || Platform.OS === 'web') return 'ask';
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    if (current.status === 'granted') return 'granted';
+    return current.status === 'denied' && current.canAskAgain === false ? 'blocked' : current.status === 'denied' && Platform.OS === 'ios' ? 'blocked' : 'ask';
+  } catch { return 'ask'; }
+}
+
+/** This app's page in the phone's Settings. */
+export function openPhoneSettings(): void {
+  void Linking.openSettings().catch(() => undefined);
+}
 
 export async function enableApmPush(accessToken: string) {
   // Free web preview: no browser permission prompt and no push token; say so and let her carry on.
   if (PREVIEW) throw new Error(PREVIEW_COPY.notifications);
   const current = await Notifications.getPermissionsAsync();
+  if (current.status === 'denied' && (current.canAskAgain === false || Platform.OS === 'ios')) throw new PushBlockedError();
   const permission = current.status === 'granted' ? current : await Notifications.requestPermissionsAsync();
-  if (permission.status !== 'granted') throw new Error('Notification permission was not granted');
+  if (permission.status !== 'granted') throw permission.canAskAgain === false || Platform.OS === 'ios' ? new PushBlockedError() : new Error('Notification permission was not granted');
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('apm-attention', {

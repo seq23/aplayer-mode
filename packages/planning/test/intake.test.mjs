@@ -20,7 +20,15 @@ import {
   SCREEN_PLATES,
   SECTIONS,
   SPIRIT_PRACTICES,
+  OTHER_OPTION,
   answered,
+  deadlineWindowFor,
+  deferredQuestionIds,
+  quickStartCounts,
+  questionsLeft,
+  setupMinutes,
+  skippable,
+  stripGateLabel,
   classifySuggestedArea,
   coachingModeChips,
   deferredForToday,
@@ -73,7 +81,7 @@ function walk(script, mode = 'full', { stopAt } = {}) {
     if (cursor === stopAt) break;
     if (screen.kind === 'question') {
       const q = screen.question;
-      const pf = prefillFor(q, draft.answers, synthesizeProfile(draft.answers, { startDate: START }).tracks.some((t) => t.key === 'billionaire_mindset'));
+      const pf = prefillFor(q, draft.answers);
       if (pf) for (const [k, v] of Object.entries(pf)) { draft = { ...draft, answers: { ...draft.answers, [k]: v } }; }
       if (q.id in script) set(q.id, script[q.id]);
       else if (draft.answers[q.id] === undefined) {
@@ -169,7 +177,7 @@ test('question counts per path stay inside the published ranges (docs/34 §4.4)'
   for (const [name, persona] of Object.entries(PERSONAS)) counts[name] = { full: walk(persona).questions.length, quick: walk(persona, 'quick').questions.length };
   for (const [name, c] of Object.entries(counts)) {
     assert.ok(c.full >= 39 && c.full <= 70, `${name} full ${c.full}`);
-    assert.ok(c.quick >= 18 && c.quick <= 23, `${name} quick ${c.quick}`);
+    assert.ok(c.quick >= 18 && c.quick <= 26, `${name} quick ${c.quick}`);
   }
 });
 
@@ -177,7 +185,11 @@ test('quick start: essentials only, then straight to Building your OS; the rest 
   const quick = walk(PERSONAS.weight, 'quick');
   const afterExpress = quick.seen.slice(quick.seen.indexOf('express') + 1);
   for (const id of afterExpress.filter((x) => questionById(x))) assert.equal(questionById(id).essential, true, `${id} is essential`);
-  assert.ok(afterExpress.includes('clinician_flag'), 'weight loss still asks the body safety question');
+  const order = quick.seen;
+  assert.ok(order.includes('clinician_flag'), 'weight loss still asks the body safety question on the quick start');
+  assert.ok(order.indexOf('clinician_flag') < order.indexOf('goal'), 'the safety question comes before the goal');
+  assert.ok(order.indexOf('clinician_flag') < order.indexOf('goal_size'), 'and before any weight number');
+  assert.ok(afterExpress.includes('launch') && afterExpress.includes('trigger'), 'the morning and the agenda time are asked, never decided for her');
   assert.ok(afterExpress.includes('tone') && afterExpress.includes('floors'));
   assert.ok(!afterExpress.some((id) => /^i[3-5]$/.test(id)), 'no interstitials after the choice');
   assert.equal(afterExpress.at(-1), 'plan');
@@ -275,19 +287,101 @@ test('every goal template becomes text that the plan engine recognises for its g
   for (const goal of GOAL_TEMPLATES.parent) assert.equal(recognizePersona(goalText({ games: ['parent'], goal: goal.id }), ['Parent / caregiver']).key, 'parent_plus');
 });
 
-test('High-Pressure Coaching is pre-selected when the Billionaire High Performance Coach Track is suggested, and can be changed', () => {
+test('the coaching tone is never pre-picked; gentle is recommended after burnout or a shame spiral', () => {
   const tone = questionById('tone');
   const founder = { games: ['founder'] };
   const synthesis = synthesizeProfile(founder, { startDate: START });
-  assert.ok(synthesis.tracks.some((t) => t.key === 'billionaire_mindset'));
-  assert.deepEqual(prefillFor(tone, founder, true), { tone: 'high_pressure', _pf_tone: true });
-  assert.equal(synthesis.coaching.tone, 'high_pressure');
-  assert.equal(synthesis.coaching.label, 'High-Pressure Coaching');
-  assert.equal(prefillFor(tone, { games: ['wealth'] }, false), undefined, 'not suggested → no preselect');
+  assert.ok(synthesis.tracks.some((t) => t.key === 'billionaire_mindset'), 'the ownership Track is still suggested');
+  assert.equal(prefillFor(tone, founder), undefined, 'no tone is written for her');
+  assert.equal(prefillFor(tone, { games: ['operator'], equity: true, patterns: ['burnout'] }), undefined);
+  assert.notEqual(synthesis.coaching.tone, 'high_pressure', 'never High-Pressure unless she picks it');
+  assert.equal(synthesis.coaching.preselected, false);
+  assert.equal(tone.recommended(founder, { tough: () => false }), 'direct');
+  for (const patterns of [['burnout'], ['shame']]) {
+    const a = { games: ['operator'], equity: true, patterns };
+    assert.equal(tone.recommended(a, { tough: () => false }), 'gentle', `${patterns[0]} → gentle recommended`);
+    assert.equal(synthesizeProfile(a, { startDate: START }).coaching.tone, 'gentle');
+  }
   assert.equal(synthesizeProfile({ games: ['wealth'], load: 9 }, { startDate: START }).coaching.tone, 'gentle', 'load 8+ recommends gentle');
-  assert.equal(synthesizeProfile({ ...founder, tone: 'gentle' }, { startDate: START }).coaching.tone, 'gentle', 'her pick wins');
+  assert.equal(synthesizeProfile({ ...founder, tone: 'high_pressure' }, { startDate: START }).coaching.tone, 'high_pressure', 'her pick wins');
+  assert.equal(requiredOk(tone, founder), false, 'the tone question needs her tap');
   assert.equal(synthesizeProfile({ games: ['operator'], equity: false }, { startDate: START }).tracks.some((t) => t.key === 'billionaire_mindset'), false, 'operator without equity: no BHPC Track');
-  assert.equal(synthesizeProfile({ games: ['operator'], equity: true }, { startDate: START }).tracks.some((t) => t.key === 'billionaire_mindset'), true);
+});
+
+test('an untouched slider saves nothing: no weight, no goal number, no load baseline, no tough-day guess', () => {
+  const weight = questionById('weight_now');
+  assert.equal(weight.def, undefined, 'the weight has no starting value');
+  assert.equal(weight.typed, true);
+  for (const id of ['load', 'minutes', 'wake', 'sleep', 'goal_size', 'workout_days', 'weight_now']) assert.equal(skippable(questionById(id)), true, `${id} can be skipped`);
+  const a = { _health: 'yes', games: ['weight'], goal: 'lose_weight', clinician_flag: 'no' };
+  assert.equal(goalText(a), 'Lose weight', 'no "Lose 20 lb" she never chose');
+  assert.equal(goalText({ ...a, goal_size: 15 }), 'Lose 15 lb');
+  const payload = toInstallPayload(a, { startDate: START, draftVersion: 1 });
+  assert.equal(payload.goalOutcome, undefined);
+  assert.equal(payload.intakeProfile.loadBaseline, undefined, 'no load baseline she never gave');
+  assert.equal(payload.intakeProfile.wakeTime, undefined);
+  assert.ok(!/weight|lb/i.test(payload.bodyContext ?? ''), 'no weight in the body context');
+  assert.equal(resumeCursor({ games: ['founder'], foreground: 'founder', season: 'building' }), 'carry', 'resume skips an untouched slider');
+});
+
+test('wake and sleep cover the whole day', () => {
+  for (const id of ['wake', 'sleep']) {
+    const q = questionById(id);
+    assert.equal(q.min, 0); assert.equal(q.max, 1425);
+  }
+});
+
+test('"Something else": her own words for the goal, the first step and a deadline', () => {
+  const goal = questionById('goal');
+  const a = { games: ['founder'], goal: OTHER_OPTION };
+  assert.ok(goal.other);
+  assert.equal(requiredOk(goal, a), false, 'Something else needs her words');
+  const b = { ...a, goal_other: 'Prepare for my board meeting' };
+  assert.equal(requiredOk(goal, b), true);
+  assert.equal(goalText(b), 'Prepare for my board meeting');
+  const steps = options(questionById('first_step'), b).map(([v]) => v);
+  assert.ok(steps.length >= 3 && !steps.includes('Write the launch checklist'), 'generic first steps for her own goal');
+  const c = { ...b, first_step: OTHER_OPTION, first_step_other: 'Email the board chair' };
+  assert.equal(toInstallPayload(c, { startDate: START, draftVersion: 1 }).firstNextAction, 'Email the board chair');
+  const deadlines = questionById('deadlines');
+  assert.ok(options(deadlines, {}).some(([v]) => v === OTHER_OPTION));
+  assert.equal(requiredOk(deadlines, { deadlines: [OTHER_OPTION] }), false);
+  assert.equal(requiredOk(deadlines, { deadlines: [OTHER_OPTION], deadlines_other: 'Board meeting' }), true);
+});
+
+test('the nearest deadline is a date; its window is computed from it', () => {
+  assert.equal(questionById('deadline_when'), undefined);
+  assert.equal(questionById('deadline_date').type, 'date');
+  assert.equal(deadlineWindowFor('2026-10-08', START), 'week');
+  assert.equal(deadlineWindowFor('2026-10-30', START), 'month');
+  assert.equal(deadlineWindowFor('2026-12-30', START), 'quarter');
+  assert.equal(deadlineWindowFor('2026-09-01', START), undefined, 'a past date is no window');
+  const p = toInstallPayload({ games: ['founder'], goal: 'launch', deadlines: ['launch'], deadline_date: '2026-10-20' }, { startDate: START, draftVersion: 1 });
+  assert.equal(p.intakeProfile.deadlineWindow, 'month');
+});
+
+test('"By when?" comes before the goal number; the customer count goes past 100', () => {
+  const ids = SECTIONS.find((s) => s.id === 's2').questions.map((q) => q.id);
+  assert.ok(ids.indexOf('target') < ids.indexOf('goal_size'));
+  assert.ok(GOAL_TEMPLATES.founder.find((g) => g.id === 'customers').size.max >= 1000);
+});
+
+test('one count: the quick-start numbers add up and match what waits on Today', () => {
+  const a = { _health: 'yes', games: ['founder'], foreground: 'founder', season: 'building', carry: ['deadlines'], goal: 'launch', target: '90', first_step: 'Write the launch checklist', deadlines: ['none'], fixed: ['none'], travel: 'rarely', after_miss: 'bounce', energy: 'morning' };
+  const c = quickStartCounts(a);
+  assert.equal(c.deferred, deferredQuestionIds({ ...a, mode: 'quick' }).length);
+  assert.equal(c.fullLeft, c.quickLeft + c.deferred);
+  assert.ok(questionsLeft({}) < questionPath({}, 'full').length, 'before the choice the time left counts the quick path');
+  assert.equal(setupMinutes(18), 3);
+});
+
+test('gate outcomes never repeat their stage label ("Foundation: Foundation:")', () => {
+  assert.equal(stripGateLabel('Foundation: prove the concept.', 'Foundation'), 'Prove the concept.');
+  assert.equal(stripGateLabel('Ship it.', 'Build'), 'Ship it.');
+  for (const persona of Object.values(PERSONAS)) {
+    const s = synthesizeProfile(walk(persona).draft.answers, { startDate: START });
+    for (const gate of s.plan.gates) assert.ok(!gate.outcome.startsWith(`${gate.label}:`), `${gate.key}: ${gate.outcome}`);
+  }
 });
 
 test('Today coaching-mode chips: High-Pressure, Executive Review, Recovery always; Sprint and Deep Work when they apply', () => {
@@ -449,7 +543,7 @@ test('install payload: one call, idempotency key from the draft version, areas a
   assert.ok(payload.criticalPillars.every((a) => payload.activeAreas.includes(a)));
   assert.ok(payload.morningSequence.length >= 1 && payload.morningSequence.length <= 5);
   assert.ok(!JSON.stringify(payload).includes('mother is moving'), 'the catch-all never rides the install payload');
-  assert.equal(payload.intakeProfile.bankVersion, 2);
+  assert.equal(payload.intakeProfile.bankVersion, 3);
   assert.ok(payload.primaryGoal.length >= 5);
 });
 
@@ -493,7 +587,7 @@ test('the express "Quick start or full setup" step stays on the intake path in d
 
 // ---------------------------------------------------------------- consumer health data (owner, 8 Oct 2026)
 test('without the health-data consent no health question is asked, and the weight game and health goals are not offered', () => {
-  const body = SECTIONS.find((section) => section.id === 's5').questions.map((q) => q.id).filter((id) => id !== 'core_pillars');
+  const body = [...SECTIONS.find((section) => section.id === 's5').questions.map((q) => q.id).filter((id) => id !== 'core_pillars'), 'clinician_flag', 'clinician_sup'];
   assert.deepEqual([...HEALTH_DATA_QUESTION_IDS].sort(), [...body, 'bed', 'bed_move', 'load'].sort(), 'the list is the Body section, the in-bed routine and the mental-load score');
   for (const [name, persona] of Object.entries(PERSONAS)) {
     for (const decision of [undefined, 'no']) {

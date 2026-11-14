@@ -156,7 +156,7 @@ test('after paying: claim first, then the email code, then the setup questions; 
   assert.match(api, /\/v1\/billing\/precheckout\/claim/);
   assert.match(api, /\/v1\/billing\/precheckout\/attach/);
   const plan = await src('src/billing/PlanChoice.tsx');
-  assert.match(plan, /if \(onboarding && product && product\.entitlement\.plan !== 'beta' && hasDailyLoopAccess\(product\.entitlement\)\) onFinished\?\.\('purchased'\)/);
+  assert.match(plan, /if \(onboarding && product && hasDailyLoopAccess\(product\.entitlement\)\) onFinished\?\.\(product\.entitlement\.plan === 'beta' \? 'beta' : 'purchased'\)/, 'any account with access (paid, or a bounded beta grant such as the reviewer) goes on to Today');
 });
 
 test('testimonials: one file, consent required, hidden while empty, readable by aplayermode.com', async () => {
@@ -257,7 +257,11 @@ test('Today: the greeting and the date are in HER time zone and locale, never UT
   // A bad zone never throws: the device's own zone.
   assert.equal(typeof greet.todayLine(now, 'Not/AZone', 'en-US'), 'string');
   const today = await src('app/(tabs)/today.tsx');
-  assert.match(today, /title=\{`\$\{greeting\(hourIn\(now, graph\.identity\.timezone\)\)\}, \$\{name\}\.`\}/);
+  assert.equal(greet.greetingLine(15, 'Sam'), 'Good afternoon, Sam.');
+  assert.equal(greet.greetingLine(15, ''), 'Good afternoon.', 'no name: never "Good afternoon, there."');
+  assert.equal(greet.greetingLine(15, undefined), 'Good afternoon.');
+  assert.match(today, /title=\{greetingLine\(hourIn\(now, graph\.identity\.timezone\), name\)\}/);
+  assert.doesNotMatch(today, /'there'/);
   assert.match(today, /subtitle=\{`\$\{todayLine\(now, graph\.identity\.timezone\)\} · /);
   assert.doesNotMatch(today, /new Date\(\)\.getHours\(\)/, 'never the device clock alone');
 });

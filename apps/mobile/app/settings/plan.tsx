@@ -25,7 +25,7 @@ export default function PlanScreen() {
         <CardTitle>{entitlement?.displayName ?? 'Loading your plan…'}</CardTitle>
         {entitlement ? (
           <>
-            <KeyValue label="Status" value={STATUS_WORDS[entitlement.status] ?? 'Not active'} />
+            {entitlement.hasPlan === false ? null : <KeyValue label="Status" value={STATUS_WORDS[entitlement.status] ?? 'Not active'} />}
             {billing ? (
               <>
                 <KeyValue label="Billing" value={`${billing.period === 'annual' ? 'Annual' : 'Monthly'} · ${billing.store === 'app_store' ? 'App Store' : billing.store === 'google_play' ? 'Google Play' : 'Card'}${billing.founding ? ' · Founding Member price' : ''}`} />

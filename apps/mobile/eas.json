@@ -31,6 +31,14 @@
         "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://app.aplayermode.com/privacy",
         "EXPO_PUBLIC_APM_DISTRIBUTION": "store"
       }
+    },
+    "simulator": {
+      "extends": "production",
+      "autoIncrement": false,
+      "channel": "simulator",
+      "ios": {
+        "simulator": true
+      }
     }
   },
   "submit": {

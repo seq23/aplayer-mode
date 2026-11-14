@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Platform, View, findNodeHandle, AccessibilityInfo } from 'react-native';
 import {
+  OTHER_LABEL,
+  OTHER_OPTION,
   clockLabel,
   options as questionOptions,
   questionTitle,
@@ -13,6 +15,9 @@ import {
   type QuestionDef,
 } from '@apm/planning';
 import { Body, Fill, Muted, QuestionTitle, Row, TextField } from '../ui';
+import { DatePicker } from '../DatePickerField';
+import { localDateToIso } from '../dateField';
+import { scaleStep, typedNumber } from './scale';
 import { Chip, OptionButton, Stepper, intakeStyles } from './primitives';
 
 const WEEKDAY_LABELS: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' };
@@ -20,8 +25,9 @@ const WEEKDAY_LABELS: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', 
 /**
  * One question per screen (docs/34 §4.1). Single-selects move on by themselves 250 ms after
  * the tap, except with a screen reader on: then Continue is used and focus lands on the
- * heading. Sliders are steppers (−/+) that save on each step; the text box saves 300 ms
- * after typing stops.
+ * heading. Sliders are steppers (−/+) that save on each step, and only then: an untouched
+ * slider saves nothing and Continue reads "Skip" (owner review 14 Nov 2026). The weight is
+ * typed, starting blank. The text box saves 300 ms after typing stops.
  */
 export function QuestionView({ question, answers, onSet, onAutoAdvance, screenReader, preselectNote, intro }: {
   question: QuestionDef;
@@ -39,12 +45,8 @@ export function QuestionView({ question, answers, onSet, onAutoAdvance, screenRe
   const recommended = recommendedValue(question, answers);
   const prefilled = answers[`_pf_${question.id}`] === true;
   const onAnswer = (next: AnswerValue | undefined) => onSet(question.id, next);
-  const isScale = question.type === 'slider' || question.type === 'time';
-  // A scale's default counts as an answer the moment the screen shows (as in the prototype).
-  useEffect(() => {
-    if (isScale && typeof value !== 'number') onAnswer(sliderSpec(question, answers).def);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [question.id]);
+  const otherId = question.other;
+  const otherValue = otherId && typeof answers[otherId] === 'string' ? (answers[otherId] as string) : '';
 
   useEffect(() => {
     if (!screenReader || !heading.current || Platform.OS === 'web') return;
@@ -66,6 +68,8 @@ export function QuestionView({ question, answers, onSet, onAutoAdvance, screenRe
         {questionOptions(question, answers).map(([v, label]) => (
           <OptionButton key={v} label={label} selected={value === v} recommended={recommended === v} onPress={() => pickSingle(v)} />
         ))}
+        {otherId ? <OptionButton label={OTHER_LABEL} selected={value === OTHER_OPTION} onPress={() => onAnswer(OTHER_OPTION)} /> : null}
+        {otherId && value === OTHER_OPTION ? <OwnWords id={otherId} value={otherValue} onSet={onSet} /> : null}
       </View>
     );
   } else if (question.type === 'yesno') {
@@ -85,6 +89,7 @@ export function QuestionView({ question, answers, onSet, onAutoAdvance, screenRe
             <Chip key={v} label={label} selected={selected.includes(v)} onPress={() => onAnswer(toggleOption(question, answers, v))} />
           ))}
         </View>
+        {otherId && selected.includes(OTHER_OPTION) ? <OwnWords id={otherId} value={otherValue} onSet={onSet} /> : null}
         <Muted>{`${prefilled ? 'Pre-filled from your earlier answers. ' : ''}${question.maxPick ? `Pick up to ${question.maxPick}. ` : 'Tap all that apply. '}${selected.length} selected.`}</Muted>
       </View>
     );
@@ -99,27 +104,38 @@ export function QuestionView({ question, answers, onSet, onAutoAdvance, screenRe
         <Chip role="button" icon="rotate-ccw" label="Reset order" selected={false} onPress={() => onAnswer(undefined)} />
       </View>
     );
-  } else if (question.type === 'slider' || question.type === 'time') {
+  } else if (question.typed) {
     const spec = sliderSpec(question, answers);
-    const current = typeof value === 'number' ? value : spec.def;
-    const clamp = (n: number) => Math.min(spec.max, Math.max(spec.min, n));
-    const show = (n: number) => (question.type === 'time' ? clockLabel(n) : `${n}${spec.unit ? ` ${spec.unit}` : ''}`);
-    const big = question.type === 'time' ? 60 : Math.max(spec.step * 5, 1);
     body = (
       <View style={intakeStyles.stack}>
-        <Stepper value={show(current)} label={title} onMinus={() => onAnswer(clamp(current - spec.step))} onPlus={() => onAnswer(clamp(current + spec.step))} />
-        <Row justify="space-between" gap="sm">
-          <Chip role="button" label={question.type === 'time' ? '−1 h' : `−${big}`} selected={false} onPress={() => onAnswer(clamp(current - big))} />
-          <Fill><Muted align="center">{`${spec.lo ?? show(spec.min)} to ${spec.hi ?? show(spec.max)}`}</Muted></Fill>
-          <Chip role="button" label={question.type === 'time' ? '+1 h' : `+${big}`} selected={false} onPress={() => onAnswer(clamp(current + big))} />
-        </Row>
+        <TypedNumber key={String(answers.weight_unit ?? 'lb')} label={`${title} (${spec.unit})`} unit={spec.unit} min={spec.min} max={spec.max} value={typeof value === 'number' ? value : undefined} onChange={onAnswer} />
         {question.id === 'weight_now' ? (
           <View style={intakeStyles.chips}>
-            {(['lb', 'kg'] as const).map((unit) => <Chip key={unit} label={unit} selected={(answers.weight_unit ?? 'lb') === unit} onPress={() => { onSet('weight_unit', unit); onAnswer(unit === 'kg' ? 80 : 180); }} />)}
+            {(['lb', 'kg'] as const).map((unit) => <Chip key={unit} label={unit} selected={(answers.weight_unit ?? 'lb') === unit} onPress={() => { onSet('weight_unit', unit); onAnswer(undefined); }} />)}
           </View>
         ) : null}
       </View>
     );
+  } else if (question.type === 'slider' || question.type === 'time') {
+    const spec = sliderSpec(question, answers);
+    const set = typeof value === 'number';
+    const shown = set ? (value as number) : spec.def;
+    const show = (n: number) => (question.type === 'time' ? clockLabel(n) : `${n}${spec.unit ? ` ${spec.unit}` : ''}`);
+    const big = question.type === 'time' ? 60 : Math.max(spec.step * 5, Math.round((spec.max - spec.min) / 20 / spec.step) * spec.step, 1);
+    const step = (delta: number) => onAnswer(scaleStep({ type: question.type, min: spec.min, max: spec.max, value: set ? (value as number) : undefined, def: spec.def, delta }));
+    body = (
+      <View style={intakeStyles.stack}>
+        <Stepper value={set ? show(shown) : `Not set (${show(spec.def)}?)`} label={title} onMinus={() => step(-spec.step)} onPlus={() => step(spec.step)} />
+        <Row justify="space-between" gap="sm">
+          <Chip role="button" label={question.type === 'time' ? '−1 h' : `−${big}`} selected={false} onPress={() => step(-big)} />
+          <Fill><Muted align="center">{question.type === 'time' ? 'Any time of day' : `${spec.lo ?? show(spec.min)} to ${spec.hi ?? show(spec.max)}`}</Muted></Fill>
+          <Chip role="button" label={question.type === 'time' ? '+1 h' : `+${big}`} selected={false} onPress={() => step(big)} />
+        </Row>
+        {!set ? <Chip role="button" label={`Use ${show(spec.def)}`} selected={false} onPress={() => onAnswer(spec.def)} /> : null}
+      </View>
+    );
+  } else if (question.type === 'date') {
+    body = <DatePicker label={title} value={typeof value === 'string' ? value : ''} minDate={localDateToIso(new Date())} onChange={(next) => onAnswer(next || undefined)} />;
   } else if (question.type === 'text') {
     body = <CatchAll value={typeof value === 'string' ? value : ''} onChange={(text) => onAnswer(text || undefined)} />;
   }
@@ -132,6 +148,37 @@ export function QuestionView({ question, answers, onSet, onAutoAdvance, screenRe
       {preselectNote ? <Body strong tone="accent">{preselectNote}</Body> : null}
       {body}
       {question.type === 'weekdays' ? <Muted>{(Array.isArray(value) ? (value as string[]) : []).map((d) => WEEKDAY_LABELS[d] ?? d).join(', ')}</Muted> : null}
+    </View>
+  );
+}
+
+/** Her own words for "Something else": saved 300 ms after typing stops. */
+function OwnWords({ id, value, onSet }: { id: string; value: string; onSet: (id: string, value: AnswerValue | undefined) => void }) {
+  const [text, setText] = useState(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  return (
+    <TextField
+      label="In a few words"
+      accessibilityLabel="Something else, in your own words"
+      value={text}
+      maxLength={120}
+      placeholder="Type it here"
+      onChangeText={(next) => { setText(next); if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => onSet(id, next.trim() ? next : undefined), 300); }}
+      onBlur={() => onSet(id, text.trim() ? text : undefined)}
+    />
+  );
+}
+
+/** A number she types (her weight): blank until she types, saved only when it is in range. */
+function TypedNumber({ label, unit, min, max, value, onChange }: { label: string; unit: string; min: number; max: number; value?: number; onChange: (value: number | undefined) => void }) {
+  const [text, setText] = useState(value === undefined ? '' : String(value));
+  const parsed = typedNumber(text, min, max);
+  return (
+    <View style={intakeStyles.stack}>
+      <TextField label={label} accessibilityLabel={label} value={text} keyboardType="number-pad" maxLength={3} placeholder={`e.g. in ${unit}`}
+        onChangeText={(next) => { setText(next); onChange(typedNumber(next, min, max)); }} />
+      {text.trim() && parsed === undefined ? <Muted>{`Type a number between ${min} and ${max}, or tap Skip.`}</Muted> : null}
     </View>
   );
 }
