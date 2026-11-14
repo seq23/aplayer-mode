@@ -282,8 +282,8 @@ export default function TodayScreen() {
               <Label tone="accent">The first hour</Label>
               <Heading>{agenda.bridge}</Heading>
               {agenda.firstHour.sequence.slice(0, 3).map((step, index) => <Row key={`${index}-${step}`} gap="sm" align="flex-start"><Small tone="inkMuted">{String(index + 1)}</Small><Fill><Body>{step}</Body></Fill></Row>)}
-              {agenda.firstHour.sequence.length > 3 ? <Muted>{`${agenda.firstHour.sequence.length - 3} more step(s) in Today's agenda below`}</Muted> : null}
-              <Button label="Begin my First Hour" variant="accent" large onPress={() => beginPhase('first_hour')} />
+              {agenda.firstHour.sequence.length > 3 ? <Muted>{`${agenda.firstHour.sequence.length - 3} more step${agenda.firstHour.sequence.length - 3 === 1 ? '' : 's'} in Today's agenda below`}</Muted> : null}
+              <Button label="Begin my First Hour" variant="primary" large onPress={() => beginPhase('first_hour')} />
               <Button label="Coaching first" variant="ghost" onPress={() => router.push('/(tabs)/apm')} />
             </Card>
           ) : null}

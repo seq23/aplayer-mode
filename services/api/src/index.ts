@@ -605,6 +605,9 @@ app.use('*', async (c, next) => {
     c.header('access-control-allow-methods', 'GET, OPTIONS');
   } else if (c.env.ALLOWED_ORIGIN) {
     c.header('access-control-allow-origin', c.env.ALLOWED_ORIGIN);
+    // The answer depends on the origin (the public count is cached 30 s): without this a browser
+    // that read the count on the app reused it on aplayermode.com and the CORS check failed.
+    c.header('vary', 'origin');
     c.header('access-control-allow-headers', 'authorization, content-type, x-request-id');
     c.header('access-control-allow-methods', 'GET, PUT, POST, PATCH, DELETE, OPTIONS');
   }

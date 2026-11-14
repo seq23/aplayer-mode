@@ -56,6 +56,8 @@ export default function IntakeScreenRoute() {
   const [paused, setPaused] = useState(false);
   const [notice, setNotice] = useState<string>();
   const viewedAt = useRef(Date.now());
+  // Resume (docs/34 §6 rule 4): reopened with answers already saved, she is told so until her next tap.
+  const [resumed, setResumed] = useState(() => Object.keys(draft.answers).some((key) => !key.startsWith('_')));
   // Auto-advance fires 250 ms after a tap: it must read the answers AFTER that tap.
   const latest = useRef(answers);
   latest.current = answers;
@@ -126,6 +128,7 @@ export default function IntakeScreenRoute() {
 
   const onSet = (id: string, value: AnswerValue | undefined) => {
     const had = answers[id] !== undefined;
+    setResumed(false);
     answer(id, value);
     if (screen.kind === 'question' && id === screen.id) track('intake_question_answered', { qid: id, ms: Date.now() - viewedAt.current, changed: had });
   };
@@ -193,7 +196,7 @@ export default function IntakeScreenRoute() {
         {screen.kind === 'question' ? <LinkButton label="Finish later" onPress={finishLater} /> : null}
       </Row>
       <ProgressBar done={p.answered} total={p.total} label={`Setup progress: ${p.answered} of ${p.total} answered`} />
-      <Muted>{`${holdingCount(answers)} things APM is now holding for you · ${sync === 'saved' ? 'Saved' : 'Saved on this phone'}`}</Muted>
+      <Muted>{holdingLine(resumed ? undefined : holdingCount(answers), sync === 'saved')}</Muted>
     </>
   ) : null;
 
@@ -317,4 +320,12 @@ export default function IntakeScreenRoute() {
       <PlateLine text={plate} />
     </Screen>
   );
+}
+
+/** The line under the progress bar: what APM holds so far, never "0 things" or "1 things"; on resume, "Welcome back". */
+function holdingLine(count: number | undefined, server: boolean): string {
+  const saved = server ? 'Saved' : 'Saved on this phone';
+  if (count === undefined) return `Welcome back. Your answers are saved${server ? '' : ' on this phone'}.`;
+  if (count === 0) return saved;
+  return `${count} ${count === 1 ? 'thing' : 'things'} APM is now holding for you · ${saved}`;
 }

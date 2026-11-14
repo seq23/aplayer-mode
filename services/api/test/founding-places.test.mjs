@@ -73,6 +73,10 @@ test('CORS: aplayermode.com may read the count; any other site gets the app orig
     assert.match(landing.headers.get('access-control-allow-methods'), /^GET, OPTIONS$/);
     const other = await get('https://evil.example');
     assert.equal(other.headers.get('access-control-allow-origin'), 'https://app.aplayermode.com');
+    // The count is cacheable (30 s) and its CORS answer differs by origin, so every answer must
+    // vary on origin: a browser that read it on the app otherwise reused it on aplayermode.com.
+    const app = await get('https://app.aplayermode.com');
+    for (const res of [landing, other, app]) assert.match(res.headers.get('vary') ?? '', /origin/i);
   } finally { db.restore(); }
 });
 

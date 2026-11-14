@@ -269,7 +269,7 @@ export function Button({ label, onPress, variant = 'primary', disabled = false, 
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={showReason ? disabledReason : accessibilityHint}
-      accessibilityState={{ disabled, busy: working }}
+      aria-disabled={disabled} aria-busy={working}
       disabled={disabled}
       onPress={press}
       style={({ pressed }) => [s.base, large && s.large, s[v], pressed && s.pressed, pressed && !reducedMotion && s.pressedScale, disabled && (showReason ? s.waiting : s.disabled)]}
@@ -313,7 +313,7 @@ export function LinkButton({ label, children, onPress, role = 'button', disabled
 }) {
   const words = label ?? children ?? '';
   return (
-    <Pressable accessibilityRole={role} accessibilityLabel={accessibilityLabel ?? words} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
+    <Pressable accessibilityRole={role} accessibilityLabel={accessibilityLabel ?? words} aria-disabled={disabled} disabled={disabled} onPress={onPress}
       style={({ pressed }) => [styles.link, { alignSelf: align }, pressed && styles.pressed, disabled && styles.dim]}>
       <Txt variant="smallStrong" tone={muted ? 'inkMuted' : 'accent'} align={align === 'center' ? 'center' : 'left'}>{words}</Txt>
     </Pressable>
@@ -329,7 +329,8 @@ export function Chip({ label, selected, onPress, role = 'checkbox', icon }: { la
     <Pressable
       accessibilityRole={role}
       accessibilityLabel={label}
-      accessibilityState={role === 'checkbox' ? { checked: selected } : { selected }}
+      aria-checked={role === 'button' ? undefined : selected}
+      aria-selected={role === 'button' ? selected : undefined}
       onPress={onPress}
       style={({ pressed }) => [s.chip, selected && s.on, pressed && styles.pressed]}
     >
@@ -364,7 +365,8 @@ export function AnswerCard({ label, detail, selected, onPress, recommended, role
   return (
     <Pressable
       accessibilityRole={role}
-      accessibilityState={role === 'checkbox' ? { checked: selected } : { selected }}
+      aria-checked={role === 'button' ? undefined : selected}
+      aria-selected={role === 'button' ? selected : undefined}
       accessibilityLabel={`${label}${recommended ? ', recommended' : ''}`}
       accessibilityHint={detail}
       onPress={onPress}
@@ -531,7 +533,7 @@ export function Disclosure({ title, summary, children, initiallyOpen = false, ic
   const s = useThemedStyles(disclosureStyles);
   return (
     <View style={s.wrap}>
-      <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={summary} accessibilityState={{ expanded: open }} onPress={() => setOpen((v) => !v)} style={({ pressed }) => [s.head, pressed && styles.pressed]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={summary} aria-expanded={open} onPress={() => setOpen((v) => !v)} style={({ pressed }) => [s.head, pressed && styles.pressed]}>
         {icon ? <Icon name={icon} size={18} tone="accent" /> : null}
         <View style={styles.fill}>
           <Txt variant="cardTitle">{title}</Txt>
@@ -638,7 +640,7 @@ export function TimeField({ label, value, placeholder, open, onPress, onClear, c
     <View style={styles.field}>
       <Txt variant="smallStrong">{label}</Txt>
       {onPress ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${shown || placeholder}`} accessibilityHint="Opens the time picker" accessibilityState={{ expanded: open }} onPress={onPress}
+        <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${shown || placeholder}`} accessibilityHint="Opens the time picker" aria-expanded={open} onPress={onPress}
           style={({ pressed }) => [s.input, s.timeRow, open && s.focused, pressed && styles.pressed]}>
           <Txt variant="body" tone={shown ? 'ink' : 'inkMuted'} flex>{shown || placeholder}</Txt>
           <Icon name="clock" size={18} tone="inkMuted" />
@@ -668,7 +670,7 @@ export function EmptyState({ icon = 'inbox', title, body, actionLabel, onAction 
 export function AvatarButton({ initial, label, expanded, onPress }: { initial: string; label: string; expanded: boolean; onPress: () => void }) {
   const s = useThemedStyles(avatarStyles);
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded }} onPress={onPress} hitSlop={4}
+    <Pressable accessibilityRole="button" accessibilityLabel={label} aria-expanded={expanded} onPress={onPress} hitSlop={4}
       style={({ pressed }) => [s.avatar, pressed && s.pressed]}>
       <Txt variant="cardTitle" tone="onAccent">{initial}</Txt>
     </Pressable>
@@ -684,7 +686,7 @@ const avatarStyles = ({ colors }: Theme) => ({
 export function LoadingState({ label }: { label: string }) {
   const { colors } = useTheme();
   return (
-    <View accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityState={{ busy: true }} style={styles.loading}>
+    <View accessible accessibilityRole="progressbar" accessibilityLabel={label} aria-busy style={styles.loading}>
       <ActivityIndicator size="large" color={colors.accent} />
       <Txt variant="body" tone="inkMuted" align="center">{label}</Txt>
     </View>
