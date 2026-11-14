@@ -22,6 +22,10 @@ import {
   SPIRIT_PRACTICES,
   OTHER_OPTION,
   answered,
+  BRANCH_QUESTIONS,
+  DEFAULT_SYSTEM_NAME,
+  SYSTEM_NAME_MAX,
+  setupCount,
   deadlineWindowFor,
   deferredQuestionIds,
   quickStartCounts,
@@ -619,4 +623,104 @@ test('withoutHealthAnswers removes every health item and keeps everything else',
   const answers = { _health: 'no', games: ['weight', 'founder'], foreground: 'weight', goal: 'eat_better', goal_size: 3, move: ['walk'], weight_now: 200, bed: 'yes', clinician_flag: 'yes', season: 'building', load: 7, carry: ['money'] };
   assert.deepEqual(withoutHealthAnswers(answers), { _health: 'no', games: ['founder'], season: 'building', carry: ['money'] });
   assert.deepEqual(withoutHealthAnswers({ games: ['founder'], goal: 'customers', goal_size: 10 }), { games: ['founder'], goal: 'customers', goal_size: 10 });
+});
+
+// ---------------------------------------------------------------- the one setup count (sim test, 14 Nov 2026)
+// A first-time tester saw "0 of 46", "1 of 50", then "16 of 22" and "the other 27 wait".
+
+/** Walks like the app: no mode until the express screen, then the one she picks. Records every total. */
+function countWalk(script, pick) {
+  let draft = emptyDraft(1);
+  if ('_health' in script) draft = setDraftAnswer(draft, '_health', script._health, 1);
+  let now = 2; let cursor = 'games'; let mode; let choice;
+  const steps = [];
+  let before = setupCount(draft.answers, mode);
+  const set = (id, value) => { draft = setDraftAnswer(draft, id, value, now++); };
+  for (let guard = 0; guard < 200; guard += 1) {
+    const screen = registry(draft.answers, mode).find((s) => s.id === cursor);
+    let by;
+    if (screen.kind === 'question') {
+      const q = screen.question;
+      const pf = prefillFor(q, draft.answers);
+      if (pf) for (const [k, v] of Object.entries(pf)) { draft = { ...draft, answers: { ...draft.answers, [k]: v } }; }
+      by = q.id;
+      if (q.id in script) set(q.id, script[q.id]);
+      else if (draft.answers[q.id] === undefined) {
+        const opts = options(q, draft.answers);
+        if (q.type === 'single') set(q.id, opts[0][0]);
+        else if (q.type === 'multi' || q.type === 'weekdays') set(q.id, [opts[0][0]]);
+        else if (q.type === 'rank') set(q.id, opts.map(([v]) => v));
+        else if (q.type === 'yesno') set(q.id, false);
+        else if (q.type === 'slider' || q.type === 'time') set(q.id, q.def ?? 5);
+        else if (q.type === 'date') set(q.id, '2026-12-01');
+      }
+    }
+    if (screen.kind === 'express') { choice = draft.answers; mode = pick; set('mode', pick); by = 'mode'; }
+    const after = setupCount(draft.answers, mode);
+    steps.push({ by, before, after });
+    before = after;
+    if (screen.kind === 'building') break;
+    const next = stepScreen(draft.answers, cursor, 1, mode);
+    if (next === cursor) break;
+    cursor = next;
+  }
+  return { steps, answers: draft.answers, mode, choice };
+}
+
+const COUNT_PERSONAS = {
+  ...PERSONAS,
+  many: { _health: 'yes', games: ['founder', 'parent', 'weight'], foreground: 'founder', goal: 'customers', clinician_flag: 'yes', clinician_sup: true, deadlines: ['exam'], income: ['salary', 'business'], practices: ['prayer'], launch: 'custom' },
+  noConsent: { _health: 'no', games: ['wealth', 'operator'], foreground: 'wealth', goal: 'pay_debt', core_pillars: ['mind'] },
+};
+
+test('one setup count: the total changes mid-flow only after a listed branch answer, or "Keep going"', () => {
+  const movedBy = new Set();
+  for (const [name, persona] of Object.entries(COUNT_PERSONAS)) {
+    for (const pick of ['quick', 'full']) {
+      const { steps } = countWalk(persona, pick);
+      for (const { by, before, after } of steps) {
+        assert.ok(after.done >= before.done || by === 'mode', `${name}/${pick}: answered count went down after ${by}`);
+        assert.ok(after.done <= after.total, `${name}/${pick}: ${after.done} of ${after.total}`);
+        if (after.total === before.total) continue;
+        movedBy.add(by);
+        if (by === 'mode') assert.equal(pick, 'full', `${name}: picking the quick start must not change the count (${before.total} → ${after.total})`);
+        else assert.ok(by in BRANCH_QUESTIONS, `${name}/${pick}: answering "${by}" moved the total ${before.total} → ${after.total} with no listed reason`);
+      }
+    }
+  }
+  assert.ok(movedBy.has('games') && movedBy.has('mode'), `branches were exercised (saw: ${[...movedBy].join(', ') || 'none'})`);
+});
+
+test('one setup count: what the express choice promises is what the bar and the summary then say', () => {
+  const persona = COUNT_PERSONAS.founder;
+  const quick = countWalk(persona, 'quick');
+  const atChoice = quick.steps.find((s) => s.by === 'mode');
+  const c = quickStartCounts(quick.choice);
+  assert.equal(atChoice.after.total, atChoice.before.total, 'quick start keeps the same total');
+  assert.equal(atChoice.after.left, c.quickLeft, '"Build my plan now: N more" is the number left');
+  const end = setupCount(quick.answers, 'quick');
+  assert.equal(end.done, end.total, 'every quick question answered: N of N');
+  assert.equal(end.deferred, deferredQuestionIds(quick.answers).length, 'the summary\'s "wait on Today" number is the same count');
+  const full = countWalk(persona, 'full');
+  const switched = full.steps.find((s) => s.by === 'mode');
+  assert.equal(switched.after.left, c.fullLeft, '"Keep going: all N now" is the number left after the switch');
+  assert.equal(questionsLeft(quick.answers, 'quick'), end.left);
+});
+
+test('one setup count: the answered count is the questions she answered, never more', () => {
+  assert.equal(setupCount({ _health: 'yes' }).done, 0);
+  assert.equal(setupCount({ _health: 'yes', games: ['founder'] }).done, 1);
+  assert.equal(setupCount({ _health: 'yes', games: ['founder'], mode: 'quick', _acct: 'later', _pf_x: true }).done, 1, 'markers and system keys are not answers');
+});
+
+test('the plan name starts blank: nothing is picked for her; the default applies only when she leaves it blank', () => {
+  const blank = synthesizeProfile({ _health: 'yes', games: ['founder'] }, { startDate: START });
+  assert.equal(blank.systemNameChosen, false, 'nothing chosen until she types or taps');
+  assert.equal(blank.systemName, DEFAULT_SYSTEM_NAME, 'left blank: the default');
+  assert.equal(synthesizeProfile({ games: ['founder'], sysname: '   ' }, { startDate: START }).systemNameChosen, false, 'spaces are blank');
+  const typed = synthesizeProfile({ games: ['founder'], sysname: '  Team Taylor ' }, { startDate: START });
+  assert.equal(typed.systemName, 'Team Taylor');
+  assert.equal(typed.systemNameChosen, true);
+  assert.equal(synthesizeProfile({ games: ['founder'], sysname: 'x'.repeat(60) }, { startDate: START }).systemName.length, SYSTEM_NAME_MAX);
+  assert.equal(toInstallPayload({ games: ['founder'], sysname: 'Team Taylor' }, { startDate: START, draftVersion: 1 }).intakeProfile.systemName, 'Team Taylor', 'her name is what installs');
 });

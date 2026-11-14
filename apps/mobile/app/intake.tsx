@@ -2,16 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Alert, BackHandler, Platform, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
+  BRANCH_QUESTIONS,
   SCREEN_PLATES,
   answered,
-  deferredQuestionIds,
   holdingCount,
   path,
   prefillFor,
   progress,
   quickStartCounts,
   quickStartRecommended,
-  questionsLeft,
+  setupCount,
   skippable,
   registry,
   requiredReason,
@@ -35,7 +35,7 @@ import { BuildingScreen, DetailScreen, SummaryScreen } from '../src/components/i
 import { OptionButton, intakeStyles } from '../src/components/intake/primitives';
 import { PlanChoice } from '../src/billing/PlanChoice';
 import { Body, Button, Card, CardTitle, Fill, Label, LinkButton, Muted, PlateLine, ProgressBar, QuestionTitle, Reason, Row, Screen, Toast } from '../src/components/ui';
-import { minutesLeftLabel } from '../src/content/words';
+import { answersWord, countChangeLine, minutesLeftLabel, savedAnswersLine } from '../src/content/words';
 
 const DETAIL = new Set(['r1', 'r2', 'r3', 'r4', 'r5', 'r6']);
 
@@ -56,6 +56,8 @@ export default function IntakeScreenRoute() {
   const [screenReader, setScreenReader] = useState(false);
   const [paused, setPaused] = useState(false);
   const [notice, setNotice] = useState<string>();
+  const [countNote, setCountNote] = useState<string>();
+  const lastAnswer = useRef<string | undefined>(undefined);
   const [pushBlocked, setPushBlocked] = useState(false);
   const viewedAt = useRef(Date.now());
   // Resume (docs/34 §6 rule 4): reopened with answers already saved, she is told so until her next tap.
@@ -101,7 +103,7 @@ export default function IntakeScreenRoute() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen.id]);
 
-  const go = useCallback((id: string) => { setNotice(undefined); setCursor(id); }, [setCursor]);
+  const go = useCallback((id: string) => { setNotice(undefined); setCountNote(undefined); setCursor(id); }, [setCursor]);
   const next = useCallback(() => go(stepScreen(answers, cursor, 1, mode)), [answers, cursor, go, mode]);
   const back = useCallback(() => {
     track('intake_back', { qid: cursor });
@@ -130,14 +132,25 @@ export default function IntakeScreenRoute() {
 
   const onSet = (id: string, value: AnswerValue | undefined) => {
     const had = answers[id] !== undefined;
+    lastAnswer.current = id;
     setResumed(false);
     answer(id, value);
     if (screen.kind === 'question' && id === screen.id) track('intake_question_answered', { qid: id, ms: Date.now() - viewedAt.current, changed: had });
   };
 
+  // THE setup count (setupCount in @apm/planning): the bar, the time left, the Finish-later note,
+  // the express choice and the summary all read it. It moves mid-flow only after an answer listed in
+  // BRANCH_QUESTIONS (and the screen says so in one line) or when she picks "Keep going".
   const p = progress(answers, cursor, mode);
+  const count = setupCount(answers, mode);
+  const seenTotal = useRef({ mode, total: count.total });
+  useEffect(() => {
+    const prev = seenTotal.current;
+    if (prev.mode === mode && prev.total !== count.total) setCountNote(countChangeLine(prev.total, count.total, lastAnswer.current ? BRANCH_QUESTIONS[lastAnswer.current] : undefined));
+    seenTotal.current = { mode, total: count.total };
+  }, [count.total, mode]);
   // The estimate never climbs while she moves forward (an answer can open a follow-up); a new mode resets it.
-  const leftNow = questionsLeft(answers, mode);
+  const leftNow = count.left;
   const lowest = useRef<{ mode: IntakeMode | undefined; left: number }>({ mode, left: leftNow });
   if (lowest.current.mode !== mode || leftNow < lowest.current.left) lowest.current = { mode, left: leftNow };
   const shownLeft = Math.min(leftNow, lowest.current.left);
@@ -156,7 +169,14 @@ export default function IntakeScreenRoute() {
     if (skippable(screen.question!) && !answered(screen.question!, answers)) nextLabel = 'Skip';
     if (nextLabel === 'Skip') onNext = () => { track('intake_question_skipped', { qid: screen.id }); next(); };
   }
-  if (screen.kind === 'account') { canNext = Boolean(answers._acct); if (!canNext) reason = 'Pick a way to save, or "Not now".'; }
+  // Save your plan: the sign-in buttons are the one primary action; the footer's forward button is
+  // the quiet "Not now, keep going" (never a dead grey Continue beside a second continue).
+  let nextVariant: 'primary' | 'secondary' = 'primary';
+  if (screen.kind === 'account' && !answers._acct) {
+    nextLabel = 'Not now, keep going';
+    nextVariant = 'secondary';
+    onNext = () => { answer('_acct', 'later'); track('account_prompt_result', { provider: 'later', result: 'later' }); next(); };
+  }
   // The express choice is never a dead grey Continue (docs/36 I3): with nothing tapped,
   // Continue takes the recommended quick start, and the button says so.
   if (screen.kind === 'express' && !answers.mode) {
@@ -168,7 +188,7 @@ export default function IntakeScreenRoute() {
     const noSession = status !== 'signed_in';
     nextLabel = installing ? 'Starting…' : 'Start my plan';
     canNext = !installing && !noSession;
-    if (noSession) reason = 'Save your plan to an account to start it.';
+    if (noSession) reason = `Start my plan unlocks once your plan is saved to an account. Scroll up to "Save your plan to an account" and tap ${Platform.OS === 'ios' ? 'Continue with Apple, ' : ''}Continue with Google or Email me a 6-digit code.`;
     onNext = () => {
       void (async () => {
         try {
@@ -190,7 +210,7 @@ export default function IntakeScreenRoute() {
     return (
       <Screen fullBleed>
         <QuestionTitle>Saved. Go do your thing.</QuestionTitle>
-        <Body muted>{`All ${p.answered} answers are safe ${sync === 'saved' ? 'on this phone and in your account' : 'on this phone'}. Open APM any time and you'll be right back on this question.`}</Body>
+        <Body muted>{savedAnswersLine(count.done, sync === 'saved')}</Body>
         <Button label="Back to my setup" onPress={() => { track('intake_resumed', { qid: cursor, gap: 0 }); setPaused(false); }} />
       </Screen>
     );
@@ -199,13 +219,12 @@ export default function IntakeScreenRoute() {
   const top = screen.kind === 'question' || screen.kind === 'interstitial' ? (
     <>
       <Row justify="space-between" gap="sm">
-        {/* Time left, not "1 of 54" (docs/36 I1). One count (questionsLeft: the quick path until she
+        {/* Time left, not "1 of 54" (docs/36 I1). One count (setupCount: the quick path until she
             picks the full one), the same per-question time as the welcome promise, and never higher than the last one shown. */}
         <Fill><Label tone="accent">{screen.kind === 'question' ? `${screen.group} · ${minutesLeftLabel(shownLeft)}` : screen.group}</Label></Fill>
-        {screen.kind === 'question' ? <LinkButton label="Finish later" onPress={finishLater} /> : null}
       </Row>
-      <ProgressBar done={p.answered} total={p.total} label={`Setup progress: ${p.answered} of ${p.total} answered`} />
-      <Muted>{holdingLine(resumed ? undefined : holdingCount(answers), sync === 'saved')}</Muted>
+      <ProgressBar done={count.done} total={count.total} label={`Setup progress: ${count.done} of ${count.total} answered`} />
+      <Muted>{countNote ?? holdingLine(resumed ? undefined : holdingCount(answers), sync === 'saved')}</Muted>
     </>
   ) : null;
 
@@ -228,14 +247,12 @@ export default function IntakeScreenRoute() {
     body = <Interstitial it={screen.interstitial!} answers={answers} />;
   } else if (screen.kind === 'account') {
     body = answers._acct && answers._acct !== 'later'
-      ? <Card tone="accent"><CardTitle>Saved.</CardTitle><Body>{`${p.answered} answers are safe. Same account on every device.`}</Body><Muted>Next: your time, your patterns, your week.</Muted></Card>
+      ? <Card tone="accent"><CardTitle>Saved.</CardTitle><Body>{`${answersWord(count.done)} saved to your account. Same account on every device.`}</Body><Muted>Next: your time, your patterns, your week.</Muted></Card>
       : (
         <AccountPanel
-          title="Save your plan"
-          sub="So nothing you've told APM is lost."
-          answeredCount={p.answered}
+          title="Save your plan to an account"
+          sub={`So a lost or new phone never loses it. ${answersWord(count.done)} so far, kept on this phone until you save.`}
           onDone={(result) => { answer('_acct', result.provider); track('account_prompt_result', { provider: result.provider, result: result.outcome }); }}
-          onLater={() => { answer('_acct', 'later'); track('account_prompt_result', { provider: 'later', result: 'later' }); next(); }}
         />
       );
   } else if (screen.kind === 'express') {
@@ -276,8 +293,8 @@ export default function IntakeScreenRoute() {
     const saveCard = status !== 'signed_in' || isAnonymous ? (
       <Card tone="warning">
         <AccountPanel
-          title={status === 'signed_in' ? 'Save your OS to an account?' : 'Save your plan to install it'}
-          sub={status === 'signed_in' ? 'Right now it lives only on this phone.' : 'This build keeps your OS in an account, so a lost phone never loses it.'}
+          title="Save your plan to an account"
+          sub={status === 'signed_in' ? 'Right now your plan is only on this phone. An account keeps it if you lose or change phones.' : 'Your plan needs an account before it can start. The account keeps it safe if you lose or change phones.'}
           onDone={(result) => { answer('_acct', result.provider); track('account_prompt_result', { provider: result.provider, result: result.outcome }); }}
         />
       </Card>
@@ -319,7 +336,7 @@ export default function IntakeScreenRoute() {
           {reason ? <Reason>{reason}</Reason> : null}
           <Row gap="sm">
             <Fill><Button label="Back" variant="secondary" large onPress={back} /></Fill>
-            <Fill weight={2}><Button label={nextLabel} large disabled={!canNext} busy={screen.kind === 'summary' && installing} onPress={onNext} /></Fill>
+            <Fill weight={2}><Button label={nextLabel} variant={nextVariant} large disabled={!canNext} busy={screen.kind === 'summary' && installing} onPress={onNext} /></Fill>
           </Row>
         </>
       ) : undefined}
@@ -333,7 +350,9 @@ export default function IntakeScreenRoute() {
           <Button label={PUSH_BLOCKED_COPY.action} variant="secondary" onPress={openPhoneSettings} />
         </Card>
       ) : null}
-      {screen.kind === 'summary' && deferredQuestionIds(answers).length && mode === 'quick' ? <Muted>{`The other ${deferredQuestionIds(answers).length} questions wait on Today: 2 quick taps a day from Day 2, never on a light day.`}</Muted> : null}
+      {screen.kind === 'summary' && count.deferred && mode === 'quick' ? <Muted>{`You answered ${count.done} of ${count.total}. ${count.deferred} more wait on Today: 2 quick taps a day from Day 2, never on a light day.`}</Muted> : null}
+      {/* Finish later sits low and quiet, away from where a quick tap lands (sim review 14 Nov 2026). */}
+      {screen.kind === 'question' ? <LinkButton label="Finish later" muted align="center" onPress={finishLater} /> : null}
       <PlateLine text={plate} />
     </Screen>
   );

@@ -3,7 +3,9 @@ import { AccessibilityInfo, View } from 'react-native';
 import { AREA_LABELS, PILLAR_LABELS, type AreaKey, type PillarName } from '@apm/domain';
 import {
   CORE_LAWS,
+  DEFAULT_SYSTEM_NAME,
   FIRST_SEVEN_DAYS,
+  SYSTEM_NAME_MAX,
   agendaArrivalMinutes,
   chosenGoal,
   OTHER_OPTION,
@@ -30,6 +32,8 @@ import { TRACKS } from '../../content/sell';
 
 const arr = (a: IntakeAnswers, id: string) => (Array.isArray(a[id]) ? (a[id] as string[]) : []);
 const MOVE_TARGET: Record<PillarName, AreaKey> = { mind: 'learning', body: 'health_routines', spirit: 'meditation' };
+/** What each pillar holds (the same words as the "Keep all three?" question), so "Business" under Mind reads as meant. */
+const PILLAR_HOLDS: Record<PillarName, string> = { mind: 'Work, money, learning and focus', body: 'Movement, food and sleep', spirit: 'Faith, stillness and family' };
 
 export function useSynthesis(answers: IntakeAnswers): IntakeSynthesis {
   return useMemo(() => {
@@ -95,6 +99,7 @@ export function PillarCards({ synthesis, onToggleCritical }: { synthesis: Intake
             <Fill><CardTitle>{pillar.label}</CardTitle></Fill>
             <Pill tone={pillar.enabled ? 'success' : 'neutral'}>{pillar.enabled ? 'On' : 'Off'}</Pill>
           </Row>
+          <Muted>{PILLAR_HOLDS[pillar.pillar as PillarName]}</Muted>
           {pillar.enabled ? pillar.areas.map((area) => (
             <Row key={area.area} gap="sm">
               <Fill>
@@ -181,10 +186,13 @@ export function SummaryScreen({ answers, onSet, onOpen, onPush, saveCard, nameCh
       {saveCard}
       {nameChoices !== false ? (
         <Card tone="muted">
-          <Label>Name it</Label>
+          <Label>Name it (optional)</Label>
+          {/* Nothing is picked for her: an empty box with a placeholder; the default applies only if she leaves it blank. */}
+          <TextField accessibilityLabel="Name your plan" value={typeof answers.sysname === 'string' ? answers.sysname : ''} onChangeText={(text) => onSet('sysname', text.trim() ? text : undefined)} placeholder={`e.g. ${DEFAULT_SYSTEM_NAME}`} maxLength={SYSTEM_NAME_MAX} returnKeyType="done" />
           <View style={intakeStyles.chips}>
-            {s.systemNames.map((name) => <Chip key={name} label={name} selected={s.systemName === name} onPress={() => onSet('sysname', name)} />)}
+            {s.systemNames.map((name) => <Chip key={name} label={name} selected={answers.sysname === name} onPress={() => onSet('sysname', name)} />)}
           </View>
+          <Muted>{s.systemNameChosen ? 'Change it any time.' : `Leave it blank and it's called ${DEFAULT_SYSTEM_NAME}.`}</Muted>
         </Card>
       ) : null}
       <Muted>{`Holding ${holdingCount(answers)} things for you. Starting takes one tap; if you're offline it finishes as soon as you're back.`}</Muted>
