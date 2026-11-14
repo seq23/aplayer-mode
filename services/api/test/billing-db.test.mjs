@@ -126,7 +126,7 @@ test('clients never write entitlements or reach any billing function or table', 
     where p.schemaname = 'private' and p.tablename = c.relname) as quals from pg_class c join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'private' and c.relname like 'billing%' and c.relkind = 'r' order by c.relname`)).rows;
   assert.deepEqual(tables.map((t) => [t.relname, t.relrowsecurity, t.quals]), [
-    ['billing_checkout_links', true, ['false']], ['billing_events', true, ['false']], ['billing_founding_lapsed', true, ['false']], ['billing_founding_slots', true, ['false']], ['billing_products', true, ['false']],
+    ['billing_checkout_links', true, ['false']], ['billing_events', true, ['false']], ['billing_founding_lapsed', true, ['false']], ['billing_founding_slots', true, ['false']], ['billing_products', true, ['false']], ['billing_renewal_reminders', true, ['false']],
   ]);
   // 0044: the beta allowlist is server-only too.
   for (const role of ['authenticated', 'anon']) {

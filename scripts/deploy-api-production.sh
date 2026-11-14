@@ -34,6 +34,10 @@ for entry in $REQUIRED_RPCS; do
   [ "$code" = "404" ] && { echo "refusing: database function $fn is missing; apply services/api/migrations in order first (RUNBOOK → Deploy)"; exit 2; }
   [ "$code" = "000" ] && { echo "refusing: Supabase did not answer the migration probe for $fn"; exit 2; }
 done
+# 0098 (annual renewal reminder) is optional for the Worker: without it the reminder job logs
+# NAMED STOP [MIGRATION_MISSING] and nothing else changes. Say so here, where a person is watching.
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$SB_URL/rest/v1/rpc/apm_service_billing_renewal_reminders_due" -H "apikey: $SB_KEY" -H 'content-type: application/json' -d '{"p_now":null}')
+[ "$code" = "404" ] && echo "NAMED STOP [RENEWAL_REMINDER_MIGRATION_MISSING] apply services/api/migrations/0098_billing_renewal_reminders.sql; until then no annual renewal reminder is sent"
 npm run typecheck >/dev/null && npm run test >/dev/null
 cd services/api
 npx wrangler deploy --env production \
@@ -54,6 +58,9 @@ if [ -n "$SECRETS_DIR" ]; then
     echo "secret set: $name"
   done
 fi
+# The annual renewal reminder (renewalReminders.ts) needs its sending key; without it every due
+# reminder is a NAMED STOP in the Worker log, so say it here too, where a person is watching.
+npx wrangler secret list --env production 2>/dev/null | grep -q '"RESEND_API_KEY"' || echo "NAMED STOP [RENEWAL_EMAIL_KEY_MISSING] set RESEND_API_KEY (Resend sending key for mail.aplayermode.com) with --secrets-dir"
 for attempt in $(seq 1 12); do
   body=$(curl -sS --max-time 20 https://api.aplayermode.com/v1/health || true)
   if node -e "const b=JSON.parse(process.argv[1]||'{}');process.exit(b.ok===true&&b.buildSha===process.argv[2]&&b.runtimeEnvironment==='production'?0:1)" "$body" "$SHA" 2>/dev/null; then
