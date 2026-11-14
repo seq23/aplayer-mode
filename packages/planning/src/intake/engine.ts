@@ -336,12 +336,57 @@ export function resolveDeepLink(a: IntakeAnswers, target: string | undefined, cu
 
 export interface Progress { answered: number; total: number; index: number }
 
+/**
+ * Answers that open or close follow-up questions, each with the plain reason. THE setup count
+ * (setupCount) changes mid-flow only after one of these answers, or when she picks "Keep going"
+ * on the express screen; the setup screen says so in one line. A new gate that hangs off any
+ * other answer fails packages/planning/test/intake.test.mjs until it is listed here.
+ */
+export const BRANCH_QUESTIONS: Readonly<Record<string, string>> = {
+  games: 'each game brings its own questions',
+  clinician_flag: 'a safety follow-up',
+  goal: 'this goal needs a number',
+  deadlines: 'a deadline needs its date',
+  core_pillars: 'each pillar has its own questions',
+  income: 'more than one income needs an order',
+  practices: 'a practice needs how often',
+  launch: 'a custom morning has more steps',
+  learning: 'a topic needs how you learn best',
+};
+
+export interface SetupCount {
+  /** Questions she has answered on the counted path. */
+  done: number;
+  /** Questions on the counted path: the quick path until she picks "Keep going", then the full one. */
+  total: number;
+  /** total minus done, for the "About N min left" line. */
+  left: number;
+  /** Full-path questions she has not answered and that are not on the quick path: they wait on Today. */
+  deferred: number;
+}
+
+const counted = (a: IntakeAnswers, mode: IntakeMode) => questionPath(a, mode).filter((screen) => screen.question!.type !== 'text');
+
+/**
+ * THE setup count: the progress bar, the time left, the "Finish later" note, the express choice
+ * and the summary all read this one function, so no two screens can disagree. Before the
+ * choice it counts the quick path (the promise made on the welcome page); "Keep going" switches
+ * it to the full path. The optional free-text box is never counted.
+ */
+export function setupCount(a: IntakeAnswers, mode?: IntakeMode): SetupCount {
+  const on = counted(a, mode === 'full' ? 'full' : 'quick');
+  const done = on.filter((screen) => answered(screen.question!, a)).length;
+  const quickIds = new Set(counted(a, 'quick').map((screen) => screen.id));
+  const deferred = counted(a, 'full').filter((screen) => !quickIds.has(screen.id) && !answered(screen.question!, a)).length;
+  return { done, total: on.length, left: on.length - done, deferred };
+}
+
 export function progress(a: IntakeAnswers, current: string, mode?: IntakeMode): Progress {
-  const questions = questionPath(a, mode);
+  const count = setupCount(a, mode);
   return {
-    answered: questions.filter((screen) => answered(screen.question!, a)).length,
-    total: questions.length,
-    index: questions.findIndex((screen) => screen.id === current),
+    answered: count.done,
+    total: count.total,
+    index: counted(a, mode === 'full' ? 'full' : 'quick').findIndex((screen) => screen.id === current),
   };
 }
 
@@ -351,20 +396,15 @@ export function holdingCount(a: IntakeAnswers): number {
   return count('carry') + count('fixed', 'none') + count('deadlines', 'none') + count('lines') + count('floors') + (a.first_step ? 1 : 0) + (a.goal ? 1 : 0);
 }
 
-/**
- * Counts shown on the quick-start choice, all from ONE count so the screens agree: the quick
- * questions left, the ones that wait on Today (deferredQuestionIds, as the summary says), and
- * their sum for "Keep going".
- */
+/** The express choice's numbers, from setupCount: the quick questions left, the ones that wait on Today, and their sum. */
 export function quickStartCounts(a: IntakeAnswers): { quickLeft: number; deferred: number; fullLeft: number } {
-  const quickLeft = questionPath(a, 'quick').filter((screen) => !answered(screen.question!, a) && screen.question!.type !== 'text').length;
-  const deferred = deferredQuestionIds(a).length;
-  return { quickLeft, deferred, fullLeft: quickLeft + deferred };
+  const { left, deferred } = setupCount(a, 'quick');
+  return { quickLeft: left, deferred, fullLeft: left + deferred };
 }
 
-/** Questions left on her path, for the "About N min left" line (before the quick/full choice: the quick path). */
+/** Questions left on her path, for the "About N min left" line (setupCount). */
 export function questionsLeft(a: IntakeAnswers, mode?: IntakeMode): number {
-  return questionPath(a, mode ?? 'quick').filter((screen) => !answered(screen.question!, a) && screen.question!.type !== 'text').length;
+  return setupCount(a, mode).left;
 }
 
 /** Quick start is recommended when the load is 8+ or the season is recovering / rebuilding. */

@@ -120,3 +120,24 @@ export function syncedWords(iso: string | null | undefined, now: Date = new Date
   const time = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   return at.toDateString() === now.toDateString() ? `Synced ${time}` : `Synced ${at.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, ${time}`;
 }
+
+/** "1 answer", "3 answers": never "1 answers". */
+export const answersWord = (n: number): string => `${n} ${n === 1 ? 'answer' : 'answers'}`;
+
+/**
+ * The "Finish later" note, from the ONE setup count (setupCount.done): never "All 2 answers"
+ * when one was given, and no "All" at all (it reads like a total she did not reach).
+ */
+export function savedAnswersLine(done: number, inAccount: boolean): string {
+  const where = inAccount ? 'on this phone and in your account' : 'on this phone';
+  const what = done === 0 ? 'Nothing is lost' : done === 1 ? 'Your 1 answer is saved' : `Your ${done} answers are saved`;
+  return `${what} ${done === 0 ? '' : where}`.trim() + '. Open APM any time and you\'ll be right back on this question.';
+}
+
+/** The one line under the setup bar when her last answer added or removed questions (setupCount + BRANCH_QUESTIONS). */
+export function countChangeLine(before: number, after: number, reason: string | undefined): string | undefined {
+  if (after === before) return undefined;
+  const n = Math.abs(after - before);
+  const change = `${after > before ? 'added' : 'removed'} ${n} question${n === 1 ? '' : 's'}`;
+  return `Your last answer ${change}${reason ? ` (${reason})` : ''}. Now ${after} in all.`;
+}

@@ -16,6 +16,7 @@ import {
   START_PRICE_LINE,
   START_PRICE_SHORT,
   TRACKS,
+  WELCOME_LEGAL,
   WELCOME_PLATE,
   WELCOME_TIERS_TEASER,
   WITHOUT_WITH,
@@ -35,8 +36,8 @@ const ROLE_ICONS: readonly IconName[] = ['compass', 'list', 'map', 'shield', 're
 /**
  * The welcome page sells (docs/34 §3, docs/36 H1): the promise first, then how it works,
  * then the pitch in a scannable order. The five jobs, the persona for her game, the six
- * engines and the coaching modes are VISIBLE (one line each), not hidden behind taps; only
- * the long tail (six more Tracks, the advice transcript) folds. A sticky "Start" button,
+ * engines, the coaching modes and the situations fold to one line each under their headings
+ * (sim review 14 Nov 2026: the page was ~6,800 pt), so Start comes sooner. A sticky "Start" button,
  * and the CTA again at the end. All copy lives in src/content/sell.ts.
  */
 export default function WelcomeScreen() {
@@ -44,8 +45,9 @@ export default function WelcomeScreen() {
   const { track } = useIntake();
   const { ageConfirmed, healthDecision } = useConsent();
   const { deleted } = useLocalSearchParams<{ deleted?: string }>();
-  const [persona, setPersona] = useState<string>(PERSONAS.personas[0].title);
-  const shown = PERSONAS.personas.find((p) => p.title === persona) ?? PERSONAS.personas[0];
+  // Nothing is picked for her: the card appears when she taps her game.
+  const [persona, setPersona] = useState<string | undefined>(undefined);
+  const shown = PERSONAS.personas.find((p) => p.title === persona);
   // Pay first (docs/33 §10): web app only; straight to the Founding 100 card checkout.
   const payFirst = payFirstAllowed(appDistribution());
   // The button follows the server's Founding 100 count: the standard offer once it is full.
@@ -123,22 +125,26 @@ export default function WelcomeScreen() {
 
       <Section eyebrow="Whatever game you're playing" title={PERSONAS.title}>
         <ChoiceRow options={PERSONAS.personas.map((p) => ({ id: p.title, label: p.title }))} value={persona} onChange={setPersona} />
-        <Card tone="feature">
-          <Label tone="accent">{shown.title}</Label>
-          <CardTitle>{shown.thought}</CardTitle>
-          <Row gap="xs" align="flex-start"><Icon name="corner-down-right" size={16} tone="accent" /><Fill><Body>{shown.plate}</Body></Fill></Row>
-        </Card>
+        {shown ? (
+          <Card tone="feature">
+            <Label tone="accent">{shown.title}</Label>
+            <CardTitle>{shown.thought}</CardTitle>
+            <Row gap="xs" align="flex-start"><Icon name="corner-down-right" size={16} tone="accent" /><Fill><Body>{shown.plate}</Body></Fill></Row>
+          </Card>
+        ) : <Muted>Tap your game to see what APM takes off your plate.</Muted>}
         <Muted>{`Also for: ${PERSONAS.alsoFor.join(' · ')}. One life, many games.`}</Muted>
       </Section>
 
       <Section eyebrow="Runs in the background" title={INSIDE.title}>
-        <Body muted>{INSIDE.lead}</Body>
-        <Card>{INSIDE.parts.map((part) => <ListItem key={part.title} title={part.title} detail={part.body} />)}</Card>
+        <Disclosure icon="layers" title={INSIDE.lead} summary={INSIDE.parts.map((part) => part.title).join(' · ')}>
+          {INSIDE.parts.map((part) => <ListItem key={part.title} title={part.title} detail={part.body} />)}
+        </Disclosure>
       </Section>
 
       <Section eyebrow="Coaching" title={MODES.title}>
-        <Body muted>{MODES.lead}</Body>
-        <Card>{MODES.modes.map((mode) => <ListItem key={mode.key} title={mode.title} detail={mode.body} />)}</Card>
+        <Disclosure icon="compass" title={MODES.lead} summary={MODES.modes.map((mode) => mode.title).join(' · ')}>
+          {MODES.modes.map((mode) => <ListItem key={mode.key} title={mode.title} detail={mode.body} />)}
+        </Disclosure>
       </Section>
 
       <Section eyebrow="Tracks" title={TRACKS.title}>
@@ -154,14 +160,14 @@ export default function WelcomeScreen() {
       </Section>
 
       <Section eyebrow="Handled for you" title={SITUATIONS.title}>
-        <Card>
+        <Disclosure icon="refresh-cw" title={`${SITUATIONS.rows.length} situations`} summary={SITUATIONS.rows.map(([when]) => when).join(' · ')}>
           {SITUATIONS.rows.map(([when, then]) => (
             <Stack key={when} gap="xxs">
               <Body strong>{when}</Body>
               <Row gap="xs" align="flex-start"><Icon name="corner-down-right" size={16} tone="accent" /><Fill><Body tone="accent">{then}</Body></Fill></Row>
             </Stack>
           ))}
-        </Card>
+        </Disclosure>
         <Muted>{SITUATIONS.close}</Muted>
       </Section>
 
@@ -186,6 +192,7 @@ export default function WelcomeScreen() {
       <Button label={CTA_LABEL} large onPress={start} />
       <Muted align="center">{START_PRICE_LINE}</Muted>
       <PlateLine text={WELCOME_PLATE} />
+      <Muted align="center">{WELCOME_LEGAL}</Muted>
     </Screen>
   );
 }

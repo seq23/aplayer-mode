@@ -13,10 +13,9 @@ import { PREVIEW, PREVIEW_COPY } from '../../preview/flag';
  * Google; Guideline 4.8), Google, or a 6-digit email code typed in the same screen. No
  * passwords, no leaving the app to confirm an email, no vendor names in the copy.
  */
-export function AccountPanel({ title, sub, answeredCount, onDone, onLater, laterLabel = 'Not now, keep going' }: {
+export function AccountPanel({ title, sub, onDone, onLater, laterLabel = 'Back' }: {
   title: string;
   sub: string;
-  answeredCount?: number;
   onDone: (result: AccountResult) => void;
   onLater?: () => void;
   laterLabel?: string;
@@ -82,13 +81,12 @@ export function AccountPanel({ title, sub, answeredCount, onDone, onLater, later
   return (
     <View style={intakeStyles.stack}>
       <QuestionTitle>{title}</QuestionTitle>
-      <Body muted>{`${sub}${answeredCount !== undefined ? ` ${answeredCount} answers so far.` : ''}`}</Body>
+      <Body muted>{sub}</Body>
       {PREVIEW ? <Reason>{PREVIEW_COPY.signIn}</Reason> : null}
       {Platform.OS === 'ios' ? <AppleButton busy={busy === 'apple'} onPress={() => void run('apple', signInWithApple)} /> : null}
       <Button label={busy === 'google' ? 'Opening Google…' : 'Continue with Google'} variant="secondary" large onPress={() => void run('google', signInWithGoogle)} />
       <Button label="Email me a 6-digit code" variant="secondary" icon="mail" large onPress={() => setStage('email')} />
-      {onLater ? <Button label={laterLabel} variant="ghost" accessibilityHint="Saved on this phone; we'll ask again at install." onPress={onLater} /> : null}
-      {onLater && laterLabel !== 'Back' ? <Muted align="center">Saved on this phone; we'll ask again at install.</Muted> : null}
+      {onLater ? <Button label={laterLabel} variant="ghost" onPress={onLater} /> : null}
       {error ? <Reason>{error}</Reason> : null}
       <Card tone="muted">
         <CardTitle>Your account keeps your plan private and safe.</CardTitle>

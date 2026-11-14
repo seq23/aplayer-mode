@@ -19,6 +19,8 @@ export const HAVE_ACCOUNT_LABEL = 'I already have an account';
 export const PRIVACY_LINE = 'Your data is yours. Private-life AI runs only on zero-retention, no-training routes.';
 export const PRIVACY_LINK_LABEL = 'How APM protects your data';
 export const WELCOME_PLATE = 'Your brain stops holding every project, role, rule and restart alone.';
+/** The last line of the welcome page (spry brain: no income or results promised; not advice). */
+export const WELCOME_LEGAL = 'Examples, not guarantees. A planning and coaching tool made with AI; not medical, financial or mental-health advice.';
 
 export interface Card { title: string; body: string }
 
@@ -26,7 +28,7 @@ export const HERO = {
   eyebrow: 'A Player Mode',
   headline: 'Reduce your cognitive load.',
   sub: 'Whatever game you\'re in, get into A Player Mode. Your personal executive operating system plans, sequences, prioritizes and catches you after bad days, so your brain stops holding every project, role, rule and restart alone.',
-  emptyLine: `Running on empty? Tap Start. About ${QUICK_SETUP_MINUTES} minutes of taps to a plan that already works.`,
+  emptyLine: `Running on empty? Tap Start. About ${QUICK_SETUP_MINUTES} minutes of taps to a plan you can start today.`,
   definitionTitle: 'What A-player mode means',
   definition: [
     'Clearer priorities.',
@@ -56,15 +58,15 @@ export const CONTINUITY = {
 } as const;
 
 export const FIVE_ROLES = {
-  title: 'Five people you would hire. One app.',
-  lead: 'Elite performers pay for a support stack. APM is that stack, working for you every day.',
-  framing: 'Billionaires do not rely on motivation. They buy structure: a coach for clarity, a chief of staff for sequencing, an accountability partner for follow-through. Most people are expected to do all of that alone. APM runs that support stack for you, every day.',
+  title: 'Your five-person executive team. One app.',
+  lead: 'Five jobs most people do alone, played by AI and run for you every day.',
+  framing: 'They are roles played by AI, not people you hire, and not advice or therapy. You stay in charge of every decision.',
   roles: [
-    { title: 'Executive Coach', body: 'Calm, clear direction under pressure. You stop talking yourself in circles.' },
-    { title: 'Executive Assistant', body: 'Sequences the day and tells you exactly where to start. You stop deciding what is first.' },
-    { title: 'Chief of Staff', body: 'Keeps projects, priorities and long-term goals lined up. You stop holding the whole map.' },
-    { title: 'Accountability Partner', body: 'Holds the line between days when motivation disappears. You stop restarting.' },
-    { title: 'Mindset Coach', body: 'Interrupts the spiral after a miss and gets you back to one small action. You stop the shame loop.' },
+    { title: 'Executive Coach', body: 'Calm, clear direction when you feel pressure, one question at a time.' },
+    { title: 'Executive Assistant', body: 'Puts the day in order and shows you where to start.' },
+    { title: 'Chief of Staff', body: 'Keeps projects, priorities and long-term goals lined up, so you are not holding the whole map.' },
+    { title: 'Accountability Partner', body: 'Holds your plan between days: after a miss, the next day shrinks instead of starting over.' },
+    { title: 'Mindset Coach', body: 'After a miss, points you back to one small action.' },
   ] as readonly Card[],
 } as const;
 
@@ -162,7 +164,7 @@ export const WITHOUT_WITH = {
       'You: "The investor follow-ups I\'ve been avoiding."',
       'APM: "Send 2, not all of them. Then tell me done."',
     ],
-    result: 'It did not give advice. It regulated the day, and tomorrow continues instead of restarting.',
+    result: 'It did not give advice. It shrank the day to one step, and tomorrow picks up from there.',
   },
 } as const;
 
@@ -304,7 +306,7 @@ export const WELCOME_SECTIONS: readonly WelcomeSection[] = [
 
 /** Every string the welcome page renders (the test pins content against it). */
 export function welcomeText(): string {
-  return JSON.stringify([START_PRICE_SHORT, START_PRICE_LINE, HERO, HOW_IT_WORKS, CONTINUITY, FIVE_ROLES, PERSONAS, INSIDE, MODES, TRACKS, SITUATIONS, WITHOUT_WITH, WELCOME_TIERS_TEASER, PRIVACY_LINE, CTA_LABEL, WELCOME_SECTIONS]);
+  return JSON.stringify([START_PRICE_SHORT, START_PRICE_LINE, WELCOME_LEGAL, HERO, HOW_IT_WORKS, CONTINUITY, FIVE_ROLES, PERSONAS, INSIDE, MODES, TRACKS, SITUATIONS, WITHOUT_WITH, WELCOME_TIERS_TEASER, PRIVACY_LINE, CTA_LABEL, WELCOME_SECTIONS]);
 }
 
 /** Every string the plan screen renders above the purchase options. */

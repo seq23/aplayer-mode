@@ -167,7 +167,7 @@ const intakeProfileSchema = z.object({
   coachingHelps: idList(),
   coachingAvoid: idList(),
   morningTrigger: z.enum(['wake', 'wake15', 'wake30']).optional(),
-  systemName: z.enum(['My A Player Mode', 'My Roundtable', 'My Chief of Staff', 'Billionaire Executive Roundtable']).optional(),
+  systemName: z.string().trim().min(1).max(40).optional(),
   quickStart: z.boolean(),
   deferredQuestionIds: idList(80),
   suggestedAreas: z.array(z.object({ label: z.string().trim().min(1).max(60), area: z.enum(AREA_KEYS) }).strict()).max(10),

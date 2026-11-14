@@ -408,8 +408,13 @@ export function clockLabel(minutes: number): string {
 // ---------------------------------------------------------------------------
 
 
+/** The plan's name when she leaves "Name it" blank. Never shown as already picked. */
+export const DEFAULT_SYSTEM_NAME = 'My A Player Mode';
+export const SYSTEM_NAME_MAX = 40;
+
+/** Suggestions under "Name it" (a tap fills the box); none is selected until she taps one. */
 export function systemNameOptions(a: IntakeAnswers): string[] {
-  const names = ['My A Player Mode', 'My Roundtable', 'My Chief of Staff'];
+  const names = [DEFAULT_SYSTEM_NAME, 'My Roundtable', 'My Chief of Staff'];
   // "Billionaire Executive Roundtable" only for founders and equity holders.
   if (helpers.any(a, 'founder') || a.equity === true) names.push('Billionaire Executive Roundtable');
   return names;
@@ -428,6 +433,8 @@ export interface IntakeSynthesis {
   firstSevenDays: typeof FIRST_SEVEN_DAYS;
   laws: string[];
   systemName: string;
+  /** False when she left "Name it" blank and the default applies. */
+  systemNameChosen: boolean;
   systemNames: string[];
   holding: number;
   /** Coaching-mode chips Today shows (Sprint and Deep Work only when they apply). */
@@ -471,7 +478,7 @@ export function synthesizeProfile(a: IntakeAnswers, context: { startDate: string
   });
   const tone = coachingTone(a);
   const names = systemNameOptions(a);
-  const chosenName = str(a, 'sysname');
+  const chosenName = str(a, 'sysname')?.trim().slice(0, SYSTEM_NAME_MAX);
   return {
     goalText: text,
     plan,
@@ -484,7 +491,9 @@ export function synthesizeProfile(a: IntakeAnswers, context: { startDate: string
     practices: practices.filter((p) => pillars.activeAreas.includes(p.area)),
     firstSevenDays: FIRST_SEVEN_DAYS,
     laws: CORE_LAWS.map((law) => law.label),
-    systemName: chosenName && names.includes(chosenName) ? chosenName : names[0]!,
+    // Her own words, or the default only because she left it blank.
+    systemName: chosenName || DEFAULT_SYSTEM_NAME,
+    systemNameChosen: Boolean(chosenName),
     systemNames: names,
     holding: 0,
     modeChips: coachingModeChips(a),

@@ -52,6 +52,11 @@ test('the welcome page states the starting price and its terms beside Start; the
   }
   assert.ok(!welcome.includes(sell.TIER_GRID_WHO.title) && !welcome.includes(sell.TIER_GRID_WHAT.title), 'no grids on the welcome page');
   assert.ok(!/Founding 100/.test(welcome), 'never the bare "Founding 100"');
+  // Claims (spry brain, risk R-ADV-05, R-PRF-03): no unprovable statements about billionaires or
+  // elite performers, no implied equivalence to hired people, no implied results; the page ends with the disclaimer.
+  assert.doesNotMatch(welcome, /Billionaires do|Elite performers|people you would hire|already works|regulated the day|You stop /, 'no unprovable or outcome claim on the welcome page');
+  assert.match(sell.WELCOME_LEGAL, /not guarantees/);
+  assert.match(sell.WELCOME_LEGAL, /not medical, financial or mental-health advice/);
   const plan = sell.planScreenText(sell.offerBanner({ founding: false }));
   for (const p of ['chief_of_staff', 'life_os', 'autopilot']) {
     assert.ok(plan.includes(usd(policy.PLAN_PRICES[p].monthlyUsdCents)), `${p} monthly`);
@@ -124,7 +129,6 @@ test('answers hit the device synchronously on native; web storage never crashes;
   assert.match(web, /try \{/);
   const account = await read('src/components/intake/AccountPanel.tsx');
   assert.match(account, /Platform\.OS === 'ios' \? <AppleButton/);
-  assert.match(account, /Not now, keep going/);
   assert.match(account, /textContentType="oneTimeCode"/);
   const session = await read('src/state/session.tsx');
   assert.match(session, /signInAnonymously/);

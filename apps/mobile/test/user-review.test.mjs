@@ -94,3 +94,57 @@ test('#18: no system jargon on the screens she reads first', async () => {
     assert.doesNotMatch(text, /'Install my OS'|title="Drafting Room"|title: 'Drafting Room'/, file);
   }
 });
+
+// ---------------------------------------------------------------- the simulator first-time test (14 Nov 2026)
+
+test('sim #1: one setup count everywhere on the intake; a jump says why in one line', async () => {
+  const intake = await src('app/intake.tsx');
+  assert.match(intake, /const count = setupCount\(answers, mode\);/);
+  assert.match(intake, /<ProgressBar done=\{count\.done\} total=\{count\.total\}/, 'the bar reads the one count');
+  assert.doesNotMatch(intake, /questionsLeft\(|deferredQuestionIds\(/, 'no second count on the intake screen');
+  assert.match(intake, /BRANCH_QUESTIONS\[lastAnswer\.current\]/, 'a change names the answer that caused it');
+  assert.equal(m.words.countChangeLine(22, 22, undefined), undefined, 'no change, no line');
+  assert.equal(m.words.countChangeLine(18, 22, 'each game brings its own questions'), 'Your last answer added 4 questions (each game brings its own questions). Now 22 in all.');
+  assert.equal(m.words.countChangeLine(23, 22, 'this goal needs a number'), 'Your last answer removed 1 question (this goal needs a number). Now 22 in all.');
+});
+
+test('sim #2: nothing is pre-picked: no demo game on the welcome page, no plan name ticked', async () => {
+  const welcome = await src('app/welcome.tsx');
+  assert.match(welcome, /useState<string \| undefined>\(undefined\)/, 'the game picker starts empty');
+  assert.doesNotMatch(welcome, /useState<string>\(PERSONAS\.personas\[0\]/);
+  assert.match(welcome, /\{shown \? \(/, 'the example card shows only after a tap');
+  assert.match(welcome, /\{WELCOME_LEGAL\}/, 'the disclaimer is on the page');
+  const reveal = await src('src/components/intake/Reveal.tsx');
+  assert.match(reveal, /selected=\{answers\.sysname === name\}/, 'a name chip is ticked only when she tapped it');
+  assert.doesNotMatch(reveal, /selected=\{s\.systemName === name\}/, 'the default name is never shown as picked');
+  assert.match(reveal, /placeholder=\{`e\.g\. \$\{DEFAULT_SYSTEM_NAME\}`\}/, 'an empty box with a placeholder');
+});
+
+test('sim #3/#4: plain words about saving to an account; the save step has one forward button, never a dead Continue', async () => {
+  const intake = await src('app/intake.tsx');
+  const panel = await src('src/components/intake/AccountPanel.tsx');
+  for (const [file, text] of [['intake', intake], ['panel', panel]]) {
+    assert.doesNotMatch(text, /ask again at install|to install it|Save your OS/, `${file}: no "install" talk in an installed app`);
+  }
+  assert.match(intake, /if \(screen\.kind === 'account' && !answers\._acct\) \{\s*nextLabel = 'Not now, keep going';\s*nextVariant = 'secondary';/);
+  assert.doesNotMatch(intake, /screen\.kind === 'account'\) \{ canNext = Boolean\(answers\._acct\)/, 'no disabled Continue on the save step');
+  assert.doesNotMatch(intake, /onLater=\{\(\) => \{ answer\('_acct', 'later'\)/, 'the panel carries no second "Not now"');
+});
+
+test('sim #5: Finish later sits low and quiet; its note counts her answers right', async () => {
+  const intake = await src('app/intake.tsx');
+  const top = intake.slice(intake.indexOf('const top ='), intake.indexOf('let body'));
+  assert.doesNotMatch(top, /Finish later/, 'not in the top corner where a quick tap lands');
+  assert.match(intake, /<LinkButton label="Finish later" muted align="center" onPress=\{finishLater\} \/>/);
+  assert.match(intake, /savedAnswersLine\(count\.done, /, 'the note reads the one count');
+  assert.equal(m.words.savedAnswersLine(1, false), 'Your 1 answer is saved on this phone. Open APM any time and you\'ll be right back on this question.');
+  assert.match(m.words.savedAnswersLine(2, true), /^Your 2 answers are saved on this phone and in your account\./);
+  assert.match(m.words.savedAnswersLine(0, false), /^Nothing is lost\./);
+  for (const n of [0, 1, 2, 9]) assert.doesNotMatch(m.words.savedAnswersLine(n, false), /\bAll\b|1 answers/);
+});
+
+test('sim #8: a disabled Start my plan says why and what to tap', async () => {
+  const intake = await src('app/intake.tsx');
+  assert.match(intake, /if \(noSession\) reason = `Start my plan unlocks once your plan is saved to an account\. Scroll up to "Save your plan to an account" and tap/);
+  assert.match(intake, /title="Save your plan to an account"/, 'the box the reason points at has that title');
+});
