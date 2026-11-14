@@ -27,8 +27,10 @@ import {
 } from '../practices.js';
 import { BANK_VERSION, FLOOR_CHIPS } from './bank.js';
 import {
+  OTHER_OPTION,
   boundaryLines,
   chosenGoal,
+  deadlineWindowFor,
   deferredQuestionIds,
   foregroundGame,
   gameIds,
@@ -36,7 +38,9 @@ import {
   helpers,
   nonNegotiableLines,
   optionLabel,
+  otherText,
   pillarOn,
+  questionById,
   visibleAnswers,
 } from './engine.js';
 import type { GameKey, IntakeAnswers, IntakeMode, ProposedArea, ProposedPillar } from './types.js';
@@ -87,7 +91,7 @@ export function trackRecommendations(a: IntakeAnswers): TrackProposal[] {
   return out.map(([key, reason]) => ({ key, name: TRACK_DISPLAY_NAMES[key], reason, on: a[`trk_${key}`] !== false }));
 }
 
-/** High-Pressure Coaching is pre-selected (one tap to confirm) when this Track is suggested. */
+/** The ownership Track is suggested (High-Pressure is offered, never pre-selected: owner review 14 Nov 2026). */
 export function highPressureSuggested(a: IntakeAnswers): boolean {
   return trackRecommendations(a).some((track) => track.key === 'billionaire_mindset');
 }
@@ -102,9 +106,10 @@ export const COACHING_TONE_LABELS: Readonly<Record<CoachingTone, string>> = {
 
 export function coachingTone(a: IntakeAnswers): { tone: CoachingTone; preselected: boolean } {
   const chosen = str(a, 'tone') as CoachingTone | undefined;
-  if (chosen) return { tone: chosen, preselected: a._pf_tone === true };
-  if (highPressureSuggested(a)) return { tone: 'high_pressure', preselected: true };
-  return { tone: helpers.tough(a) ? 'gentle' : 'direct', preselected: false };
+  if (chosen) return { tone: chosen, preselected: false };
+  // Not picked yet: the recommended tone (gentle after burnout, shame, a full head or a hard season), never High-Pressure.
+  const recommended = questionById('tone')?.recommended?.(a, helpers);
+  return { tone: recommended === 'gentle' ? 'gentle' : 'direct', preselected: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -112,17 +117,17 @@ export function coachingTone(a: IntakeAnswers): { tone: CoachingTone; preselecte
 // ---------------------------------------------------------------------------
 
 const GOAL_TEXT: Readonly<Record<string, (n?: number) => string>> = {
-  lose_weight: (n) => `Lose ${n ?? 20} lb`,
-  workout_habit: (n) => `Get in shape: ${n ?? 3} workouts a week`,
+  lose_weight: (n) => (n ? `Lose ${n} lb` : 'Lose weight'),
+  workout_habit: (n) => (n ? `Get in shape: ${n} workouts a week` : 'Get in shape: a steady workout habit'),
   eat_better: () => 'Get healthy: eat better most days',
   energy: () => 'Get healthy: get my energy back',
-  emergency_fund: (n) => `Build an emergency fund covering ${n ?? 3} months of expenses`,
-  pay_debt: (n) => `Pay off my ${n ?? 3} debts`,
+  emergency_fund: (n) => (n ? `Build an emergency fund covering ${n} months of expenses` : 'Build an emergency fund'),
+  pay_debt: (n) => (n ? `Pay off my ${n} debts` : 'Pay off my debts'),
   invest_monthly: () => 'Start investing every month',
-  save_goal: (n) => `Build savings of $${n ?? 10},000 for a big goal`,
+  save_goal: (n) => (n ? `Build savings of $${n},000 for a big goal` : 'Build savings for a big goal'),
   launch: () => 'Launch my product',
-  customers: (n) => `Get ${n ?? 10} paying customers`,
-  revenue: (n) => `Hit $${n ?? 10}k in monthly revenue`,
+  customers: (n) => (n ? `Get ${n} paying customers` : 'Get paying customers'),
+  revenue: (n) => (n ? `Hit $${n}k in monthly revenue` : 'Hit a monthly revenue target'),
   raise: () => 'Raise money for my startup',
   hire: () => 'Hire the next person for my business',
   promotion: () => 'Get promoted',
@@ -142,7 +147,7 @@ const GOAL_TEXT: Readonly<Record<string, (n?: number) => string>> = {
   thesis: () => 'Finish a thesis or project',
   admission: () => 'Get into a program',
   ship_release: () => 'Ship a release or publication',
-  consistent: (n) => `Publish ${n ?? 3} posts a week`,
+  consistent: (n) => (n ? `Publish ${n} posts a week` : 'Publish posts consistently every week'),
   draft: () => 'Finish a draft of my book',
   audience: () => 'Grow an audience',
   new_job: () => 'Land a new job',
@@ -152,16 +157,26 @@ const GOAL_TEXT: Readonly<Record<string, (n?: number) => string>> = {
 };
 
 export function goalText(a: IntakeAnswers): string {
+  const own = a.goal === OTHER_OPTION ? otherText(questionById('goal')!, a) : undefined;
+  if (own) return own;
   const goal = chosenGoal(a);
   if (!goal) return 'Make one meaningful thing happen in the next 90 days';
-  const size = goal.size ? num(a, 'goal_size') ?? goal.size.def : undefined;
+  // Only a number she set: an untouched size slider is no answer (owner review 14 Nov 2026).
+  const size = goal.size ? num(a, 'goal_size') : undefined;
   return (GOAL_TEXT[goal.id] ?? (() => goal.label))(size);
+}
+
+/** The first step she picked, or her own words for it. */
+export function firstStepText(a: IntakeAnswers): string | undefined {
+  const step = str(a, 'first_step');
+  if (step === OTHER_OPTION) return otherText(questionById('first_step')!, a);
+  return step;
 }
 
 export function goalOutcome(a: IntakeAnswers): string | undefined {
   const goal = chosenGoal(a);
-  if (!goal?.size) return undefined;
-  return `${num(a, 'goal_size') ?? goal.size.def} ${goal.size.unit}`;
+  if (!goal?.size || num(a, 'goal_size') === undefined) return undefined;
+  return `${num(a, 'goal_size')} ${goal.size.unit}`;
 }
 
 /** Target date from "By when?" (none → no hard date; the 90-day gates still run). */
@@ -354,7 +369,7 @@ export function bedRoutineFor(a: IntakeAnswers): BedRoutine | undefined {
 
 /** Up to 5 physical steps; the in-bed routine is step 1 when it is on. */
 export function compileMorning(a: IntakeAnswers): string[] {
-  const first = `First task: ${str(a, 'first_step') ?? 'your highest-leverage step'}`;
+  const first = `First task: ${firstStepText(a) ?? 'your highest-leverage step'}`;
   const bed = bedRoutineFor(a) ? [BED_ROUTINE_STEP] : [];
   const launch = str(a, 'launch') ?? 'calm';
   const presets: Record<string, string[]> = {
@@ -521,7 +536,8 @@ export interface IntakeInstallPayload {
 const labels = (qid: string, values: string[], a: IntakeAnswers) => values.filter((v) => v !== 'none').map((v) => optionLabel(qid, v, a));
 const sentence = (parts: Array<string | undefined | false>) => parts.filter(Boolean).join(' ').trim() || undefined;
 
-export function buildIntakeProfile(a: IntakeAnswers, mode: IntakeMode, synthesis: IntakeSynthesis): IntakeProfile {
+export function buildIntakeProfile(a: IntakeAnswers, mode: IntakeMode, synthesis: IntakeSynthesis, today: string = new Date().toISOString().slice(0, 10)): IntakeProfile {
+  const deadlineWindow = deadlineWindowFor(str(a, 'deadline_date'), today);
   const family = helpers.any(a, 'parent') ? { dependents: arr(a, 'dependents'), protected: arr(a, 'protected'), ...(str(a, 'shared') ? { shared: str(a, 'shared') } : {}) } : undefined;
   const learning = str(a, 'learning');
   const bodySafety = str(a, 'clinician_flag') as IntakeProfile['bodySafety'] | undefined;
@@ -540,7 +556,7 @@ export function buildIntakeProfile(a: IntakeAnswers, mode: IntakeMode, synthesis
     ...(str(a, 'after_miss') ? { missPattern: str(a, 'after_miss') } : {}),
     ...(str(a, 'energy') ? { energyDip: str(a, 'energy') } : {}),
     deadlines: arr(a, 'deadlines').filter((x) => x !== 'none'),
-    ...(str(a, 'deadline_when') ? { deadlineWindow: str(a, 'deadline_when') } : {}),
+    ...(deadlineWindow ? { deadlineWindow } : {}),
     realWork: arr(a, 'real_work'),
     fakeWork: arr(a, 'fake_work'),
     wealthContext: arr(a, 'money_state'),
@@ -605,7 +621,7 @@ export function toInstallPayload(
     ...(context.timezone ? { timezone: context.timezone } : {}),
     ...(goalOutcome(a) ? { goalOutcome: goalOutcome(a) } : {}),
     ...(targetDate(a, context.startDate) ? { goalTargetDate: targetDate(a, context.startDate) } : {}),
-    ...(str(a, 'first_step') ? { firstNextAction: str(a, 'first_step') } : {}),
+    ...(firstStepText(a) ? { firstNextAction: firstStepText(a) } : {}),
     ...(str(a, 'northstar') ? { northStar: `${optionLabel('northstar', str(a, 'northstar')!)}${str(a, 'horizon') ? ` (${str(a, 'horizon')} years)` : ''}` } : {}),
     values: labels('values', arr(a, 'values'), a),
     nonNegotiables: labels('lines', nonNegotiableLines(a), a),
@@ -638,7 +654,7 @@ export function toInstallPayload(
     foregroundProjectName: synthesis.goalText,
     foregroundProjectObjective: goalOutcome(a) ? `${synthesis.goalText}: ${goalOutcome(a)}` : synthesis.goalText,
     reviewGateDays: 30,
-    intakeProfile: buildIntakeProfile(a, mode, synthesis),
+    intakeProfile: buildIntakeProfile(a, mode, synthesis, context.startDate),
     idempotencyKey: `intake-v${context.draftVersion}`,
   };
 }

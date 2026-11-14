@@ -13,6 +13,8 @@ import {
   PRIVACY_LINE,
   PRIVACY_LINK_LABEL,
   SITUATIONS,
+  START_PRICE_LINE,
+  START_PRICE_SHORT,
   TRACKS,
   WELCOME_PLATE,
   WELCOME_TIERS_TEASER,
@@ -73,6 +75,7 @@ export default function WelcomeScreen() {
         <>
           {payFirst ? <Button label={joinLabel} large onPress={join} /> : null}
           <Button label={CTA_LABEL} large variant={payFirst ? 'secondary' : 'primary'} onPress={start} />
+          <Muted align="center">{START_PRICE_SHORT}</Muted>
           <LinkButton role="link" align="center" label={HAVE_ACCOUNT_LABEL} onPress={() => router.push('/account')} />
         </>
       )}
@@ -181,6 +184,7 @@ export default function WelcomeScreen() {
       </Section>
 
       <Button label={CTA_LABEL} large onPress={start} />
+      <Muted align="center">{START_PRICE_LINE}</Muted>
       <PlateLine text={WELCOME_PLATE} />
     </Screen>
   );

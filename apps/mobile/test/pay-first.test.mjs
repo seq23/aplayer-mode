@@ -257,7 +257,11 @@ test('Today: the greeting and the date are in HER time zone and locale, never UT
   // A bad zone never throws: the device's own zone.
   assert.equal(typeof greet.todayLine(now, 'Not/AZone', 'en-US'), 'string');
   const today = await src('app/(tabs)/today.tsx');
-  assert.match(today, /title=\{`\$\{greeting\(hourIn\(now, graph\.identity\.timezone\)\)\}, \$\{name\}\.`\}/);
+  assert.equal(greet.greetingLine(15, 'Sam'), 'Good afternoon, Sam.');
+  assert.equal(greet.greetingLine(15, ''), 'Good afternoon.', 'no name: never "Good afternoon, there."');
+  assert.equal(greet.greetingLine(15, undefined), 'Good afternoon.');
+  assert.match(today, /title=\{greetingLine\(hourIn\(now, graph\.identity\.timezone\), name\)\}/);
+  assert.doesNotMatch(today, /'there'/);
   assert.match(today, /subtitle=\{`\$\{todayLine\(now, graph\.identity\.timezone\)\} · /);
   assert.doesNotMatch(today, /new Date\(\)\.getHours\(\)/, 'never the device clock alone');
 });

@@ -153,7 +153,7 @@ export default function YourDataScreen() {
 
       <Card tone="warning">
         <CardTitle>Correction requirement</CardTitle>
-        <Body>What you told APM in setup can be corrected in the Drafting Room. Promises APM found in your email or calendar keep a note of where they came from, so you can always see why APM thinks so.</Body>
+        <Body>What you told APM in setup can be corrected under Settings → Change my plan. Promises APM found in your email or calendar keep a note of where they came from, so you can always see why APM thinks so.</Body>
       </Card>
     </Screen>
   );

@@ -55,12 +55,12 @@ test('G2: a goal date is picked from horizons, never typed as YYYY-MM-DD', async
 });
 
 test('I1/I3: the intake shows time left, never "1 of 54"; the express choice is never a dead Continue', async () => {
-  assert.equal(words.minutesLeftLabel(54), 'About 6 min left');
+  assert.equal(words.minutesLeftLabel(54), 'About 9 min left');
   assert.equal(words.minutesLeftLabel(3), 'About 1 min left');
   assert.equal(words.minutesLeftLabel(0), 'Almost done');
   const intake = await src('app/intake.tsx');
   assert.doesNotMatch(intake, /\$\{p\.index \+ 1\} of \$\{p\.total\}/, 'no "N of 54" counter');
-  assert.match(intake, /minutesLeftLabel\(p\.total - p\.answered\)/);
+  assert.match(intake, /minutesLeftLabel\(shownLeft\)/, 'the time left is the one count, never climbing');
   assert.doesNotMatch(intake, /screen\.kind === 'express'\) \{ canNext = Boolean\(answers\.mode\)/, 'express Continue is not disabled with no reason');
   assert.match(intake, /screen\.kind === 'express' && !answers\.mode\) \{\s*nextLabel = 'Build my plan now';/);
   assert.doesNotMatch(intake, /under a minute/, 'the two estimates use the same rate');

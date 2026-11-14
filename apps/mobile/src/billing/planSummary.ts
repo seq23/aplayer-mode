@@ -5,7 +5,9 @@
 /** Status words, shared by the plan screen and the Settings home line. */
 export const PLAN_STATUS_WORDS: Readonly<Record<string, string>> = { active: 'Active', trialing: 'Active', past_due: 'Payment problem', cancelled: 'Cancelled', expired: 'Ended' };
 
-export function planSummary(entitlement: { displayName?: string; status?: string } | undefined): string | undefined {
+export function planSummary(entitlement: { displayName?: string; status?: string; hasPlan?: boolean } | undefined): string | undefined {
+  // Never bought one: "No plan yet", never "<plan> · ended" for something she never had.
+  if (entitlement?.hasPlan === false) return 'No plan yet';
   const name = entitlement?.displayName?.trim();
   if (!name) return undefined;
   return `${name} · ${(PLAN_STATUS_WORDS[entitlement?.status ?? ''] ?? 'Not active').toLowerCase()}`;

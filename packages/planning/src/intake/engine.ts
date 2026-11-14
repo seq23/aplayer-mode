@@ -50,10 +50,49 @@ export const helpers: GateHelpers = {
   goalHasSize: (a) => Boolean(chosenGoal(a)?.size),
   bodyOn: (a) => gameIds(a).some((game) => game === 'weight' || game === 'athlete') || pillarOn(a, 'body'),
   pillarOn,
-  tough: (a) => (num(a, 'load') ?? 7) >= 8 || ['recovering', 'rebuilding'].includes(str(a, 'season') ?? ''),
+  // An untouched load slider is no answer (owner review 14 Nov 2026): never a 7 she did not choose.
+  tough: (a) => (num(a, 'load') ?? 0) >= 8 || ['recovering', 'rebuilding'].includes(str(a, 'season') ?? ''),
 };
 
 export const ALL_QUESTIONS: readonly QuestionDef[] = SECTIONS.flatMap((section) => section.questions);
+
+/** The "Something else" choice; her words go to the question's `other` answer id. */
+export const OTHER_OPTION = 'other';
+export const OTHER_LABEL = 'Something else';
+
+/** First steps offered for a goal in her own words. */
+const OWN_GOAL_STEPS = ['Write down what done looks like', 'Book 30 minutes for it this week', 'Tell one person about it'];
+
+/** Her typed "Something else" text for this question, trimmed, or undefined. */
+export function otherText(question: QuestionDef, a: IntakeAnswers): string | undefined {
+  if (!question.other) return undefined;
+  const text = a[question.other];
+  return typeof text === 'string' && text.trim() ? text.trim().slice(0, 120) : undefined;
+}
+
+/** Sliders, times and optional questions can be skipped: an untouched scale saves nothing. */
+export function skippable(question: QuestionDef): boolean {
+  return question.optional === true || question.type === 'slider' || question.type === 'time';
+}
+
+/** Average seconds a setup question takes (measured walk, 14 Nov 2026: reading + tap). */
+export const SECONDS_PER_QUESTION = 10;
+export function setupMinutes(questions: number): number {
+  return Math.max(1, Math.round((questions * SECONDS_PER_QUESTION) / 60));
+}
+
+/** Days from `from` (YYYY-MM-DD) to `to`; negative when past. */
+export function daysUntil(to: string, from: string): number {
+  return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+}
+
+/** The nearest-deadline date becomes the window the engine scores urgency by. */
+export function deadlineWindowFor(date: string | undefined, today: string): 'week' | 'month' | 'quarter' | undefined {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return undefined;
+  const days = daysUntil(date, today);
+  if (!Number.isFinite(days) || days < 0) return undefined;
+  return days <= 7 ? 'week' : days <= 31 ? 'month' : 'quarter';
+}
 
 export function questionById(id: string): QuestionDef | undefined {
   return ALL_QUESTIONS.find((q) => q.id === id);
@@ -81,7 +120,7 @@ export const SCREEN_PLATES: Readonly<Record<string, string>> = {
   acct: 'So nothing you\'ve told APM is lost.',
   express: 'You decide how much setup today. Nothing you skip is lost; it waits on Today.',
   building: 'Taken off your plate: designing your own system.',
-  summary: 'Everything above is already decided. Change anything with one tap, or just install.',
+  summary: 'Built from your answers. Change anything with one tap, then start.',
   r1: 'You maintain the background. APM makes sure nothing silently collapses.',
   r2: 'One priority gets your best energy. The rest is maintenance, already scheduled.',
   r3: 'These filters run in the background. You never have to remember them.',
@@ -153,7 +192,7 @@ export function options(question: QuestionDef, a: IntakeAnswers): Array<[string,
     return arr(a, 'income').filter((x) => x !== 'none').map((x) => [x, income.find(([v]) => v === x)?.[1] ?? x]);
   }
   if (source === 'goalTemplates') return goalTemplates(a).filter((goal) => healthConsentGiven(a) || !HEALTH_DATA_GOAL_IDS.includes(goal.id)).map((goal) => [goal.id, goal.label]);
-  if (source === 'goalSteps') return [...(chosenGoal(a) ?? goalTemplates(a)[0]!).steps].map((s) => [s, s]);
+  if (source === 'goalSteps') return [...(a.goal === OTHER_OPTION ? OWN_GOAL_STEPS : (chosenGoal(a) ?? goalTemplates(a)[0]!).steps)].map((s) => [s, s]);
   if (source === 'floorOptions') {
     const out: Array<[string, string]> = [];
     for (const key of [...gameIds(a), '_all'] as Array<GameKey | '_all'>) {
@@ -177,7 +216,7 @@ export function sliderSpec(question: QuestionDef, a: IntakeAnswers): SliderSpec 
     const size = chosenGoal(a)?.size ?? { min: 1, max: 10, step: 1, unit: '', def: 5, question: 'How big?' };
     return { min: size.min, max: size.max, step: size.step, unit: size.unit, def: size.def, title: size.question };
   }
-  if (question.id === 'weight_now' && a.weight_unit === 'kg') return { min: 40, max: 180, step: 1, unit: 'kg', def: 80, title: question.title };
+  if (question.id === 'weight_now' && a.weight_unit === 'kg') return { min: 30, max: 320, step: 1, unit: 'kg', def: 0, title: question.title };
   return { min: question.min ?? 0, max: question.max ?? 10, step: question.step ?? 1, unit: question.unit ?? '', def: question.def ?? question.min ?? 0, title: question.title, lo: question.lo, hi: question.hi };
 }
 
@@ -187,6 +226,8 @@ export function questionTitle(question: QuestionDef, a: IntakeAnswers): string {
 
 /** Continue is enabled only when this is true; `requiredReason` says why when it is not. */
 export function requiredOk(question: QuestionDef, a: IntakeAnswers): boolean {
+  // "Something else" picked: her words are the answer, so they are needed.
+  if (question.other && (a[question.id] === OTHER_OPTION || arr(a, question.id).includes(OTHER_OPTION)) && !otherText(question, a)) return false;
   if (question.optional) return true;
   if (question.type === 'slider' || question.type === 'time') return true;
   if (question.type === 'rank') return arr(a, question.id).length === options(question, a).length;
@@ -196,6 +237,7 @@ export function requiredOk(question: QuestionDef, a: IntakeAnswers): boolean {
 
 export function requiredReason(question: QuestionDef, a: IntakeAnswers): string | undefined {
   if (requiredOk(question, a)) return undefined;
+  if (question.other && (a[question.id] === OTHER_OPTION || arr(a, question.id).includes(OTHER_OPTION)) && !otherText(question, a)) return 'Type it in a few words, or pick another.';
   return question.type === 'rank' ? 'Tap every item to set the order.' : 'Answer this one to continue.';
 }
 
@@ -226,13 +268,12 @@ export const boundaryLines = (a: IntakeAnswers) => arr(a, 'lines').filter((x) =>
 /**
  * Pre-fill from earlier answers, never asked twice (docs/34 §4.1). Returns the answers to
  * write (value + a `_pf_<id>` marker so the screen can say "Pre-filled"), or nothing.
- * `highPressureSuggested` comes from the Track proposal (profile.ts).
+ * The coaching tone is never pre-filled: she picks it (owner review 14 Nov 2026).
  */
-export function prefillFor(question: QuestionDef, a: IntakeAnswers, highPressureSuggested: boolean): Record<string, AnswerValue> | undefined {
+export function prefillFor(question: QuestionDef, a: IntakeAnswers): Record<string, AnswerValue> | undefined {
   if (!question.prefill || a[question.id] !== undefined) return undefined;
   const mark = (value: AnswerValue) => ({ [question.id]: value, [`_pf_${question.id}`]: true });
   if (question.prefill === 'core') return mark(['mind', 'body', 'spirit']);
-  if (question.prefill === 'tone') return highPressureSuggested ? mark('high_pressure') : undefined;
   if (question.prefill === 'floors') {
     const first = (FLOOR_CHIPS[foregroundGame(a)] ?? FLOOR_CHIPS._all)[0];
     return first ? mark([first.label]) : undefined;
@@ -283,7 +324,7 @@ export function stepScreen(a: IntakeAnswers, current: string, direction: 1 | -1,
 
 /** Where a resumed intake opens: the first unanswered question on her path (else the summary). */
 export function resumeCursor(a: IntakeAnswers, mode?: IntakeMode): string {
-  const firstOpen = questionPath(a, mode).find((screen) => screen.question && !answered(screen.question, a) && !screen.question.optional);
+  const firstOpen = questionPath(a, mode).find((screen) => screen.question && !answered(screen.question, a) && !skippable(screen.question));
   return firstOpen?.id ?? 'summary';
 }
 
@@ -310,10 +351,20 @@ export function holdingCount(a: IntakeAnswers): number {
   return count('carry') + count('fixed', 'none') + count('deadlines', 'none') + count('lines') + count('floors') + (a.first_step ? 1 : 0) + (a.goal ? 1 : 0);
 }
 
-/** Counts shown on the quick-start choice: questions left on the quick and the full path. */
-export function quickStartCounts(a: IntakeAnswers): { quickLeft: number; fullLeft: number } {
-  const left = (mode: IntakeMode) => questionPath(a, mode).filter((screen) => !answered(screen.question!, a)).length;
-  return { quickLeft: left('quick'), fullLeft: left('full') };
+/**
+ * Counts shown on the quick-start choice, all from ONE count so the screens agree: the quick
+ * questions left, the ones that wait on Today (deferredQuestionIds, as the summary says), and
+ * their sum for "Keep going".
+ */
+export function quickStartCounts(a: IntakeAnswers): { quickLeft: number; deferred: number; fullLeft: number } {
+  const quickLeft = questionPath(a, 'quick').filter((screen) => !answered(screen.question!, a) && screen.question!.type !== 'text').length;
+  const deferred = deferredQuestionIds(a).length;
+  return { quickLeft, deferred, fullLeft: quickLeft + deferred };
+}
+
+/** Questions left on her path, for the "About N min left" line (before the quick/full choice: the quick path). */
+export function questionsLeft(a: IntakeAnswers, mode?: IntakeMode): number {
+  return questionPath(a, mode ?? 'quick').filter((screen) => !answered(screen.question!, a) && screen.question!.type !== 'text').length;
 }
 
 /** Quick start is recommended when the load is 8+ or the season is recovering / rebuilding. */
@@ -341,6 +392,8 @@ export function deferredForToday(a: IntakeAnswers, input: { dayNumber: number; l
 export const OPTION_MIGRATIONS: Readonly<Record<number, Readonly<Record<string, Readonly<Record<string, string>>>>>> = {
   // v1 = prototype v1: no renames; v2 added `spirit` and split Mind & learning.
   1: {},
+  // v3 (14 Nov 2026): the founder floor chip in plain words.
+  2: { floors: { 'Do 15 minutes on the foreground task': 'Do 15 minutes on my #1 goal' } },
 };
 
 export function migrateAnswers(a: IntakeAnswers, fromVersion: number, toVersion: number): Record<string, AnswerValue | undefined> {

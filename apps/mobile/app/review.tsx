@@ -70,7 +70,7 @@ export default function WeeklyReviewScreen() {
             <TextField label="Your adjustment" value={adjustment} onChangeText={setAdjustment} multiline placeholder="e.g. Move the long walk to Saturday mornings" />
             <Body muted>{debrief.adjustmentPrompt}</Body>
             <Button label={done ? 'Debrief recorded' : busy ? 'Recording…' : 'Record the debrief'} disabled={done || busy} onPress={() => void finish()} />
-            {done ? <Button label="Draft that change in the Drafting Room" variant="secondary" onPress={() => router.push('/settings/os')} /> : null}
+            {done ? <Button label="Change my plan" variant="secondary" onPress={() => router.push('/settings/os')} /> : null}
           </Card>
           <Card tone="muted"><Body>{debrief.executiveReview.close}</Body></Card>
         </>

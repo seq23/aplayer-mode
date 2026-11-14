@@ -6,6 +6,12 @@ export function greeting(hour: number): string {
   return 'Good evening';
 }
 
+/** "Good afternoon, Sam." — or just "Good afternoon." with no name; never "Good afternoon, there." */
+export function greetingLine(hour: number, name: string | null | undefined): string {
+  const clean = (name ?? '').trim();
+  return clean ? `${greeting(hour)}, ${clean}.` : `${greeting(hour)}.`;
+}
+
 /** A usable IANA zone, else undefined (the device's own zone). */
 function zoneOrDevice(timeZone: string | undefined): string | undefined {
   if (!timeZone) return undefined;

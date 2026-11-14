@@ -631,19 +631,22 @@ export function clockText(value: string): string {
 }
 
 /** The field a time picker sits in: label, the time in plain words, a clock icon, optional Clear. */
-export function TimeField({ label, value, placeholder, open, onPress, onClear, children }: {
+export function TimeField({ label, value, placeholder, open, onPress, onClear, children, display, date = false }: {
   label: string; value: string; placeholder: string; open: boolean; onPress?: () => void; onClear?: () => void; children?: ReactNode;
+  /** The value in words when it is not a clock time (a date field). */
+  display?: string;
+  date?: boolean;
 }) {
   const s = useThemedStyles(fieldStyles);
-  const shown = clockText(value);
+  const shown = display ?? clockText(value);
   return (
     <View style={styles.field}>
       <Txt variant="smallStrong">{label}</Txt>
       {onPress ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${shown || placeholder}`} accessibilityHint="Opens the time picker" aria-expanded={open} onPress={onPress}
+        <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${shown || placeholder}`} accessibilityHint={date ? 'Opens the date picker' : 'Opens the time picker'} aria-expanded={open} onPress={onPress}
           style={({ pressed }) => [s.input, s.timeRow, open && s.focused, pressed && styles.pressed]}>
           <Txt variant="body" tone={shown ? 'ink' : 'inkMuted'} flex>{shown || placeholder}</Txt>
-          <Icon name="clock" size={18} tone="inkMuted" />
+          <Icon name={date ? 'calendar' : 'clock'} size={18} tone="inkMuted" />
         </Pressable>
       ) : children}
       {onClear ? <LinkButton label="Clear" accessibilityLabel={`Clear ${label}`} onPress={onClear} /> : null}

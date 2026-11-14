@@ -224,7 +224,9 @@ function planResponse(entitlement: SubscriptionEntitlement | undefined, userId: 
   return {
     entitlement: {
       ...resolved,
-      displayName: policy.displayName,
+      // Never bought anything: say so, never "Executive Roundtable Beta · ended" (owner review 14 Nov 2026).
+      hasPlan: Boolean(entitlement),
+      displayName: entitlement ? policy.displayName : 'No plan yet',
       promise: policy.promise,
       capabilities: usable ? capabilitiesForPlan(resolved.plan) : [],
       maxAutonomyLevel,

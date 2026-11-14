@@ -31,14 +31,24 @@ test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: 
 
 const usd = (cents) => policy.formatUsdCents(cents);
 
-test('the welcome page only teases the tiers; the grids and every price live on the plan screen', () => {
+test('the welcome page states the starting price and its terms beside Start; the grids and the higher tiers live on the plan screen', () => {
   assert.equal(sell.WELCOME_TIERS_TEASER.line, 'Executive Roundtable plans and coaches you · Executive Suite acts when you tap yes · Autopilot handles it inside your rules');
   assert.equal(sell.WELCOME_TIERS_TEASER.line, ['chief_of_staff', 'life_os', 'autopilot'].map((p) => `${policy.PLAN_PRICES[p].displayName} ${policy.PLAN_PRICES[p].tagline}`).join(' · '), 'derived from PLAN_PRICES');
   assert.deepEqual(sell.TIER_GRID_WHO.columns, ['Executive Roundtable', 'Executive Suite', 'Autopilot']);
   assert.equal(sell.WELCOME_TIERS_TEASER.offer, `Introductory offer: start at ${usd(policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents)}/month`);
   const welcome = sell.welcomeText();
-  for (const plan of ['chief_of_staff', 'life_os', 'autopilot']) {
-    assert.ok(!welcome.includes(usd(policy.PLAN_PRICES[plan].monthlyUsdCents)), `no ${plan} list price on the welcome page`);
+  // Price up front (owner review 14 Nov 2026; Apple 3.1.2): the intro price, its length, the price after it, no free trial.
+  const intro = usd(policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents);
+  const after = usd(policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.thenMonthlyUsdCents);
+  for (const line of [sell.START_PRICE_SHORT, sell.START_PRICE_LINE]) {
+    assert.ok(line.includes(`${intro}/month`) && line.includes(`${after}/month`), line);
+    assert.ok(line.includes(`${policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months`), 'the intro length');
+    assert.match(line, /No free trial/i);
+    assert.match(line, /Cancel any time/);
+    assert.doesNotMatch(line, /was |save \d+%/i, 'never a struck or "save" price');
+  }
+  for (const plan of ['life_os', 'autopilot']) {
+    assert.ok(!welcome.includes(usd(policy.PLAN_PRICES[plan].monthlyUsdCents)), `no ${plan} price on the welcome page`);
   }
   assert.ok(!welcome.includes(sell.TIER_GRID_WHO.title) && !welcome.includes(sell.TIER_GRID_WHAT.title), 'no grids on the welcome page');
   assert.ok(!/Founding 100/.test(welcome), 'never the bare "Founding 100"');

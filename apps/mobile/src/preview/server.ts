@@ -280,7 +280,7 @@ function planResponse() {
   const policy = productPlanPolicies[raw.plan];
   const level = usable ? maxAutonomyForPlan(raw.plan, 'calendar') : 0;
   return {
-    entitlement: { ...raw, displayName: policy.displayName, promise: policy.promise, capabilities: usable ? capabilitiesForPlan(raw.plan) : [], maxAutonomyLevel: level, maxAutonomyLabel: autonomyLabels[level] },
+    entitlement: { ...raw, hasPlan: Boolean(s.graph.entitlement), displayName: s.graph.entitlement ? policy.displayName : 'No plan yet', promise: policy.promise, capabilities: usable ? capabilitiesForPlan(raw.plan) : [], maxAutonomyLevel: level, maxAutonomyLabel: autonomyLabels[level] },
     billing: raw.provider === 'app_store' ? { store: 'app_store', period: raw.billingPeriod ?? null, founding: false, periodEnd: null, renews: usable, cancelAtPeriodEnd: false, billingIssue: false, pendingPlan: null } : null,
     plans: (Object.keys(productPlanPolicies) as ProductPlan[]).map((plan) => {
       const item = productPlanPolicies[plan];

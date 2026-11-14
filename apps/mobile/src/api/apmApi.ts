@@ -185,6 +185,8 @@ export interface ProductPlanResponse {
     status: 'active' | 'trialing' | 'past_due' | 'cancelled' | 'expired';
     provider?: string;
     currentPeriodEnd?: string;
+    /** false = she never had a plan (displayName is then "No plan yet"). Absent on an older server. */
+    hasPlan?: boolean;
     displayName: string;
     promise: string;
     capabilities: string[];

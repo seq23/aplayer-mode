@@ -5,13 +5,14 @@ import {
   SCREEN_PLATES,
   answered,
   deferredQuestionIds,
-  highPressureSuggested,
   holdingCount,
   path,
   prefillFor,
   progress,
   quickStartCounts,
   quickStartRecommended,
+  questionsLeft,
+  skippable,
   registry,
   requiredReason,
   resolveDeepLink,
@@ -26,7 +27,7 @@ import { useIntake } from '../src/intake/store';
 import { useSession } from '../src/state/session';
 import { synthesizeIntake } from '../src/api/apmApi';
 import { plainError } from '../src/api/errors';
-import { enableApmPush } from '../src/integrations/push';
+import { PUSH_BLOCKED_COPY, PushBlockedError, enableApmPush, openPhoneSettings } from '../src/integrations/push';
 import { QuestionView } from '../src/components/intake/QuestionView';
 import { Interstitial } from '../src/components/intake/Interstitials';
 import { AccountPanel } from '../src/components/intake/AccountPanel';
@@ -55,6 +56,7 @@ export default function IntakeScreenRoute() {
   const [screenReader, setScreenReader] = useState(false);
   const [paused, setPaused] = useState(false);
   const [notice, setNotice] = useState<string>();
+  const [pushBlocked, setPushBlocked] = useState(false);
   const viewedAt = useRef(Date.now());
   // Resume (docs/34 §6 rule 4): reopened with answers already saved, she is told so until her next tap.
   const [resumed, setResumed] = useState(() => Object.keys(draft.answers).some((key) => !key.startsWith('_')));
@@ -82,7 +84,7 @@ export default function IntakeScreenRoute() {
   // Pre-fill from earlier answers, never asked twice.
   useEffect(() => {
     if (screen.kind !== 'question' || !screen.question) return;
-    const filled = prefillFor(screen.question, answers, highPressureSuggested(answers));
+    const filled = prefillFor(screen.question, answers);
     if (filled) patch(filled);
     viewedAt.current = Date.now();
     const p = progress(answers, screen.id, mode);
@@ -134,6 +136,11 @@ export default function IntakeScreenRoute() {
   };
 
   const p = progress(answers, cursor, mode);
+  // The estimate never climbs while she moves forward (an answer can open a follow-up); a new mode resets it.
+  const leftNow = questionsLeft(answers, mode);
+  const lowest = useRef<{ mode: IntakeMode | undefined; left: number }>({ mode, left: leftNow });
+  if (lowest.current.mode !== mode || leftNow < lowest.current.left) lowest.current = { mode, left: leftNow };
+  const shownLeft = Math.min(leftNow, lowest.current.left);
   const plate = screen.kind === 'question' ? screen.question!.plate : screen.kind === 'interstitial' ? screen.interstitial!.plate : SCREEN_PLATES[screen.id] ?? '';
   const games = Array.isArray(answers.games) ? (answers.games as string[]) : [];
 
@@ -145,7 +152,8 @@ export default function IntakeScreenRoute() {
   if (screen.kind === 'question') {
     reason = requiredReason(screen.question!, answers);
     canNext = !reason;
-    if (screen.question!.optional && !answered(screen.question!, answers)) nextLabel = 'Skip';
+    // An untouched slider or an optional question saves nothing: the button says Skip.
+    if (skippable(screen.question!) && !answered(screen.question!, answers)) nextLabel = 'Skip';
     if (nextLabel === 'Skip') onNext = () => { track('intake_question_skipped', { qid: screen.id }); next(); };
   }
   if (screen.kind === 'account') { canNext = Boolean(answers._acct); if (!canNext) reason = 'Pick a way to save, or "Not now".'; }
@@ -158,18 +166,18 @@ export default function IntakeScreenRoute() {
   if (DETAIL.has(screen.id)) { nextLabel = 'Done'; onNext = () => go('summary'); }
   if (screen.kind === 'summary') {
     const noSession = status !== 'signed_in';
-    nextLabel = installing ? 'Installing…' : 'Install my OS';
+    nextLabel = installing ? 'Starting…' : 'Start my plan';
     canNext = !installing && !noSession;
-    if (noSession) reason = 'Save your plan to an account to install it.';
+    if (noSession) reason = 'Save your plan to an account to start it.';
     onNext = () => {
       void (async () => {
         try {
           const result = await install(firstName);
-          if (result === 'queued') setNotice('We\'ll finish installing as soon as you\'re online. Your answers are safe.');
+          if (result === 'queued') setNotice('We\'ll finish setting up as soon as you\'re online. Your answers are safe.');
           track('onboarding_completed', { mode: mode ?? 'full', games: games.join('.') });
           go('plan');
         } catch (error) {
-          setNotice(plainError(error, 'Install did not finish. Try again.'));
+          setNotice(plainError(error, 'Your plan did not start. Try again.'));
         }
       })();
     };
@@ -191,8 +199,9 @@ export default function IntakeScreenRoute() {
   const top = screen.kind === 'question' || screen.kind === 'interstitial' ? (
     <>
       <Row justify="space-between" gap="sm">
-        {/* Time left, not "1 of 54" (docs/36 I1): a count that big scares off the person who most needs this. */}
-        <Fill><Label tone="accent">{screen.kind === 'question' ? `${screen.group} · ${minutesLeftLabel(p.total - p.answered)}` : screen.group}</Label></Fill>
+        {/* Time left, not "1 of 54" (docs/36 I1). One count (questionsLeft: the quick path until she
+            picks the full one), the same per-question time as the welcome promise, and never higher than the last one shown. */}
+        <Fill><Label tone="accent">{screen.kind === 'question' ? `${screen.group} · ${minutesLeftLabel(shownLeft)}` : screen.group}</Label></Fill>
         {screen.kind === 'question' ? <LinkButton label="Finish later" onPress={finishLater} /> : null}
       </Row>
       <ProgressBar done={p.answered} total={p.total} label={`Setup progress: ${p.answered} of ${p.total} answered`} />
@@ -213,7 +222,6 @@ export default function IntakeScreenRoute() {
         onAutoAdvance={() => advanceFrom(q.id)}
         screenReader={screenReader}
         intro={firstInSection ? screen.section?.intro : undefined}
-        preselectNote={q.id === 'tone' && answers._pf_tone === true ? 'Pre-selected for your game: the Billionaire High Performance Coach Track runs on High-Pressure Coaching. Tap Continue to confirm, or pick another. You can change it any time.' : undefined}
       />
     );
   } else if (screen.kind === 'interstitial') {
@@ -237,8 +245,8 @@ export default function IntakeScreenRoute() {
       <View style={intakeStyles.stack}>
         <QuestionTitle>That's enough for a working plan.</QuestionTitle>
         <Body muted>{`You've answered ${p.answered}. Pick how much more to do today. You can switch later.`}</Body>
-        <OptionButton label="Build my plan now" recommended={rec || !answers.mode} selected={answers.mode === 'quick'} detail={`${counts.quickLeft} more tap${counts.quickLeft === 1 ? '' : 's'}, ${minutesLeftLabel(counts.quickLeft).replace(/^About /, 'about ').replace(/ left$/, '')}. The other ${Math.max(0, counts.fullLeft - counts.quickLeft)} wait on Today, 2 a day from Day 2.`} onPress={() => { answer('mode', 'quick'); track('intake_quick_start_chosen', { mode: 'quick' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'quick'), 250); }} />
-        <OptionButton label="Keep going" selected={answers.mode === 'full'} detail={`About ${counts.fullLeft} more, ${minutesLeftLabel(counts.fullLeft).replace(/^About /, 'about ').replace(/ left$/, '')}. A sharper plan on Day 1.`} onPress={() => { answer('mode', 'full'); track('intake_quick_start_chosen', { mode: 'full' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'full'), 250); }} />
+        <OptionButton label="Build my plan now" recommended={rec || !answers.mode} selected={answers.mode === 'quick'} detail={`${counts.quickLeft} more question${counts.quickLeft === 1 ? '' : 's'}, ${minutesLeftLabel(counts.quickLeft).replace(/^About /, 'about ').replace(/ left$/, '')}. The other ${counts.deferred} wait on Today, 2 a day from Day 2.`} onPress={() => { answer('mode', 'quick'); track('intake_quick_start_chosen', { mode: 'quick' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'quick'), 250); }} />
+        <OptionButton label="Keep going" selected={answers.mode === 'full'} detail={`All ${counts.fullLeft} now, ${minutesLeftLabel(counts.fullLeft).replace(/^About /, 'about ').replace(/ left$/, '')}. A sharper plan on Day 1.`} onPress={() => { answer('mode', 'full'); track('intake_quick_start_chosen', { mode: 'full' }); if (!screenReader) setTimeout(() => advanceFrom('express', 'full'), 250); }} />
         <Muted>Either way your answers are saved, and the plan only gets better as you add more.</Muted>
       </View>
     );
@@ -283,7 +291,9 @@ export default function IntakeScreenRoute() {
         onPush={(allow) => {
           answer('push', allow);
           track('push_prompt_result', { result: allow ? 'allow' : 'later' });
-          if (allow && accessToken) void enableApmPush(accessToken).catch(() => answer('push', false));
+          setPushBlocked(false);
+          // A refusal she gave before cannot be asked again: say so and offer the phone's Settings, never a silent flip back.
+          if (allow && accessToken) void enableApmPush(accessToken).catch((error: unknown) => { answer('push', false); if (error instanceof PushBlockedError) setPushBlocked(true); else setNotice(plainError(error, 'Notifications did not switch on. Try again in Settings → Notifications.')); });
         }}
       />
     );
@@ -316,7 +326,14 @@ export default function IntakeScreenRoute() {
     >
       {body}
       {notice ? <Toast tone="warning" message={notice} /> : null}
-      {screen.kind === 'summary' && deferredQuestionIds(answers).length && mode === 'quick' ? <Muted>{`${deferredQuestionIds(answers).length} questions wait on Today: 2 quick taps a day from Day 2, never on a light day.`}</Muted> : null}
+      {screen.kind === 'summary' && pushBlocked ? (
+        <Card tone="warning">
+          <CardTitle>{PUSH_BLOCKED_COPY.title}</CardTitle>
+          <Body>{PUSH_BLOCKED_COPY.body}</Body>
+          <Button label={PUSH_BLOCKED_COPY.action} variant="secondary" onPress={openPhoneSettings} />
+        </Card>
+      ) : null}
+      {screen.kind === 'summary' && deferredQuestionIds(answers).length && mode === 'quick' ? <Muted>{`The other ${deferredQuestionIds(answers).length} questions wait on Today: 2 quick taps a day from Day 2, never on a light day.`}</Muted> : null}
       <PlateLine text={plate} />
     </Screen>
   );

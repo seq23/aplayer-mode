@@ -22,7 +22,9 @@ function planTitle(plan: string | undefined, usable: boolean): string {
 }
 
 export default function SettingsScreen() {
-  const { user, status, accessToken, signOut, updateName } = useSession();
+  const { user, status, accessToken, signOut, updateName, isAnonymous } = useSession();
+  // A plan never saved to an account lives only on this phone: signing out would lose it.
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const { refresh, graph } = useLifeGraph();
   const entitlement = graph.entitlement;
   const usable = entitlement?.status === 'active' || entitlement?.status === 'trialing';
@@ -138,7 +140,7 @@ export default function SettingsScreen() {
       ))}
 
       <SectionTitle>Life</SectionTitle>
-      <ListRow icon="tool" title="Drafting Room" detail="Change your morning, rules or Tracks without redoing setup." onPress={() => router.push('/settings/os')} />
+      <ListRow icon="tool" title="Change my plan" detail="Change your morning, rules or Tracks without redoing setup." onPress={() => router.push('/settings/os')} />
       <ListRow icon="edit-3" title="Diary" detail="Jot something down. No coaching." onPress={() => router.push('/diary')} />
       <ListRow icon="bar-chart-2" title="Weekly debrief" detail="A five-minute look back at your week." onPress={() => router.push('/review')} />
       <ListRow icon="home" title="Life areas" detail="Birthdays, bills, appointments and the rest of life admin." onPress={() => router.push('/settings/life')} />
@@ -147,10 +149,27 @@ export default function SettingsScreen() {
       {status === 'signed_in' ? (
         <>
           <SectionTitle>Account</SectionTitle>
-          <Card>
-            {user?.email ? <KeyValue label="Signed in as" value={user.email} /> : <CardTitle>Signed in</CardTitle>}
-            <Button label={busy === 'signout' ? 'Signing out…' : 'Sign out'} variant="secondary" busy={busy === 'signout'} onPress={() => handleSignOut()} />
-          </Card>
+          {isAnonymous ? (
+            <Card tone="warning">
+              <CardTitle>Not saved yet</CardTitle>
+              <Body>Your plan is only on this phone. Save it to an account so a lost phone or a sign-out never loses it.</Body>
+              <Button label="Save my plan" onPress={() => router.push('/account')} />
+              {!confirmSignOut ? (
+                <Button label="Sign out" variant="secondary" onPress={() => setConfirmSignOut(true)} />
+              ) : (
+                <>
+                  <Body strong>Sign out without saving? Your plan and answers on this phone are lost.</Body>
+                  <Button label={busy === 'signout' ? 'Signing out…' : 'Sign out and lose my plan'} variant="danger" busy={busy === 'signout'} onPress={() => handleSignOut()} />
+                  <Button label="Keep my plan" variant="secondary" onPress={() => setConfirmSignOut(false)} />
+                </>
+              )}
+            </Card>
+          ) : (
+            <Card>
+              {user?.email ? <KeyValue label="Signed in as" value={user.email} /> : <CardTitle>Signed in</CardTitle>}
+              <Button label={busy === 'signout' ? 'Signing out…' : 'Sign out'} variant="secondary" busy={busy === 'signout'} onPress={() => handleSignOut()} />
+            </Card>
+          )}
         </>
       ) : null}
 

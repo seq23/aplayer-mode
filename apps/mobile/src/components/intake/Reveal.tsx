@@ -6,12 +6,18 @@ import {
   FIRST_SEVEN_DAYS,
   agendaArrivalMinutes,
   chosenGoal,
+  OTHER_OPTION,
   classifySuggestedArea,
   clockLabel,
+  daysUntil,
+  firstStepText,
   goalOutcome,
   goalTemplates,
   holdingCount,
   optionLabel,
+  options as questionOptions,
+  otherText,
+  questionById,
   synthesizeProfile,
   type AnswerValue,
   type IntakeAnswers,
@@ -134,10 +140,11 @@ export function SummaryScreen({ answers, onSet, onOpen, onPush, saveCard, nameCh
   return (
     <View style={intakeStyles.stack}>
       <QuestionTitle>Your operating system</QuestionTitle>
-      <Body muted>Built from your answers. Every piece is already decided; tap Change on anything that's wrong.</Body>
+      <Body muted>Built from your answers. Anything marked Suggested is APM's pick, not yours yet: tap Change to switch it before you start.</Body>
       {/* APM fills the gap, never a dash (docs/36 S1): with no goal or first step picked yet
           (a quick start), it shows the one it will use. */}
-      <ChangeCard title="Your one priority" body={`${(goal ?? goalTemplates(answers)[0])?.label ?? 'Your goal'}${goalOutcome(answers) ? ` (${goalOutcome(answers)})` : ''} · first step: ${typeof answers.first_step === 'string' && answers.first_step ? answers.first_step : (goal ?? goalTemplates(answers)[0])?.steps[0] ?? 'APM picks it on Day 1'}`} onChange={() => onOpen('r2')} />
+      <ChangeCard title="Your one priority" body={`${goalLabel(answers)}${goalOutcome(answers) ? ` (${goalOutcome(answers)})` : ''} · first step: ${firstStepText(answers) ?? (goal ?? goalTemplates(answers)[0])?.steps[0] ?? 'APM picks it on Day 1'}`} onChange={() => onOpen('r2')} />
+      {deadlineLine(answers) ? <Card tone="muted"><Label>Nearest deadline</Label><Body>{deadlineLine(answers)}</Body></Card> : null}
       <ChangeCard title="Your pillars" onChange={() => onOpen('r1')}>
         <PillarCards synthesis={s} />
       </ChangeCard>
@@ -158,7 +165,7 @@ export function SummaryScreen({ answers, onSet, onOpen, onPush, saveCard, nameCh
           );
         })}
       </Card>
-      <ChangeCard title="Tracks running in the background" body={tracksOn.map((t) => t.name.replace(' Track', '')).join(' · ')} onChange={() => onOpen('r3')} />
+      <ChangeCard title="Suggested Tracks" body={`${tracksOn.map((t) => t.name.replace(' Track', '')).join(' · ') || 'None on'}. Background filters APM suggests from your answers; switch any off.`} onChange={() => onOpen('r3')} />
       <ChangeCard title="How APM coaches you" body={`${s.coaching.label} · on Today you can switch mode with one tap`} onChange={() => onOpen('r4')} />
       <ChangeCard title="Your rules" body="Never Miss Twice, No Catch-Up, Minimum Viable Day, plus your settings" onChange={() => onOpen('r4')} />
       <ChangeCard title="Your morning" body={`Agenda arrives at ${s.agendaAt} · ${s.morning.length} steps${s.bedRoutine ? ' · starts with your 10-minute in-bed routine' : ''}`} onChange={() => onOpen('r5')} />
@@ -180,9 +187,26 @@ export function SummaryScreen({ answers, onSet, onOpen, onPush, saveCard, nameCh
           </View>
         </Card>
       ) : null}
-      <Muted>{`Holding ${holdingCount(answers)} things for you. Install takes one tap; if you're offline it finishes as soon as you're back.`}</Muted>
+      <Muted>{`Holding ${holdingCount(answers)} things for you. Starting takes one tap; if you're offline it finishes as soon as you're back.`}</Muted>
     </View>
   );
+}
+
+/** The goal she picked, in her words when she typed one. */
+function goalLabel(answers: IntakeAnswers): string {
+  if (answers.goal === OTHER_OPTION) return otherText(questionById('goal')!, answers) ?? 'Your goal';
+  return (chosenGoal(answers) ?? goalTemplates(answers)[0])?.label ?? 'Your goal';
+}
+
+/** "Friday 12 December · 28 days away", from the date she picked. */
+function deadlineLine(answers: IntakeAnswers): string | undefined {
+  const date = typeof answers.deadline_date === 'string' ? answers.deadline_date : undefined;
+  if (!date) return undefined;
+  const today = new Date();
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const days = daysUntil(date, iso);
+  const when = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  return `${when} · ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `${days} days away`}`;
 }
 
 export function DetailScreen({ id, answers, onSet }: { id: 'r1' | 'r2' | 'r3' | 'r4' | 'r5' | 'r6'; answers: IntakeAnswers; onSet: (id: string, value: AnswerValue | undefined) => void }) {
@@ -210,17 +234,28 @@ export function DetailScreen({ id, answers, onSet }: { id: 'r1' | 'r2' | 'r3' | 
     );
   }
   if (id === 'r2') {
-    const goal = chosenGoal(answers);
+    const goalQ = questionById('goal')!;
+    const stepQ = questionById('first_step')!;
+    const pickGoal = (next: string) => { onSet('goal', next); onSet('first_step', undefined); onSet('goal_size', undefined); };
     return (
       <View style={intakeStyles.stack}>
         {heading('Your one priority')}
-        <Card tone="accent"><CardTitle>{`${goal?.label ?? 'Your goal'}${goalOutcome(answers) ? ` (${goalOutcome(answers)})` : ''}`}</CardTitle><Muted>{`Target: ${answers.target ? (answers.target === 'none' ? 'no hard date (three 30-day stages)' : `${String(answers.target)} days`) : '90 days'}`}</Muted></Card>
+        <Card tone="accent"><CardTitle>{`${goalLabel(answers)}${goalOutcome(answers) ? ` (${goalOutcome(answers)})` : ''}`}</CardTitle><Muted>{`Target: ${answers.target ? (answers.target === 'none' ? 'no hard date (three 30-day stages)' : `${String(answers.target)} days`) : '90 days'}`}</Muted></Card>
+        <Label>Change your goal</Label>
+        <View style={intakeStyles.chips}>
+          {questionOptions(goalQ, answers).map(([v, label]) => <Chip key={v} label={label} selected={answers.goal === v} onPress={() => pickGoal(v)} />)}
+          <Chip label="Something else" selected={answers.goal === OTHER_OPTION} onPress={() => pickGoal(OTHER_OPTION)} />
+        </View>
+        {answers.goal === OTHER_OPTION ? <TextField label="Your goal, in a few words" value={typeof answers.goal_other === 'string' ? answers.goal_other : ''} onChangeText={(text) => onSet('goal_other', text || undefined)} maxLength={120} placeholder="e.g. Prepare for my board meeting" /> : null}
+        <Label>First step this week</Label>
+        <View style={intakeStyles.chips}>
+          {questionOptions(stepQ, answers).map(([v, label]) => <Chip key={v} label={label} selected={answers.first_step === v} onPress={() => onSet('first_step', v)} />)}
+        </View>
         <Card>
           {s.plan.gates.map((gate) => <Body key={gate.key}>{`Day ${gate.startDay} to ${gate.endDay} · ${gate.label}: ${gate.outcome}`}</Body>)}
         </Card>
-        <Card><Label>First action</Label><Body>{String(answers.first_step ?? s.plan.actions[s.plan.setup[0]?.actionKey ?? '']?.title ?? 'APM picks it on Day 1')}</Body><Muted>{`Minutes a day: ${String(answers.minutes ?? 45)}`}</Muted></Card>
+        <Card><Label>Minutes a day</Label><Body>{typeof answers.minutes === 'number' ? `${answers.minutes} minutes` : 'Not set: APM starts small and asks again on Day 2.'}</Body></Card>
         {s.plan.safety.notes.length ? <Card tone="warning">{s.plan.safety.notes.map((note) => <Body key={note}>{note}</Body>)}</Card> : null}
-        <Muted>Want a different goal first? Change it any time in Goals; APM tells you which one should lead.</Muted>
       </View>
     );
   }
@@ -255,7 +290,6 @@ export function DetailScreen({ id, answers, onSet }: { id: 'r1' | 'r2' | 'r3' | 
           <View style={intakeStyles.chips}>
             {(['gentle', 'direct', 'high_pressure'] as const).map((tone) => <Chip key={tone} label={tone === 'gentle' ? 'Gentle' : tone === 'direct' ? 'Calm and direct' : 'High-Pressure'} selected={s.coaching.tone === tone} onPress={() => onSet('tone', tone)} />)}
           </View>
-          {s.coaching.preselected && s.coaching.tone === 'high_pressure' ? <Muted>Pre-selected because the Billionaire High Performance Coach Track fits your game. You can change it any time.</Muted> : null}
           <KeyValue label="Day start" value={optionLabel('start', String(answers.start ?? 'guided'))} />
           <KeyValue label="Scoring" value={optionLabel('scoring', String(answers.scoring ?? 'pillar'))} />
           <KeyValue label="Layout" value={optionLabel('sched', String(answers.sched ?? 'loose_dayparts'))} />
@@ -283,9 +317,9 @@ export function DetailScreen({ id, answers, onSet }: { id: 'r1' | 'r2' | 'r3' | 
     <View style={intakeStyles.stack}>
       {heading('Your first 7 days')}
       {FIRST_SEVEN_DAYS.map((day) => (
-        <Card key={day.day}><Label>{`Day ${day.day} · ${day.objective}`}</Label><Body>{day.day === 5 ? `${day.success} (load check: you said ${String(answers.load ?? 7)}/10 on Day 1)` : day.success}</Body></Card>
+        <Card key={day.day}><Label>{`Day ${day.day} · ${day.objective}`}</Label><Body>{day.day === 5 && typeof answers.load === 'number' ? `${day.success} (load check: you said ${answers.load}/10 at setup)` : day.success}</Body></Card>
       ))}
-      <Muted>Week-1 rules: no optimizing, no customizing, no new projects. Any edit is saved as a draft for Day 8.</Muted>
+      <Muted>Week 1 keeps the plan steady so you can see what works. You can still change anything here before you start.</Muted>
     </View>
   );
 }

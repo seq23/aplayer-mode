@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Body, Button, Card, CardTitle, ChoiceRow, ErrorState, KeyValue, Label, Screen, SectionTitle, Toast, clockText } from '../../src/components/ui';
 import { TimePicker } from '../../src/components/TimePickerField';
 import { fetchNotificationPreferences, saveNotificationPreferences, type NotificationPreferences } from '../../src/api/apmApi';
-import { enableApmPush } from '../../src/integrations/push';
+import { PUSH_BLOCKED_COPY, PushBlockedError, enableApmPush, openPhoneSettings, pushPermissionState } from '../../src/integrations/push';
 import { useSession } from '../../src/state/session';
 import { plainError } from '../../src/api/errors';
 
@@ -17,6 +17,9 @@ export default function NotificationsScreen() {
   const [wakeTime, setWakeTime] = useState('07:00');
   const [quietStart, setQuietStart] = useState('');
   const [quietEnd, setQuietEnd] = useState('');
+  // Refused once: the phone never asks again, so the card offers its Settings page instead.
+  const [permission, setPermission] = useState<'granted' | 'blocked' | 'ask'>('ask');
+  useEffect(() => { void pushPermissionState().then(setPermission); }, []);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -40,8 +43,14 @@ export default function NotificationsScreen() {
     setMessage(done);
   });
   const enable = () => run(async () => {
-    await enableApmPush(accessToken!);
-    setMessage('Proactive APM notifications are registered for this device.');
+    try {
+      await enableApmPush(accessToken!);
+    } catch (cause) {
+      if (cause instanceof PushBlockedError) { setPermission('blocked'); return; }
+      throw cause;
+    }
+    setPermission('granted');
+    setMessage('Notifications are on for this phone.');
   });
   const saveMorning = () => {
     if (!HHMM.test(wakeTime)) { setError('Choose a wake time first.'); return; }
@@ -61,8 +70,18 @@ export default function NotificationsScreen() {
       <SectionTitle>Device permission</SectionTitle>
       <Card>
         <CardTitle>Let APM reach this phone</CardTitle>
-        <Body muted>Your phone asks you once. The lock screen shows no private detail unless you choose it below.</Body>
-        <Button label={busy ? 'Enabling…' : 'Enable notifications'} onPress={() => void enable()} />
+        {permission === 'blocked' ? (
+          <>
+            <Body>{PUSH_BLOCKED_COPY.body}</Body>
+            <Button label={PUSH_BLOCKED_COPY.action} onPress={openPhoneSettings} />
+            <Button label="I switched them on" variant="secondary" onPress={() => void enable()} />
+          </>
+        ) : (
+          <>
+            <Body muted>{permission === 'granted' ? 'On for this phone.' : 'Your phone asks you once.'} The lock screen shows no private detail unless you choose it below.</Body>
+            <Button label={busy ? 'Enabling…' : permission === 'granted' ? 'Register this phone again' : 'Enable notifications'} onPress={() => void enable()} />
+          </>
+        )}
       </Card>
 
       <SectionTitle>Your morning plan</SectionTitle>

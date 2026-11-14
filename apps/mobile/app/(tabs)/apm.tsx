@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import { View } from 'react-native';
 import type { OperatingModeKey } from '@apm/domain';
+import { COACHING_TONE_LABELS } from '@apm/planning';
 import {
   AnswerCard,
   Body,
@@ -142,6 +143,8 @@ export default function ApmScreen() {
         </Row>
         <Heading>{definition?.name ?? MODE_LABEL[activeMode]}</Heading>
         {definition ? <Body muted>{definition.purpose}</Body> : null}
+        {/* Mode (what today needs) is not the coaching style she picked in setup (how APM talks to her): show both. */}
+        {graph.personalOS?.coachingStyle?.firmness ? <Body>{`Your coaching style: ${COACHING_TONE_LABELS[graph.personalOS.coachingStyle.firmness]}. The mode above is what today needs; your style is how APM talks to you, in every mode.`}</Body> : null}
         {modeState?.endsAt ? <Pill>{`${activeMode === 'recovery' ? 'Full agenda resumes' : 'Ends'} ${formatWhen(modeState.endsAt)}`}</Pill> : null}
         {modeState?.focus ? <Body>Focus: {modeState.focus}</Body> : null}
         {modeState?.todayEffect ? <Body muted>Today: {modeState.todayEffect.summary}</Body> : null}
@@ -251,10 +254,10 @@ export default function ApmScreen() {
         ) : null}
       </Disclosure>
 
-      <Disclosure icon="book-open" title="Your rulebook" summary="Diary, weekly debrief, Drafting Room, Tracks and the core laws">
+      <Disclosure icon="book-open" title="Your rulebook" summary="Diary, weekly debrief, changing your plan, Tracks and the core laws">
         <ListRow icon="edit-3" title="Diary" detail="File it without coaching" onPress={() => router.push('/diary')} />
         <ListRow icon="bar-chart-2" title="Weekly debrief" detail="Review the week on your review day" onPress={() => router.push('/review')} />
-        <ListRow icon="tool" title="Drafting Room" detail="Change a rule without redoing the setup" onPress={() => router.push('/settings/os')} />
+        <ListRow icon="tool" title="Change my plan" detail="Change a rule without redoing the setup" onPress={() => router.push('/settings/os')} />
         <Label>Your background tracks</Label>
         {graph.tracks.some((track) => track.active) ? graph.tracks.filter((track) => track.active).map((track) => <ListItem key={track.id} title={track.name} detail="Shapes every plan and coaching answer, quietly" />) : <Muted>No Tracks yet. Finish setup and APM picks the ones that fit you.</Muted>}
         <Label>Core laws</Label>

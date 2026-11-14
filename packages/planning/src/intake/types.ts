@@ -6,7 +6,7 @@ export type IntakeAnswers = Readonly<Record<string, AnswerValue | undefined>>;
 
 export type GameKey = 'wealth' | 'weight' | 'founder' | 'operator' | 'parent' | 'athlete' | 'student' | 'creator' | 'transition';
 
-export type QuestionType = 'single' | 'multi' | 'slider' | 'time' | 'yesno' | 'weekdays' | 'rank' | 'text';
+export type QuestionType = 'single' | 'multi' | 'slider' | 'time' | 'yesno' | 'weekdays' | 'rank' | 'text' | 'date';
 
 export type OptionSource = 'fromGames' | 'fromIncome' | 'goalTemplates' | 'goalSteps' | 'floorOptions';
 
@@ -41,7 +41,14 @@ export interface QuestionDef {
   optional?: boolean;
   /** Asked on the quick start too. */
   essential?: boolean;
-  prefill?: 'lines' | 'tone' | 'core' | 'floors' | 'spirit';
+  prefill?: 'lines' | 'core' | 'floors' | 'spirit';
+  /**
+   * A "Something else" choice in her own words: the answer id that holds the typed text.
+   * Single: the answer becomes OTHER_OPTION and the text goes here. Multi: OTHER_OPTION is one pick.
+   */
+  other?: string;
+  /** A number she types (weight): starts blank, never a default. */
+  typed?: boolean;
   gate?: Gate;
   recommended?: (a: IntakeAnswers, h: GateHelpers) => string | undefined;
   why: string;

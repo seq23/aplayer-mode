@@ -4,6 +4,7 @@ import {
   bedRoutineFor,
   chosenGoal,
   compileMorning,
+  firstStepText,
   gameLabel,
   type IntakeAnswers,
   type InterstitialDef,
@@ -47,7 +48,7 @@ export function Interstitial({ it, answers }: { it: InterstitialDef; answers: In
         {heading}
         <Card tone="accent"><CardTitle>{`${goal?.label ?? 'Your goal'}${goal?.size ? ` · ${answers.goal_size ?? goal.size.def} ${goal.size.unit}` : ''}`}</CardTitle></Card>
         <Card>
-          <Body>{`Days 1 to 30, Foundation: ${answers.first_step ?? 'your first step'} and keep it going`}</Body>
+          <Body>{`Days 1 to 30, Foundation: ${firstStepText(answers) ?? 'your first step'} and keep it going`}</Body>
           <Body>Days 31 to 60, Build: make it repeatable</Body>
           <Body>Days 61 to 90, Lock: lock it in, then decide: Promote, Maintain or Park</Body>
         </Card>

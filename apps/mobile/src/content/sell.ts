@@ -6,6 +6,13 @@
 // Pure TS (no React Native imports) so apps/mobile/test can pin it in Node.
 import { TRACK_DISPLAY_NAMES, type ActiveTrackKey } from '@apm/domain';
 import { CHIEF_OF_STAFF_INTRO_OFFERS, PLAN_PRICES, formatUsdCents, type PaidPlan } from '@apm/policy';
+import { GAMES, questionPath, setupMinutes } from '@apm/planning';
+
+/**
+ * The real length of the quick setup, from the question bank (the longest single-game quick
+ * path at the same per-question time the setup's own "min left" line uses), never a typed number.
+ */
+export const QUICK_SETUP_MINUTES = setupMinutes(Math.max(...GAMES.map(([game]) => questionPath({ _health: 'yes', games: [game] }, 'quick').length)));
 
 export const CTA_LABEL = 'Start: reduce my load';
 export const HAVE_ACCOUNT_LABEL = 'I already have an account';
@@ -19,7 +26,7 @@ export const HERO = {
   eyebrow: 'A Player Mode',
   headline: 'Reduce your cognitive load.',
   sub: 'Whatever game you\'re in, get into A Player Mode. Your personal executive operating system plans, sequences, prioritizes and catches you after bad days, so your brain stops holding every project, role, rule and restart alone.',
-  emptyLine: 'Running on empty? Tap Start. You can stop after 3 minutes with a plan that already works.',
+  emptyLine: `Running on empty? Tap Start. About ${QUICK_SETUP_MINUTES} minutes of taps to a plan that already works.`,
   definitionTitle: 'What A-player mode means',
   definition: [
     'Clearer priorities.',
@@ -34,7 +41,7 @@ export const HERO = {
 export const HOW_IT_WORKS = {
   title: 'How it works',
   steps: [
-    'Tap through easy questions: about 3 minutes to a working plan. Stop any time; nothing is lost. No essays.',
+    `Tap through easy questions: about ${QUICK_SETUP_MINUTES} minutes to a working plan. Stop any time; nothing is lost. No essays.`,
     'APM builds your system: your one priority, your minimum day, your rules and your first 7 days. You approve it with one tap.',
     'Every morning your plan arrives on its own: one priority, a short start, then the day. Bad days shrink automatically. No catch-up, no guilt.',
   ],
@@ -171,6 +178,15 @@ const listCents = PLAN_PRICES.chief_of_staff.monthlyUsdCents;
 export const INTRO_PRICE = formatUsdCents(introCents);
 export const LIST_PRICE = formatUsdCents(listCents);
 
+/**
+ * Beside Start (owner review 14 Nov 2026; Apple 3.1.2): the price and its terms BEFORE the
+ * questions, so the plan screen at the end is no surprise. Exactly the ADR-0004 offer.
+ */
+export const START_PRICE_LINE = `A subscription: ${INTRO_PRICE}/month to start, no free trial. The first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members keep ${INTRO_PRICE}/month while they stay subscribed; everyone else pays ${INTRO_PRICE}/month for ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}/month. Cancel any time. You pick a plan after setup.`;
+
+/** The short form under the sticky Start button; the full terms sit by the last Start. */
+export const START_PRICE_SHORT = `Subscription: ${INTRO_PRICE}/month to start, then ${LIST_PRICE}/month after ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months (first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members keep ${INTRO_PRICE}). No free trial. Cancel any time.`;
+
 /** Section 10 of the welcome page: a one-line teaser; the grids are on the plan screen. */
 export const WELCOME_TIERS_TEASER = {
   title: 'Three levels of help',
@@ -288,7 +304,7 @@ export const WELCOME_SECTIONS: readonly WelcomeSection[] = [
 
 /** Every string the welcome page renders (the test pins content against it). */
 export function welcomeText(): string {
-  return JSON.stringify([HERO, HOW_IT_WORKS, CONTINUITY, FIVE_ROLES, PERSONAS, INSIDE, MODES, TRACKS, SITUATIONS, WITHOUT_WITH, WELCOME_TIERS_TEASER, PRIVACY_LINE, CTA_LABEL, WELCOME_SECTIONS]);
+  return JSON.stringify([START_PRICE_SHORT, START_PRICE_LINE, HERO, HOW_IT_WORKS, CONTINUITY, FIVE_ROLES, PERSONAS, INSIDE, MODES, TRACKS, SITUATIONS, WITHOUT_WITH, WELCOME_TIERS_TEASER, PRIVACY_LINE, CTA_LABEL, WELCOME_SECTIONS]);
 }
 
 /** Every string the plan screen renders above the purchase options. */
