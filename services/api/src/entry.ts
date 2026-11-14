@@ -4,6 +4,7 @@ import { runMorningTrigger } from './morningTrigger';
 import { runBillingSweep } from './billing';
 import { runDataRightsErasures } from './dataRights';
 import { runIntakeMaintenance } from './intakeRepository';
+import { runRenewalReminders } from './renewalReminders';
 
 declare const __APM_BUILD_SHA__: string;
 declare const __APM_RUNTIME_ENVIRONMENT__: string;
@@ -47,6 +48,13 @@ export default {
       runIntakeMaintenance(env).then(
         (result) => console.log('APM intake maintenance', { cron: controller.cron, ...result }),
         (error: unknown) => console.error('APM intake maintenance failed', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
+      ),
+    );
+    // Annual renewal reminder (R-SUB-03, migration 0098): one daily tick; zero sent is a named stop in the line.
+    ctx.waitUntil(
+      runRenewalReminders(env, new Date(controller.scheduledTime)).then(
+        (result) => { if (result.stop !== 'NOT_THIS_TICK') (result.stop && result.stop !== 'NONE_DUE' ? console.error : console.log)('APM renewal reminders', result.output); },
+        (error: unknown) => console.error('APM renewal reminders failed', 'NAMED STOP [RENEWAL_REMINDERS_ERROR]', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
       ),
     );
   },

@@ -54,6 +54,8 @@ export interface ApiEnv {
   /** Workers Rate Limiting binding: per-user burst limit on every route that can reach a billed model (src/paidCalls.ts). */
   PAID_CALL_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   /** App Review demo account (docs/33 §8): the one address whose fixed code signs in. Off unless set. */
+  /** Resend sending key for mail.aplayermode.com (Worker secret): the annual renewal reminder (renewalReminders.ts). */
+  RESEND_API_KEY?: string;
   APP_REVIEW_EMAIL?: string;
   /** Its fixed code, 6–12 digits (Worker secret). Off unless set together with APP_REVIEW_EMAIL. */
   APP_REVIEW_CODE?: string;
