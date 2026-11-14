@@ -170,7 +170,6 @@ const introCents = CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents;
 const listCents = PLAN_PRICES.chief_of_staff.monthlyUsdCents;
 export const INTRO_PRICE = formatUsdCents(introCents);
 export const LIST_PRICE = formatUsdCents(listCents);
-export const INTRO_SAVING_PERCENT = Math.round(((listCents - introCents) / listCents) * 100);
 
 /** Section 10 of the welcome page: a one-line teaser; the grids are on the plan screen. */
 export const WELCOME_TIERS_TEASER = {
@@ -185,10 +184,13 @@ export interface OfferBanner {
   kind: 'founding' | 'introductory';
   ribbon: string;
   headline: string;
-  /** The struck-through list price. */
-  was: string;
   now: string;
-  saving: string;
+  /**
+   * The standard price, stated as the FUTURE price it is ("Regular price after the first 100
+   * members: $24.99/month"), never struck through and never a "Save N%": $24.99 has not yet been
+   * the price anyone paid, so a struck "former" price would break 16 CFR 233.1 (13 Nov 2026).
+   */
+  regular: string;
   explain: string;
   /** Only the server's number, e.g. "37 of 100 spots left"; absent when unknown. */
   scarcity?: string;
@@ -201,13 +203,14 @@ export interface OfferBanner {
 export function offerBanner(input: { founding: boolean; spotsLeft?: number | null }): OfferBanner {
   const spots = typeof input.spotsLeft === 'number' && Number.isInteger(input.spotsLeft) && input.spotsLeft >= 0 ? input.spotsLeft : undefined;
   const foundingOpen = input.founding && spots !== 0;
-  const common = { was: `${LIST_PRICE}/month`, now: `${INTRO_PRICE}/month`, saving: `Save ${INTRO_SAVING_PERCENT}%` };
+  const now = `${INTRO_PRICE}/month`;
   if (foundingOpen) {
     return {
       kind: 'founding',
       ribbon: 'Introductory offer',
       headline: 'Founding Member price',
-      ...common,
+      now,
+      regular: `Regular price after the first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members: ${LIST_PRICE}/month`,
       explain: `For our first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members only. Your price stays ${INTRO_PRICE} for as long as you stay subscribed.`,
       ...(spots !== undefined ? { scarcity: `${spots} of ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} spots left` } : {}),
     };
@@ -216,8 +219,9 @@ export function offerBanner(input: { founding: boolean; spotsLeft?: number | nul
     kind: 'introductory',
     ribbon: 'Introductory offer',
     headline: `${INTRO_PRICE}/month for your first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}`,
-    ...common,
-    explain: `New members pay ${INTRO_PRICE}/month for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}/month. Cancel any time in your store settings.`,
+    now,
+    regular: `Regular price from month ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months + 1}: ${LIST_PRICE}/month`,
+    explain: `New members pay ${INTRO_PRICE}/month for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}/month. Cancel any time in Settings → Plan.`,
   };
 }
 
