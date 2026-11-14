@@ -12,7 +12,7 @@
 <main>
 <p class="eyebrow"><a href="/">A Player Mode</a></p>
 <h1>Privacy Policy</h1>
-<p class="meta">Last updated 2026-10-08</p>
+<p class="meta">Last updated 2026-11-13</p>
 
 <p>This policy explains how Spry Labs ("we", "us") handles personal information in A Player Mode: the iPhone and Android apps, the web app, and the services behind them ("APM"). The short version: <strong>we collect what APM needs to plan your days, we never sell your data, AI providers may not train on it, and you can export or delete it in the app at any time.</strong></p>
 
@@ -27,7 +27,7 @@
   <li>Your phone's calendar, read on the device only for the calendars you choose.</li>
   </ul>
   APM reads the minimum needed to find schedule conflicts, deadlines and tasks, and keeps derived facts (for example "meeting 2–3 pm Tuesday") rather than whole messages where it can. The access and refresh tokens for these accounts are encrypted at rest.</li>
-<li><strong>Subscription status:</strong> your plan, store (App Store or Google Play), renewal and expiry dates, from RevenueCat. We never receive your card or bank details; Apple and Google handle payment.</li>
+<li><strong>Subscription status:</strong> your plan, where you bought it (card checkout, App Store or Google Play), renewal and expiry dates, from RevenueCat. We never receive your card or bank details: card payments are handled by RevenueCat and its payment processor Stripe, and store payments by Apple and Google.</li>
 <li><strong>Device and usage data:</strong> a push-notification token if you allow notifications, your time zone, app version, and product events (which screens and steps were used, and timings). Product events never contain the text you write.</li>
 <li><strong>Security logs:</strong> an audit record of sign-ins, permission changes and every action APM takes on your behalf, so you can see them in Settings → Privacy → Activity.</li>
 </ul>
@@ -51,7 +51,7 @@
 <li><strong>Supabase</strong> (database and sign-in), with your data stored in the United States.</li>
 <li><strong>Cloudflare</strong> (the APM API and web app hosting).</li>
 <li><strong>OpenRouter</strong> and the approved AI model providers it routes to (see section 3).</li>
-<li><strong>RevenueCat</strong>, <strong>Apple</strong> and <strong>Google</strong> (subscriptions and purchases).</li>
+<li><strong>RevenueCat</strong> and <strong>Stripe</strong> (card checkout and subscriptions), and <strong>Apple</strong> and <strong>Google</strong> (store purchases).</li>
 <li><strong>Google</strong> and <strong>Microsoft</strong>, only for the accounts you connect, to read and act on your calendar and email as you allow.</li>
 <li><strong>Expo</strong>, <strong>Apple</strong> and <strong>Google</strong> push services, to deliver notifications you turn on.</li>
 </ul>
@@ -72,7 +72,7 @@
 <h2>7. Your choices and rights</h2>
 <ul>
 <li><strong>Export:</strong> download a copy of your data any time in Settings → Privacy → Export &amp; Delete.</li>
-<li><strong>Delete:</strong> delete your account and all of its data in Settings → Privacy → Export &amp; Delete. Deleting your account does not cancel a store subscription; cancel that in your App Store or Google Play settings.</li>
+<li><strong>Delete:</strong> delete your account and all of its data in Settings → Privacy → Export &amp; Delete. Deleting your account does not cancel a subscription; cancel it first in Settings → Plan → Manage subscription (card) or in your App Store or Google Play settings (store).</li>
 <li><strong>Correct:</strong> edit your answers, goals and settings in the app.</li>
 <li><strong>Disconnect:</strong> remove a Google or Microsoft connection in Settings → Privacy → Connections, or from your Google or Microsoft account.</li>
 <li><strong>Notifications:</strong> turn them off in Settings or in your phone's settings.</li>
@@ -83,13 +83,22 @@
 <h2>8. Security</h2>
 <p>Data is encrypted in transit, connected-account credentials are encrypted at rest, database access is limited per user by row-level security, and every action APM takes for you is logged. No system is perfectly secure; if we learn of a breach affecting your data we will notify you as the law requires.</p>
 
-<h2>9. Children</h2>
+<h2>9. The website aplayermode.com</h2>
+<p>The marketing site aplayermode.com is separate from the app and collects much less:</p>
+<ul>
+<li><strong>Session analytics.</strong> The site uses Microsoft Clarity to see how pages are used (clicks, scrolling, page views), so we can fix confusing pages. Clarity is set to mask what you type into forms, and it is not used in the app or the web app at app.aplayermode.com.</li>
+<li><strong>Launch updates.</strong> If you tick the box and give your email to get launch updates, we keep that email and the date you agreed, only to send those updates. Every email has an unsubscribe link.</li>
+<li><strong>Pinterest visits.</strong> We count visits that arrive from our Pinterest pins by the campaign tag in the link only; no IP address, device or cookie is kept for this.</li>
+<li><strong>Hosting and checkout.</strong> Cloudflare hosts the site. The Billionaire High Performance Coach digital product is sold on Gumroad, under Gumroad's own privacy policy.</li>
+</ul>
+
+<h2>10. Children</h2>
 <p>APM is for adults 18 and over, and asks you to confirm you are 18 or older before an account is created; we keep a dated record of that confirmation. We do not knowingly collect information from children. If you believe a child has given us information, contact us and we will delete it.</p>
 
-<h2>10. Changes</h2>
+<h2>11. Changes</h2>
 <p>We will update the "Last updated" date when this policy changes and tell you in the app or by email before a material change takes effect.</p>
 
-<h2>11. Contact</h2>
+<h2>12. Contact</h2>
 <p>Spry Labs · <a href="mailto:support@aplayermode.com">support@aplayermode.com</a></p>
 
 <p class="foot"><a href="/privacy/consumer-health">Consumer Health Data Privacy Policy</a> · <a href="/terms">Terms of Service</a> · <a href="/">Open A Player Mode</a></p>

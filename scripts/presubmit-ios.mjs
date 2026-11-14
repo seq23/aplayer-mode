@@ -24,6 +24,7 @@ const appDir = resolve(process.argv[2] ?? join(root, 'apps/mobile'));
 export const LINK_ALLOWLIST = {
   'src/links/external.ts': 'the helper itself',
   'src/billing/catalog.ts': 'store subscription-management and Apple EULA URLs, opened through openExternal',
+  'src/links/legal.ts': 'the Terms, Privacy and Disclaimer pages listed in Settings, opened through openExternal',
   'app/settings/privacy/connections.tsx': 'OAuth scope identifiers shown as text, never opened',
 };
 

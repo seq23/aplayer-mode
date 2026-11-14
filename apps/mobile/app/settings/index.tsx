@@ -10,6 +10,9 @@ import { planSummary } from '../../src/billing/planSummary';
 import { plainError } from '../../src/api/errors';
 import { UNAVAILABLE_COPY, billingAvailability, restoreStorePurchases } from '../../src/billing/purchases';
 import { WEB_CHECKOUT_COPY } from '../../src/billing/webCheckout';
+import { openExternal } from '../../src/links/external';
+import { LEGAL_LINKS } from '../../src/links/legal';
+
 
 /** Her plan by its ONE display name (ADR-0006); never retyped here. */
 const PAID_KEYS = ['chief_of_staff', 'life_os', 'autopilot'] as const;
@@ -129,6 +132,11 @@ export default function SettingsScreen() {
       <ListRow icon="shield" title="Privacy & AI" detail="What APM knows, how AI is used, export or delete." onPress={() => router.push('/settings/privacy')} />
       <ListRow icon="bell" title="Notifications" detail="Your morning plan, approvals and urgent heads-ups. Nothing else." onPress={() => router.push('/settings/notifications')} />
 
+      <SectionTitle>Legal</SectionTitle>
+      {LEGAL_LINKS.map((link) => (
+        <ListRow key={link.url} icon={link.icon} title={link.title} detail={link.detail} onPress={() => void openExternal({ kind: 'web', url: link.url })} />
+      ))}
+
       <SectionTitle>Life</SectionTitle>
       <ListRow icon="tool" title="Drafting Room" detail="Change your morning, rules or Tracks without redoing setup." onPress={() => router.push('/settings/os')} />
       <ListRow icon="edit-3" title="Diary" detail="Jot something down. No coaching." onPress={() => router.push('/diary')} />
@@ -158,7 +166,7 @@ export default function SettingsScreen() {
             ) : (
               <>
                 <CardTitle>Delete everything? This cannot be undone.</CardTitle>
-                <Body>Your account, your OS, your history and your connections are erased within 24 hours, and you are signed out now. A store subscription is cancelled in the App Store or Google Play, not here.</Body>
+                <Body>Your account, your OS, your history and your connections are erased within 24 hours, and you are signed out now. Deleting does not cancel a subscription: cancel it first under Your plan → Manage subscription.</Body>
                 <Button label={busy === 'delete' ? 'Deleting…' : 'Delete everything'} variant="danger" onPress={() => void deleteAccount()} />
                 <Button label="Keep my account" variant="secondary" onPress={() => setConfirmDelete(false)} />
               </>

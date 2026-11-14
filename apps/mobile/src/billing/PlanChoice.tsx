@@ -323,19 +323,15 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   );
 }
 
-/** The introductory offer, styled as a promotion: ribbon, struck list price, saving, scarcity (server number only). */
+/** The introductory offer, styled as a promotion: ribbon, intro price, the regular price stated as a future price (never struck), scarcity (server number only). */
 export function OfferBannerCard({ banner }: { banner: OfferBanner }) {
   return (
-    <View accessible accessibilityRole="summary" accessibilityLabel={`${banner.headline}. ${banner.now} instead of ${banner.was}. ${banner.saving}. ${banner.explain}${banner.scarcity ? ` ${banner.scarcity}.` : ''}`}>
+    <View accessible accessibilityRole="summary" accessibilityLabel={`${banner.headline}. ${banner.now}. ${banner.regular}. ${banner.explain}${banner.scarcity ? ` ${banner.scarcity}.` : ''}`}>
       <Card tone="feature">
         <Pill tone="solid">{banner.ribbon}</Pill>
         <Heading>{banner.headline}</Heading>
-        <Row wrap gap="xs" align="baseline">
-          <Figure>{banner.now}</Figure>
-          <Small tone="inkMuted">instead of</Small>
-          <Small tone="inkMuted" strike>{banner.was}</Small>
-          <Pill tone="success">{banner.saving}</Pill>
-        </Row>
+        <Figure>{banner.now}</Figure>
+        <Small tone="inkMuted">{banner.regular}</Small>
         <Body>{banner.explain}</Body>
         {banner.scarcity ? <Body strong tone="warning">{banner.scarcity}</Body> : null}
       </Card>

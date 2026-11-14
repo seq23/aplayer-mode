@@ -63,9 +63,8 @@ test('the introductory offer reads as a promotion in both states; scarcity is th
   assert.equal(founding.ribbon, 'Introductory offer');
   assert.equal(founding.headline, 'Founding Member price');
   assert.equal(founding.now, `${intro}/month`);
-  assert.equal(founding.was, `${list}/month`);
-  assert.equal(founding.saving, 'Save 60%');
-  assert.equal(founding.explain, `For our first 100 members only. Your price stays ${intro} for as long as you stay subscribed.`);
+  assert.equal(founding.regular, `Regular price after the first 100 members: ${list}/month`);
+  assert.equal(founding.explain, `For our first 100 members only. ${intro}/month, locked while you stay subscribed.`);
   assert.equal(founding.scarcity, '37 of 100 spots left');
   const unknown = sell.offerBanner({ founding: true, spotsLeft: null });
   assert.equal(unknown.kind, 'founding');
@@ -74,9 +73,15 @@ test('the introductory offer reads as a promotion in both states; scarcity is th
     assert.equal(fallback.kind, 'introductory');
     assert.equal(fallback.ribbon, 'Introductory offer');
     assert.equal(fallback.headline, `${intro}/month for your first 3 months, then ${list}`);
-    assert.equal(fallback.was, `${list}/month`);
-    assert.equal(fallback.saving, 'Save 60%');
+    assert.equal(fallback.regular, `Regular price from month 4: ${list}/month`);
     assert.equal(fallback.scarcity, undefined);
+  }
+  // 16 CFR 233.1: the standard price has not yet been the live price, so it is never shown as a struck
+  // "former" price and there is no "Save N%" against it, in any state of the banner.
+  for (const banner of [founding, unknown, sell.offerBanner({ founding: false }), sell.offerBanner({ founding: true, spotsLeft: 0 })]) {
+    assert.equal(banner.was, undefined);
+    assert.equal(banner.saving, undefined);
+    assert.doesNotMatch(JSON.stringify(banner), /save \d+%|instead of|was \$/i);
   }
   // docs/36 H4: the ribbon and the headline sit one above the other; the words are never said twice.
   for (const banner of [founding, unknown, sell.offerBanner({ founding: false })]) {
