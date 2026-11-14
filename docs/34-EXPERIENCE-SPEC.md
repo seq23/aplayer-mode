@@ -122,7 +122,7 @@ Below the table, one line: "Also for athletes, students, creators and anyone goi
 
 ### 3.4 The five roles APM fills (site wording)
 
-Executive Coach · Executive Assistant · Chief of Staff · Accountability Partner · Cognitive Behavioral Mindset Coach. "Most systems leave you to manage everything alone. This one doesn't."
+Executive Coach · Executive Assistant · Chief of Staff · Accountability Partner · Mindset Coach. "Most systems leave you to manage everything alone. This one doesn't."
 
 ### 3.5 Tier grid 1: who carries it (every tier lifts load; each includes the one below)
 

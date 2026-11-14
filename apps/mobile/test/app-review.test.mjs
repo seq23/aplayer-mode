@@ -272,3 +272,24 @@ test('U1/U4/U5: APM fills in the area, the Drafting Room reads as words, Day 90 
   assert.doesNotMatch(today, /Server-backed|not pretending local state is durable/, 'U3: no engineering words on Today');
   assert.deepEqual([3, 9, 14, 20].map(greet.greeting), ['Hello', 'Good morning', 'Good afternoon', 'Good evening']);
 });
+
+// App Review 1.4.1 / 2.3.1: the coach role is the "Mindset Coach" to people; a clinical-sounding
+// "Cognitive Behavioral" name never shows in the app, the store listing or the web pages. (The Terms
+// disclaimer "is not cognitive behavioural therapy" stays: that is the safety line, not a name.)
+test('no user-facing text names a "Cognitive Behavioral" coach', async () => {
+  const { readdirSync, statSync } = await import('node:fs');
+  const files = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(join(appDir, dir))) {
+      const rel = join(dir, name);
+      if (statSync(join(appDir, rel)).isDirectory()) walk(rel);
+      else if (/\.(tsx?|json|html)$/.test(name)) files.push(rel);
+    }
+  };
+  for (const dir of ['app', 'src', 'public', 'store']) walk(dir);
+  assert.ok(files.length > 50, `scanned only ${files.length} files`);
+  const hits = [];
+  for (const rel of files) if (/cognitive[\s-]+behavioral/i.test(await readFile(join(appDir, rel), 'utf8'))) hits.push(rel);
+  assert.deepEqual(hits, []);
+  assert.match(await readFile(join(appDir, 'src/content/sell.ts'), 'utf8'), /title: 'Mindset Coach'/);
+});

@@ -57,7 +57,7 @@ export const FIVE_ROLES = {
     { title: 'Executive Assistant', body: 'Sequences the day and tells you exactly where to start. You stop deciding what is first.' },
     { title: 'Chief of Staff', body: 'Keeps projects, priorities and long-term goals lined up. You stop holding the whole map.' },
     { title: 'Accountability Partner', body: 'Holds the line between days when motivation disappears. You stop restarting.' },
-    { title: 'Cognitive Behavioral Mindset Coach', body: 'Interrupts the spiral after a miss and gets you back to one small action. You stop the shame loop.' },
+    { title: 'Mindset Coach', body: 'Interrupts the spiral after a miss and gets you back to one small action. You stop the shame loop.' },
   ] as readonly Card[],
 } as const;
 
