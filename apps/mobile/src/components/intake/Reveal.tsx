@@ -250,6 +250,7 @@ export function DetailScreen({ id, answers, onSet }: { id: 'r1' | 'r2' | 'r3' | 
         <Label>First step this week</Label>
         <View style={intakeStyles.chips}>
           {questionOptions(stepQ, answers).map(([v, label]) => <Chip key={v} label={label} selected={answers.first_step === v} onPress={() => onSet('first_step', v)} />)}
+          {answers.first_step === OTHER_OPTION && firstStepText(answers) ? <Chip label={firstStepText(answers)!} selected onPress={() => undefined} /> : null}
         </View>
         <Card>
           {s.plan.gates.map((gate) => <Body key={gate.key}>{`Day ${gate.startDay} to ${gate.endDay} · ${gate.label}: ${gate.outcome}`}</Body>)}
