@@ -51,8 +51,10 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   const [awaitingCard, setAwaitingCard] = useState(false);
   const recommended = recommendedTier(games);
   // Pay first (docs/33 §10): a buyer who paid before the setup questions never sees the paywall again.
+  // The same for an account that already has access through a bounded beta grant (the App Review
+  // account, migration 0070): a store build has no skip, so without this the reviewer was stuck here.
   useEffect(() => {
-    if (onboarding && product && product.entitlement.plan !== 'beta' && hasDailyLoopAccess(product.entitlement)) onFinished?.('purchased');
+    if (onboarding && product && hasDailyLoopAccess(product.entitlement)) onFinished?.(product.entitlement.plan === 'beta' ? 'beta' : 'purchased');
   }, [onboarding, product, onFinished]);
 
   const loadPlan = useCallback(async () => {
