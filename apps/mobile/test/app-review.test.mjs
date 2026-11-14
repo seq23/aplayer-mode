@@ -168,6 +168,15 @@ test('App Store: Restore Purchases is in Settings as well as on the paywall', as
   assert.match(await src('src/billing/PlanChoice.tsx'), /Restore purchases/);
 });
 
+test('Settings lists Terms, Privacy and Disclaimer, each opened through the external-link helper', async () => {
+  const legal = await src('src/links/legal.ts');
+  const urls = [...legal.matchAll(/url: '([^']+)'/g)].map((m) => m[1]);
+  assert.deepEqual(urls, ['https://app.aplayermode.com/terms', 'https://app.aplayermode.com/privacy', 'https://aplayermode.com/disclaimer/']);
+  for (const url of urls) assert.equal(external.externalUrl({ kind: 'web', url }), url, `${url} passes the https-only helper`);
+  const settings = await src('app/settings/index.tsx');
+  assert.match(settings, /LEGAL_LINKS\.map\(\(link\) => \([\s\S]{0,200}onPress=\{\(\) => void openExternal\(\{ kind: 'web', url: link\.url \}\)\}/);
+});
+
 test('App Store: "Report this" on every coach reply that has a stored turn', async () => {
   const coach = await src('app/(tabs)/apm.tsx');
   assert.match(coach, /turn\.role === 'apm' && turn\.turnId/);

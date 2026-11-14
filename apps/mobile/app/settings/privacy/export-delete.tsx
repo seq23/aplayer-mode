@@ -75,7 +75,7 @@ export default function ExportDeleteScreen() {
           </>
         ) : (
           <>
-            <Body>Delete everything? This cannot be undone. A store subscription is cancelled in the App Store or Google Play, not here.</Body>
+            <Body>Delete everything? This cannot be undone. Deleting does not cancel a subscription: cancel it first under Settings → Plan → Manage subscription.</Body>
             <Button label={busy === 'delete' ? 'Deleting…' : 'Delete everything'} variant="danger" onPress={() => void queueDeletion()} />
             <Button label="Keep my account" variant="secondary" onPress={() => setConfirmDelete(false)} />
           </>
