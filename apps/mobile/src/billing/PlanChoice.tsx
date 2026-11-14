@@ -98,6 +98,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   // Card checkout (RevenueCat Web Billing): web app and sideload APK only; 'unavailable' in every store build.
   const cardCheckout = webCheckoutFor(distribution, founding);
   const cardPay = cardCheckout.kind !== 'unavailable';
+  // A store build whose store can sell right now: the plan screen has no skip (no free trial).
+  const storeSells = distribution === 'store' && availability.available;
 
   const entitlement = product?.entitlement;
   const billing = product?.billing ?? null;
@@ -283,12 +285,15 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       {onboarding && CLOSED_BETA_BUILD ? (
         <Card tone="muted"><Body>{PLAN_SCREEN.betaLine}</Body><Button label="Start with the closed beta" variant="secondary" onPress={() => onFinished?.('beta')} /></Card>
       ) : null}
-      {/* Never a dead end (docs/35 E6): whatever this build can or cannot buy, there is a way on.
-          Today then shows "Pick a plan to start Day 1" instead of a check-in the server refuses. */}
-      {onboarding && !CLOSED_BETA_BUILD ? (
+      {/* No free trial (docs/34 §14 #5; owner's call 13 Nov 2026): a store build that can sell has
+          no skip here. Its way on is a plan, Restore purchases, Manage subscription and Try again,
+          so a reviewer with a sandbox account can always subscribe. Never a dead end (docs/35 E6):
+          a build that cannot buy keeps "Go to Today", and the free web preview keeps a skip,
+          labelled as preview only, so the owner can look around. */}
+      {onboarding && !CLOSED_BETA_BUILD && !storeSells ? (
         <Card tone="muted">
-          <Body>{availability.available || cardPay ? 'Not ready to choose? Your OS is installed and saved. Look around first; Today keeps the plans one tap away.' : `${UNAVAILABLE_COPY[availability.reason]} Your OS is installed and saved to your account.`}</Body>
-          <Button label={availability.available || cardPay ? 'Decide later, show me Today' : 'Go to Today'} variant="secondary" onPress={() => onFinished?.('continue')} />
+          <Body>{PREVIEW ? PREVIEW_COPY.skipNote : cardPay ? 'Not ready to choose? Your OS is installed and saved. Look around first; Today keeps the plans one tap away.' : `${availability.available ? '' : `${UNAVAILABLE_COPY[availability.reason]} `}Your OS is installed and saved to your account.`}</Body>
+          <Button label={PREVIEW ? PREVIEW_COPY.skip : cardPay ? 'Decide later, show me Today' : 'Go to Today'} variant="secondary" onPress={() => onFinished?.('continue')} />
         </Card>
       ) : null}
 

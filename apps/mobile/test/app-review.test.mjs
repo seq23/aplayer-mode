@@ -133,8 +133,16 @@ test('E5: daily-loop access mirrors the server; Today offers the plan instead of
 
 test('E6: the onboarding paywall always has a way on, and an anonymous session can save its account right there', async () => {
   const paywall = await src('src/billing/PlanChoice.tsx');
-  assert.match(paywall, /\{onboarding && !CLOSED_BETA_BUILD \? \(/, 'the way on is shown on every store build, not only when purchases are unavailable');
-  assert.match(paywall, /Decide later, show me Today/);
+  // No free trial (owner's call 13 Nov 2026): a store build that can sell has no skip; every other
+  // build keeps a way on, and the preview's skip says it is preview only.
+  assert.match(paywall, /const storeSells = distribution === 'store' && availability\.available;/);
+  assert.match(paywall, /\{onboarding && !CLOSED_BETA_BUILD && !storeSells \? \(/, 'no skip where the store can sell; a way on everywhere else');
+  assert.match(paywall, /label=\{PREVIEW \? PREVIEW_COPY\.skip : cardPay \? 'Decide later, show me Today' : 'Go to Today'\}/);
+  const flag = await src('src/preview/flag.ts');
+  assert.match(flag, /skip: 'Preview only/, 'the preview skip is labelled preview only');
+  // Where the store sells, the way on is buying, restoring or retrying: never a dead end for App Review.
+  assert.match(paywall, /\{!isCurrent && availability\.available \? \(\s*<Button label=\{busy === planKey \? 'Opening the store…'/);
+  assert.match(paywall, /availability\.available \? <Button label=\{busy === 'restore' \? 'Restoring…' : 'Restore purchases'\}/);
   assert.doesNotMatch(paywall, /Continue to Day 1/);
   // Store builds AND card-checkout builds (web, sideload APK): a subscription belongs to an account.
   assert.match(paywall, /\(availability\.available \|\| cardCheckout\.kind === 'ready'\) && isAnonymous \? \([\s\S]*<AccountPanel/);
