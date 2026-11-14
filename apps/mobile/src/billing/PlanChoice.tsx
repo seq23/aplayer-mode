@@ -239,7 +239,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       {!availability.available && !cardPay ? <Card tone="muted"><Body>{UNAVAILABLE_COPY[availability.reason]}</Body></Card> : null}
       {/* Free web preview only: nothing is bought; the sample plan lets the owner see the paid app. */}
       {PREVIEW && accessToken && !(usable && currentPlan !== 'beta') ? (
-        <Button label={PREVIEW_COPY.samplePlan} variant="accent" busy={busy === 'reconcile'} disabled={Boolean(busy)}
+        <Button label={PREVIEW_COPY.samplePlan} variant="primary" busy={busy === 'reconcile'} disabled={Boolean(busy)}
           onPress={() => { setBusy('reconcile'); void reconcileBilling(accessToken).then(() => loadPlan()).then(() => onFinished?.('purchased')).finally(() => setBusy(undefined)); }} />
       ) : null}
       {cardCheckout.kind === 'not_configured' ? <Card tone="muted"><Body>{WEB_CHECKOUT_COPY.notConfigured}</Body></Card> : null}
@@ -268,13 +268,13 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
             {offer.note ? <Body muted>{offer.note}</Body> : null}
             {/* No wall of dead buttons where this build cannot buy: the card above says where to. */}
             {!isCurrent && availability.available ? (
-              <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName}`} accessibilityLabel={`${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'accent' : 'secondary'} busy={busy === planKey}
+              <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName}`} accessibilityLabel={`${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'primary' : 'secondary'} busy={busy === planKey}
                 disabled={!purchasesEnabled || !pkg || Boolean(busy)} disabledReason={busy ? undefined : buyBlockedReason(pkg)} onPress={() => purchase(planKey)} />
             ) : null}
             {/* Card checkout (web app + sideload APK only). Not configured yet: the calm card above, never a dead button. */}
             {!isCurrent && cardCheckout.kind === 'ready' && !storeSubscriberHere ? (webSubscriber
               ? <Button label={`${action} ${offer.displayName} in Manage subscription`} variant="secondary" disabled={Boolean(busy)} onPress={() => void manage()} />
-              : <Button label={busy === 'card' ? WEB_CHECKOUT_COPY.confirming : `${WEB_CHECKOUT_COPY.button} · ${offer.displayName}`} accessibilityLabel={`${WEB_CHECKOUT_COPY.button}: ${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'accent' : 'secondary'} busy={busy === 'card'}
+              : <Button label={busy === 'card' ? WEB_CHECKOUT_COPY.confirming : `${WEB_CHECKOUT_COPY.button} · ${offer.displayName}`} accessibilityLabel={`${WEB_CHECKOUT_COPY.button}: ${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'primary' : 'secondary'} busy={busy === 'card'}
                   disabled={!cardEnabled || Boolean(busy)} disabledReason={busy ? undefined : isAnonymous ? WEB_CHECKOUT_COPY.account : !serverOffering ? 'Getting plans…' : undefined} onPress={() => void payByCard(planKey)} />) : null}
           </Card>
         );

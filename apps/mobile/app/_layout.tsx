@@ -61,7 +61,7 @@ function ThemedStack() {
           {/* The one setup route: no header, no swipe-back; Android back is handled in-screen (docs/34 §6). */}
           <Stack.Screen name="intake" options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }} />
           <Stack.Screen name="account" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Today' }} />
           <Stack.Screen name="settings/index" options={{ title: 'Settings' }} />
           <Stack.Screen name="settings/plan" options={{ title: 'Your plan' }} />
           <Stack.Screen name="settings/life" options={{ title: 'Life areas' }} />

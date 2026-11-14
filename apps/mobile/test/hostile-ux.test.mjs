@@ -85,9 +85,9 @@ test('H2/H4: the paywall puts the buy buttons first, folds the 13 grid rows, and
   assert.match(paywall, /disabledReason=\{busy \? undefined : buyBlockedReason\(pkg\)\}/, 'a disabled buy button says why');
   // One highlighted buy button per build: the store button (store builds) and the card button (web,
   // sideload) sit behind mutually exclusive guards, so a screen shows exactly one of them.
-  assert.equal((paywall.match(/variant=\{planKey === recommended \? 'accent' : 'secondary'\}/g) ?? []).length, 2, 'one highlighted store button + one highlighted card button');
-  assert.match(paywall, /\{!isCurrent && availability\.available \? \(\s*<Button label=\{busy === planKey \? 'Opening the store…'[^\n]*variant=\{planKey === recommended \? 'accent' : 'secondary'\}/, 'the store one is behind availability.available');
-  assert.match(paywall, /cardCheckout\.kind === 'ready'[\s\S]{0,400}WEB_CHECKOUT_COPY\.button[^\n]*variant=\{planKey === recommended \? 'accent' : 'secondary'\}/, 'the card one is behind card checkout ready');
+  assert.equal((paywall.match(/variant=\{planKey === recommended \? 'primary' : 'secondary'\}/g) ?? []).length, 2, 'one highlighted store button + one highlighted card button');
+  assert.match(paywall, /\{!isCurrent && availability\.available \? \(\s*<Button label=\{busy === planKey \? 'Opening the store…'[^\n]*variant=\{planKey === recommended \? 'primary' : 'secondary'\}/, 'the store one is behind availability.available');
+  assert.match(paywall, /cardCheckout\.kind === 'ready'[\s\S]{0,400}WEB_CHECKOUT_COPY\.button[^\n]*variant=\{planKey === recommended \? 'primary' : 'secondary'\}/, 'the card one is behind card checkout ready');
   const plan = await src('app/settings/plan.tsx');
   assert.doesNotMatch(plan, /value=\{entitlement\.status\}|maxAutonomyLevel/, 'Settings → plan shows words, not enums or levels');
 });
@@ -100,7 +100,10 @@ test('H5: Button never sits dead: a disabled one shows its reason; a promise loc
   assert.match(ui, /accessibilityHint=\{showReason \? disabledReason : accessibilityHint\}/, 'the reason is read out too');
   assert.match(ui, /if \(inFlight\.current \|\| working \|\| disabled\) return;/, 'a second tap while working is dropped');
   assert.match(ui, /inFlight\.current = true;\s*setPending\(true\);/, 'the lock is set synchronously (a ref), before the next tap can land');
-  assert.match(ui, /accessibilityState=\{\{ disabled, busy: working \}\}/);
+  assert.match(ui, /aria-disabled=\{disabled\} aria-busy=\{working\}/);
+  // react-native-web 0.21 ignores accessibilityState: a chip's selected state only reaches a screen reader on web through aria-* (docs/34 AT16).
+  assert.doesNotMatch(ui, /accessibilityState=/, 'state goes through aria-* props, which both native and web read');
+  assert.equal((ui.match(/aria-checked=\{role === 'button' \? undefined : selected\}/g) ?? []).length, 2, 'Chip and AnswerCard announce checked');
   assert.match(ui, /working \? <ActivityIndicator/);
   assert.match(ui, /disabled && \(showReason \? s\.waiting : s\.disabled\)/, 'a disabled button with a reason looks like it is waiting, not dead');
   assert.match(ui, /waiting: \{ backgroundColor: colors\.surfaceMuted, borderColor: colors\.lineStrong/);
