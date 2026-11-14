@@ -64,7 +64,7 @@ test('the introductory offer reads as a promotion in both states; scarcity is th
   assert.equal(founding.headline, 'Founding Member price');
   assert.equal(founding.now, `${intro}/month`);
   assert.equal(founding.regular, `Regular price after the first 100 members: ${list}/month`);
-  assert.equal(founding.explain, `For our first 100 members only. Your price stays ${intro} for as long as you stay subscribed.`);
+  assert.equal(founding.explain, `For our first 100 members only. ${intro}/month, locked while you stay subscribed.`);
   assert.equal(founding.scarcity, '37 of 100 spots left');
   const unknown = sell.offerBanner({ founding: true, spotsLeft: null });
   assert.equal(unknown.kind, 'founding');

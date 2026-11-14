@@ -211,7 +211,7 @@ export function offerBanner(input: { founding: boolean; spotsLeft?: number | nul
       headline: 'Founding Member price',
       now,
       regular: `Regular price after the first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members: ${LIST_PRICE}/month`,
-      explain: `For our first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members only. Your price stays ${INTRO_PRICE} for as long as you stay subscribed.`,
+      explain: `For our first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members only. ${INTRO_PRICE}/month, locked while you stay subscribed.`,
       ...(spots !== undefined ? { scarcity: `${spots} of ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} spots left` } : {}),
     };
   }
