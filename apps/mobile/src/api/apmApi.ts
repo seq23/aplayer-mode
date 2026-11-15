@@ -243,6 +243,8 @@ export interface IntakeSynthesisResult {
 
 
 const baseUrl = process.env.EXPO_PUBLIC_APM_API_URL?.replace(/\/$/, '');
+/** The API origin (https://api.aplayermode.com in a build), or undefined when not configured. */
+export function apiBaseUrl(): string | undefined { return baseUrl; }
 
 // The free web preview answers every call from its own sample server (src/preview/server.ts):
 // no network, so nothing is read from or written to the production API.

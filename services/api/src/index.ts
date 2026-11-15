@@ -74,6 +74,7 @@ import { recordAudit, type SystemAuditEvent, type UserAuditEvent } from './audit
 import { entitlementIsUsable } from './entitlement';
 import { CLIENT_ANALYTICS_EVENT_NAMES, sanitizeAnalyticsProperties } from './analytics';
 import { workPushHold } from './morningTrigger';
+import { authStartTarget } from './authStart';
 import { buildGoalPlan, criticalPillars, ensureGoalPlans, pauseBodyCoachingIfFlagged, pillarRebuildsPending, rebuildBodyPlans, redactForHardStart, trackContext, freshAgenda, localToday, planEntries, todayLoopState } from './dailyLoop';
 import {
   applyOsChange,
@@ -615,6 +616,14 @@ app.use('*', async (c, next) => {
   }
   if (c.req.method === 'OPTIONS') return c.body(null, 204);
   await next();
+});
+
+// The first address a web sign-in opens, so iOS names aplayermode.com, not the Supabase host
+// (src/authStart.ts). Public: it only redirects to an allowed sign-in address; anything else is refused.
+app.get('/v1/auth/:provider/start', (c) => {
+  const target = authStartTarget(c.env as ApiEnv, c.req.param('provider'), c.req.query('to'));
+  if (!target) return c.text('This sign-in link is not valid. Go back to A Player Mode and try again.', 400);
+  return c.redirect(target, 302);
 });
 
 app.get('/v1/health', (c) => {

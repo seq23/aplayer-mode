@@ -1,7 +1,9 @@
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
-import { exchangeOAuthConnection, startOAuthConnection } from '../api/apmApi';
+import { Platform } from 'react-native';
+import { apiBaseUrl, exchangeOAuthConnection, startOAuthConnection } from '../api/apmApi';
+import { authStartUrl, openAuthSheet } from './authStart';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -42,10 +44,12 @@ export async function connectOAuthProvider(input: {
     intent: input.intent ?? 'reconnect',
   }, input.accessToken);
 
-  const result = await WebBrowser.openAuthSessionAsync(started.authorizationUrl, redirectUri);
-  if (result.type !== 'success' || !result.url) throw new Error('Connection was cancelled before authorization completed');
+  // Opens on api.aplayermode.com first, so iOS names our domain (./authStart.ts).
+  const start = authStartUrl(started.authorizationUrl, { provider: input.provider, returnUrl: redirectUri, apiBase: apiBaseUrl(), platform: Platform.OS });
+  const returned = await openAuthSheet(WebBrowser.openAuthSessionAsync, start, redirectUri);
+  if (!returned) throw new Error('Connection was cancelled before authorization completed');
 
-  const callback = new URL(result.url);
+  const callback = new URL(returned);
   const error = callback.searchParams.get('error');
   if (error) throw new Error(`Provider authorization failed: ${error}`);
   const code = callback.searchParams.get('code');
