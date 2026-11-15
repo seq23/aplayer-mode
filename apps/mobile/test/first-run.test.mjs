@@ -128,7 +128,9 @@ test('answers hit the device synchronously on native; web storage never crashes;
   assert.doesNotMatch(web, /from 'expo-sqlite/, 'the web build never loads the native store');
   assert.match(web, /try \{/);
   const account = await read('src/components/intake/AccountPanel.tsx');
-  assert.match(account, /Platform\.OS === 'ios' \? <AppleButton/);
+  // Apple only on iOS: the panel renders Apple from signInOptions, which offers it on iOS alone.
+  assert.match(account, /options\.includes\('apple'\) \? <AppleButton/);
+  assert.match(await read('src/auth/signInOptions.ts'), /platform === 'ios' \? \(\['apple'\] as const\)/);
   assert.match(account, /textContentType="oneTimeCode"/);
   const session = await read('src/state/session.tsx');
   assert.match(session, /signInAnonymously/);
