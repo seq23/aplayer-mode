@@ -11,6 +11,7 @@ import { apiBaseUrl, mergeAnonymousIntakeDraft, previewSample, reviewerSignIn, s
 import { authStartUrl, openAuthSheet } from '../integrations/authStart';
 import { readSync, removeSync, writeSync } from '../intake/storage';
 import { PREVIEW } from '../preview/flag';
+import { friendlyAuthError } from '../auth/signInOptions';
 
 type SessionStatus = 'loading' | 'signed_out' | 'signed_in' | 'unconfigured';
 
@@ -52,16 +53,6 @@ interface SessionContextValue {
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
-
-/** Plain errors only: no vendor names, no codes (detail goes to logs). */
-export function friendlyAuthError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error ?? '');
-  if (/token.*(expired|invalid)|otp|code/i.test(message)) return 'That code didn\'t match. Try again or resend.';
-  if (/rate|too many/i.test(message)) return 'Too many tries. Wait a minute and try again.';
-  if (/network|fetch/i.test(message)) return 'You seem to be offline. Your answers are saved on this phone.';
-  if (/configuration|not configured/i.test(message)) return 'Setup isn\'t finished on this build.';
-  return 'That didn\'t work. Try again, or use another way to save.';
-}
 
 const alreadyExists = (error: { code?: string; message?: string } | null | undefined) =>
   Boolean(error && (/identity_already_exists|email_exists|user_already_exists/.test(error.code ?? '') || /already (been )?(registered|exists|linked)/i.test(error.message ?? '')));
@@ -195,9 +186,9 @@ function LiveSessionProvider({ children }: { children: ReactNode }) {
       try { return (await mergeAnonymousIntakeDraft(anonToken, nextToken)).outcome; }
       catch { return undefined; /* the device still holds the draft and re-saves it under the account */ }
     };
-    const fail = (cause: unknown): never => {
+    const fail = (cause: unknown, provider?: 'apple' | 'google'): never => {
       console.warn('APM account step failed', cause instanceof Error ? cause.message : cause);
-      const message = friendlyAuthError(cause);
+      const message = friendlyAuthError(cause, provider);
       setError(message);
       throw new Error(message);
     };
@@ -293,7 +284,7 @@ function LiveSessionProvider({ children }: { children: ReactNode }) {
           await saveName(name);
           const mergeOutcome = await mergeFromAnonymous(data.session?.access_token);
           return { outcome: mergeOutcome ? 'merged' : 'signed_in', provider: 'apple', ...(mergeOutcome ? { mergeOutcome } : {}), ...(name ? { firstName: name } : {}) };
-        } catch (cause) { return fail(cause); }
+        } catch (cause) { return fail(cause, 'apple'); }
       },
       signInWithGoogle: async (options) => {
         setError(undefined);
@@ -333,7 +324,7 @@ function LiveSessionProvider({ children }: { children: ReactNode }) {
           if (name) setFirstName(name);
           const mergeOutcome = await mergeFromAnonymous(signedIn.session?.access_token);
           return { outcome: mergeOutcome ? 'merged' : 'signed_in', provider: 'google', ...(mergeOutcome ? { mergeOutcome } : {}), ...(name ? { firstName: name } : {}) };
-        } catch (cause) { return fail(cause); }
+        } catch (cause) { return fail(cause, 'google'); }
       },
       signOut: async () => {
         const supabase = getSupabaseClient();

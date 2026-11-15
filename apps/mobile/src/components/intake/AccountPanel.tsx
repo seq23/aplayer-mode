@@ -7,10 +7,12 @@ import { radius, tap, useTheme } from '../../theme';
 import { intakeStyles } from './primitives';
 import { plainError } from '../../api/errors';
 import { PREVIEW, PREVIEW_COPY } from '../../preview/flag';
+import { signInOptions } from '../../auth/signInOptions';
 
 /**
  * "Save your plan" (docs/34 §5): Apple (iOS only, first and at least as prominent as
- * Google; Guideline 4.8), Google, or a 6-digit email code typed in the same screen. No
+ * Google; Guideline 4.8), Google (only while GOOGLE_SIGN_IN_ENABLED, src/auth/signInOptions.ts),
+ * or a 6-digit email code typed in the same screen. No
  * passwords, no leaving the app to confirm an email, no vendor names in the copy.
  */
 export function AccountPanel({ title, sub, onDone, onLater, laterLabel = 'Back' }: {
@@ -50,6 +52,7 @@ export function AccountPanel({ title, sub, onDone, onLater, laterLabel = 'Back' 
     } finally { release(); }
   };
 
+  const options = signInOptions(Platform.OS);
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   if (stage === 'email' || stage === 'code') {
@@ -87,9 +90,10 @@ export function AccountPanel({ title, sub, onDone, onLater, laterLabel = 'Back' 
       <QuestionTitle>{title}</QuestionTitle>
       <Body muted>{sub}</Body>
       {PREVIEW ? <Reason>{PREVIEW_COPY.signIn}</Reason> : null}
-      {Platform.OS === 'ios' ? <AppleButton busy={busy === 'apple'} onPress={() => void run('apple', signInWithApple)} /> : null}
-      <Button label={busy === 'google' ? 'Opening Google…' : 'Continue with Google'} variant="secondary" large onPress={() => void run('google', (release) => signInWithGoogle({ onSheetClosed: release }))} />
-      <Button label="Email me a 6-digit code" variant="secondary" icon="mail" large onPress={() => setStage('email')} />
+      {options.includes('apple') ? <AppleButton busy={busy === 'apple'} onPress={() => void run('apple', signInWithApple)} /> : null}
+      {options.includes('google') ? <Button label={busy === 'google' ? 'Opening Google…' : 'Continue with Google'} variant="secondary" large onPress={() => void run('google', (release) => signInWithGoogle({ onSheetClosed: release }))} /> : null}
+      {/* Alone (web, Android) the email code is the main button, not a secondary one. */}
+      <Button label="Email me a 6-digit code" variant={options.length === 1 ? 'primary' : 'secondary'} icon="mail" large onPress={() => setStage('email')} />
       {onLater ? <Button label={laterLabel} variant="ghost" onPress={onLater} /> : null}
       {error ? <Reason>{error}</Reason> : null}
       <Card tone="muted">
