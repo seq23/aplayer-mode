@@ -143,8 +143,13 @@ test('sim #5: Finish later sits low and quiet; its note counts her answers right
   for (const n of [0, 1, 2, 9]) assert.doesNotMatch(m.words.savedAnswersLine(n, false), /\bAll\b|1 answers/);
 });
 
-test('sim #8: a disabled Start my plan says why and what to tap', async () => {
+test('sim #8 + retest: a disabled Start my plan says why and links DOWN to the save box', async () => {
   const intake = await src('app/intake.tsx');
-  assert.match(intake, /if \(noSession\) reason = `Start my plan unlocks once your plan is saved to an account\. Scroll up to "Save your plan to an account" and tap/);
-  assert.match(intake, /title="Save your plan to an account"/, 'the box the reason points at has that title');
+  assert.doesNotMatch(intake, /Scroll up/, 'the save box is below the plan, never above it');
+  assert.match(intake, /if \(noSession\) \{ reason = [^;]+; reasonLink = \{ label: [^,]+, onPress: scrollToSave \}; \}/, 'the reason carries a link that jumps to the box');
+  assert.match(intake, /\{reason && reasonLink \? <LinkButton label=\{reasonLink\.label\} onPress=\{reasonLink\.onPress\} \/> : null\}/, 'the link is shown in the footer');
+  assert.match(intake, /<View ref=\{saveRef\} collapsable=\{false\}>\s*<Card tone="warning">\s*<AccountPanel\s*title="Save your plan to an account"/, 'the jump target is the save box');
+  assert.match(intake, /saveRef\.current\.measureLayout\(inner, \(_x: number, y: number\) => scroll\.scrollTo\(/, 'it scrolls to where the box is');
+  assert.match(intake, /scrollRef=\{scrollRef\}/);
+  assert.match(await src('src/components/ui.tsx'), /<ScrollView ref=\{scrollRef\}/, 'Screen hands its ScrollView to the ref');
 });

@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   Text,
   TextInput,
@@ -171,8 +172,10 @@ export function Header({ eyebrow, title, subtitle, hero = false }: { eyebrow?: s
  * gutters, an optional fixed top (intake progress) and a fixed footer (sticky CTA, Back /
  * Continue) above a brass hairline.
  */
-export function Screen({ children, title, eyebrow, subtitle, top, footer, hero = false, fullBleed = false }: {
+export function Screen({ children, title, eyebrow, subtitle, top, footer, hero = false, fullBleed = false, scrollRef }: {
   children: ReactNode;
+  /** The body's ScrollView, for a link that jumps to a section (intake summary). */
+  scrollRef?: React.Ref<ScrollViewInstance>;
   title?: string;
   eyebrow?: string;
   subtitle?: string;
@@ -189,7 +192,7 @@ export function Screen({ children, title, eyebrow, subtitle, top, footer, hero =
           button while the keyboard is up still lands (docs/35 E10). */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         {top ? <View style={s.top}>{top}</View> : null}
-        <ScrollView contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <ScrollView ref={scrollRef} contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
           <Header eyebrow={eyebrow} title={title} subtitle={subtitle} hero={hero} />
           {children}
         </ScrollView>

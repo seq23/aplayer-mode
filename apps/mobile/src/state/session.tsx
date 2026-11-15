@@ -7,7 +7,8 @@ import * as WebBrowser from 'expo-web-browser';
 import { getSupabaseClient, isSupabaseConfigured } from '../auth/supabase';
 import { forgetBillingUser, identifyBillingUser } from '../billing/purchases';
 import { disableApmPushForSignOut } from '../integrations/push';
-import { mergeAnonymousIntakeDraft, previewSample, reviewerSignIn, saveDisplayName, setAccessTokenRefresher } from '../api/apmApi';
+import { apiBaseUrl, mergeAnonymousIntakeDraft, previewSample, reviewerSignIn, saveDisplayName, setAccessTokenRefresher } from '../api/apmApi';
+import { authStartUrl, openAuthSheet } from '../integrations/authStart';
 import { readSync, removeSync, writeSync } from '../intake/storage';
 import { PREVIEW } from '../preview/flag';
 
@@ -45,7 +46,8 @@ interface SessionContextValue {
   /** Settings: change the name APM greets you with. Throws when it did not save. */
   updateName: (name: string) => Promise<void>;
   signInWithApple: () => Promise<AccountResult>;
-  signInWithGoogle: () => Promise<AccountResult>;
+  /** `onSheetClosed` fires the moment the sign-in sheet comes back cancelled or dismissed. */
+  signInWithGoogle: (options?: { onSheetClosed?: () => void }) => Promise<AccountResult>;
   signOut: () => Promise<void>;
 }
 
@@ -293,15 +295,17 @@ function LiveSessionProvider({ children }: { children: ReactNode }) {
           return { outcome: mergeOutcome ? 'merged' : 'signed_in', provider: 'apple', ...(mergeOutcome ? { mergeOutcome } : {}), ...(name ? { firstName: name } : {}) };
         } catch (cause) { return fail(cause); }
       },
-      signInWithGoogle: async () => {
+      signInWithGoogle: async (options) => {
         setError(undefined);
         try {
           const redirectTo = Linking.createURL('auth/callback');
           const openFlow = async (url: string | undefined) => {
             if (!url) throw new Error('No sign-in address returned');
-            const result = await WebBrowser.openAuthSessionAsync(url, redirectTo);
-            if (result.type !== 'success') return null;
-            const parsed = new URL(result.url);
+            // Opens on api.aplayermode.com first, so iOS names our domain (src/integrations/authStart.ts).
+            const start = authStartUrl(url, { provider: 'google', returnUrl: redirectTo, apiBase: apiBaseUrl(), platform: Platform.OS });
+            const returned = await openAuthSheet(WebBrowser.openAuthSessionAsync, start, redirectTo, options?.onSheetClosed);
+            if (!returned) return null;
+            const parsed = new URL(returned);
             const params = new URLSearchParams(parsed.search || parsed.hash.replace(/^#/, ''));
             const failure = params.get('error_code') ?? params.get('error');
             if (failure) return { failure };

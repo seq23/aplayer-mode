@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSession, type AccountProvider, type AccountResult } from '../../state/session';
@@ -35,15 +35,19 @@ export function AccountPanel({ title, sub, onDone, onLater, laterLabel = 'Back' 
     return () => clearTimeout(t);
   }, [resendIn]);
 
-  const run = async (provider: AccountProvider | 'send', call: () => Promise<AccountResult | void>) => {
+  // Each tap is one run; a run that was already released (sheet cancelled) never clears a newer one.
+  const runId = useRef(0);
+  const run = async (provider: AccountProvider | 'send', call: (release: () => void) => Promise<AccountResult | void>) => {
     if (busy) return;
+    const id = ++runId.current;
+    const release = () => { if (runId.current === id) { runId.current += 1; setBusy(undefined); } };
     setBusy(provider); setError(undefined);
     try {
-      const result = await call();
+      const result = await call(release);
       if (result && result.outcome !== 'cancelled') onDone(result);
     } catch (cause) {
-      setError(plainError(cause, 'That didn\'t work. Try again.'));
-    } finally { setBusy(undefined); }
+      if (runId.current === id) setError(plainError(cause, 'That didn\'t work. Try again.'));
+    } finally { release(); }
   };
 
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -84,7 +88,7 @@ export function AccountPanel({ title, sub, onDone, onLater, laterLabel = 'Back' 
       <Body muted>{sub}</Body>
       {PREVIEW ? <Reason>{PREVIEW_COPY.signIn}</Reason> : null}
       {Platform.OS === 'ios' ? <AppleButton busy={busy === 'apple'} onPress={() => void run('apple', signInWithApple)} /> : null}
-      <Button label={busy === 'google' ? 'Opening Google…' : 'Continue with Google'} variant="secondary" large onPress={() => void run('google', signInWithGoogle)} />
+      <Button label={busy === 'google' ? 'Opening Google…' : 'Continue with Google'} variant="secondary" large onPress={() => void run('google', (release) => signInWithGoogle({ onSheetClosed: release }))} />
       <Button label="Email me a 6-digit code" variant="secondary" icon="mail" large onPress={() => setStage('email')} />
       {onLater ? <Button label={laterLabel} variant="ghost" onPress={onLater} /> : null}
       {error ? <Reason>{error}</Reason> : null}

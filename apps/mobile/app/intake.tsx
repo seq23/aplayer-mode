@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Alert, BackHandler, Platform, View } from 'react-native';
+import { AccessibilityInfo, Alert, BackHandler, Platform, View, type HostInstance, type ScrollViewInstance } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   BRANCH_QUESTIONS,
@@ -64,6 +64,9 @@ export default function IntakeScreenRoute() {
   const [resumed, setResumed] = useState(() => Object.keys(draft.answers).some((key) => !key.startsWith('_')));
   // Auto-advance fires 250 ms after a tap: it must read the answers AFTER that tap.
   const latest = useRef(answers);
+  // The summary's footer links to the save box below the plan (retest 14 Nov 2026).
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const saveRef = useRef<HostInstance>(null);
   latest.current = answers;
   const advanceFrom = (id: string, nextMode: IntakeMode | undefined = mode) => go(stepScreen(latest.current, id, 1, nextMode));
 
@@ -161,7 +164,15 @@ export default function IntakeScreenRoute() {
   let canNext = true;
   let nextLabel = 'Continue';
   let reason: string | undefined;
+  let reasonLink: { label: string; onPress: () => void } | undefined;
   let onNext = next;
+  const scrollToSave = () => {
+    const scroll = scrollRef.current;
+    const inner = scroll?.getInnerViewRef?.();
+    if (!scroll) return;
+    if (!inner || !saveRef.current) { scroll.scrollToEnd({ animated: true }); return; }
+    saveRef.current.measureLayout(inner, (_x: number, y: number) => scroll.scrollTo({ y: Math.max(0, y - 12), animated: true }), () => scroll.scrollToEnd({ animated: true }));
+  };
   if (screen.kind === 'question') {
     reason = requiredReason(screen.question!, answers);
     canNext = !reason;
@@ -188,7 +199,8 @@ export default function IntakeScreenRoute() {
     const noSession = status !== 'signed_in';
     nextLabel = installing ? 'Starting…' : 'Start my plan';
     canNext = !installing && !noSession;
-    if (noSession) reason = `Start my plan unlocks once your plan is saved to an account. Scroll up to "Save your plan to an account" and tap ${Platform.OS === 'ios' ? 'Continue with Apple, ' : ''}Continue with Google or Email me a 6-digit code.`;
+    // The save box sits BELOW the plan, under this footer: the reason links straight to it (retest 14 Nov 2026).
+    if (noSession) { reason = 'Start my plan unlocks once your plan is saved to an account.'; reasonLink = { label: 'Save my plan to an account ↓', onPress: scrollToSave }; }
     onNext = () => {
       void (async () => {
         try {
@@ -291,6 +303,7 @@ export default function IntakeScreenRoute() {
     );
   } else if (screen.kind === 'summary') {
     const saveCard = status !== 'signed_in' || isAnonymous ? (
+      <View ref={saveRef} collapsable={false}>
       <Card tone="warning">
         <AccountPanel
           title="Save your plan to an account"
@@ -298,6 +311,7 @@ export default function IntakeScreenRoute() {
           onDone={(result) => { answer('_acct', result.provider); track('account_prompt_result', { provider: result.provider, result: result.outcome }); }}
         />
       </Card>
+      </View>
     ) : undefined;
     body = (
       <SummaryScreen
@@ -330,10 +344,12 @@ export default function IntakeScreenRoute() {
   return (
     <Screen
       fullBleed
+      scrollRef={scrollRef}
       top={top}
       footer={showFooter ? (
         <>
           {reason ? <Reason>{reason}</Reason> : null}
+          {reason && reasonLink ? <LinkButton label={reasonLink.label} onPress={reasonLink.onPress} /> : null}
           <Row gap="sm">
             <Fill><Button label="Back" variant="secondary" large onPress={back} /></Fill>
             <Fill weight={2}><Button label={nextLabel} variant={nextVariant} large disabled={!canNext} busy={screen.kind === 'summary' && installing} onPress={onNext} /></Fill>
