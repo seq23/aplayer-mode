@@ -9,6 +9,5 @@ export const PREVIEW_COPY = {
   skip: 'Preview only · Decide later, show me Today',
   skipNote: 'Preview only. In the phone app there is no skip here: Day 1 starts with a plan.',
   notifications: 'Notifications are switched off in this preview. In the phone app, this is where your phone asks once.',
-  deviceCalendar: 'This preview cannot read a phone\'s calendars. In the phone app, this is where your phone asks once. The sample calendar below shows a connected one.',
   signIn: 'Preview: no real sign-in. Any email and any 6 digits work, and nothing is sent.',
 } as const;

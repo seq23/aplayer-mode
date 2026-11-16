@@ -509,6 +509,10 @@ export async function syncEmailConnection(connectionId: string, accessToken: str
 export async function syncDeviceCalendar(input: { from: string; to: string; events: Array<Record<string, unknown>> }, accessToken: string): Promise<TodayState> {
   return request<TodayState>('/v1/calendar/device/sync', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
+/** Removes stored phone-calendar events from our server; with keepCalendarIds, those calendars' events stay. */
+export async function clearDeviceCalendarEvents(accessToken: string, keepCalendarIds?: string[]): Promise<{ ok: true }> {
+  return request<{ ok: true }>('/v1/calendar/device/clear', accessToken, { method: 'POST', body: JSON.stringify(keepCalendarIds ? { keepCalendarIds } : {}) });
+}
 
 export async function setPermission(domain: string, actionType: string, autonomyLevel: AutonomyLevel, accessToken: string, constraints: Record<string, unknown> = {}): Promise<Permission> {
   return (await request<{ permission: Permission }>(`/v1/permissions/${encodeURIComponent(domain)}/${encodeURIComponent(actionType)}`, accessToken, { method: 'PUT', body: JSON.stringify({ autonomyLevel, constraints, enabled: true }) })).permission;
