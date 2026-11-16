@@ -12,23 +12,23 @@
 <main>
 <p class="eyebrow"><a href="/">A Player Mode</a></p>
 <h1>Privacy Policy</h1>
-<p class="meta">Last updated 2026-11-13</p>
+<p class="meta">Last updated 2026-11-16</p>
 
 <p>This policy explains how Spry Labs ("we", "us") handles personal information in A Player Mode: the iPhone and Android apps, the web app, and the services behind them ("APM"). The short version: <strong>we collect what APM needs to plan your days, we never sell your data, AI providers may not train on it, and you can export or delete it in the app at any time.</strong></p>
 
 <h2>1. What we collect</h2>
 <ul>
-<li><strong>Account details:</strong> your email address, and the identifier from Sign in with Apple or Google if you use them. Sign-in by email uses a one-time code; we do not store passwords.</li>
-<li><strong>What you tell APM:</strong> your setup answers (goals, routines, values, boundaries, wake time, life areas), daily check-ins and close-outs, mood and energy levels you choose to record, diary entries, coaching conversations and weekly reviews. Some of this can be sensitive (for example, health or fitness goals you choose to share). We use it only to provide APM to you. Health information is collected only with your separate consent; our <a href="/privacy/consumer-health">Consumer Health Data Privacy Policy</a> lists exactly what it covers and how to withdraw.</li>
+<li><strong>Account details:</strong> your email address; the first name you give APM to greet you (or the first name Sign in with Apple shares, if you allow it), which you can change in Settings; the account ID we assign you; and the identifier from Sign in with Apple or Google if you use them. Sign-in by email uses a one-time code; we do not store passwords.</li>
+<li><strong>What you tell APM:</strong> your setup answers (goals, routines, values, boundaries, wake time, life areas), daily check-ins and close-outs, mood and energy levels you choose to record, diary entries, coaching conversations and weekly reviews. Some of this can be sensitive: health and fitness information (how you like to move, food habits, weight, the daily energy score) and, if you answer it, whether pregnancy, diabetes medication, a heart condition or a history of disordered eating applies to you. We use it only to provide APM to you. Health information is collected only with your separate consent; our <a href="/privacy/consumer-health">Consumer Health Data Privacy Policy</a> lists exactly what it covers and how to withdraw.</li>
 <li><strong>Connected accounts (only if you connect them):</strong>
   <ul>
   <li>Google: calendar read (<code>calendar.readonly</code>) and event creation (<code>calendar.events</code>); Gmail read (<code>gmail.readonly</code>), drafts (<code>gmail.compose</code>) and send (<code>gmail.send</code>).</li>
   <li>Microsoft: <code>Calendars.Read</code>/<code>Calendars.ReadWrite</code>, <code>Mail.Read</code>/<code>Mail.ReadWrite</code>/<code>Mail.Send</code>, and <code>offline_access</code> to stay connected.</li>
-  <li>Your phone's calendar, read on the device only for the calendars you choose.</li>
+  <li>Your phone's calendar, only if you tap "Read &amp; sync device calendars" in Settings → Privacy → Connections and allow calendar access. APM then reads <strong>every calendar on your phone</strong> that it can see (on iPhone this can include iCloud, Google, Outlook/Exchange and other accounts you have added to the phone); you cannot pick some calendars and leave others out yet. For events from 14 days ago to 90 days ahead, it sends to our server each event's title, location, start and end time, time zone, whether it is all-day, whether it shows you as busy or free, its repeat rule and the organizer's name, plus an ID for the event and its calendar. It does not send event notes or the guest list. The app also sends the calendar's name and the account it belongs to; our server discards those and does not store them. We store the events so APM can plan your day around your busy times and notice conflicts, and the relevant ones can be used by AI features as described in section 3. Each new sync replaces the stored events for that 14-day-back to 90-day-ahead window; events already stored stay in your account until a later sync replaces them or you delete your account. To stop future reads, turn off calendar access for A Player Mode in your iPhone's Settings → Privacy &amp; Security → Calendars (or Settings → Apps → A Player Mode → Calendars), or in Android's app permissions; this does not remove events already stored. To have them removed without deleting your account, email <a href="mailto:support@aplayermode.com">support@aplayermode.com</a>.</li>
   </ul>
-  APM reads the minimum needed to find schedule conflicts, deadlines and tasks, and keeps derived facts (for example "meeting 2–3 pm Tuesday") rather than whole messages where it can. The access and refresh tokens for these accounts are encrypted at rest.</li>
-<li><strong>Subscription status:</strong> your plan, where you bought it (card checkout, App Store or Google Play), renewal and expiry dates, from RevenueCat. We never receive your card or bank details: card payments are handled by RevenueCat and its payment processor Stripe, and store payments by Apple and Google.</li>
-<li><strong>Device and usage data:</strong> a push-notification token if you allow notifications, your time zone, app version, and product events (which screens and steps were used, and timings). Product events never contain the text you write.</li>
+  For Google and Microsoft, APM reads the content of the emails it checks (and can draft or send email only as you allow) and the calendar events, the minimum needed to find schedule conflicts, deadlines and tasks, and keeps derived facts (for example "meeting 2–3 pm Tuesday") rather than whole messages where it can. The access and refresh tokens for these accounts are encrypted at rest.</li>
+<li><strong>Subscription status and purchase history:</strong> your plan, where you bought it (card checkout, App Store or Google Play), renewal and expiry dates, from RevenueCat. We never receive your card or bank details: card payments are handled by RevenueCat and its payment processor Stripe, and store payments by Apple and Google.</li>
+<li><strong>Device and usage data:</strong> a push-notification token if you allow notifications, your time zone, app version, and product events, which record how you interact with APM (which screens and steps were used, and timings). Product events never contain the text you write.</li>
 <li><strong>Security logs:</strong> an audit record of sign-ins, permission changes and every action APM takes on your behalf, so you can see them in Settings → Privacy → Activity.</li>
 </ul>
 
@@ -64,7 +64,7 @@
 <ul>
 <li>Your plan, goals, history and diary: for as long as you have an account, until you change or delete them.</li>
 <li>Connected-account tokens: until you disconnect the account or delete your APM account.</li>
-<li>Raw email and calendar content: only as long as needed to derive the facts APM uses.</li>
+<li>Raw email content: only as long as needed to derive the facts APM uses. Calendar events: kept as described in section 1 (each sync replaces the stored window; a disconnected Google or Microsoft account's events are deleted when you disconnect it).</li>
 <li>Security and action audit records: as long as needed for security and legal purposes.</li>
 <li>When you delete your account, we delete your data from our active systems; residual copies in encrypted backups expire on the providers' backup schedules.</li>
 </ul>
@@ -74,7 +74,7 @@
 <li><strong>Export:</strong> download a copy of your data any time in Settings → Privacy → Export &amp; Delete.</li>
 <li><strong>Delete:</strong> delete your account and all of its data in Settings → Privacy → Export &amp; Delete. Deleting your account does not cancel a subscription; cancel it first in Settings → Plan → Manage subscription (card) or in your App Store or Google Play settings (store).</li>
 <li><strong>Correct:</strong> edit your answers, goals and settings in the app.</li>
-<li><strong>Disconnect:</strong> remove a Google or Microsoft connection in Settings → Privacy → Connections, or from your Google or Microsoft account.</li>
+<li><strong>Disconnect:</strong> remove a Google or Microsoft connection in Settings → Privacy → Connections, or from your Google or Microsoft account. For your phone's calendar, turn off calendar access for A Player Mode in your phone's settings, and email us to remove events already stored (see section 1).</li>
 <li><strong>Notifications:</strong> turn them off in Settings or in your phone's settings.</li>
 <li><strong>Health data consent:</strong> give or withdraw it in Settings → Privacy → Consumer health data (see the <a href="/privacy/consumer-health">Consumer Health Data Privacy Policy</a>).</li>
 </ul>

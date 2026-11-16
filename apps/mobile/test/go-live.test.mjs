@@ -35,7 +35,7 @@ test('store and web builds point at the same API and the hosted Terms and Privac
 });
 
 test('the legal pages are real, dated, and name the entity and contact', async () => {
-  const dated = { 'public/terms/index.html': '2026-11-13', 'public/privacy/index.html': '2026-11-13', 'public/privacy/consumer-health/index.html': '2026-10-08' };
+  const dated = { 'public/terms/index.html': '2026-11-13', 'public/privacy/index.html': '2026-11-16', 'public/privacy/consumer-health/index.html': '2026-10-08' };
   for (const [page, date] of Object.entries(dated)) {
     const html = await read(page);
     assert.match(html, new RegExp(`Last updated ${date}`));
@@ -52,6 +52,14 @@ test('the legal pages are real, dated, and name the entity and contact', async (
   // The privacy policy links the consumer health data policy (owner, 8 Oct 2026), and states the 18+ confirmation.
   assert.match(privacy, /href="\/privacy\/consumer-health"/);
   assert.match(privacy, /confirm you are 18 or older before an account is created/);
+  // Privacy claims match the code (FTC Act s.5): while the device-calendar sync reads every calendar
+  // and uploads events, the policy may not promise a calendar choice or on-device-only reading.
+  const deviceCalendar = await read('src/integrations/deviceCalendar.ts');
+  const readsAll = /calendars\.map\(\(calendar\) => calendar\.id\)/.test(deviceCalendar) && /syncDeviceCalendar\(/.test(deviceCalendar);
+  assert.ok(readsAll, 'device calendar sync changed: re-check the Privacy Policy calendar paragraph, then update this test');
+  assert.doesNotMatch(privacy, /calendars you choose|read on the device only/);
+  assert.match(privacy, /every calendar on your phone/);
+  for (const field of [/title/, /location/, /organizer's name/, /14 days ago to 90 days ahead/]) assert.match(privacy, field);
 });
 
 test('the Consumer Health Data Privacy Policy matches what the app collects and the version it asks consent for', async () => {
