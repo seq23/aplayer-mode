@@ -155,3 +155,22 @@ export async function syncDeviceCalendar(input: {
   const count = await persistCalendarSnapshot({ ...input, provider: 'device' });
   return { count };
 }
+
+/** A PostgREST `in.(...)` list: every id double-quoted, so commas and brackets in an id stay data. */
+const postgrestList = (ids: string[]) => `(${ids.map((id) => `"${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')})`;
+
+/**
+ * Removes the phone-calendar events stored for this user (provider 'device', no connection).
+ * With `keepCalendarIds`, events from those calendars stay and every other device event goes
+ * (the user unticked a calendar). Runs AS THE USER: RLS (calendar_events_delete_own) limits it
+ * to their own rows; a Google or Microsoft account's events are never touched.
+ */
+export async function clearDeviceCalendar(input: { env: ApiEnv; accessToken: string; keepCalendarIds?: string[] }): Promise<void> {
+  const keep = [...new Set(input.keepCalendarIds ?? [])];
+  const filter = keep.length
+    ? `&or=${encodeURIComponent(`(calendar_external_id.is.null,calendar_external_id.not.in.${postgrestList(keep)})`)}`
+    : '';
+  await supabaseRest(input.env, input.accessToken, `/rest/v1/calendar_events?provider=eq.device&connection_id=is.null${filter}`, {
+    method: 'DELETE', headers: { Prefer: 'return=minimal' },
+  });
+}

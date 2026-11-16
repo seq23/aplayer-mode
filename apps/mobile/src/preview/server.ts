@@ -495,6 +495,17 @@ function route(method: string, path: string, body: Record<string, unknown>): unk
   if (is('PATCH', 'life-os/items/*')) return graph({ lifeAdminItems: s.graph.lifeAdminItems.map((item) => (item.id === seg[2] ? { ...item, ...(typeof body.title === 'string' ? { title: body.title } : {}), ...(body.status ? { status: body.status as 'open' } : {}), updatedAt: stamp() } : item)) });
   if (is('POST', 'life-os/items/*/complete')) return graph({ lifeAdminItems: s.graph.lifeAdminItems.map((item) => (item.id === seg[2] ? { ...item, status: 'completed' as const, completedAt: stamp() } : item)) });
 
+  // Phone calendars: the preview's sample calendars sync sample events; clear removes them.
+  if (is('POST', 'calendar/device/sync')) {
+    const events = (Array.isArray(body.events) ? body.events : []) as Array<Record<string, unknown>>;
+    graph({ calendarEvents: [...s.graph.calendarEvents.filter((event) => event.provider !== 'device'), ...events.map((event) => ({ ...(event as object), id: id(), userId: USER, provider: 'device' } as LifeGraphSnapshot['calendarEvents'][number]))] });
+    return { count: events.length, ...userState() };
+  }
+  if (is('POST', 'calendar/device/clear')) {
+    const keep = Array.isArray(body.keepCalendarIds) ? body.keepCalendarIds as string[] : [];
+    graph({ calendarEvents: s.graph.calendarEvents.filter((event) => event.provider !== 'device' || (event.calendarExternalId !== undefined && keep.includes(event.calendarExternalId))) });
+    return { ok: true };
+  }
   // Connections and permissions: real accounts are never connected from the preview
   if (is('POST', 'connections/oauth/start') || is('POST', 'connections/oauth/exchange') || is('POST', 'actions/prepare') || is('POST', 'actions/*/approve')) throw new ApiError(409, OFF);
   if (is('PATCH', 'connections/*')) return graph({ connections: s.graph.connections.map((item) => (item.id === seg[1] ? { ...item, ...(typeof body.label === 'string' ? { label: body.label } : {}) } : item)) });

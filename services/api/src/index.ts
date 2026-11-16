@@ -43,7 +43,7 @@ import {
 } from './lifeOsRepository';
 import { createOAuthState, verifyOAuthState } from './crypto';
 import { buildOAuthAuthorizationUrl, exchangeAndStoreOAuthConnection } from './connectors/oauth';
-import { syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
+import { clearDeviceCalendar, syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
 import { reviewLogin } from './reviewLogin';
@@ -1523,6 +1523,18 @@ app.post('/v1/calendar/device/sync', async (c) => {
   const result = await syncDeviceCalendar({ env: c.env, accessToken: user.accessToken, userId: user.id, ...parsed.data });
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'calendar_synced', { provider: 'device', count: result.count });
   return c.json({ ...result, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+});
+
+// "Remove phone calendar events" and unticking a calendar (issue #82): the phone's events
+// have no connection to disconnect, so this is how they leave our server without deleting the
+// account. Empty body: every stored phone event goes. keepCalendarIds: only those stay.
+app.post('/v1/calendar/device/clear', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ keepCalendarIds: z.array(z.string().min(1).max(500)).max(500).optional() }).strict()
+    .safeParse(await c.req.text().then((text) => (text.trim() ? JSON.parse(text) : {})).catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  await clearDeviceCalendar({ env: c.env, accessToken: user.accessToken, keepCalendarIds: parsed.data.keepCalendarIds });
+  return c.json({ ok: true });
 });
 
 app.post('/v1/calendar/connections/:id/sync', async (c) => {

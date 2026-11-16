@@ -52,13 +52,12 @@ test('the legal pages are real, dated, and name the entity and contact', async (
   // The privacy policy links the consumer health data policy (owner, 8 Oct 2026), and states the 18+ confirmation.
   assert.match(privacy, /href="\/privacy\/consumer-health"/);
   assert.match(privacy, /confirm you are 18 or older before an account is created/);
-  // Privacy claims match the code (FTC Act s.5): while the device-calendar sync reads every calendar
-  // and uploads events, the policy may not promise a calendar choice or on-device-only reading.
+  // Privacy claims match the code (FTC Act s.5): the policy, the iOS permission prompt and the
+  // device-calendar sync agree on whether the person picks calendars (calendarClaimsAgree below).
   const deviceCalendar = await read('src/integrations/deviceCalendar.ts');
-  const readsAll = /calendars\.map\(\(calendar\) => calendar\.id\)/.test(deviceCalendar) && /syncDeviceCalendar\(/.test(deviceCalendar);
-  assert.ok(readsAll, 'device calendar sync changed: re-check the Privacy Policy calendar paragraph, then update this test');
-  assert.doesNotMatch(privacy, /calendars you choose|read on the device only/);
-  assert.match(privacy, /every calendar on your phone/);
+  const app = JSON.parse(await read('app.json')).expo;
+  const prompt = app.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-calendar')[1].calendarPermission;
+  assert.deepEqual(calendarClaimsAgree({ policy: privacy, code: deviceCalendar, prompt, appVersion: app.version }), []);
   for (const field of [/title/, /location/, /organizer's name/, /14 days ago to 90 days ahead/]) assert.match(privacy, field);
 });
 
@@ -91,4 +90,50 @@ test('the reviewer address on the Worker is the one on the beta allowlist (0070)
   const migration = await read('../../services/api/migrations/0070_app_review_beta.sql');
   assert.match(migration, new RegExp(`values \\('${email.replace('.', '\\.')}', '20\\d\\d-`));
   assert.doesNotMatch(migration, /infinity|9999-/, 'a bounded grant, never permanent');
+});
+
+/**
+ * Every way the calendar claims can disagree with the code, as plain sentences ([] = they agree).
+ * The code "chooses" when getEventsAsync reads only the ids the person ticked; any other
+ * getEventsAsync call (every calendar on the phone) "reads all".
+ */
+function calendarClaimsAgree({ policy, code, prompt, appVersion }) {
+  const problems = [];
+  const chooses = /chosenCalendars\(\)/.test(code) && /getEventsAsync\(chosenIds\b/.test(code);
+  const readsAll = /getEventsAsync\((?!chosenIds\b)/.test(code);
+  if (chooses === readsAll) problems.push('device calendar sync changed shape: re-check the Privacy Policy calendar paragraph, then update this test');
+  const promise = policy.match(/Version (\d+(?:\.\d+)*) and later:<\/strong> you tick which calendars APM may read, and APM reads only those/);
+  const older = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0); return false; };
+  if (/read on the device only/.test(policy)) problems.push('policy says the calendar is read on the device only; events are uploaded');
+  if (chooses) {
+    if (!promise) problems.push('the app lets the person pick calendars but the policy does not say so');
+    else if (older(appVersion, promise[1])) problems.push(`policy promises a choice from ${promise[1]} but this build is ${appVersion}`);
+    if (!/only the calendars you pick/.test(prompt)) problems.push('the iOS permission prompt does not say only the picked calendars are read');
+  } else {
+    if (promise || /calendars you (choose|pick)/.test(policy)) problems.push('the policy promises a calendar choice while the code reads every calendar');
+    if (/calendars you (choose|pick)/.test(prompt)) problems.push('the iOS permission prompt promises a choice while the code reads every calendar');
+    if (!/every calendar on your phone/.test(policy)) problems.push('the policy must say every calendar on the phone is read');
+  }
+  return problems;
+}
+
+test('the calendar guard fails on every mismatch between the policy, the prompt and the code', async () => {
+  const policy = await read('public/privacy/index.html');
+  const code = await read('src/integrations/deviceCalendar.ts');
+  const app = JSON.parse(await read('app.json')).expo;
+  const prompt = app.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-calendar')[1].calendarPermission;
+  const readsAllCode = 'const calendarIds = calendars.map((calendar) => calendar.id); await Calendar.getEventsAsync(calendarIds, start, end);';
+  const noChoicePolicy = policy.replace(/<strong>Version 1\.0\.1 and later:<\/strong>[^]*?<\/li>/, '');
+  assert.notEqual(noChoicePolicy, policy, 'the fixture found the promise to remove');
+  // Code reads every calendar while the policy and prompt promise a choice.
+  assert.ok(calendarClaimsAgree({ policy, code: readsAllCode, prompt, appVersion: app.version }).some((p) => /promises a calendar choice/.test(p)));
+  assert.ok(calendarClaimsAgree({ policy: noChoicePolicy, code: readsAllCode, prompt, appVersion: app.version }).some((p) => /prompt promises a choice/.test(p)));
+  // Code lets the person pick, but the policy is silent about it.
+  assert.ok(calendarClaimsAgree({ policy: noChoicePolicy, code, prompt, appVersion: app.version }).some((p) => /does not say so/.test(p)));
+  // The policy promises the choice from a version later than the one being built.
+  assert.ok(calendarClaimsAgree({ policy, code, prompt, appVersion: '1.0' }).some((p) => /this build is 1\.0/.test(p)));
+  // The prompt does not say only the picked calendars are read.
+  assert.ok(calendarClaimsAgree({ policy, code, prompt: 'Allow A Player Mode to read your calendars.', appVersion: app.version }).some((p) => /permission prompt/.test(p)));
+  // Old builds that read every calendar stay matched: policy, prompt and code agree.
+  assert.deepEqual(calendarClaimsAgree({ policy: noChoicePolicy, code: readsAllCode, prompt: 'A Player Mode reads the events in all calendars on this phone.', appVersion: '1.0' }), []);
 });

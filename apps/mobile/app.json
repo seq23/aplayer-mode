@@ -2,7 +2,7 @@
   "expo": {
     "name": "A Player Mode",
     "slug": "aplayer-mode",
-    "version": "1.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "scheme": "aplayermode",
@@ -12,7 +12,7 @@
       [
         "expo-calendar",
         {
-          "calendarPermission": "Allow A Player Mode to read calendars you choose so it can understand schedule constraints and notice conflicts."
+          "calendarPermission": "Your phone gives A Player Mode all of its calendars at once. A Player Mode reads only the calendars you pick in the app and sends their events to your APM account to plan your day around busy times and notice conflicts."
         }
       ],
       [

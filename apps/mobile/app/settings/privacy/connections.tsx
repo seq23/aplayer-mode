@@ -4,12 +4,15 @@ import { View } from 'react-native';
 import { router } from 'expo-router';
 import type { IntegrationConnection } from '@apm/domain';
 import {
+  AnswerCard,
   Body,
   Button,
   Card,
   CardTitle,
   ErrorState,
   KeyValue,
+  Label,
+  Muted,
   Pill,
   Screen,
   SectionTitle,
@@ -26,7 +29,7 @@ import {
 } from '../../../src/api/apmApi';
 import { connectOAuthProvider, type OAuthKind, type OAuthProvider } from '../../../src/integrations/oauth';
 import { accountName, accountsOfKind, addAnotherAccount, hasMultiAccount, KIND_NOUN, pausedNote } from '../../../src/integrations/accounts';
-import { syncConfiguredDeviceCalendars } from '../../../src/integrations/deviceCalendar';
+import { chooseCalendars, chosenCalendars, listPhoneCalendars, removePhoneCalendarEvents, syncChosenDeviceCalendars, type PhoneCalendar } from '../../../src/integrations/deviceCalendar';
 import { useLifeGraph } from '../../../src/state/lifeGraph';
 import { useSession } from '../../../src/state/session';
 import { plainError } from '../../../src/api/errors';
@@ -54,10 +57,17 @@ export default function ConnectionsScreen() {
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [labels, setLabels] = useState<Record<string, string>>({});
+  // Phone calendars (issue #82): the person picks which ones sync; nothing is pre-ticked.
+  const [chosen, setChosen] = useState<PhoneCalendar[] | null>(() => chosenCalendars());
+  const [picker, setPicker] = useState<PhoneCalendar[]>();
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [phoneNote, setPhoneNote] = useState<string>();
   const multi = hasMultiAccount(graph.entitlement);
 
   const run = async (key: string, work: (token: string) => Promise<unknown>, fallback: string) => {
-    if (!accessToken || busy) return;
+    if (busy) return;
+    if (!accessToken) { setError('Sign in first, then try again.'); return; }
     setBusy(key);
     setError(undefined);
     try {
@@ -154,7 +164,43 @@ export default function ConnectionsScreen() {
     );
   };
 
-  const deviceConnected = graph.connections.some((connection) => connection.provider === 'device' && connection.kind === 'calendar');
+  const phoneEventsStored = graph.calendarEvents.some((event) => event.provider === 'device' && !event.connectionId);
+  // Listing the phone's calendars needs no account call, so it never waits on a session.
+  const openPicker = async () => {
+    if (busy) return;
+    setBusy('device:list');
+    setError(undefined);
+    try {
+      const calendars = await listPhoneCalendars();
+      setTicked(new Set((chosen ?? []).map((calendar) => calendar.id).filter((id) => calendars.some((calendar) => calendar.id === id))));
+      setConfirmRemove(false);
+      setPhoneNote(undefined);
+      setPicker(calendars);
+    } catch (cause) {
+      setError(plainError(cause, 'Unable to read the calendars on this phone.'));
+    } finally {
+      setBusy(undefined);
+    }
+  };
+  const toggle = (id: string) => setTicked((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const saveChoice = () => run('device:save', async (token) => {
+    const picked = (picker ?? []).filter((calendar) => ticked.has(calendar.id));
+    await chooseCalendars(picked, token);
+    setChosen(picked);
+    setPicker(undefined);
+    setPhoneNote(`✓ Synced ${picked.length === 1 ? '1 calendar' : `${picked.length} calendars`}. Calendars you did not tick were removed from APM.`);
+  }, 'Unable to sync the calendars you picked.');
+  const removePhoneEvents = () => run('device:remove', async (token) => {
+    await removePhoneCalendarEvents(token);
+    setChosen(null);
+    setConfirmRemove(false);
+    setPhoneNote('✓ Removed. APM keeps no events from this phone’s calendars. To stop APM seeing them at all, turn off Calendars for A Player Mode in your phone’s Settings.');
+  }, 'Unable to remove phone calendar events.');
+  const pickedCount = ticked.size;
 
   return (
     <Screen
@@ -168,19 +214,55 @@ export default function ConnectionsScreen() {
 
       {error ? <ErrorState message={error} /> : null}
 
-      <SectionTitle>This device</SectionTitle>
+      <SectionTitle>This phone</SectionTitle>
       <Card>
         <View style={uiStyles.row}>
-          <CardTitle>Calendars on this device</CardTitle>
-          <Pill tone={deviceConnected ? 'success' : undefined}>{deviceConnected ? 'connected' : 'Not connected'}</Pill>
+          <CardTitle>Calendars on this phone</CardTitle>
+          <Pill tone={chosen?.length ? 'success' : undefined}>{chosen?.length ? `${chosen.length} syncing` : 'Not connected'}</Pill>
         </View>
-        <Body muted>Reads calendar events already configured on this phone. On iPhone this can include iCloud, Google, Outlook/Exchange and other system calendars.</Body>
-        <Button
-          label={busy === 'device' ? 'Connecting / syncing…' : 'Read & sync device calendars'}
-          variant="secondary"
-          onPress={() => void run('device', (token) => syncConfiguredDeviceCalendars(token), 'Unable to read calendars configured on this device.')}
-        />
+        {picker ? (
+          <>
+            <Label>Tick the calendars APM may read</Label>
+            <Muted>Your phone lets APM see every calendar on it. APM reads only the ones you tick; the rest stay on your phone.</Muted>
+            {picker.length ? picker.map((calendar) => (
+              <AnswerCard key={calendar.id} role="checkbox" label={calendar.title} detail={calendar.account || undefined}
+                selected={ticked.has(calendar.id)} onPress={() => toggle(calendar.id)} />
+            )) : <Body>There are no calendars on this phone yet.</Body>}
+            <Button label={busy === 'device:save' ? 'Syncing…' : pickedCount ? `Sync ${pickedCount === 1 ? '1 calendar' : `${pickedCount} calendars`}` : 'Sync calendars'}
+              disabled={!pickedCount} disabledReason="Tick at least one calendar first." busy={busy === 'device:save'} onPress={() => void saveChoice()} />
+            <Button label="✕ Cancel" variant="secondary" onPress={() => setPicker(undefined)} />
+          </>
+        ) : chosen?.length ? (
+          <>
+            <KeyValue label="Syncing" value={chosen.map((calendar) => calendar.title).join(', ')} />
+            <Muted>Events from 14 days ago to 90 days ahead, from these calendars only.</Muted>
+            <Button label={busy === 'device:sync' ? 'Syncing…' : 'Sync now'} variant="secondary"
+              onPress={() => void run('device:sync', (token) => syncChosenDeviceCalendars(token), 'Unable to sync the calendars on this phone.')} />
+            <Button label={busy === 'device:list' ? 'Opening…' : 'Change calendars ▾'} variant="secondary" onPress={() => void openPicker()} />
+          </>
+        ) : (
+          <>
+            <Body muted>Pick which calendars on this phone APM may read. On iPhone these can include iCloud, Google, Outlook/Exchange and other accounts on the phone.</Body>
+            <Button label={busy === 'device:list' ? 'Opening…' : 'Choose calendars ▾'} variant="secondary" onPress={() => void openPicker()} />
+          </>
+        )}
+        {phoneNote ? <Body>{phoneNote}</Body> : null}
       </Card>
+      {!picker && (chosen?.length || phoneEventsStored) ? (
+        <Card tone="muted">
+          <CardTitle>Remove phone calendar events</CardTitle>
+          <Body muted>Deletes every event from this phone’s calendars that APM has stored. Your phone’s calendars are not changed.</Body>
+          {confirmRemove ? (
+            <>
+              <Body>Remove them now? APM will plan without them until you choose calendars again.</Body>
+              <Button label={busy === 'device:remove' ? 'Removing…' : 'Yes, remove'} variant="danger" busy={busy === 'device:remove'} onPress={() => void removePhoneEvents()} />
+              <Button label="Keep" variant="secondary" onPress={() => setConfirmRemove(false)} />
+            </>
+          ) : (
+            <Button label="Remove phone calendar events" variant="danger" onPress={() => setConfirmRemove(true)} />
+          )}
+        </Card>
+      ) : null}
 
       {(['calendar', 'email'] as const).map(kindSection)}
 
