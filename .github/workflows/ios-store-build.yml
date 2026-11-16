@@ -1,0 +1,47 @@
+name: iOS store build
+# Free App Store build on a GitHub-hosted Mac (public repo = free minutes), for months when the
+# Expo free plan's iOS cloud builds are used up. Signing credentials stay on EAS; EXPO_TOKEN lets
+# the local build fetch them and take the next remote build number.
+# Output: app.ipa as a 3-day artifact. Uploading it to TestFlight is a separate step
+# (eas submit --path app.ipa, RUNBOOK → iOS build); nothing here talks to App Store Connect.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ios-store-build
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      # No committed lockfile (npm install, as in ci.yml); eas-cli refuses without one unless told.
+      EAS_BUILD_SKIP_LOCKFILE_CHECK: '1'
+      EXPO_NO_CAPABILITY_SYNC: '1'
+    steps:
+      - name: Named stop when EXPO_TOKEN is missing
+        if: env.EXPO_TOKEN == ''
+        run: echo "NAMED STOP [EXPO_TOKEN_MISSING] set the EXPO_TOKEN repo secret" && exit 1
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode on the runner
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Build the store .ipa
+        working-directory: apps/mobile
+        run: npx -y eas-cli@latest build --platform ios --profile production --local --non-interactive --output "$GITHUB_WORKSPACE/app.ipa"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-ipa
+          path: app.ipa
+          if-no-files-found: error
+          retention-days: 3
