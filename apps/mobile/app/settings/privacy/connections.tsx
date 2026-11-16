@@ -66,7 +66,8 @@ export default function ConnectionsScreen() {
   const multi = hasMultiAccount(graph.entitlement);
 
   const run = async (key: string, work: (token: string) => Promise<unknown>, fallback: string) => {
-    if (!accessToken || busy) return;
+    if (busy) return;
+    if (!accessToken) { setError('Sign in first, then try again.'); return; }
     setBusy(key);
     setError(undefined);
     try {
@@ -164,13 +165,23 @@ export default function ConnectionsScreen() {
   };
 
   const phoneEventsStored = graph.calendarEvents.some((event) => event.provider === 'device' && !event.connectionId);
-  const openPicker = () => run('device:list', async () => {
-    const calendars = await listPhoneCalendars();
-    setTicked(new Set((chosen ?? []).map((calendar) => calendar.id).filter((id) => calendars.some((calendar) => calendar.id === id))));
-    setConfirmRemove(false);
-    setPhoneNote(undefined);
-    setPicker(calendars);
-  }, 'Unable to read the calendars on this phone.');
+  // Listing the phone's calendars needs no account call, so it never waits on a session.
+  const openPicker = async () => {
+    if (busy) return;
+    setBusy('device:list');
+    setError(undefined);
+    try {
+      const calendars = await listPhoneCalendars();
+      setTicked(new Set((chosen ?? []).map((calendar) => calendar.id).filter((id) => calendars.some((calendar) => calendar.id === id))));
+      setConfirmRemove(false);
+      setPhoneNote(undefined);
+      setPicker(calendars);
+    } catch (cause) {
+      setError(plainError(cause, 'Unable to read the calendars on this phone.'));
+    } finally {
+      setBusy(undefined);
+    }
+  };
   const toggle = (id: string) => setTicked((current) => {
     const next = new Set(current);
     if (next.has(id)) next.delete(id); else next.add(id);
