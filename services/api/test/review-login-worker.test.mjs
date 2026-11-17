@@ -39,10 +39,10 @@ function harness() {
   return { calls, audits, restore: () => { globalThis.fetch = original; } };
 }
 
-test('off unless both values are set (and the code is 6–12 digits): 404 for everyone, no network', async () => {
+test('off unless both values are set (and the code is exactly 6 digits, what the app can type): 404 for everyone, no network', async () => {
   const h = harness();
   try {
-    for (const partial of [{ APP_REVIEW_EMAIL: undefined }, { APP_REVIEW_CODE: undefined }, { APP_REVIEW_CODE: '12345' }, { APP_REVIEW_CODE: 'letmein!' }, { SUPABASE_SECRET_KEY: undefined }]) {
+    for (const partial of [{ APP_REVIEW_EMAIL: undefined }, { APP_REVIEW_CODE: undefined }, { APP_REVIEW_CODE: '12345' }, { APP_REVIEW_CODE: '12345678' }, { APP_REVIEW_CODE: 'letmein!' }, { SUPABASE_SECRET_KEY: undefined }]) {
       const result = await mod.reviewLogin({ ...env, ...partial }, { email: REVIEWER, code: '424242' });
       assert.equal(result.status, 404, JSON.stringify(partial));
     }

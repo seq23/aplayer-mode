@@ -7,7 +7,7 @@ import { recordAudit } from './audit';
  * cannot receive, so ONE reviewer account may sign in with a fixed code instead:
  *
  *   APP_REVIEW_EMAIL  the reviewer address (Worker var)
- *   APP_REVIEW_CODE   its fixed code, 6–12 digits (Worker secret)
+ *   APP_REVIEW_CODE   its fixed code, exactly 6 digits (Worker secret)
  *
  * Off unless BOTH are set (and the server secret key exists): the route then answers 404
  * to everyone, exactly as for any address that is not the reviewer's, so it never reveals
@@ -15,7 +15,9 @@ import { recordAudit } from './audit';
  * in constant time, and every sign-in is an `auth.review_login` audit row. Unset the two
  * values after review and the path is gone.
  */
-export const REVIEW_CODE_PATTERN = /^\d{6,12}$/;
+// Exactly 6 digits: the app's code box (AccountPanel.tsx) keeps 6 and Verify needs 6, so an 8-digit
+// code passed this check but no reviewer could type it (16 Nov 2026).
+export const REVIEW_CODE_PATTERN = /^\d{6}$/;
 
 const encoder = new TextEncoder();
 async function sameSecret(a: string, b: string): Promise<boolean> {
