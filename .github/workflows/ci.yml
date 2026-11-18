@@ -33,6 +33,9 @@ jobs:
       - name: Cost posture ("nothing paid", docs/cost/zero-paid-llm.md)
         run: npm run validate:cost
 
+      - name: Workflow pushes rebase and retry (a bare git push fails when main moves)
+        run: npm run validate:workflow-push
+
       - name: Weekly outcome report self-check (reporter and its self-closing issues)
         run: npm run validate:outcomes
 
