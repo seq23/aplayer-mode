@@ -55,3 +55,14 @@ test('the Play account-deletion URL is a real static page, not the app\'s catch-
   const html = await readFile(new URL(`../public${url.pathname}/index.html`, import.meta.url), 'utf8');
   for (const part of ['support@aplayermode.com', 'What is deleted', 'What is kept', 'How long it takes', '/settings/privacy/export-delete']) assert.ok(html.includes(part), `delete-account page lacks ${part}`);
 });
+
+// Play's Data safety and permission answers (store/google-play/play-console.md) say the app uses no
+// overlay, no shared storage and no biometrics; the 19 Nov 2026 AAB listed all three. WRITE_CALENDAR
+// stays: expo-calendar's Android requestCalendarPermissionsAsync asks for READ and WRITE together and
+// getCalendarsAsync/getEventsAsync refuse without both (CalendarModule.kt checkPermissions).
+test('the Android build blocks every permission the app does not use, and keeps calendar access working', async () => {
+  const android = JSON.parse(await readFile(new URL('../app.json', import.meta.url), 'utf8')).expo.android;
+  for (const p of ['SYSTEM_ALERT_WINDOW', 'READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE', 'USE_BIOMETRIC', 'USE_FINGERPRINT'])
+    assert.ok(android.blockedPermissions.includes(`android.permission.${p}`), `${p} must be blocked`);
+  for (const p of ['READ_CALENDAR', 'WRITE_CALENDAR']) assert.ok(!android.blockedPermissions.some((b) => b.endsWith(p)), `${p} must not be blocked`);
+});
