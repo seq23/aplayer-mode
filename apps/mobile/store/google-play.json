@@ -19,6 +19,7 @@
     ]
   },
   "forms": {
+    "allAnswers": "store/google-play/play-console.md (Data safety, content rating, target audience, ads, app access, health, AI, permissions)",
     "financialFeatures": "No financial features. Subscriptions are bought through Google Play Billing; Autopilot never spends money.",
     "accountDeletion": "Yes, users can create an account. In-app: Settings > Privacy & AI > Export & Delete. Web: https://app.aplayermode.com/delete-account (app, web or email; app and web requests done within 24 hours, email within 30 days)."
   }
