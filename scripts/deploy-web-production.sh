@@ -24,5 +24,5 @@ node scripts/pwa-head.mjs dist/index.html
 # Description, canonical, Open Graph and Twitter tags (per-route noindex is runtime: src/web/robots.ts).
 node scripts/seo-head.mjs dist/index.html
 grep -qF 'rel="canonical" href="https://app.aplayermode.com/"' dist/index.html || { echo "seo-head tags missing from dist/index.html"; exit 1; }
-for f in terms/index.html privacy/index.html privacy/consumer-health/index.html manifest.webmanifest icons/icon-512.png legal.css; do test -s "dist/$f" || { echo "missing dist/$f"; exit 1; }; done
+for f in terms/index.html privacy/index.html delete-account/index.html privacy/consumer-health/index.html manifest.webmanifest icons/icon-512.png legal.css; do test -s "dist/$f" || { echo "missing dist/$f"; exit 1; }; done
 npx wrangler deploy --config wrangler.web.jsonc
