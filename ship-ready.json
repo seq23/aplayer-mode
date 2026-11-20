@@ -1,0 +1,1 @@
+{ "kind": "app", "build": "npm ci --no-audit --no-fund && cd apps/mobile && npx expo export --platform web --output-dir dist", "serve": "apps/mobile/dist", "pages": ["/"] }
