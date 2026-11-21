@@ -16,6 +16,7 @@ import { plainError } from '../api/errors';
 import { AccountPanel } from '../components/intake/AccountPanel';
 import { Testimonials } from '../components/Testimonials';
 import { PREVIEW, PREVIEW_COPY } from '../preview/flag';
+import { TrustLine } from './TrustLine';
 
 const PLAN_RANK: Record<string, number> = { beta: 0, chief_of_staff: 1, life_os: 2, autopilot: 3, household: 0 };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -283,6 +284,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
           </Card>
         );
       })}
+
+      <TrustLine channel={disclosureChannel} />
 
       {onboarding && CLOSED_BETA_BUILD ? (
         <Card tone="muted"><Body>{PLAN_SCREEN.betaLine}</Body><Button label="Start with the closed beta" variant="secondary" onPress={() => onFinished?.('beta')} /></Card>

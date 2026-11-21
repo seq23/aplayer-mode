@@ -12,6 +12,7 @@ import { UNAVAILABLE_COPY, billingAvailability, restoreStorePurchases } from '..
 import { WEB_CHECKOUT_COPY } from '../../src/billing/webCheckout';
 import { openExternal } from '../../src/links/external';
 import { LEGAL_LINKS } from '../../src/links/legal';
+import { TrustLine } from '../../src/billing/TrustLine';
 
 
 /** Her plan by its ONE display name (ADR-0006); never retyped here. */
@@ -133,6 +134,7 @@ export default function SettingsScreen() {
       <SectionTitle>Trust & control</SectionTitle>
       <ListRow icon="shield" title="Privacy & AI" detail="What APM knows, how AI is used, export or delete." onPress={() => router.push('/settings/privacy')} />
       <ListRow icon="bell" title="Notifications" detail="Your morning plan, approvals and urgent heads-ups. Nothing else." onPress={() => router.push('/settings/notifications')} />
+      <TrustLine />
 
       <SectionTitle>Legal</SectionTitle>
       {LEGAL_LINKS.map((link) => (
