@@ -44,6 +44,8 @@ export function ActionApprovalCard({ action, busyId, onApprove, onReject, onRepo
     : checklist ? 'Goal checklist' : missed ? 'Make room on a minimum day' : defer ? 'Take a task off today' : actionTag(action.domain, action.actionType);
   const busy = busyId === action.id;
   const timezone = typeof data.timezone === 'string' ? data.timezone : 'UTC';
+  // The goal step's finished output (the server always sends it); never printed as "undefined".
+  const detail = typeof data.detail === 'string' && data.detail.trim() ? data.detail.trim() : undefined;
   // Autopilot tried and the calendar did not take it: say so plainly, never "done".
   if (autopilotMove && action.status === 'failed') return <Card tone="warning">
     <Label tone="warning">{label}</Label>
@@ -91,10 +93,10 @@ export function ActionApprovalCard({ action, busyId, onApprove, onReject, onRepo
     </> : goalBlock ? <>
       <KeyValue label="Calendar" value={String(data.account)} />
       <KeyValue label="Time" value={`${time(data.startsAt, timezone, true)} to ${time(data.endsAt, timezone)}`} />
-      <Body>{String(data.detail)}</Body>
+      {detail ? <Body>{detail}</Body> : null}
       <Body muted>Approve to add this block and keep your other calendar events as they are.</Body>
     </> : checklist ? <>
-      <Body>{String(data.detail)}</Body>
+      {detail ? <Body>{detail}</Body> : null}
       <Body muted>Approve to add this to your goal checklist and leave bookings and purchases in your hands.</Body>
     </> : defer ? <>
       <KeyValue label="Current slot" value={time(data.originalStartsAt, timezone, true) + (data.originalEndsAt ? ` to ${time(data.originalEndsAt, timezone)}` : '')} />

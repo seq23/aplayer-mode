@@ -304,3 +304,19 @@ test('the preview Today shows the pending clear-day card ("Choir planning call")
   assert.equal(clear.payload.title, 'Choir planning call');
   assert.ok(shown.has(clear.id), 'the clear-day card is on Today');
 });
+
+test('no approval card renders "undefined", "null" or an empty line: every preview card and a goal card without its detail', async () => {
+  await previewRequest('/v1/preview/sample-account', { method: 'POST', body: '{}' });
+  const { graph } = await previewRequest('/v1/me/today');
+  const cards = graph.actions.filter((action) => action.idempotencyKey.startsWith('suite:') || action.idempotencyKey.startsWith('autopilot:'));
+  assert.ok(cards.length >= 8, `found ${cards.length} sample cards`);
+  const goal = cards.find((action) => action.payload.suiteProposal === 'goal_calendar');
+  assert.ok(typeof goal.payload.detail === 'string' && goal.payload.detail.length > 0, 'the sample goal card carries its detail');
+  const bare = { ...goal, id: 'bare', payload: { ...goal.payload, detail: undefined } };
+  for (const action of [...cards, bare]) {
+    const html = renderToStaticMarkup(createElement(ActionApprovalCard, { action, onApprove() {}, onReject() {}, onUndo() {}, timezoneHint: 'UTC' }));
+    const text = html.replace(/<[^>]+>/g, '\n');
+    assert.doesNotMatch(text, /\bundefined\b|\bnull\b|NaN|Invalid Date/, `${action.idempotencyKey}: ${text.replace(/\n+/g, ' | ')}`);
+    assert.doesNotMatch(html, /<(p|div|span)[^>]*><\/\1>/, `${action.idempotencyKey}: no empty text line`);
+  }
+});
