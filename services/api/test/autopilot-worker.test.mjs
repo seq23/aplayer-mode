@@ -312,7 +312,8 @@ test('email actions with control characters in To/Subject are refused before any
 
 async function sealedConnection(kind) {
   const sealed = await cryptoMod.encryptConnectorCredential(liveEnv, { accessToken: 'provider-token', refreshToken: 'r', expiresAt: Date.now() + 3_600_000 });
-  return [{ id: CONN, provider: 'google', kind, encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv }];
+  // Mail is Outlook only; calendars stay Google here.
+  return [{ id: CONN, provider: kind === 'email' ? 'microsoft' : 'google', kind, encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv }];
 }
 
 const classState = (actionClass, domain, connectorKind) => ({
@@ -345,30 +346,29 @@ async function runClass({ actionClass, domain, connectorKind, proposal, composed
   return { result, calls: mock.calls };
 }
 
-const decodeRaw = (raw) => Buffer.from(raw.replaceAll('-', '+').replaceAll('_', '/'), 'base64').toString('utf8');
-
-test('email.send sends exactly the database-composed message, never the raw proposal', async () => {
+test('email.send sends exactly the database-composed message from Outlook, never the raw proposal', async () => {
   const proposal = { connectionId: CONN, kind: 'template', to: 'coach@club.example.com', templateId: 'birthday' };
   const composed = { to: 'coach@club.example.com', subject: 'Happy birthday!', body: 'Wishing you a wonderful year.', kind: 'template' };
   const { result, calls } = await runClass({
     actionClass: 'email.send', domain: 'email', connectorKind: 'email', proposal, composed,
-    provider: () => ({ json: { id: 'gmail-sent-1' } }),
+    provider: () => ({ status: 202, json: {} }),
   });
-  const send = calls.find((c) => c.url.startsWith('https://gmail.googleapis.com/'));
-  assert.equal(send.url, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send');
-  const mime = decodeRaw(send.body.raw);
-  assert.match(mime, /^To: coach@club\.example\.com\r\nSubject: Happy birthday!\r\n/);
-  assert.match(mime, /Wishing you a wonderful year\.$/);
+  const send = calls.find((c) => c.url.startsWith('https://'));
+  assert.equal(send.url, 'https://graph.microsoft.com/v1.0/me/sendMail');
+  assert.deepEqual(send.body.message.toRecipients, [{ emailAddress: { address: 'coach@club.example.com' } }]);
+  assert.equal(send.body.message.subject, 'Happy birthday!');
+  assert.equal(send.body.message.body.content, 'Wishing you a wonderful year.');
+  assert.equal(calls.some((c) => c.url.includes('gmail.googleapis.com')), false);
   assert.equal(result.execution.status, 'verified');
 });
 
 test('appointment.book and subscription.cancel send fixed text from the user mailbox; a stop never reaches a provider', async () => {
   for (const [actionClass, domain] of [['appointment.book', 'appointment'], ['subscription.cancel', 'subscription']]) {
     const composed = { to: 'desk@clinic.example.com', subject: `Request: ${actionClass}`, body: 'Fixed text.' };
-    const { calls } = await runClass({ actionClass, domain, connectorKind: 'email', proposal: { connectionId: CONN }, composed, provider: () => ({ json: { id: 'm-1' } }) });
+    const { calls } = await runClass({ actionClass, domain, connectorKind: 'email', proposal: { connectionId: CONN }, composed, provider: () => ({ status: 202, json: {} }) });
     const send = calls.find((c) => c.url.startsWith('https://'));
-    assert.equal(send.url, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', actionClass);
-    assert.match(decodeRaw(send.body.raw), /^To: desk@clinic\.example\.com\r\n/);
+    assert.equal(send.url, 'https://graph.microsoft.com/v1.0/me/sendMail', actionClass);
+    assert.deepEqual(send.body.message.toRecipients, [{ emailAddress: { address: 'desk@clinic.example.com' } }]);
   }
 
   const mock = mockFetch((call) => (call.url === '/rest/v1/rpc/apm_autopilot_claim'

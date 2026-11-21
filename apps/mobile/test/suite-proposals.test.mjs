@@ -138,8 +138,7 @@ test('Connections shows separate account write consent', () => {
 });
 
 test('Connections offers Outlook Mail and Google Calendar with no Gmail consent button', () => {
-  fixture({ connections: [{ id: 'legacy', kind: 'email', provider: 'google', scopes: [], status: 'connected', isPrimary: true }],
-    entitlement: { plan: 'autopilot', status: 'active' } });
+  fixture({ connections: [], entitlement: { plan: 'autopilot', status: 'active' } });
   const page = render(Connections);
   assert.match(page, /<button[^>]*>Connect Outlook \/ Microsoft Mail<\/button>/);
   assert.match(page, /<button[^>]*>Connect Google Calendar<\/button>/);
@@ -147,8 +146,8 @@ test('Connections offers Outlook Mail and Google Calendar with no Gmail consent 
   assert.doesNotMatch(page, /<button[^>]*>Allow writes on this account<\/button>/);
 });
 
-test('Today points a Gmail-only Suite user to Outlook Mail instead of offering an approval', () => {
-  fixture({ actions: [], connections: [{ id: 'legacy', kind: 'email', provider: 'google', status: 'connected' }] });
+test('Today points a Google Calendar Suite user without Outlook Mail to the connection that brings drafts', () => {
+  fixture({ actions: [], connections: [{ id: 'cal', kind: 'calendar', provider: 'google', status: 'connected', scopes: [] }] });
   const page = render(Today);
   assert.match(page, /Outlook Mail/);
   assert.match(page, /<button[^>]*>Manage connections<\/button>/);

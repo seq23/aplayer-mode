@@ -37,7 +37,7 @@ import { plainError } from '../../../src/api/errors';
 // The provider write scopes the Autopilot claim checks (migration 0033 required_scopes).
 const WRITE_SCOPES: Record<OAuthKind, string[]> = {
   calendar: ['https://www.googleapis.com/auth/calendar.events', 'Calendars.ReadWrite'],
-  email: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.compose', 'Mail.Send'],
+  email: ['Mail.Send'],
 };
 const hasWriteScope = (kind: OAuthKind, scopes: string[]) => scopes.some((scope) => WRITE_SCOPES[kind].includes(scope));
 
@@ -109,7 +109,6 @@ export default function ConnectionsScreen() {
         <KeyValue label="Last sync" value={syncedWords(account.lastSyncAt)} />
         <KeyValue label="Account write access" value={hasWriteScope(kind, account.scopes) ? 'Yes · write consent given' : 'No · read only'} />
         {supported && note ? <Body>{note}</Body> : null}
-        {!supported ? <Body>Disconnect Gmail to free this inbox slot for Outlook Mail.</Body> : null}
         <TextField label="Your name for this account" placeholder="Work, Personal…" value={draft} onChangeText={(value) => setLabels((current) => ({ ...current, [account.id]: value }))} />
         {draft.trim() !== (account.label ?? '') ? (
           <Button label={busy === `label:${account.id}` ? 'Saving…' : 'Save name'} variant="secondary"

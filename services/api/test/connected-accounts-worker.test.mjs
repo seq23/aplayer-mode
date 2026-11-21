@@ -31,9 +31,9 @@ async function withPausedAccount(run) {
     const href = String(url); calls.push(`${init.method ?? 'GET'} ${href}`);
     if (href.includes('/rest/v1/integration_connections')) {
       assert.match(href, /select=[^&]*paused_at/, 'the token loader reads the pause');
-      return new Response(JSON.stringify([{ id: PERSONAL, provider: 'google', kind: 'email', encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv, paused_at: '2026-10-07T00:00:00Z' }]), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify([{ id: PERSONAL, provider: 'microsoft', kind: 'email', encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv, paused_at: '2026-10-07T00:00:00Z' }]), { status: 200, headers: { 'content-type': 'application/json' } });
     }
-    if (href.startsWith('https://gmail.googleapis.com/')) return new Response(null, { status: 204 });
+    if (href.startsWith('https://graph.microsoft.com/')) return new Response(null, { status: 204 });
     throw new Error(`unexpected ${href}`);
   };
   try { return await run(calls); } finally { globalThis.fetch = original; }
@@ -42,14 +42,14 @@ async function withPausedAccount(run) {
 test('a paused account yields no token for sync or actions', async () => {
   await withPausedAccount(async (calls) => {
     await assert.rejects(oauth.getValidConnectorToken({ env, accessToken: 'jwt', userId: USER, connectionId: PERSONAL }), /connection_paused/);
-    assert.ok(!calls.some((call) => call.includes('googleapis.com')), 'nothing reached the provider');
+    assert.ok(!calls.some((call) => call.includes('graph.microsoft.com')), 'nothing reached the provider');
   });
 });
 
 test('undo still reaches the account that acted, even after it was paused', async () => {
   await withPausedAccount(async (calls) => {
     await engine.revertStandingConnectorAction({ undoMethod: 'delete_draft', connectionId: PERSONAL, externalRef: 'draft-123' }, { env, accessToken: 'jwt', userId: USER });
-    assert.ok(calls.some((call) => call === 'DELETE https://gmail.googleapis.com/gmail/v1/users/me/drafts/draft-123'), calls.join('\n'));
+    assert.ok(calls.some((call) => call === 'DELETE https://graph.microsoft.com/v1.0/me/messages/draft-123'), calls.join('\n'));
   });
 });
 

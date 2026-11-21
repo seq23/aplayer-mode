@@ -129,9 +129,6 @@ async function executeCalendar(action: ActionRecord, input: { env: ApiEnv; acces
   return data.id ?? eventId;
 }
 
-function toBase64Url(value: string): string {
-  return btoa(unescape(encodeURIComponent(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-}
 
 async function executeEmail(action: ActionRecord, input: { env: ApiEnv; accessToken: string; userId: string }, sendOverride?: boolean): Promise<string> {
   const connectionId = String(action.payload.connectionId ?? '');
@@ -148,17 +145,8 @@ async function executeEmail(action: ActionRecord, input: { env: ApiEnv; accessTo
   if (auth.kind !== 'email') throw new Error('action_connection_kind_mismatch');
   const send = sendOverride ?? action.actionType === 'email.send';
 
-  if (auth.provider === 'google') {
-    const raw = toBase64Url(`To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset="UTF-8"\r\n\r\n${body}`);
-    const url = send ? 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send' : 'https://gmail.googleapis.com/gmail/v1/users/me/drafts';
-    const response = await fetch(url, {
-      method: 'POST', headers: { authorization: `Bearer ${auth.accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify(send ? { raw } : { message: { raw } }),
-    });
-    if (!response.ok) throw new Error(`gmail_action_failed:${response.status}`);
-    const data = await response.json() as { id?: string; message?: { id?: string } };
-    return data.id ?? data.message?.id ?? '';
-  }
+  // Mail is Outlook only (no Gmail scopes for APM).
+  if (auth.provider !== 'microsoft') throw new Error('outlook_mail_required');
 
   const message = { subject, body: { contentType: 'Text', content: body }, toRecipients: [{ emailAddress: { address: to } }] };
   if (send) {
@@ -335,9 +323,8 @@ export async function revertConnectorAction(
       : `https://graph.microsoft.com/v1.0/me/events/${ref}`;
   } else {
     if (auth.kind !== 'email') throw new Error('action_connection_kind_mismatch');
-    url = auth.provider === 'google'
-      ? `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${ref}`
-      : `https://graph.microsoft.com/v1.0/me/messages/${ref}`;
+    if (auth.provider !== 'microsoft') throw new Error('outlook_mail_required');
+    url = `https://graph.microsoft.com/v1.0/me/messages/${ref}`;
   }
   const response = await fetch(url, { method: 'DELETE', headers: { authorization: `Bearer ${auth.accessToken}` } });
   if (!response.ok && response.status !== 404 && response.status !== 410) throw new Error(`undo_failed:${response.status}`);

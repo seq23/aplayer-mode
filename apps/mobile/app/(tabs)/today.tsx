@@ -171,7 +171,8 @@ export default function TodayScreen() {
     [todayPlan?.routineIds.length ?? 0, 'routine', 'routines'],
     [todayPlan?.radarItemIds.length ?? 0, 'heads-up', 'heads-ups'],
   ].filter(([n]) => Number(n) > 0).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
-  const hasLegacyGmail = graph.connections.some((account) => account.kind === 'email'
+  // Mail is Outlook only: a Google Calendar person is told which connection brings drafts and alerts.
+  const hasGoogleCalendar = graph.connections.some((account) => account.kind === 'calendar'
     && account.provider === 'google' && account.status === 'connected' && !account.pausedAt);
   const hasOutlookMail = graph.connections.some((account) => account.kind === 'email'
     && account.provider === 'microsoft' && account.status === 'connected' && !account.pausedAt);
@@ -398,7 +399,7 @@ export default function TodayScreen() {
             </Card>;
           }) : null}
 
-          {!hideAgenda && !recovery && canUseReplyDrafts && hasLegacyGmail && !hasOutlookMail ? (
+          {!hideAgenda && !recovery && canUseReplyDrafts && hasGoogleCalendar && !hasOutlookMail ? (
             <Card>
               <CardTitle>Reply drafts and subscription alerts use Outlook Mail</CardTitle>
               <Body muted>Connect Outlook Mail to review drafts here and see subscription alerts on Radar.</Body>

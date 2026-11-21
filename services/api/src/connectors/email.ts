@@ -23,17 +23,6 @@ interface ExtractedSignal {
   confidence: number;
 }
 
-/** Gmail bodies are base64url-encoded UTF-8 bytes: decode the bytes, then the UTF-8. */
-export function decodeBase64Url(value: string): string {
-  try {
-    const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
-    const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='));
-    return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
-  } catch {
-    return '';
-  }
-}
-
 const SIGNAL_TYPES = new Set(['commitment','request','follow_up','waiting_for','deadline','meeting','cancellation','completion','person']);
 
 /**
@@ -55,39 +44,6 @@ export function sanitizeSignals(raw: unknown): ExtractedSignal[] {
     out.push({ type: signal.type as MessageSignalType, summary, owner: signal.owner, dueAt, confidence });
   }
   return out;
-}
-
-function gmailPartText(part: { mimeType?: string; body?: { data?: string }; parts?: any[] }): string {
-  if (part.mimeType === 'text/plain' && part.body?.data) return decodeBase64Url(part.body.data);
-  return (part.parts ?? []).map(gmailPartText).filter(Boolean).join('\n');
-}
-
-async function fetchGmailMessages(token: string, maxMessages: number): Promise<SourceMessage[]> {
-  const list = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${Math.min(maxMessages, 100)}&q=${encodeURIComponent('newer_than:14d')}`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-  if (!list.ok) throw new Error(`gmail_list_failed:${list.status}`);
-  const listData = await list.json() as { messages?: Array<{ id: string; threadId?: string }> };
-  const messages: SourceMessage[] = [];
-  for (const item of listData.messages ?? []) {
-    const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(item.id)}?format=full`, {
-      headers: { authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) continue;
-    const data = await response.json() as {
-      id: string; threadId?: string; internalDate?: string;
-      payload?: { headers?: Array<{ name: string; value: string }>; body?: { data?: string }; mimeType?: string; parts?: any[] };
-    };
-    const headers = new Map((data.payload?.headers ?? []).map((header) => [header.name.toLowerCase(), header.value]));
-    const body = data.payload ? gmailPartText(data.payload) || decodeBase64Url(data.payload.body?.data ?? '') : '';
-    messages.push({
-      provider: 'google', externalMessageId: data.id, externalThreadId: data.threadId,
-      subject: headers.get('subject'), from: headers.get('from'),
-      receivedAt: data.internalDate ? new Date(Number(data.internalDate)).toISOString() : undefined,
-      body: body.slice(0, 16_000),
-    });
-  }
-  return messages;
 }
 
 function htmlToText(value: string): string {
@@ -207,7 +163,7 @@ async function persistSignals(input: { env: ApiEnv; accessToken: string; userId:
           status: 'understood',
           due_at: signal.dueAt ?? null,
           provenance_kind: 'inferred',
-          source_type: input.message.provider === 'google' ? 'gmail' : 'outlook',
+          source_type: 'outlook',
           source_ref: input.message.externalMessageId,
           confidence: signal.confidence,
           updated_at: new Date().toISOString(),
@@ -227,10 +183,10 @@ async function persistSignals(input: { env: ApiEnv; accessToken: string; userId:
 export async function syncEmailSignals(input: { env: ApiEnv; accessToken: string; userId: string; connectionId: string; maxMessages?: number }): Promise<{ provider: 'google' | 'microsoft'; messagesProcessed: number; signalsStored: number }> {
   const auth = await getValidConnectorToken(input);
   if (auth.kind !== 'email') throw new Error('connection_is_not_email');
+  // Mail is Outlook only (her call, 21 Nov 2026: no Gmail scopes for APM).
+  if (auth.provider !== 'microsoft') throw new Error('outlook_mail_required');
   const maxMessages = Math.min(input.maxMessages ?? 25, 50);
-  const messages = await connectorCall(input, auth, () => auth.provider === 'google'
-    ? fetchGmailMessages(auth.accessToken, maxMessages)
-    : fetchMicrosoftMessages(auth.accessToken, maxMessages));
+  const messages = await connectorCall(input, auth, () => fetchMicrosoftMessages(auth.accessToken, maxMessages));
   let signalsStored = 0;
   for (const message of messages) {
     // A model answer in the wrong shape, or a message no vetted route may receive (e.g.
