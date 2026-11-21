@@ -41,10 +41,12 @@ import {
   reprintToday,
   returnAndReset,
   reviewPlanGate,
+  reportContent,
   setTodayPhase,
   type ReplanReason,
 } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
+import { ReportThis } from '../../src/components/ReportThis';
 import { areaDisplay, areaShort } from '../../src/content/areas';
 import { BedRoutineToday, CoachingModeChips, PillarRollUpLine, PracticesToday, QuickTaps, SaveAccountBanner } from '../../src/components/today/FirstRunCards';
 import { useSession } from '../../src/state/session';
@@ -147,6 +149,7 @@ export default function TodayScreen() {
       {item.status === 'open' && executionOpen && phaseOpen && todayLoop?.locked ? <Button label="Can't do this as written? Rewrite it" variant="ghost" onPress={() => reprint([item.id])} /> : null}
       {/* No plan (or a lapsed one) hides the check-in: never point at a question that is not there. */}
       {item.status === 'open' && !executionOpen && !todayLoop?.closed ? <Body muted>{loopOpen ? TODAY_COPY.afterCheckIn : TODAY_COPY.afterPlan}</Body> : null}
+      {accessToken ? <ReportThis what="item" send={(reason) => reportContent({ kind: 'plan_item', ref: item.id, reason }, accessToken)} /> : null}
     </Card>
   );
   const primaryGoal = graph.goals.find((goal) => goal.priority === 1) ?? graph.goals[0];
@@ -397,7 +400,7 @@ export default function TodayScreen() {
             {!hideAgenda && !recovery ? (
               <>
                 <Label>APM noticed</Label>
-                {firstRadarItem ? <Card tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'default'}><Pill tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'neutral'}>{radarTag(firstRadarItem.type, firstRadarItem.severity)}</Pill><CardTitle>{firstRadarItem.headline}</CardTitle><Body muted>{firstRadarItem.summary}</Body><Button label="Why am I seeing this?" variant="secondary" onPress={() => router.push({ pathname: '/radar/why', params: { id: firstRadarItem.id } })} /></Card> : <EmptyState icon="compass" title="Nothing slipping right now." body="APM tells you here when a promise, deadline or reply needs you." />}
+                {firstRadarItem ? <Card tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'default'}><Pill tone={firstRadarItem.severity === 'critical' || firstRadarItem.severity === 'high' ? 'warning' : 'neutral'}>{radarTag(firstRadarItem.type, firstRadarItem.severity)}</Pill><CardTitle>{firstRadarItem.headline}</CardTitle><Body muted>{firstRadarItem.summary}</Body>{accessToken ? <ReportThis what="item" send={(reason) => reportContent({ kind: 'radar_item', ref: firstRadarItem.id, reason }, accessToken)} /> : null}<Button label="Why am I seeing this?" variant="secondary" onPress={() => router.push({ pathname: '/radar/why', params: { id: firstRadarItem.id } })} /></Card> : <EmptyState icon="compass" title="Nothing slipping right now." body="APM tells you here when a promise, deadline or reply needs you." />}
                 {openLoops.length ? (
                   <>
                     <Label>Open loops</Label>

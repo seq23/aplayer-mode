@@ -38,6 +38,8 @@ done
 # NAMED STOP [MIGRATION_MISSING] and nothing else changes. Say so here, where a person is watching.
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$SB_URL/rest/v1/rpc/apm_service_billing_renewal_reminders_due" -H "apikey: $SB_KEY" -H 'content-type: application/json' -d '{"p_now":null}')
 [ "$code" = "404" ] && echo "NAMED STOP [RENEWAL_REMINDER_MIGRATION_MISSING] apply services/api/migrations/0098_billing_renewal_reminders.sql; until then no annual renewal reminder is sent"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$SB_URL/rest/v1/rpc/apm_report_content" -H "apikey: $SB_KEY" -H 'content-type: application/json' -d '{"p_kind":null,"p_ref":null,"p_reason":null}')
+[ "$code" = "404" ] && echo "NAMED STOP [CONTENT_REPORT_MIGRATION_MISSING] apply services/api/migrations/0099_content_reports.sql; until then Report this on plan and Radar items answers 503"
 npm run typecheck >/dev/null && npm run test >/dev/null
 cd services/api
 npx wrangler deploy --env production \

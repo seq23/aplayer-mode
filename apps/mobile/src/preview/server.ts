@@ -483,6 +483,7 @@ function route(method: string, path: string, body: Record<string, unknown>): unk
   // Coach
   if (is('POST', 'apm/coach')) return coachTurn(body as never);
   if (is('POST', 'apm/coach/report')) return { reportId: id() };
+  if (is('POST', 'apm/content/report')) return { reportId: id() };
   if (is('POST', 'apm/coach/*/close')) { s.coach = undefined; return { ok: true }; }
 
   // Life areas

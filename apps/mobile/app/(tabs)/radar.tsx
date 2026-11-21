@@ -12,9 +12,13 @@ import {
 } from '../../src/components/ui';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { radarTag } from '../../src/content/words';
+import { ReportThis } from '../../src/components/ReportThis';
+import { reportContent } from '../../src/api/apmApi';
+import { useSession } from '../../src/state/session';
 
 export default function RadarScreen() {
   const { graph } = useLifeGraph();
+  const { accessToken } = useSession();
   const items = graph.radarItems.filter((item) => item.status === 'open');
   const highAttention = items.filter((item) => item.severity === 'critical' || item.severity === 'high');
 
@@ -42,6 +46,7 @@ export default function RadarScreen() {
             </Pill>
             <CardTitle>{item.headline}</CardTitle>
             <Body muted>{item.summary}</Body>
+            {accessToken ? <ReportThis what="item" send={(reason) => reportContent({ kind: 'radar_item', ref: item.id, reason }, accessToken)} /> : null}
             <Button
               label="Why APM saw this"
               variant="secondary"
