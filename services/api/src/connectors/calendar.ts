@@ -58,7 +58,10 @@ export async function fetchGoogleEvents(token: string, from: string, to: string)
       events.push({
         provider: 'google', externalEventId: item.id, title: item.summary ?? '', location: item.location,
         startsAt: start.at, endsAt: end.at, timezone: start.timezone ?? end.timezone, allDay: start.allDay,
-        availability: ['focusTime', 'outOfOffice', 'workingLocation'].includes(item.eventType ?? '') ? 'out_of_office' : item.transparency === 'transparent' ? 'free' : 'busy',
+        // A working location says where she works, not that she is busy: it keeps Google's own
+        // transparency (free), so an every-weekday location never blocks a whole day. It still
+        // cannot be moved (providerEventType below).
+        availability: ['focusTime', 'outOfOffice'].includes(item.eventType ?? '') ? 'out_of_office' : item.transparency === 'transparent' ? 'free' : 'busy',
         recurrence: { rules: item.recurrence ?? [], ...(item.recurringEventId ? { series: item.recurringEventId } : {}) }, organizer: { ...(item.organizer ?? {}), providerEventType: item.eventType ?? 'default' }, attendees: item.attendeesOmitted ? [{}] : item.attendees ?? [],
         sourceVersion: item.etag, deleted: item.status === 'cancelled',
       });

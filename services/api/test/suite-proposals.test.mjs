@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bundle = await build({
-  stdin: { contents: "export * from './src/proposalProducers'; export * from './src/crypto'; export * from './src/suiteCalendar'; export { buildRadarItems } from '@apm/radar'; export { generateGoalPlan } from '@apm/planning';", resolveDir: root },
+  stdin: { contents: "export * from './src/proposalProducers'; export * from './src/crypto'; export * from './src/suiteCalendar'; export { fetchGoogleEvents } from './src/connectors/calendar'; export { buildRadarItems } from '@apm/radar'; export { generateGoalPlan } from '@apm/planning';", resolveDir: root },
   bundle: true, write: false, format: 'esm', platform: 'neutral',
 });
-const { approveSuiteProposal, buildRadarItems, encryptConnectorCredential, executeSuiteCalendarMove, generateGoalPlan, prepareSuiteProposals, runSuiteProposals } =
+const { fetchGoogleEvents, firstClearSlot, approveSuiteProposal, buildRadarItems, encryptConnectorCredential, executeSuiteCalendarMove, generateGoalPlan, prepareSuiteProposals, runSuiteProposals } =
   await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 const userId = U(520), otherId = U(521), emailId = U(522), calendarId = U(523);
@@ -607,4 +607,19 @@ test('calendar Undo restores the original time with the current ETag, and refuse
   assert.equal(writes().length, 1);
   await rpc('apm_service_record_suite_undo', [userId, action.id]);
   await rejects(rpc('apm_service_record_suite_undo', [userId, action.id]), /action_invalid_state/);
+});
+
+test('a Google working location does not block the day: a clash on that day still gets a move', async (t) => {
+  const day = at(0).slice(0, 10);
+  const next = at(0, 0, 2).slice(0, 10);
+  t.mock.method(globalThis, 'fetch', async () => json({ items: [{
+    id: 'where-i-work', eventType: 'workingLocation', transparency: 'transparent', summary: 'Office',
+    start: { date: day }, end: { date: next }, organizer: { self: true }, etag: '"w1"',
+  }] }));
+  const [location] = await fetchGoogleEvents('token', at(0), at(23));
+  assert.equal(location.allDay, true);
+  assert.notEqual(location.availability, 'out_of_office');
+  const current = graph({ calendarEvents: [...calendarEvents, { ...location, id: U(560), userId, connectionId: calendarId, provider: 'google' }] });
+  const flex = current.calendarEvents.find((item) => item.id === flexId);
+  assert.ok(firstClearSlot(flex, at(11, 30), current, now), 'a slot later that day is still found');
 });
