@@ -176,12 +176,13 @@ async function* subscriptions(context: ProducerContext): ReturnType<Producer['pr
     const connector = { ...context, connectionId: account.id };
     const auth = await getValidConnectorToken(connector);
     if (auth.provider !== 'microsoft' || auth.kind !== 'email') continue;
+    const recentSince = context.now.getTime() - 14 * 86_400_000;
     const messages = (await fetchMicrosoftMessages(auth.accessToken, 30)
       .catch((error: unknown) => handleConnectorFailure(connector, auth.provider, error)))
       .filter((item) => item.body.trim() && subscriptionAddress.safeParse(item.from).success
         && item.from?.toLowerCase() !== account.accountLabel?.toLowerCase()
-        && Date.parse(item.receivedAt ?? '') > context.now.getTime() - 14 * 86_400_000);
-    if (!messages.length) continue;
+        && Number.isFinite(Date.parse(item.receivedAt ?? '')));
+    if (!messages.some((item) => Date.parse(item.receivedAt!) > recentSince)) continue;
     let output: unknown;
     try {
       output = await runUserInference({
@@ -203,7 +204,7 @@ async function* subscriptions(context: ProducerContext): ReturnType<Producer['pr
     for (const finding of findings.data.findings) {
       const message = messages[finding.source];
       const to = subscriptionAddress.safeParse(message?.from);
-      if (!message || !to.success) continue;
+      if (!message || !to.success || Date.parse(message.receivedAt!) <= recentSince) continue;
       const key = await sourceKey('subscription_cancel', account.id, message.externalMessageId);
       const observedAt = new Date(Date.parse(message.receivedAt!)).toISOString();
       const expiresAt = new Date(Date.parse(observedAt) + 14 * 86_400_000).toISOString();
@@ -219,7 +220,7 @@ async function* subscriptions(context: ProducerContext): ReturnType<Producer['pr
             }),
           });
       }
-      if (!canPrepare || !canWrite(account, 'email') || !finding.cancellationExcerpt
+      if (!canPrepare || !canWrite(account, 'email') || /^no[._-]?reply@/i.test(to.data) || !finding.cancellationExcerpt
         || !message.body.slice(0, 1000).includes(finding.cancellationExcerpt) || context.seen.has(key)) continue;
       yield {
         key, reason: finding.finding === 'price_rise' ? 'Subscription price may have gone up' : 'Subscription may be unused',
@@ -240,7 +241,7 @@ async function executeSubscriptionCancel(action: ActionRecord, graph: Graph, inp
   const connectionId = z.uuid().parse(payload.connectionId);
   const to = subscriptionAddress.parse(payload.to);
   const title = subscriptionTitle.parse(payload.title);
-  if (Date.parse(String(payload.expiresAt)) <= now.getTime()
+  if (Date.parse(z.iso.datetime().parse(payload.expiresAt)) <= now.getTime()
     || !graph.connections.some((account) => account.id === connectionId && canWrite(account, 'email'))) throw new Error('action_proposal_stale');
   return executeStandingConnectorAction({
     ...action, payload: { ...payload, composed: { connectionId, to, subject: 'Subscription cancellation request',

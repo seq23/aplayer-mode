@@ -504,17 +504,24 @@ test('Outlook notices create Radar findings and approval sends only the supporte
     body: { contentType: 'text', content: text },
   });
   mailbox = [
-    notice('renewal', 'Community pool passes', 'Your monthly pass will increase from $15 to $20. Email this address to cancel.'),
+    notice('renewal', 'Community pool passes', 'Your monthly pass costs $20. Email this address to cancel.'),
     notice('usage', 'Language practice', 'You have used no lessons this term. Manage your plan in your account.'),
+    { ...notice('previous-renewal', 'Community pool passes', 'Your monthly pass costs $15. Email this address to cancel.'),
+      receivedDateTime: new Date(now.getTime() - 30 * 86_400_000).toISOString() },
   ];
   modelFindings = { findings: [
     { source: 0, title: 'Community pool passes', finding: 'price_rise', cancellationExcerpt: 'Email this address to cancel.' },
     { source: 1, title: 'Language practice', finding: 'unused', cancellationExcerpt: 'Email this address to cancel.' },
+    { source: 2, title: 'Community pool passes', finding: 'price_rise', cancellationExcerpt: 'Email this address to cancel.' },
   ] };
   const current = graph({ calendarEvents: [], messageSignals: [] });
   const readOnly = { ...current, permissions: [], connections: [{ ...connections[0], scopes: ['Mail.Read'] }] };
   assert.equal((await prepareSuiteProposals(env, readOnly, now)).prepared, 0);
+  const model = calls.find((call) => call.url.startsWith('https://openrouter.ai/'));
+  assert.ok(model.body.messages[1].content.includes('Your monthly pass costs $15.'));
+  assert.ok(model.body.messages[1].content.includes('Your monthly pass costs $20.'));
   const rows = (await h.admin("select * from public.message_signals where signal_type like 'subscription_%'")).rows;
+  assert.ok(rows.every((row) => row.external_message_id !== 'previous-renewal'));
   const signals = rows.map((row) => ({
     id: row.id, connectionId: row.connection_id, externalMessageId: row.external_message_id,
     signalType: row.signal_type, summary: row.summary, dueAt: row.due_at, observedAt: row.observed_at, confidence: row.confidence,
@@ -531,7 +538,7 @@ test('Outlook notices create Radar findings and approval sends only the supporte
   assert.deepEqual(writes()[0].body.message.toRecipients, [{ emailAddress: { address: 'support@example.com' } }]);
   assert.match(writes()[0].body.message.body.content, /cancel my subscription for Community pool passes/);
   mailbox.push(notice('second-renewal', 'Library membership', 'Your monthly membership has increased. Email this address to cancel.'));
-  modelFindings.findings.push({ source: 2, title: 'Library membership', finding: 'price_rise', cancellationExcerpt: 'Email this address to cancel.' });
+  modelFindings.findings.push({ source: 3, title: 'Library membership', finding: 'price_rise', cancellationExcerpt: 'Email this address to cancel.' });
   assert.equal((await prepareSuiteProposals(env, { ...current, actions: [action] }, now)).prepared, 1);
   const [rejected] = (await h.admin("select * from public.actions where payload->>'messageId'='second-renewal'")).rows;
   await rpc('apm_service_reject_suite_proposal', [userId, rejected.id]);
