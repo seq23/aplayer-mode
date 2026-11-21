@@ -30,7 +30,7 @@ when the app starts or stops collecting something, change both. Listing copy and
 - **Account creation:** Yes (email code, Sign in with Google, Sign in with Apple; `src/state/session.tsx:225,282,318`).
 - **Shared with third parties:** No. OpenRouter and the AI model providers it routes to, Supabase, RevenueCat and
   Expo's push service process data for us as service providers, which Google does not count as sharing. Email the
-  person sends from a connected Gmail or Outlook is a transfer she starts, also not sharing.
+  person sends from a connected Outlook account is a transfer she starts, also not sharing.
 
 | Play data type | Collected | Shared | Required? | Purpose | Code |
 |---|---|---|---|---|---|
@@ -40,7 +40,7 @@ when the app starts or stops collecting something, change both. Listing copy and
 | Financial info > Purchase history | Yes | No | Required (a plan is needed for the daily loop) | App functionality, Analytics | RevenueCat (`src/billing/purchases.ts:60`), `/v1/billing/*` |
 | Health and fitness > Health info | Yes | No | Optional (separate consent) | App functionality | Body questions after the health consent (`src/content/consent.ts:18-30`, `POST /v1/consents/health-data`, `src/api/apmApi.ts:464`): weight, conditions incl. pregnancy, clinician clearance, energy score |
 | Health and fitness > Fitness info | Yes | No | Optional | App functionality | Body questions: movement habits and days (same consent) |
-| Messages > Emails | Yes | No | Optional (only if connected) | App functionality | Gmail / Outlook connections (`src/api/apmApi.ts:485-507`, `app/settings/privacy/connections.tsx`) |
+| Messages > Emails | Yes | No | Optional (only if connected) | App functionality | Outlook connection (Microsoft only; Google connects calendar only) (`src/api/apmApi.ts:485-507`, `app/settings/privacy/connections.tsx`) |
 | Calendar > Calendar events | Yes | No | Optional (only ticked calendars) | App functionality | `POST /v1/calendar/device/sync` (`src/api/apmApi.ts:510`, `src/integrations/deviceCalendar.ts:95`), plus Google/Microsoft calendars when connected |
 | App activity > Other user-generated content | Yes | No | Required | App functionality | Intake answers, goals, diary, check-ins, coaching chats (`sendCoachMessage`, `src/api/apmApi.ts:471`), weekly reviews, people she types in as relationships |
 | App activity > App interactions | Yes | No | Required | Analytics | `trackEvent` → `POST /v1/analytics/event` (`src/api/apmApi.ts:376`, `src/intake/store.tsx:107`) |
@@ -79,7 +79,7 @@ Firebase, ad or analytics SDK in `package.json`).
     It is the same code given to App Review.
   - Note to paste: "On the first screen tap Start, confirm 18+, then 'Email me a 6-digit code' with the address above.
     No email is sent for this account; type the code we gave. The account has full access without a purchase
-    (closed-beta grant), so the whole app can be reviewed. Calendar and Gmail/Outlook connections are optional."
+    (closed-beta grant), so the whole app can be reviewed. Calendar and Outlook mail connections are optional."
   - How it works: `services/api/src/reviewLogin.ts` (one address, constant-time compare, audited, off unless both values
     are set); full access from `services/api/migrations/0070_app_review_beta.sql` (granted until 30 Apr 2027).
 

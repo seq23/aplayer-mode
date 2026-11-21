@@ -35,7 +35,7 @@ test('store and web builds point at the same API and the hosted Terms and Privac
 });
 
 test('the legal pages are real, dated, and name the entity and contact', async () => {
-  const dated = { 'public/terms/index.html': '2026-11-13', 'public/privacy/index.html': '2026-11-16', 'public/privacy/consumer-health/index.html': '2026-10-08' };
+  const dated = { 'public/terms/index.html': '2026-11-13', 'public/privacy/index.html': '2026-11-21', 'public/privacy/consumer-health/index.html': '2026-10-08' };
   for (const [page, date] of Object.entries(dated)) {
     const html = await read(page);
     assert.match(html, new RegExp(`Last updated ${date}`));
@@ -52,6 +52,14 @@ test('the legal pages are real, dated, and name the entity and contact', async (
   // The privacy policy links the consumer health data policy (owner, 8 Oct 2026), and states the 18+ confirmation.
   assert.match(privacy, /href="\/privacy\/consumer-health"/);
   assert.match(privacy, /confirm you are 18 or older before an account is created/);
+  // Google OAuth verification compares the policy to the scopes we request: every Google scope the
+  // policy names must be one the API asks for (no Gmail in v1, her call 21 Nov 2026).
+  const googleScopes = new Set([...(await read('../../services/api/src/connectors/oauth.ts')).matchAll(/googleapis\.com\/auth\/([a-z.]+)/g)].map((m) => m[1]));
+  assert.ok(googleScopes.size > 0, 'read the API scopes');
+  const googleItem = privacy.match(/<li>Google:[\s\S]*?<\/li>/)?.[0] ?? '';
+  const named = [...googleItem.matchAll(/<code>([^<]+)<\/code>/g)].map((m) => m[1].replace(/^https:\/\/www\.googleapis\.com\/auth\//, ''));
+  assert.ok(named.length > 0, 'the policy names its Google scopes');
+  for (const scope of named) assert.ok(googleScopes.has(scope), `policy names ${scope}, which the API never requests`);
   // Privacy claims match the code (FTC Act s.5): the policy, the iOS permission prompt and the
   // device-calendar sync agree on whether the person picks calendars (calendarClaimsAgree below).
   const deviceCalendar = await read('src/integrations/deviceCalendar.ts');
