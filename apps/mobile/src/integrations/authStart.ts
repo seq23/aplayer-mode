@@ -35,3 +35,18 @@ export async function openAuthSheet(
   onClosed?.();
   return null;
 }
+
+/**
+ * What a calendar or mail connect handed back (finding 5): the flow's state and the one-time
+ * handoff, from the app's aplayermode://oauth return or the web page's URL fragment. Refuses a
+ * return for any other flow than the one this client started.
+ */
+export type OAuthReturn = { ok: true; state: string; handoff: string } | { ok: false; error: string };
+export function readOAuthReturn(params: URLSearchParams, expectedState: string): OAuthReturn {
+  const error = params.get('error');
+  if (error) return { ok: false, error: /^[a-z0-9_]{1,64}$/.test(error) ? error : 'connector_oauth_failed' };
+  const state = params.get('state');
+  const handoff = params.get('handoff');
+  if (!state || !handoff || state !== expectedState || !/^[0-9a-f]{64}$/.test(handoff)) return { ok: false, error: 'invalid_oauth_state' };
+  return { ok: true, state, handoff };
+}

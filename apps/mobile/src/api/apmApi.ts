@@ -485,8 +485,12 @@ export async function closeCoachSession(sessionId: string, accessToken: string) 
 }
 
 /** `access: 'act'` asks the provider for write scopes as a separate, explicit consent (Autopilot); the default is read-only. */
-export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; access?: 'read' | 'act'; intent?: 'add' | 'reconnect' }, accessToken: string) {
+export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; access?: 'read' | 'act'; intent?: 'add' | 'reconnect'; client?: 'app' | 'web' }, accessToken: string) {
   return request<{ state: string; authorizationUrl: string }>('/v1/connections/oauth/start', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+/** Finishes a connect with the one-time handoff only the consenting client holds; the server checks this session started it. */
+export async function completeOAuthConnection(input: { state: string; handoff: string }, accessToken: string) {
+  return request<{ connectionId: string }>('/v1/connections/oauth/complete', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 export async function fetchOAuthConnectionResult(state: string, accessToken: string) {
   return request<{ connectionId: string | null; error: string | null }>(`/v1/connections/oauth/result/${encodeURIComponent(state)}`, accessToken);

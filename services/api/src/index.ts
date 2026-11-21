@@ -45,7 +45,7 @@ import {
   updateRelationship,
 } from './lifeOsRepository';
 import { ConnectorStop } from './connectors/oauth';
-import { connectorCallback, connectorConfigStop, connectorFlowResult, startConnectorFlow } from './connectors/oauthFlow';
+import { completeConnectorFlow, connectorCallback, connectorConfigStop, connectorFlowResult, startConnectorFlow } from './connectors/oauthFlow';
 import { clearDeviceCalendar, syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
@@ -1533,7 +1533,8 @@ app.post('/v1/connections/oauth/start', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   // access 'act' is a separate, explicit consent for provider write scopes (Autopilot).
   // intent 'add' = another account of this kind (Autopilot only); 'reconnect' = the same one.
-  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, access: z.enum(['read','act']).default('read'), intent: z.enum(['add','reconnect']).default('reconnect') }).safeParse(await c.req.json().catch(() => null));
+  // client 'web' = the browser app, whose consent finishes on its own /oauth/complete page.
+  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, access: z.enum(['read','act']).default('read'), intent: z.enum(['add','reconnect']).default('reconnect'), client: z.enum(['app','web']).default('app') }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   if (parsed.data.provider === 'google' && parsed.data.kind === 'email') return c.json({ error: 'outlook_mail_required' }, 400);
   const stop = connectorConfigStop(c.env, parsed.data.provider);
@@ -1543,15 +1544,27 @@ app.post('/v1/connections/oauth/start', async (c) => {
     const live = graph.connections.filter((item) => item.kind === parsed.data.kind && item.provider !== 'device' && item.status !== 'disconnected' && !item.pausedAt);
     if (live.length > 0 && !hasMultiAccount(graph.entitlement)) return multiAccountRefusal(c);
   }
-  const { provider, kind, access } = parsed.data;
-  return c.json(await startConnectorFlow(c.env, user.id, provider, kind, access), 200, { 'cache-control': 'no-store' });
+  const { provider, kind, access, client } = parsed.data;
+  return c.json(await startConnectorFlow(c.env, user.id, provider, kind, access, client), 200, { 'cache-control': 'no-store' });
 });
 
+// The provider's redirect carries no APM session, so it links nothing (finding 5): it parks the
+// code and hands a one-time secret to the client that finished consent.
 app.get('/v1/oauth/:provider/callback', (c) => {
   const provider = providerSchema.safeParse(c.req.param('provider'));
   if (!provider.success) return c.notFound();
-  return connectorCallback(c.env, provider.data, new URL(c.req.url), (userId, kind, id) =>
-    audit(c.env, SERVICE_ROLE_TOKEN, userId, 'integration.connected', { provider: provider.data, kind }, 'integration_connection', id));
+  return connectorCallback(c.env, provider.data, new URL(c.req.url));
+});
+
+// The link is made here, for the signed-in user who started the flow, and no one else.
+app.post('/v1/connections/oauth/complete', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({ state: z.string().max(64), handoff: z.string().max(128) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const done = await completeConnectorFlow(c.env, user.id, parsed.data);
+  if (!done.ok) return c.json({ error: done.error }, done.status, { 'cache-control': 'no-store' });
+  await audit(c.env, user.accessToken, user.id, 'integration.connected', { provider: done.provider, kind: done.kind }, 'integration_connection', done.connectionId);
+  return c.json({ connectionId: done.connectionId }, 200, { 'cache-control': 'no-store' });
 });
 
 app.get('/v1/connections/oauth/result/:state', async (c) => {

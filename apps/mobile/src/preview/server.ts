@@ -554,7 +554,7 @@ function route(method: string, path: string, body: Record<string, unknown>): unk
     return { ok: true };
   }
   // Connections and permissions: real accounts are never connected from the preview
-  if (is('POST', 'connections/oauth/start') || is('POST', 'connections/oauth/exchange') || is('POST', 'actions/prepare')) throw new ApiError(409, OFF);
+  if (is('POST', 'connections/oauth/start') || is('POST', 'connections/oauth/complete') || is('POST', 'connections/oauth/exchange') || is('POST', 'actions/prepare')) throw new ApiError(409, OFF);
   if (is('POST', 'actions/*/approve') || is('POST', 'actions/*/reject')) {
     const action = s.graph.actions.find((item) => item.id === seg[1] && item.status === 'prepared');
     if (!action) throw new ApiError(409, OFF);

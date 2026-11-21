@@ -83,6 +83,16 @@ flowchart LR
 
 Provider client secrets, refresh tokens, access tokens and encryption keys never enter model context.
 
+**Who an account links to (finding 5, 21 Nov 2026).** `POST /v1/connections/oauth/start` binds a
+`state` (single use, 10 minutes) and the PKCE verifier to the signed-in user. The provider's
+callback (`GET /v1/oauth/:provider/callback`) has no APM session, so it links nothing: it seals
+the code and returns a one-time handoff only to the client that finished consent (the app's
+`aplayermode://oauth` auth sheet, or the web app's `/oauth/complete#…` fragment). That client
+calls `POST /v1/connections/oauth/complete {state, handoff}` with its bearer, and the account is
+linked only when that session started the flow. A link sent to someone else fails the user check
+and burns the code; an outage or refused code writes nothing and never touches an existing link.
+Proof: `services/api/test/connector-oauth-flow.test.mjs`.
+
 ## Sync rules
 
 - all provider data maps to canonical IDs + provenance;

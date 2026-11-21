@@ -51,3 +51,16 @@ test('the Google button and both sheets are wired through the helpers', async ()
   assert.match(oauth, /openAuthSheet\(WebBrowser\.openAuthSessionAsync, start, redirectUri\)/);
   for (const file of [session, oauth]) assert.doesNotMatch(file, /WebBrowser\.openAuthSessionAsync\(/, 'no sheet opens a raw provider URL');
 });
+
+test('a connect return is accepted only for the flow this client started, with a well-formed handoff', () => {
+  const state = '00000000-0000-4000-8000-000000000001';
+  const handoff = 'a'.repeat(64);
+  const params = (q) => new URLSearchParams(q);
+  assert.deepEqual(m.readOAuthReturn(params(`state=${state}&handoff=${handoff}`), state), { ok: true, state, handoff });
+  // A return for someone else's flow (the phishing link), a missing or malformed handoff, or a provider error.
+  assert.deepEqual(m.readOAuthReturn(params(`state=00000000-0000-4000-8000-000000000009&handoff=${handoff}`), state), { ok: false, error: 'invalid_oauth_state' });
+  assert.deepEqual(m.readOAuthReturn(params(`state=${state}`), state), { ok: false, error: 'invalid_oauth_state' });
+  assert.deepEqual(m.readOAuthReturn(params(`state=${state}&handoff=xyz`), state), { ok: false, error: 'invalid_oauth_state' });
+  assert.deepEqual(m.readOAuthReturn(params('error=oauth_cancelled'), state), { ok: false, error: 'oauth_cancelled' });
+  assert.deepEqual(m.readOAuthReturn(params('error=<script>'), state), { ok: false, error: 'connector_oauth_failed' });
+});

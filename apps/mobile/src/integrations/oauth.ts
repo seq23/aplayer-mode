@@ -1,7 +1,8 @@
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
-import { apiBaseUrl, fetchOAuthConnectionResult, startOAuthConnection } from '../api/apmApi';
-import { authStartUrl, openAuthSheet } from './authStart';
+import { apiBaseUrl, completeOAuthConnection, fetchOAuthConnectionResult, startOAuthConnection } from '../api/apmApi';
+import { ApiError, friendlyApiMessage } from '../api/errors';
+import { authStartUrl, openAuthSheet, readOAuthReturn } from './authStart';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -26,6 +27,8 @@ export async function connectOAuthProvider(input: {
       kind: input.kind,
       access: input.access ?? 'read',
       intent: input.intent ?? 'reconnect',
+      // Web consent finishes on our own /oauth/complete page, signed in as this same person.
+      client: popup ? 'web' : 'app',
     }, input.accessToken);
     if (popup) {
       popup.opener = null;
@@ -34,7 +37,8 @@ export async function connectOAuthProvider(input: {
       while (Date.now() < deadline) {
         const { connectionId, error } = await fetchOAuthConnectionResult(started.state, input.accessToken);
         if (connectionId) return { connectionId };
-        if (error || popup.closed) break;
+        if (error) throw new ApiError(400, { error });
+        if (popup.closed) break;
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
       throw new Error('Connection could not be confirmed');
@@ -45,11 +49,11 @@ export async function connectOAuthProvider(input: {
     if (!returned) throw new Error('Connection was cancelled before authorization completed');
 
     const callback = new URL(returned);
-    if (callback.protocol !== 'aplayermode:' || callback.hostname !== 'oauth'
-      || callback.searchParams.get('connected') !== input.provider) throw new Error('Connection could not be confirmed');
-    const { connectionId } = await fetchOAuthConnectionResult(started.state, input.accessToken);
-    if (!connectionId) throw new Error('Connection could not be confirmed');
-    return { connectionId };
+    if (callback.protocol !== 'aplayermode:' || callback.hostname !== 'oauth') throw new Error('Connection could not be confirmed');
+    // The server links the account only for the session that started this flow (finding 5).
+    const handed = readOAuthReturn(callback.searchParams, started.state);
+    if (!handed.ok) throw new Error(friendlyApiMessage(400, { error: handed.error }));
+    return await completeOAuthConnection({ state: handed.state, handoff: handed.handoff }, input.accessToken);
   } finally {
     popup?.close();
   }
