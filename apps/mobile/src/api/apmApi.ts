@@ -476,6 +476,10 @@ export type CoachReportReason = 'harmful' | 'wrong' | 'inappropriate' | 'other';
 export async function reportCoachReply(input: { turnId: string; reason: CoachReportReason; note?: string }, accessToken: string): Promise<{ reportId: string }> {
   return request<{ reportId: string }>('/v1/apm/coach/report', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
+/** "Report this" on a plan item or a Radar item: ids and a reason, never the text (migration 0099). */
+export async function reportContent(input: { kind: 'plan_item' | 'radar_item'; ref: string; reason: CoachReportReason }, accessToken: string): Promise<{ reportId: string }> {
+  return request<{ reportId: string }>('/v1/apm/content/report', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
 export async function closeCoachSession(sessionId: string, accessToken: string) {
   return request<{ ok: boolean }>(`/v1/apm/coach/${encodeURIComponent(sessionId)}/close`, accessToken, { method: 'POST' });
 }

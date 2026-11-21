@@ -9,7 +9,7 @@ import { claimIntakeInstall, deleteAuthUser, finishIntakeInstall, getIntakeDraft
 import { synthesizeIntake } from './intakeSynthesis';
 import { AGE_GATE_OPEN_ROUTES, AGE_REQUIRED_BODY, AgeConfirmationRequired, ageConfirmed, carryConsents, CONSUMER_HEALTH_POLICY_VERSION, getConsentState, HEALTH_REQUIRED_BODY, healthConsentActive, recordConsent, withoutHealthData } from './consent';
 import type { ApiEnv } from './env';
-import { restErrorMessage, SERVICE_ROLE_TOKEN, supabaseRest } from './db';
+import { restErrorMessage, SERVICE_ROLE_TOKEN, SupabaseRestError, supabaseRest } from './db';
 import { claimPrecheckout, attachPrecheckout, billingOfferingFor, foundingPlaces, foundingPlacesFrom, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
 import {
   completeNextAction,
@@ -1435,6 +1435,28 @@ app.post('/v1/apm/coach/report', async (c) => {
     return c.json(result, result.replayed ? 200 : 201);
   } catch (error) {
     if (/report_turn_not_found/.test(restErrorMessage(error) ?? '')) return c.json({ error: 'not_found', message: 'That reply is no longer there to report.' }, 404);
+    throw error;
+  }
+});
+// "Report this" on a plan item or a Radar item (App Review 1.2; migration 0099): ids and a reason, never text.
+app.post('/v1/apm/content/report', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = z.object({
+    kind: z.enum(['plan_item', 'radar_item']),
+    ref: z.string().min(1).max(200).regex(/^[^\x00-\x1f\x7f]+$/),
+    reason: z.enum(['harmful', 'wrong', 'inappropriate', 'other']),
+  }).strict().safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  try {
+    const result = await supabaseRest<{ reportId: string; replayed: boolean }>(c.env, user.accessToken, '/rest/v1/rpc/apm_report_content', {
+      method: 'POST', body: JSON.stringify({ p_kind: parsed.data.kind, p_ref: parsed.data.ref, p_reason: parsed.data.reason }),
+    });
+    return c.json(result, result.replayed ? 200 : 201);
+  } catch (error) {
+    if (error instanceof SupabaseRestError && error.status === 404) {
+      console.error('NAMED STOP [CONTENT_REPORT_MIGRATION_MISSING] apply services/api/migrations/0099_content_reports.sql');
+      return c.json({ error: 'unavailable', message: 'The report did not send. Try again later.' }, 503);
+    }
     throw error;
   }
 });

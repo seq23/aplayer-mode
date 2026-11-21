@@ -177,11 +177,19 @@ test('Settings lists Terms, Privacy and Disclaimer, each opened through the exte
   assert.match(settings, /LEGAL_LINKS\.map\(\(link\) => \([\s\S]{0,200}onPress=\{\(\) => void openExternal\(\{ kind: 'web', url: link\.url \}\)\}/);
 });
 
-test('App Store: "Report this" on every coach reply that has a stored turn', async () => {
+test('App Store: "Report this" on every coach reply, plan item and Radar item (one shared component)', async () => {
   const coach = await src('app/(tabs)/apm.tsx');
-  assert.match(coach, /turn\.role === 'apm' && turn\.turnId/);
-  assert.match(coach, />Report this</);
-  assert.match(coach, /await reportCoachReply\(\{ turnId, reason \}, accessToken\)/);
+  assert.match(coach, /turn\.role === 'apm' && turn\.turnId && accessToken \? <ReportThis what="reply" send=\{\(reason\) => reportCoachReply\(\{ turnId: turn\.turnId!, reason \}, accessToken\)\}/);
+  const today = await src('app/(tabs)/today.tsx');
+  assert.match(today, /reportContent\(\{ kind: 'plan_item', ref: item\.id, reason \}/, 'every plan item card');
+  assert.match(today, /reportContent\(\{ kind: 'radar_item', ref: firstRadarItem\.id, reason \}/, 'the Radar item on Today');
+  assert.match(await src('app/(tabs)/radar.tsx'), /reportContent\(\{ kind: 'radar_item', ref: item\.id, reason \}/, 'every Radar card');
+  assert.match(await src('src/components/ReportThis.tsx'), />Report this</);
+  const calls = []; const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => { calls.push([String(url), init]); return new Response(JSON.stringify({ reportId: 'r1', replayed: false }), { status: 201, headers: { 'content-type': 'application/json' } }); };
+  try { await api.reportContent({ kind: 'plan_item', ref: 'plan:a:b', reason: 'wrong' }, 'tok'); } finally { globalThis.fetch = original; }
+  assert.equal(calls[0][0], 'https://api.test/v1/apm/content/report');
+  assert.deepEqual(JSON.parse(calls[0][1].body), { kind: 'plan_item', ref: 'plan:a:b', reason: 'wrong' }, 'ids and a reason, never the item text');
   assert.match(await src('src/api/apmApi.ts'), /'\/v1\/apm\/coach\/report'/);
 });
 

@@ -25,9 +25,10 @@ import {
   TextField,
   uiStyles,
 } from '../../src/components/ui';
-import { closeCoachSession, reportCoachReply, sendCoachMessage, type CoachChoice, type CoachReplyView, type CoachReportReason, type ModeChangeRequest } from '../../src/api/apmApi';
+import { closeCoachSession, reportCoachReply, sendCoachMessage, type CoachChoice, type CoachReplyView, type ModeChangeRequest } from '../../src/api/apmApi';
 import { plainError } from '../../src/api/errors';
 import { openExternal } from '../../src/links/external';
+import { ReportThis } from '../../src/components/ReportThis';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { useSession } from '../../src/state/session';
 
@@ -39,12 +40,6 @@ const SPRINT_DAYS = [3, 7, 14];
 const BLOCK_MINUTES = [25, 50, 90, 120];
 
 type ChatTurn = { role: 'user' | 'apm'; text: string; turnId?: string };
-const REPORT_REASONS: Array<{ id: CoachReportReason; label: string }> = [
-  { id: 'harmful', label: 'Harmful or unsafe' },
-  { id: 'wrong', label: 'Wrong or misleading' },
-  { id: 'inappropriate', label: 'Inappropriate' },
-  { id: 'other', label: 'Something else' },
-];
 
 function formatWhen(value?: string): string {
   if (!value) return '';
@@ -64,8 +59,6 @@ export default function ApmScreen() {
   const [coachingBusy, setCoachingBusy] = useState(false);
   const [pending, setPending] = useState<'sprint' | 'deep_work'>();
   const [focus, setFocus] = useState('');
-  const [reporting, setReporting] = useState<string>();
-  const [reported, setReported] = useState<Record<string, true>>({});
   // Deep Work: APM names the one task (today's priority); the person only confirms or edits it.
   const suggestedFocus = todayLoop?.agenda.firstHour.priority?.title ?? todayLoop?.agenda.foregroundPriority?.label ?? todayPlan?.numberOneMove?.title ?? '';
 
@@ -115,16 +108,6 @@ export default function ApmScreen() {
     void send({ message: text });
   };
 
-  const report = async (turnId: string, reason: CoachReportReason) => {
-    if (!accessToken) return;
-    setError(undefined);
-    try {
-      await reportCoachReply({ turnId, reason }, accessToken);
-      setReported((current) => ({ ...current, [turnId]: true }));
-      setReporting(undefined);
-    } catch (cause) { setError(plainError(cause, 'The report did not send. Try again.')); }
-  };
-
   const close = async () => {
     if (sessionId && accessToken) await closeCoachSession(sessionId, accessToken).catch(() => undefined);
     resetCoach();
@@ -162,18 +145,7 @@ export default function ApmScreen() {
             <View key={`${turn.role}-${index}`} style={uiStyles.stackSm}>
               <Label tone={turn.role === 'apm' ? 'accent' : 'inkMuted'}>{turn.role === 'apm' ? 'APM' : 'You'}</Label>
               <Body>{turn.text}</Body>
-              {turn.role === 'apm' && turn.turnId ? (
-                reported[turn.turnId] ? <Muted>Reported. Thank you. A person reviews every report.</Muted>
-                  : reporting === turn.turnId ? (
-                    <View style={uiStyles.stackSm}>
-                      <Label>What is wrong with this reply?</Label>
-                      {REPORT_REASONS.map((reason) => <Button key={reason.id} label={reason.label} variant="secondary" onPress={() => void report(turn.turnId!, reason.id)} />)}
-                      <Button label="Cancel" variant="ghost" onPress={() => setReporting(undefined)} />
-                    </View>
-                  ) : (
-                    <LinkButton muted accessibilityLabel="Report this reply" onPress={() => setReporting(turn.turnId)}>Report this</LinkButton>
-                  )
-              ) : null}
+              {turn.role === 'apm' && turn.turnId && accessToken ? <ReportThis what="reply" send={(reason) => reportCoachReply({ turnId: turn.turnId!, reason }, accessToken)} /> : null}
               {index < turns.length - 1 ? <Divider /> : null}
             </View>
           ))}

@@ -66,3 +66,25 @@ test('the review sign-in audit event is accepted for a user actor and nothing wi
   await h.service("select public.apm_service_record_audit($1::uuid, 'auth.review_login', 'user', 'auth_user', $2, '{}'::jsonb)", [A, A]);
   await rejects(h.service("select public.apm_service_record_audit($1, 'auth.review_login', 'system', null, null, '{}'::jsonb)", [A]), /audit_event_not_allowed/);
 });
+
+// 0099: "Report this" on plan items and Radar items. Stored as kind + id + reason, never text.
+const reportItem = (userId, kind, ref, reason = 'wrong') => h.as(userId, 'select public.apm_report_content($1, $2, $3) as r', [kind, ref, reason]);
+test('a person reports a plan item or a Radar item: ids and reason only, audited, one per item; bad input and direct writes refused', async () => {
+  const first = (await reportItem(A, 'plan_item', 'plan:abc:walk', 'harmful')).rows[0].r;
+  assert.equal(first.replayed, false);
+  assert.equal((await reportItem(A, 'plan_item', 'plan:abc:walk', 'other')).rows[0].r.reportId, first.reportId, 'a second tap replays the first');
+  await reportItem(A, 'radar_item', 'calendar:evt@google.com');
+  const row = (await h.admin('select * from public.content_reports where id = $1', [first.reportId])).rows[0];
+  assert.deepEqual(Object.keys(row).sort(), ['created_at', 'id', 'kind', 'reason', 'ref', 'status', 'user_id'], 'no column can hold the item text');
+  assert.equal(row.reason, 'harmful');
+  const audit = (await h.admin("select object_id, metadata from public.audit_events where user_id = $1 and event_type = 'content.reported'", [A])).rows;
+  assert.equal(audit.length, 2);
+  assert.deepEqual(audit.find((a) => a.object_id === first.reportId).metadata, { kind: 'plan_item', ref: 'plan:abc:walk', reason: 'harmful' });
+  assert.equal((await h.as(B, 'select count(*)::int as n from public.content_reports')).rows[0].n, 0, 'another person sees none of them');
+  await rejects(reportItem(A, 'goal', 'x'), /report_invalid_kind/);
+  await rejects(reportItem(A, 'plan_item', 'x', 'spam'), /report_invalid_reason/);
+  await rejects(reportItem(A, 'plan_item', ''), /report_invalid_ref/);
+  await rejects(reportItem(A, 'plan_item', 'x'.repeat(201)), /report_invalid_ref/);
+  await rejects(h.as(A, `insert into public.content_reports (user_id, kind, ref, reason) values ($1, 'plan_item', 'y', 'other')`, [A]), /permission denied/);
+  await rejects(h.asRole('anon', null, 'select public.apm_report_content($1, $2, $3)', ['plan_item', 'x', 'other']), /permission denied/);
+});
