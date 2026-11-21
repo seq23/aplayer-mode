@@ -61,3 +61,5 @@ export function sourceAccountLabel(connections: IntegrationConnection[], kind: I
     .map(accountName);
   return names.length ? [...new Set(names)].join(' + ') : undefined;
 }
+
+export const isFocusBlockTitle = (title: string) => /(deep[ -]?work|focus|foreground)/i.test(title);

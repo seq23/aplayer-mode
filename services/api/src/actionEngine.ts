@@ -64,6 +64,7 @@ export function authorizeAction(input: {
 export function actionErrorResponse(error: unknown): { error: string; status: 400 | 403 | 409 | 503 } | undefined {
   const message = restErrorMessage(error) ?? (error instanceof Error ? error.message : '');
   if (message === 'action_idempotency_conflict') return { error: 'idempotency_conflict', status: 409 };
+  if (message === 'action_proposal_stale') return { error: 'proposal_stale', status: 409 };
   if (message === 'action_invalid_state') return { error: 'invalid_action_state', status: 409 };
   if (message === 'action_key_reserved' || message === 'action_invalid_request') return { error: 'invalid_request', status: 400 };
   if (message === 'action_needs_user') return { error: 'needs_user', status: 409 };
@@ -319,6 +320,7 @@ export async function revertConnectorAction(
 
 export async function approveAndMaybeExecuteAction(input: {
   env: ApiEnv; accessToken: string; userId: string; action: ActionRecord; permission?: Permission; entitlement?: SubscriptionEntitlement;
+  execute?: (claimed: ActionRecord) => Promise<string>;
 }): Promise<ActionRecord> {
   const domain = input.action.domain as ActionDomain;
   // An Autopilot stop (payment asked, no emailed route) is the user's to finish
@@ -337,7 +339,7 @@ export async function approveAndMaybeExecuteAction(input: {
   const provider = String(claimed.payload.provider ?? '');
   let externalRef = '';
   try {
-    externalRef = await executeConnectorAction(claimed, input);
+    externalRef = await (input.execute ? input.execute(claimed) : executeConnectorAction(claimed, input));
   } catch (error) {
     const failureCode = error instanceof Error ? error.message.slice(0, 120) : 'unknown_failure';
     // The failed execution is recorded and audited too.

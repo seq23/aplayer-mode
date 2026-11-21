@@ -37,7 +37,7 @@ import { plainError } from '../../../src/api/errors';
 // The provider write scopes the Autopilot claim checks (migration 0033 required_scopes).
 const WRITE_SCOPES: Record<OAuthKind, string[]> = {
   calendar: ['https://www.googleapis.com/auth/calendar.events', 'Calendars.ReadWrite'],
-  email: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.compose', 'Mail.Send', 'Mail.ReadWrite'],
+  email: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.compose', 'Mail.Send'],
 };
 const hasWriteScope = (kind: OAuthKind, scopes: string[]) => scopes.some((scope) => WRITE_SCOPES[kind].includes(scope));
 
@@ -105,7 +105,7 @@ export default function ConnectionsScreen() {
         <KeyValue label="Provider" value={PROVIDER_NAMES[kind]?.[provider] ?? account.provider} />
         <KeyValue label="Account" value={account.accountLabel ?? 'Connected account'} />
         <KeyValue label="Last sync" value={syncedWords(account.lastSyncAt)} />
-        <KeyValue label="Autopilot can act" value={hasWriteScope(kind, account.scopes) ? 'Yes · write consent given' : 'No · read only'} />
+        <KeyValue label="Account write access" value={hasWriteScope(kind, account.scopes) ? 'Yes · write consent given' : 'No · read only'} />
         {note ? <Body>{note}</Body> : null}
         <TextField label="Your name for this account" placeholder="Work, Personal…" value={draft} onChangeText={(value) => setLabels((current) => ({ ...current, [account.id]: value }))} />
         {draft.trim() !== (account.label ?? '') ? (
@@ -124,7 +124,7 @@ export default function ConnectionsScreen() {
           <>
             <Button label={busy === `sync:${account.id}` ? 'Syncing…' : 'Sync now'} variant="secondary" onPress={() => void sync(account)} />
             <Button
-              label={hasWriteScope(kind, account.scopes) ? 'Refresh Autopilot write consent' : 'Allow Autopilot to act on this account'}
+              label={hasWriteScope(kind, account.scopes) ? 'Refresh write consent' : 'Allow writes on this account'}
               variant="secondary"
               onPress={() => void connect(provider, kind, 'reconnect', 'act')}
             />

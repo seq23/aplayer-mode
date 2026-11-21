@@ -1,3 +1,5 @@
+import { approveSuiteProposal, SUITE_PROPOSAL_PREFIX } from './proposalProducers';
+import { movableEventIds } from './suiteCalendar';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, scoreAgendaDay, selectForeground } from '@apm/planning';
@@ -9,7 +11,7 @@ import { claimIntakeInstall, deleteAuthUser, finishIntakeInstall, getIntakeDraft
 import { synthesizeIntake } from './intakeSynthesis';
 import { AGE_GATE_OPEN_ROUTES, AGE_REQUIRED_BODY, AgeConfirmationRequired, ageConfirmed, carryConsents, CONSUMER_HEALTH_POLICY_VERSION, getConsentState, HEALTH_REQUIRED_BODY, healthConsentActive, recordConsent, withoutHealthData } from './consent';
 import type { ApiEnv } from './env';
-import { restErrorMessage, SERVICE_ROLE_TOKEN, SupabaseRestError, supabaseRest } from './db';
+import { restErrorMessage, serviceRpc, SERVICE_ROLE_TOKEN, SupabaseRestError, supabaseRest } from './db';
 import { claimPrecheckout, attachPrecheckout, billingOfferingFor, foundingPlaces, foundingPlacesFrom, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
 import {
   completeNextAction,
@@ -1442,7 +1444,7 @@ app.post('/v1/apm/coach/report', async (c) => {
 app.post('/v1/apm/content/report', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({
-    kind: z.enum(['plan_item', 'radar_item']),
+    kind: z.enum(['plan_item', 'radar_item', 'action_proposal']),
     ref: z.string().min(1).max(200).regex(/^[^\x00-\x1f\x7f]+$/),
     reason: z.enum(['harmful', 'wrong', 'inappropriate', 'other']),
   }).strict().safeParse(await c.req.json().catch(() => null));
@@ -1453,6 +1455,7 @@ app.post('/v1/apm/content/report', async (c) => {
     });
     return c.json(result, result.replayed ? 200 : 201);
   } catch (error) {
+    if (restErrorMessage(error) === 'report_invalid_ref') return c.json({ error: 'invalid_request' }, 400);
     if (error instanceof SupabaseRestError && error.status === 404) {
       console.error('NAMED STOP [CONTENT_REPORT_MIGRATION_MISSING] apply services/api/migrations/0099_content_reports.sql');
       return c.json({ error: 'unavailable', message: 'The report did not send. Try again later.' }, 503);
@@ -1645,7 +1648,7 @@ app.put('/v1/permissions/:domain/:actionType', async (c) => {
 app.post('/v1/actions/prepare', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ domain: z.enum(['calendar','email','routine','life_graph','notification','connector']), actionType: z.string().min(3).max(120), payload: z.record(z.string(), z.unknown()), reason: z.string().min(3).max(1000), idempotencyKey: z.string().min(8).max(200) }).safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (!parsed.success || parsed.data.idempotencyKey.startsWith(SUITE_PROPOSAL_PREFIX) || 'suiteProposal' in parsed.data.payload) return c.json({ error: 'invalid_request' }, 400);
   const { graph } = await buildUserState(c.env, user.accessToken, user.id);
   const permission = graph.permissions.find((p) => p.domain === parsed.data.domain && p.actionType === parsed.data.actionType && p.enabled);
   try {
@@ -1667,16 +1670,38 @@ app.post('/v1/actions/:id/approve', async (c) => {
   if (action.status !== 'prepared' && action.status !== 'approved') return c.json({ error: 'invalid_action_state' }, 409);
   // An Autopilot stop (payment asked / no emailed route) is the user's to finish; approval never executes it.
   if (action.payload && typeof action.payload === 'object' && 'stoppedReason' in action.payload) return c.json({ error: 'needs_user' }, 409);
+  const connectorInput = { env: c.env, accessToken: user.accessToken, userId: user.id };
   const permission = graph.permissions.find((p) => p.domain === action.domain && p.actionType === action.actionType && p.enabled);
   try {
     // The claim is atomic in the database: of two concurrent approvals only one executes.
-    const executed = await approveAndMaybeExecuteAction({ env: c.env, accessToken: user.accessToken, userId: user.id, action: action as ActionRecord, permission, entitlement: graph.entitlement });
+    const executed = action.idempotencyKey.startsWith(SUITE_PROPOSAL_PREFIX)
+      ? await approveSuiteProposal(action, graph, connectorInput)
+      : await approveAndMaybeExecuteAction({ ...connectorInput, action: action as ActionRecord, permission, entitlement: graph.entitlement });
     return c.json({ action: executed });
   } catch (error) {
     const mapped = actionErrorResponse(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
+});
+
+app.post('/v1/actions/:id/reject', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const id = z.uuid().safeParse(c.req.param('id'));
+  if (!id.success) return c.json({ error: 'invalid_request' }, 400);
+  try {
+    await serviceRpc(c.env, 'apm_service_reject_suite_proposal', { p_user_id: user.id, p_action_id: id.data });
+    return c.json({ rejected: true });
+  } catch (error) {
+    const mapped = actionErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
+    throw error;
+  }
+});
+
+app.get('/v1/calendar/flexible-events', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  return c.json({ eventIds: await movableEventIds({ env: c.env, userId: user.id }, false) });
 });
 
 async function autopilotContext(env: ApiEnv, accessToken: string, userId: string) {

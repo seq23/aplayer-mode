@@ -27,7 +27,7 @@ function googleDate(value: { dateTime?: string; date?: string; timeZone?: string
   throw new Error('google_event_missing_time');
 }
 
-async function fetchGoogleEvents(token: string, from: string, to: string): Promise<NormalizedCalendarEventInput[]> {
+export async function fetchGoogleEvents(token: string, from: string, to: string): Promise<NormalizedCalendarEventInput[]> {
   let pageToken: string | undefined;
   const events: NormalizedCalendarEventInput[] = [];
   do {
@@ -47,7 +47,7 @@ async function fetchGoogleEvents(token: string, from: string, to: string): Promi
       items?: Array<{
         id: string; status?: string; summary?: string; location?: string; start?: { dateTime?: string; date?: string; timeZone?: string };
         end?: { dateTime?: string; date?: string; timeZone?: string }; transparency?: string; recurrence?: string[]; etag?: string;
-        organizer?: Record<string, unknown>; attendees?: unknown[];
+        organizer?: Record<string, unknown>; attendees?: unknown[]; recurringEventId?: string; attendeesOmitted?: boolean;
       }>;
       nextPageToken?: string;
     };
@@ -59,7 +59,7 @@ async function fetchGoogleEvents(token: string, from: string, to: string): Promi
         provider: 'google', externalEventId: item.id, title: item.summary ?? '', location: item.location,
         startsAt: start.at, endsAt: end.at, timezone: start.timezone ?? end.timezone, allDay: start.allDay,
         availability: item.transparency === 'transparent' ? 'free' : 'busy',
-        recurrence: { rules: item.recurrence ?? [] }, organizer: item.organizer ?? {}, attendees: item.attendees ?? [],
+        recurrence: { rules: item.recurrence ?? [], ...(item.recurringEventId ? { series: item.recurringEventId } : {}) }, organizer: item.organizer ?? {}, attendees: item.attendeesOmitted ? [{}] : item.attendees ?? [],
         sourceVersion: item.etag, deleted: item.status === 'cancelled',
       });
     }
@@ -75,8 +75,8 @@ function microsoftAvailability(showAs?: string): CalendarEvent['availability'] {
   return 'busy';
 }
 
-async function fetchMicrosoftEvents(token: string, from: string, to: string): Promise<NormalizedCalendarEventInput[]> {
-  let url: string | undefined = `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${encodeURIComponent(from)}&endDateTime=${encodeURIComponent(to)}&$top=1000&$select=id,subject,location,start,end,isAllDay,showAs,recurrence,organizer,attendees,changeKey,isCancelled,isOrganizer`;
+export async function fetchMicrosoftEvents(token: string, from: string, to: string): Promise<NormalizedCalendarEventInput[]> {
+  let url: string | undefined = `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${encodeURIComponent(from)}&endDateTime=${encodeURIComponent(to)}&$top=1000&$select=id,subject,location,start,end,isAllDay,showAs,recurrence,organizer,attendees,changeKey,isCancelled,isOrganizer,type`;
   const events: NormalizedCalendarEventInput[] = [];
   let pages = 0;
   while (url && pages < 20) {
@@ -87,7 +87,7 @@ async function fetchMicrosoftEvents(token: string, from: string, to: string): Pr
       value?: Array<{
         id: string; subject?: string; location?: { displayName?: string }; start?: { dateTime?: string; timeZone?: string };
         end?: { dateTime?: string; timeZone?: string }; isAllDay?: boolean; showAs?: string; recurrence?: Record<string, unknown> | null;
-        organizer?: Record<string, unknown>; attendees?: unknown[]; changeKey?: string; isCancelled?: boolean; isOrganizer?: boolean;
+        organizer?: Record<string, unknown>; attendees?: unknown[]; changeKey?: string; isCancelled?: boolean; isOrganizer?: boolean; type?: string; '@odata.etag'?: string;
       }>;
       '@odata.nextLink'?: string;
     };
@@ -99,12 +99,13 @@ async function fetchMicrosoftEvents(token: string, from: string, to: string): Pr
         endsAt: new Date(`${item.end.dateTime}${item.end.dateTime.endsWith('Z') ? '' : 'Z'}`).toISOString(),
         timezone: item.start.timeZone, allDay: item.isAllDay ?? false, availability: microsoftAvailability(item.showAs),
         // `self` mirrors Google's organizer.self so Autopilot can tell the user's own meetings from invitations.
-        recurrence: item.recurrence ?? {}, organizer: { ...(item.organizer ?? {}), self: item.isOrganizer === true }, attendees: item.attendees ?? [], sourceVersion: item.changeKey,
+        recurrence: item.recurrence ?? (item.type === 'singleInstance' ? {} : { series: true }), organizer: { ...(item.organizer ?? {}), self: item.isOrganizer === true }, attendees: item.attendees ?? [], sourceVersion: item['@odata.etag'] ?? item.changeKey,
         deleted: item.isCancelled ?? false,
       });
     }
     url = data['@odata.nextLink'];
   }
+  if (url) throw new Error('calendar_window_incomplete');
   return events;
 }
 

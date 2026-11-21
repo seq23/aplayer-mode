@@ -284,6 +284,47 @@ function calendarConflictItems(graph: LifeGraphSnapshot, now: Date): RadarItem[]
   return items;
 }
 
+const CALENDAR_LOAD_MS = 6 * 60 * 60 * 1000;
+
+export function calendarBusyDays(graph: Pick<LifeGraphSnapshot, 'calendarEvents' | 'identity'>, now: Date) {
+  const days = new Map<string, { events: CalendarEvent[]; busyMs: number }>();
+  const localDay = (at: number) => {
+    const { year, month, day } = localDateParts(new Date(at), graph.identity.timezone);
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+  const horizon = now.getTime() + 7 * DAY_MS;
+  for (const event of graph.calendarEvents ?? []) {
+    const start = Date.parse(event.startsAt), end = Date.parse(event.endsAt);
+    if (event.deleted || event.allDay || event.availability === 'free' || !Number.isFinite(start) || !Number.isFinite(end) || start >= end || end <= now.getTime() || start >= horizon) continue;
+    const day = localDay(start);
+    if (localDay(end) !== day) continue;
+    if (!days.has(day)) days.set(day, { events: [], busyMs: 0 });
+    days.get(day)!.events.push(event);
+  }
+  for (const entry of days.values()) {
+    let last = now.getTime();
+    for (const event of entry.events.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))) {
+      const end = Date.parse(event.endsAt);
+      entry.busyMs += Math.max(0, end - Math.max(last, Date.parse(event.startsAt)));
+      last = Math.max(last, end);
+    }
+  }
+  return days;
+}
+
+function calendarOverloadItems(graph: LifeGraphSnapshot, now: Date): RadarItem[] {
+  return [...calendarBusyDays(graph, now)].filter(([, entry]) => entry.events.length >= 3 && entry.busyMs >= CALENDAR_LOAD_MS)
+    .map(([day, entry]) => ({
+      id: `radar:calendar_overload:${day}`, userId: graph.identity.userId, type: 'conflict',
+      headline: 'A crowded calendar day',
+      summary: `${day} has at least six hours of busy time across three or more blocks.`,
+      status: 'open', severity: 'medium', confidence: 1, importance: 0.75, urgency: 0.7,
+      goalAlignment: 0.6, consequence: 0.75, reasonCodes: ['calendar.overload'],
+      sourceRefs: entry.events.map((event) => ({ sourceType: 'calendar', sourceRef: event.id, label: event.title })),
+      createdAt: now.toISOString(), firstRelevantAt: now.toISOString(),
+    }));
+}
+
 export function buildRadarItems(graph: LifeGraphSnapshot, options: RadarBuildOptions = {}): RadarItem[] {
   const now = options.now ?? new Date();
   const maxItems = Math.max(1, options.maxItems ?? 8);
@@ -355,7 +396,28 @@ export function buildRadarItems(graph: LifeGraphSnapshot, options: RadarBuildOpt
     items.push(...relationshipRadar(relationship, graph, now));
   }
 
-  items.push(...calendarConflictItems(graph, now));
+  const replied = new Set((graph.actions ?? []).filter((action) => action.status === 'verified' && action.payload.suiteProposal === 'reply')
+    .map((action) => JSON.stringify([action.payload.connectionId, action.payload.messageId])));
+  for (const signal of graph.messageSignals ?? []) {
+    if (replied.has(JSON.stringify([signal.connectionId, signal.externalMessageId]))) continue;
+    if (!['request', 'follow_up'].includes(signal.signalType) || !signal.externalThreadId) continue;
+    const commitment = graph.commitments.find((entry) => entry.id === signal.relatedCommitmentId);
+    if (!commitment || commitment.owner !== 'user' || !['understood', 'prioritized', 'scheduled'].includes(commitment.status)) continue;
+    if (commitment.provenance.sourceRef !== signal.externalMessageId
+      || commitment.provenance.sourceType !== (signal.provider === 'google' ? 'gmail' : 'outlook')
+      || !Number.isFinite(Date.parse(signal.observedAt)) || now.getTime() - Date.parse(signal.observedAt) > 14 * DAY_MS) continue;
+    items.push({
+      id: `radar:reply_owed:${signal.id}`, userId: signal.userId, type: 'promised',
+      headline: commitment.title, summary: 'There’s a request in this email thread that may still need a reply.',
+      status: 'open', severity: 'medium', confidence: signal.confidence,
+      importance: 0.7, urgency: 0.7, goalAlignment: 0.5, consequence: 0.65,
+      sourceRefs: [{ sourceType: signal.provider === 'google' ? 'gmail' : 'outlook', sourceRef: signal.externalMessageId }],
+      reasonCodes: ['email.reply_owed'], relatedCommitmentId: commitment.id,
+      createdAt: signal.observedAt, firstRelevantAt: signal.observedAt,
+    });
+  }
+
+  items.push(...calendarConflictItems(graph, now), ...calendarOverloadItems(graph, now));
   items.push(...trackRadarItems(graph, now));
 
   const unique = new Map<string, RadarItem>();

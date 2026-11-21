@@ -32,6 +32,7 @@ import {
 import type { AgendaItem } from '@apm/planning';
 import {
   approveExternalAction,
+  rejectExternalAction,
   checkInToday,
   closeToday,
   completeAgendaAction,
@@ -46,6 +47,7 @@ import {
   type ReplanReason,
 } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
+import { ActionApprovalCard } from '../../src/components/today/ActionApprovalCard';
 import { ReportThis } from '../../src/components/ReportThis';
 import { areaDisplay, areaShort } from '../../src/content/areas';
 import { BedRoutineToday, CoachingModeChips, PillarRollUpLine, PracticesToday, QuickTaps, SaveAccountBanner } from '../../src/components/today/FirstRunCards';
@@ -57,7 +59,7 @@ import { appDistribution, billingAvailability } from '../../src/billing/purchase
 import { webCheckoutAllowed } from '../../src/billing/distribution';
 import { plainError } from '../../src/api/errors';
 import { greetingLine, hourIn, todayLine } from '../../src/content/greeting';
-import { GATE_WORDS, ITEM_KIND_WORDS, MODE_WORDS, TODAY_COPY, VERDICT_WORDS, actionTag, radarTag, shortDate } from '../../src/content/words';
+import { GATE_WORDS, ITEM_KIND_WORDS, MODE_WORDS, TODAY_COPY, VERDICT_WORDS, radarTag, shortDate } from '../../src/content/words';
 
 function timeLabel(value?: string) {
   if (!value) return undefined;
@@ -180,14 +182,16 @@ export default function TodayScreen() {
     finally { setBusy(false); }
   };
 
-  const approve = async (actionId: string) => {
+  const decideApproval = async (actionId: string, decision: 'approve' | 'reject') => {
     if (!accessToken || busyActionId) return;
     setBusyActionId(actionId); setActionError(undefined);
     try {
-      await approveExternalAction(actionId, accessToken);
+      if (decision === 'approve') await approveExternalAction(actionId, accessToken);
+      else await rejectExternalAction(actionId, accessToken);
       await refresh();
     } catch (error) {
-      setActionError(plainError(error, 'That action did not run. Nothing was sent; try again.'));
+      await refresh().catch(() => undefined);
+      setActionError(plainError(error, decision === 'reject' ? 'That proposal could not be rejected. Refresh Today and try again.' : 'We could not confirm that action. Check the connected account before trying again.'));
     } finally { setBusyActionId(undefined); }
   };
 
@@ -344,7 +348,9 @@ export default function TodayScreen() {
           {!hideAgenda && !recovery && approvals.length ? (
             <>
               <SectionTitle>Needs your approval</SectionTitle>
-              {approvals.map((action) => <Card key={action.id} tone="warning"><Label tone="warning">{actionTag(action.domain, action.actionType)}</Label><CardTitle>{action.reason}</CardTitle><Body muted>{TODAY_COPY.approvalBody}</Body><Button label={busyActionId === action.id ? TODAY_COPY.approvalBusy : TODAY_COPY.approvalButton} busy={busyActionId === action.id} disabled={Boolean(busyActionId) && busyActionId !== action.id} onPress={() => approve(action.id)} /></Card>)}
+              {approvals.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId}
+                onApprove={() => void decideApproval(action.id, 'approve')} onReject={() => void decideApproval(action.id, 'reject')}
+                onReport={accessToken ? (reason) => reportContent({ kind: 'action_proposal', ref: action.id, reason }, accessToken) : undefined} />)}
             </>
           ) : null}
 

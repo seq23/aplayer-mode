@@ -477,7 +477,7 @@ export async function reportCoachReply(input: { turnId: string; reason: CoachRep
   return request<{ reportId: string }>('/v1/apm/coach/report', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 /** "Report this" on a plan item or a Radar item: ids and a reason, never the text (migration 0099). */
-export async function reportContent(input: { kind: 'plan_item' | 'radar_item'; ref: string; reason: CoachReportReason }, accessToken: string): Promise<{ reportId: string }> {
+export async function reportContent(input: { kind: 'plan_item' | 'radar_item' | 'action_proposal'; ref: string; reason: CoachReportReason }, accessToken: string): Promise<{ reportId: string }> {
   return request<{ reportId: string }>('/v1/apm/content/report', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 export async function closeCoachSession(sessionId: string, accessToken: string) {
@@ -526,6 +526,13 @@ export async function prepareExternalAction(input: { domain: 'calendar' | 'email
 }
 export async function approveExternalAction(actionId: string, accessToken: string) {
   return request<{ action: LifeGraphSnapshot['actions'][number] }>(`/v1/actions/${encodeURIComponent(actionId)}/approve`, accessToken, { method: 'POST' });
+}
+
+export async function rejectExternalAction(actionId: string, accessToken: string) {
+  return request<{ rejected: boolean }>(`/v1/actions/${encodeURIComponent(actionId)}/reject`, accessToken, { method: 'POST' });
+}
+export async function fetchFlexibleCalendarEvents(accessToken: string) {
+  return request<{ eventIds: string[] }>('/v1/calendar/flexible-events', accessToken);
 }
 
 export async function registerPushToken(input: { expoPushToken: string; deviceId?: string; platform?: 'ios' | 'android' | 'web' }, accessToken: string) {

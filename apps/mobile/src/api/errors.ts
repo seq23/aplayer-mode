@@ -8,6 +8,8 @@ const CODE_COPY: Record<string, string> = {
   life_os_required: 'This part needs Executive Suite or Autopilot. See Settings → Your plan.',
   plan_autonomy_ceiling: 'Your plan does not allow that much autonomy. See Settings → Your plan.',
   install_in_progress: 'Your OS is already installing. Give it a moment.',
+  proposal_stale: 'The source changed since this was prepared. This proposal is no longer available.',
+  action_not_authorized: 'Check your plan and Settings → Privacy → Autonomy before approving this action.',
   invalid_request: 'Something in that was not quite right. Check it and try again.',
   confirmation_required: 'Confirm first, then try again.',
   rate_limited: 'Too many tries. Wait a minute and try again.',

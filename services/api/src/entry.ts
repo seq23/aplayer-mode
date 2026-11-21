@@ -4,6 +4,7 @@ import { runMorningTrigger } from './morningTrigger';
 import { runBillingSweep } from './billing';
 import { runDataRightsErasures } from './dataRights';
 import { runIntakeMaintenance } from './intakeRepository';
+import { runSuiteProposals } from './proposalProducers';
 import { runRenewalReminders } from './renewalReminders';
 
 declare const __APM_BUILD_SHA__: string;
@@ -50,6 +51,10 @@ export default {
         (error: unknown) => console.error('APM intake maintenance failed', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
       ),
     );
+    ctx.waitUntil(runSuiteProposals(env, new Date(controller.scheduledTime)).then(
+      (output) => { if (output) console.log(output); },
+      () => console.error('OUTPUT 0 suite_proposals_prepared NAMED STOP [SUITE_PROPOSALS_CANDIDATES_UNAVAILABLE]'),
+    ));
     // Annual renewal reminder (R-SUB-03, migration 0098): one daily tick; zero sent is a named stop in the line.
     ctx.waitUntil(
       runRenewalReminders(env, new Date(controller.scheduledTime)).then(
