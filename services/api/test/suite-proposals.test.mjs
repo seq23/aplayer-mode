@@ -508,8 +508,8 @@ test('Outlook notices create Radar findings and approval sends only the supporte
     notice('usage', 'Language practice', 'You have used no lessons this term. Manage your plan in your account.'),
   ];
   modelFindings = { findings: [
-    { source: 0, title: 'Community pool passes', finding: 'price_rise', emailCancellation: true },
-    { source: 1, title: 'Language practice', finding: 'unused', emailCancellation: false },
+    { source: 0, title: 'Community pool passes', finding: 'price_rise', cancellationExcerpt: 'Email this address to cancel.' },
+    { source: 1, title: 'Language practice', finding: 'unused', cancellationExcerpt: 'Email this address to cancel.' },
   ] };
   const current = graph({ calendarEvents: [], messageSignals: [] });
   const readOnly = { ...current, permissions: [], connections: [{ ...connections[0], scopes: ['Mail.Read'] }] };
@@ -529,9 +529,9 @@ test('Outlook notices create Radar findings and approval sends only the supporte
   assert.equal(result.status, 'verified');
   assert.equal(writes().length, 1);
   assert.deepEqual(writes()[0].body.message.toRecipients, [{ emailAddress: { address: 'support@example.com' } }]);
-  assert.match(writes()[0].body.message.body.content, /cancel my subscription/);
+  assert.match(writes()[0].body.message.body.content, /cancel my subscription for Community pool passes/);
   mailbox.push(notice('second-renewal', 'Library membership', 'Your monthly membership has increased. Email this address to cancel.'));
-  modelFindings.findings.push({ source: 2, title: 'Library membership', finding: 'price_rise', emailCancellation: true });
+  modelFindings.findings.push({ source: 2, title: 'Library membership', finding: 'price_rise', cancellationExcerpt: 'Email this address to cancel.' });
   assert.equal((await prepareSuiteProposals(env, { ...current, actions: [action] }, now)).prepared, 1);
   const [rejected] = (await h.admin("select * from public.actions where payload->>'messageId'='second-renewal'")).rows;
   await rpc('apm_service_reject_suite_proposal', [userId, rejected.id]);
