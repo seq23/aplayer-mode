@@ -48,7 +48,7 @@ const PROVIDER_NAMES: Record<OAuthKind, Record<OAuthProvider, string>> = {
 const KIND_TITLES: Record<OAuthKind, string> = { calendar: 'Calendars', email: 'Inboxes' };
 const KIND_DETAIL: Record<OAuthKind, string> = {
   calendar: 'Direct cloud calendar sync. Conflicts are checked across every calendar you connect, so work never double-books personal.',
-  email: 'Detects commitments, requests, follow-ups and deadlines from permitted email metadata/content.',
+  email: 'Connect Outlook Mail for commitments and reply drafts. Google connects your calendar.',
 };
 
 export default function ConnectionsScreen() {
@@ -95,6 +95,7 @@ export default function ConnectionsScreen() {
     const provider = account.provider as OAuthProvider;
     const note = pausedNote(account, graph.entitlement);
     const draft = labels[account.id] ?? account.label ?? '';
+    const supported = kind !== 'email' || provider === 'microsoft';
     return (
       <Card key={account.id} tone={account.pausedAt ? 'muted' : 'default'}>
         <View style={uiStyles.row}>
@@ -106,7 +107,8 @@ export default function ConnectionsScreen() {
         <KeyValue label="Account" value={account.accountLabel ?? 'Connected account'} />
         <KeyValue label="Last sync" value={syncedWords(account.lastSyncAt)} />
         <KeyValue label="Account write access" value={hasWriteScope(kind, account.scopes) ? 'Yes · write consent given' : 'No · read only'} />
-        {note ? <Body>{note}</Body> : null}
+        {supported && note ? <Body>{note}</Body> : null}
+        {!supported ? <Body>Disconnect Gmail to free this inbox slot for Outlook Mail.</Body> : null}
         <TextField label="Your name for this account" placeholder="Work, Personal…" value={draft} onChangeText={(value) => setLabels((current) => ({ ...current, [account.id]: value }))} />
         {draft.trim() !== (account.label ?? '') ? (
           <Button label={busy === `label:${account.id}` ? 'Saving…' : 'Save name'} variant="secondary"
@@ -116,11 +118,11 @@ export default function ConnectionsScreen() {
           <Button label={busy === `primary:${account.id}` ? 'Switching…' : `Make this my primary ${KIND_NOUN[kind]}`} variant="secondary"
             onPress={() => void run(`primary:${account.id}`, (token) => setPrimaryConnection(account.id, token), 'Unable to change the primary account.')} />
         ) : null}
-        {account.pausedAt && multi ? (
+        {account.pausedAt && multi && supported ? (
           <Button label={busy === `reactivate:${account.id}` ? 'Reactivating…' : 'Reactivate'} variant="secondary"
             onPress={() => void run(`reactivate:${account.id}`, (token) => reactivateConnection(account.id, token), 'Unable to reactivate this account.')} />
         ) : null}
-        {!account.pausedAt ? (
+        {!account.pausedAt && supported ? (
           <>
             <Button label={busy === `sync:${account.id}` ? 'Syncing…' : 'Sync now'} variant="secondary" onPress={() => void sync(account)} />
             <Button
@@ -148,7 +150,7 @@ export default function ConnectionsScreen() {
         {add.allowed ? (
           <Card>
             <CardTitle>{accounts.length ? 'Add another account' : `Connect a ${KIND_NOUN[kind]}`}</CardTitle>
-            {(['google', 'microsoft'] as const).map((provider) => (
+            {(['google', 'microsoft'] as const).filter((provider) => kind === 'calendar' || provider === 'microsoft').map((provider) => (
               <Button key={provider} label={busy === `${provider}:${kind}:${intent}:read` ? 'Connecting / syncing…' : `Connect ${PROVIDER_NAMES[kind][provider]}`}
                 variant="secondary" onPress={() => void connect(provider, kind, intent)} />
             ))}

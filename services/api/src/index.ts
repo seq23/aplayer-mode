@@ -1512,6 +1512,10 @@ app.post('/v1/connections/oauth/start', async (c) => {
   // intent 'add' = another account of this kind (Autopilot only); 'reconnect' = the same one.
   const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, codeChallenge: z.string().min(20).max(200), redirectUri: z.string().url().optional(), access: z.enum(['read','act']).default('read'), intent: z.enum(['add','reconnect']).default('reconnect') }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (parsed.data.provider === 'google' && parsed.data.kind === 'email') return c.json({ error: 'outlook_mail_required' }, 400);
+  const { GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, MICROSOFT_OAUTH_CLIENT_ID, MICROSOFT_OAUTH_CLIENT_SECRET } = c.env;
+  if (parsed.data.provider === 'google' && (!GOOGLE_OAUTH_CLIENT_ID || !GOOGLE_OAUTH_CLIENT_SECRET)) return c.json({ error: 'google_connector_not_configured' }, 503);
+  if (parsed.data.provider === 'microsoft' && (!MICROSOFT_OAUTH_CLIENT_ID || !MICROSOFT_OAUTH_CLIENT_SECRET)) return c.json({ error: 'microsoft_connector_not_configured' }, 503);
   if (parsed.data.intent === 'add') {
     const graph = await getLifeGraph(c.env, user.accessToken, user.id);
     const live = graph.connections.filter((item) => item.kind === parsed.data.kind && item.provider !== 'device' && item.status !== 'disconnected' && !item.pausedAt);
@@ -1525,6 +1529,7 @@ app.post('/v1/connections/oauth/exchange', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, code: z.string().min(1), codeVerifier: z.string().min(20).max(200), state: z.string().min(20), redirectUri: z.string().url().optional() }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (parsed.data.provider === 'google' && parsed.data.kind === 'email') return c.json({ error: 'outlook_mail_required' }, 400);
   const state = await verifyOAuthState<{ exp: number; userId: string; provider: string; kind: string; codeChallenge: string }>(c.env, parsed.data.state);
   if (state.userId !== user.id || state.provider !== parsed.data.provider || state.kind !== parsed.data.kind) return c.json({ error: 'oauth_state_mismatch' }, 403);
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(parsed.data.codeVerifier)));

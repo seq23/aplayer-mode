@@ -170,6 +170,11 @@ export default function TodayScreen() {
     [todayPlan?.routineIds.length ?? 0, 'routine', 'routines'],
     [todayPlan?.radarItemIds.length ?? 0, 'heads-up', 'heads-ups'],
   ].filter(([n]) => Number(n) > 0).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+  const hasLegacyGmail = graph.connections.some((account) => account.kind === 'email'
+    && account.provider === 'google' && account.status === 'connected' && !account.pausedAt);
+  const hasOutlookMail = graph.connections.some((account) => account.kind === 'email'
+    && account.provider === 'microsoft' && account.status === 'connected' && !account.pausedAt);
+  const canUseReplyDrafts = graph.entitlement?.plan === 'life_os' || graph.entitlement?.plan === 'autopilot';
   const approvals = (todayPlan?.approvalActionIds ?? [])
     .map((id) => graph.actions.find((action) => action.id === id))
     .filter((action): action is NonNullable<typeof action> => Boolean(action));
@@ -352,6 +357,14 @@ export default function TodayScreen() {
                 onApprove={() => void decideApproval(action.id, 'approve')} onReject={() => void decideApproval(action.id, 'reject')}
                 onReport={accessToken ? (reason) => reportContent({ kind: 'action_proposal', ref: action.id, reason }, accessToken) : undefined} />)}
             </>
+          ) : null}
+
+          {!hideAgenda && !recovery && canUseReplyDrafts && hasLegacyGmail && !hasOutlookMail ? (
+            <Card>
+              <CardTitle>Reply drafts use Outlook Mail</CardTitle>
+              <Body muted>Connect Outlook Mail to review replies here before sending.</Body>
+              <Button label="Manage connections" variant="secondary" onPress={() => router.push('/settings/privacy/connections')} />
+            </Card>
           ) : null}
 
           <BedRoutineToday graph={graph} />

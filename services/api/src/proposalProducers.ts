@@ -8,7 +8,7 @@ import { SERVICE_ROLE_TOKEN, restErrorMessage, serviceRpc } from './db';
 import { entitlementIsUsable } from './entitlement';
 import type { ApiEnv } from './env';
 import { getLifeGraph } from './lifeGraphRepository';
-import { activeCalendar, calendarMove, canMove, executeSuiteCalendarMove, firstClearSlot, movableEventIds } from './suiteCalendar';
+import { calendarMove, canMove, executeSuiteCalendarMove, firstClearSlot, movableEventIds } from './suiteCalendar';
 
 export const SUITE_PROPOSAL_PREFIX = 'suite:';
 type ConnectorInput = Omit<Parameters<typeof getValidConnectorToken>[0], 'connectionId'>;
@@ -39,10 +39,10 @@ export function suitePermission(graph: Graph, kind: unknown) {
 function canWrite(connection: IntegrationConnection, domain: Domain): boolean {
   if (connection.kind !== domain || connection.status !== 'connected' || connection.pausedAt) return false;
   const scopes = connection.scopes.map((scope) => scope.toLowerCase());
-  const required = connection.provider === 'google'
-    ? (domain === 'email' ? ['gmail.send', 'gmail.compose'] : ['calendar.events', 'calendar']).map((scope) => `https://www.googleapis.com/auth/${scope}`)
-    : connection.provider === 'microsoft' ? (domain === 'email' ? ['mail.send'] : ['calendars.readwrite']) : [];
-  return required.some((scope) => scopes.includes(scope));
+  if (domain === 'email') return connection.provider === 'microsoft' && scopes.includes('mail.send')
+    && (scopes.includes('mail.read') || scopes.includes('mail.readwrite'));
+  if (connection.provider === 'microsoft') return scopes.includes('calendars.readwrite');
+  return connection.provider === 'google' && ['calendar.events', 'calendar'].some((scope) => scopes.includes(`https://www.googleapis.com/auth/${scope}`));
 }
 
 async function sourceKey(kind: SuiteProposalKind, ...parts: string[]): Promise<string> {
@@ -73,7 +73,7 @@ async function* replies(context: ProducerContext): ReturnType<Producer['propose'
       key, reason: 'Reply to an email',
       payload: { ...target, provider: account.provider, connectionId: account.id, account: account.label && account.label !== account.accountLabel ? `${account.label} (${account.accountLabel})` : account.accountLabel, signalId: signal.id,
         expiresAt: new Date(Date.parse(signal.observedAt) + 14 * 86_400_000).toISOString(),
-        body: 'Thanks for your message. I’ve received your request and wanted to acknowledge it.' },
+        body: 'Thanks for sending this over. I’ve received your request.' },
     };
   }
 }
@@ -133,7 +133,7 @@ export async function executeSuiteReply(payload: Record<string, unknown>, graph:
   }
   const auth = await getValidConnectorToken({ ...input, connectionId: draft.connectionId });
   const target = await readReplyTarget(auth, draft.messageId, draft.threadId, account.accountLabel);
-  if (!target || auth.provider !== signal.provider || target.to !== draft.to || target.subject !== draft.subject || target.internetId !== draft.internetId) {
+  if (!target || auth.provider !== signal.provider || target.to !== draft.to || target.subject !== draft.subject) {
     throw new Error('action_proposal_stale');
   }
   return sendThreadReply(auth, target, draft.body);

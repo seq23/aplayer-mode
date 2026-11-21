@@ -27,13 +27,9 @@ interface ConnectionSecretRow {
  */
 export function oauthScopes(provider: 'google' | 'microsoft', kind: IntegrationKind, access: 'read' | 'act' = 'read'): string[] {
   if (provider === 'google') {
-    const base = kind === 'calendar'
-      ? ['openid', 'email', 'https://www.googleapis.com/auth/calendar.readonly']
-      : ['openid', 'email', 'https://www.googleapis.com/auth/gmail.readonly'];
-    if (access !== 'act') return base;
-    return kind === 'calendar'
-      ? [...base, 'https://www.googleapis.com/auth/calendar.events']
-      : [...base, 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'];
+    if (kind === 'email') throw new Error('outlook_mail_required');
+    const base = ['openid', 'email', 'https://www.googleapis.com/auth/calendar.readonly'];
+    return access === 'act' ? [...base, 'https://www.googleapis.com/auth/calendar.events'] : base;
   }
   const base = kind === 'calendar'
     ? ['openid', 'profile', 'email', 'offline_access', 'User.Read', 'Calendars.Read']
@@ -150,6 +146,7 @@ export async function exchangeAndStoreOAuthConnection(input: {
   codeVerifier: string;
   redirectUri?: string;
 }): Promise<{ connectionId: string; accountLabel?: string }> {
+  if (input.provider === 'google' && input.kind === 'email') throw new Error('outlook_mail_required');
   const tokens = input.provider === 'google'
     ? await exchangeGoogle(input.env, input.code, input.codeVerifier, input.redirectUri)
     : await exchangeMicrosoft(input.env, input.code, input.codeVerifier, input.redirectUri);

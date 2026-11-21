@@ -451,11 +451,12 @@ test('write scopes are a separate consent: read is the default, act adds only th
     await build({ entryPoints: { oauth: join(srcDir, 'connectors/oauth.ts') }, bundle: true, format: 'esm', platform: 'neutral', outdir: outOauth, logLevel: 'silent' });
     const { oauthScopes } = await import(pathToFileURL(join(outOauth, 'oauth.js')).href);
     const writes = /calendar\.events|gmail\.(send|compose)|ReadWrite|Mail\.Send/;
-    for (const provider of ['google', 'microsoft']) for (const kind of ['calendar', 'email']) {
+    for (const [provider, kind] of [['google', 'calendar'], ['microsoft', 'calendar'], ['microsoft', 'email']]) {
       assert.equal(oauthScopes(provider, kind).some((scope) => writes.test(scope)), false, `${provider}:${kind} read consent never carries a write scope`);
       assert.equal(oauthScopes(provider, kind, 'act').some((scope) => writes.test(scope)), true, `${provider}:${kind} act consent adds the write scope`);
     }
-    assert.deepEqual(oauthScopes('google', 'email', 'act').filter((scope) => writes.test(scope)), ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send']);
+    assert.throws(() => oauthScopes('google', 'email'), /outlook_mail_required/);
+    assert.throws(() => oauthScopes('google', 'email', 'act'), /outlook_mail_required/);
   } finally { await rm(outOauth, { recursive: true, force: true }); }
   const index = await readFile(join(srcDir, 'index.ts'), 'utf8');
   assert.match(index, /access: z\.enum\(\['read','act'\]\)\.default\('read'\)/);

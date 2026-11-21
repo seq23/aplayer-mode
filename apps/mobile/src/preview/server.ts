@@ -156,7 +156,7 @@ function sampleSurroundings(graph: LifeGraphSnapshot): LifeGraphSnapshot {
     actions: [
       { id: id(), userId: USER, domain: 'email', actionType: 'email.send', status: 'prepared', requiresApproval: true,
         idempotencyKey: 'suite:reply:preview', reason: 'Reply to an email', createdAt: stamp(), updatedAt: stamp(),
-        payload: { suiteProposal: 'reply', subject: 'Spring rehearsal space', to: 'jordan@example.com', account: 'Sample inbox', expiresAt: tomorrowAt(23, 59), body: 'Thanks for your message. I’ve received your request and wanted to acknowledge it.' } },
+        payload: { suiteProposal: 'reply', subject: 'Spring rehearsal space', to: 'jordan@example.com', account: 'Sample inbox', expiresAt: tomorrowAt(23, 59), body: 'Thanks for sending this over. I’ve received your request.' } },
       { id: id(), userId: USER, domain: 'calendar', actionType: 'calendar.reschedule', status: 'prepared', requiresApproval: true,
         idempotencyKey: 'suite:calendar_fix:preview', reason: 'Resolve a calendar clash', createdAt: stamp(), updatedAt: stamp(),
         payload: { suiteProposal: 'calendar_fix', title: 'Equipment inventory', account: 'Sample calendar', timezone: graph.identity.timezone ?? 'UTC',

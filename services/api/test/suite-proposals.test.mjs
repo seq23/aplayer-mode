@@ -32,12 +32,12 @@ const permissions = [
   { id: U(529), userId, domain: 'calendar', actionType: 'event_write', enabled: true, autonomyLevel: 4 },
 ];
 const entitlement = { userId, plan: 'life_os', status: 'active' };
-const connection = (id, kind, scope) => ({
-  id, userId, kind, provider: 'google', scopes: [scope], status: 'connected', accountLabel: 'player@example.com', label: kind === 'email' ? 'Inbox' : 'Work calendar',
+const connection = (id, kind, provider, ...scopes) => ({
+  id, userId, kind, provider, scopes, status: 'connected', accountLabel: 'player@example.com', label: kind === 'email' ? 'Inbox' : 'Work calendar',
 });
 const connections = [
-  connection(emailId, 'email', 'https://www.googleapis.com/auth/gmail.send'),
-  connection(calendarId, 'calendar', 'https://www.googleapis.com/auth/calendar.events'),
+  connection(emailId, 'email', 'microsoft', 'Mail.Read', 'Mail.Send'),
+  connection(calendarId, 'calendar', 'google', 'https://www.googleapis.com/auth/calendar.events'),
 ];
 const event = (id, title, startsAt, endsAt) => ({
   id, title, userId, connectionId: calendarId, provider: 'google', externalEventId: id,
@@ -50,13 +50,13 @@ const calendarEvents = [
   event(blockerId, 'School pickup', at(11), at(11, 30)),
 ];
 const messageSignals = [{
-  id: signalId, userId, provider: 'google', connectionId: emailId, externalMessageId: 'incoming-1',
+  id: signalId, userId, provider: 'microsoft', connectionId: emailId, externalMessageId: 'incoming-1',
   externalThreadId: 'thread-1', signalType: 'request', summary: 'Review the rehearsal schedule.',
   confidence: 0.9, relatedCommitmentId: commitmentId, observedAt: now.toISOString(),
 }];
 const commitments = [{
   id: commitmentId, userId, owner: 'user', status: 'understood', title: 'Review the rehearsal schedule',
-  provenance: { kind: 'inferred', sourceType: 'gmail', sourceRef: 'incoming-1' },
+  provenance: { kind: 'inferred', sourceType: 'outlook', sourceRef: 'incoming-1' },
 }];
 const graph = (overrides = {}) => ({
   identity: { userId, timezone: 'UTC' }, goals: [], projects: [], nextActions: [], lifeAdminItems: [], lifeRelationships: [],
@@ -122,17 +122,17 @@ test.beforeEach((t) => {
       const c = connections.find((entry) => url.searchParams.get('id') === `eq.${entry.id}`);
       if (c) return json([{ id: c.id, kind: c.kind, provider: c.provider, encrypted_credentials: encrypted.ciphertext, credential_iv: encrypted.iv }]);
     }
-    if (url.hostname === 'gmail.googleapis.com' && url.pathname.endsWith('/threads/thread-1')) {
+    if (url.hostname === 'graph.microsoft.com' && url.pathname === '/v1.0/me/messages') {
+      assert.equal(url.searchParams.get('$filter'), "conversationId eq 'thread-1'");
       const message = {
-        id: 'incoming-1', labelIds: ['INBOX'], payload: { headers: [
-          { name: 'From', value: 'Jordan <jordan@example.com>' },
-          { name: 'Subject', value: 'Rehearsal schedule' },
-          { name: 'Message-ID', value: '<original@example.com>' },
-        ] },
+        id: 'incoming-1', conversationId: 'thread-1', subject: 'Rehearsal schedule', isDraft: false,
+        sentDateTime: '2026-11-20T08:00:00Z', from: { emailAddress: { address: 'jordan@example.com' } },
       };
-      return json({ messages: latest === message.id ? [message] : [message, { id: latest, labelIds: ['SENT'] }] });
+      return json({ value: latest === message.id ? [message] : [
+        message, { id: latest, conversationId: 'thread-1', sentDateTime: '2026-11-20T09:00:00Z' },
+      ] });
     }
-    if (url.hostname === 'gmail.googleapis.com' && url.pathname.endsWith('/messages/send')) return json({ id: 'outbound-1', threadId: 'thread-1' });
+    if (url.hostname === 'graph.microsoft.com' && url.pathname === '/v1.0/me/messages/incoming-1/reply') return new Response(null, { status: 202 });
     if (url.hostname === 'www.googleapis.com' && url.pathname.endsWith('/events')) return json({
       items: currentEvents.map((e) => ({
         id: e.externalEventId, summary: e.title, start: { dateTime: e.startsAt }, end: { dateTime: e.endsAt },
@@ -172,6 +172,11 @@ test('Roundtable, lapsed plans, disabled permissions, and missing write-scoped c
   assert.deepEqual(await prepareSuiteProposals(env, graph({ connections: [] }), now), {
     prepared: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
   });
+  const googleMail = connection(emailId, 'email', 'google', 'https://www.googleapis.com/auth/gmail.send');
+  assert.deepEqual(await prepareSuiteProposals(env, graph({ connections: [googleMail] }), now), {
+    prepared: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
+  });
+  assert.equal(calls.length, 0);
   await assert.rejects(async () => approveSuiteProposal(await find('reply'), graph({ entitlement: { ...entitlement, plan: 'chief_of_staff' } }), input, now), /not_authorized/);
   await assert.rejects(async () => approveSuiteProposal(await find('reply'), graph({ permissions: [permissions[1]] }), input, now), /not_authorized/);
   assert.equal(writes().length, 0);
@@ -186,12 +191,8 @@ test('approval sends the reviewed reply once to the original thread and reports 
   await assert.rejects(approveSuiteProposal(action, graph(), input, now), /Supabase request failed/);
   const [send] = writes();
   assert.equal(writes().length, 1);
-  assert.match(send.url, /\/messages\/send$/);
-  assert.equal(send.body.threadId, 'thread-1');
-  const mime = Buffer.from(send.body.raw, 'base64url').toString();
-  assert.match(mime, /^To: jordan@example\.com\r\n/);
-  assert.ok(mime.includes('In-Reply-To: <original@example.com>'));
-  assert.equal(Buffer.from(mime.split('\r\n\r\n').at(-1), 'base64').toString(), action.payload.body);
+  assert.equal(send.url, 'https://graph.microsoft.com/v1.0/me/messages/incoming-1/reply');
+  assert.deepEqual(send.body, { comment: action.payload.body });
 });
 
 test('approval moves only the named flexible block and records its provider receipt', async () => {
