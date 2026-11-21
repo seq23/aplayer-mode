@@ -114,12 +114,12 @@ function assertCurrent(action: ActionRecord, graph: Graph, now: Date) {
   }
   if (payload.suiteProposal === 'goal_calendar' || payload.suiteProposal === 'goal_checklist') {
     const step = goalStep(graph, now);
-    if (!step || step.planId !== payload.planId || step.actionKey !== payload.actionKey
+    if (!step || step.planId !== payload.planId || step.goalId !== payload.goalId || step.actionKey !== payload.actionKey
       || step.setup !== (payload.suiteProposal === 'goal_checklist')
       || payload.title !== (step.setup ? `Get ready to: ${step.title}` : step.title) || payload.detail !== step.output) {
       throw new Error('action_proposal_stale');
     }
-    return;
+    return step;
   }
   const item = graph.lifeAdminItems.find((entry) => entry.id === payload.itemId);
   if (!item || !canDefer(item) || item.updatedAt !== payload.expectedUpdatedAt || item.startsAt !== payload.originalStartsAt
@@ -132,11 +132,14 @@ function assertCurrent(action: ActionRecord, graph: Graph, now: Date) {
 const goalBlock = z.object({ connectionId: z.uuid(), title: z.string().min(1).max(500), startsAt: z.iso.datetime(), endsAt: z.iso.datetime() });
 
 export async function executeGoalCalendar(action: ActionRecord, graph: Graph, input: Parameters<typeof executeConnectorAction>[1], now: Date) {
-  assertCurrent(action, graph, now);
+  const step = assertCurrent(action, graph, now);
   const slot = goalBlock.parse(action.payload);
   const calendars = graph.connections.filter(activeCalendar);
   const target = calendars.find((entry) => entry.id === slot.connectionId && canWrite(entry, 'calendar'));
-  if (!target || graph.personalOS?.hardBoundaries?.length) throw new Error('action_proposal_stale');
+  const start = Date.parse(slot.startsAt);
+  const end = Date.parse(slot.endsAt);
+  if (!step?.checkedIn || start <= now.getTime() || end - start !== step.durationMinutes * MINUTE
+    || !target || graph.personalOS?.hardBoundaries?.length) throw new Error('action_proposal_stale');
   const snapshots = await suiteCalendarSnapshots(calendars, input, slot.startsAt, slot.endsAt);
   const events = [...snapshots.flatMap((snapshot) => snapshot.events), ...graph.calendarEvents.filter((event) => event.provider === 'device')];
   if (suiteSlotOccupied(slot, events, graph)) throw new Error('action_proposal_stale');

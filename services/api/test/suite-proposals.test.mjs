@@ -323,6 +323,11 @@ test('a normal foreground step reserves real time after the tap, with a connecto
   const action = await find('goal_calendar');
   assert.equal(action.payload.goalId, state.goals[0].id);
   assert.equal(writes().length, 0);
+  const withoutCheckIn = mapAction((await rpc('apm_service_action_prepare', [
+    userId, action.domain, action.actionType, action.payload, 'Block time', null, 'suite:goal_calendar:no-check-in',
+  ])).action);
+  const beforeCheckIn = { ...state, dayRecords: state.dayRecords.filter((record) => record.day !== phaseDay) };
+  await assert.rejects(approveSuiteProposal(withoutCheckIn, beforeCheckIn, input, phaseTime), /action_proposal_stale/);
   const copy = mapAction((await rpc('apm_service_action_prepare', [
     userId, action.domain, action.actionType, action.payload, 'Block time', null, 'suite:goal_calendar:collision',
   ])).action);

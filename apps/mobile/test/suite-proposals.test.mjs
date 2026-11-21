@@ -147,7 +147,7 @@ const checklist = { id: 'goal-checklist', status: 'prepared', requiresApproval: 
   suiteProposal: 'goal_checklist', title: 'Get ready to record the first interview', detail: 'A location and a microphone picked out', expiresAt: at(17),
 } };
 const block = { ...move, id: 'goal-calendar', idempotencyKey: 'suite:goal_calendar:1', payload: {
-  ...move.payload, suiteProposal: 'goal_calendar', title: 'Edit the opening scene', expiresAt: at(17),
+  ...move.payload, suiteProposal: 'goal_calendar', title: 'Edit the opening scene', detail: 'First cut of the opening scene', expiresAt: at(17),
 } };
 const missed = { ...move, id: 'missed-day', idempotencyKey: 'suite:admin_defer:1', payload: {
   ...move.payload, suiteProposal: 'missed_day', title: 'Pick up printer paper', expiresAt: at(17),
@@ -159,7 +159,7 @@ const hard = { ...missed, id: 'hard-day', idempotencyKey: 'suite:admin_defer:2',
 test('Today renders both methods for arranging a goal step and the checklist after approval', () => {
   fixture({ actions: [block, checklist] });
   const page = render(Today);
-  for (const detail of [checklist.payload.title, checklist.payload.detail, block.payload.title, block.payload.account]) assert.ok(page.includes(detail));
+  for (const detail of [checklist.payload.title, checklist.payload.detail, block.payload.title, block.payload.detail, block.payload.account]) assert.ok(page.includes(detail));
   assert.match(page, /Approve to add this block/);
   assert.match(page, /Approve to add this to your goal checklist/);
   assert.equal((page.match(/Report this proposal/g) ?? []).length, 2);

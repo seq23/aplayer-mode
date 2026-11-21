@@ -50,13 +50,14 @@ export function ActionApprovalCard({ action, busyId, onApprove, onReject, onRepo
     </> : goalBlock ? <>
       <KeyValue label="Calendar" value={String(data.account)} />
       <KeyValue label="Time" value={`${time(data.startsAt, timezone, true)} to ${time(data.endsAt, timezone)}`} />
+      <Body>{String(data.detail)}</Body>
       <Body muted>Approve to add this block and keep your other calendar events as they are.</Body>
     </> : checklist ? <>
       <Body>{String(data.detail)}</Body>
       <Body muted>Approve to add this to your goal checklist and leave bookings and purchases in your hands.</Body>
     </> : defer ? <>
-      <KeyValue label="Current slot" value={time(data.originalStartsAt, timezone, true)} />
-      <KeyValue label="New slot" value={time(data.startsAt, timezone, true)} />
+      <KeyValue label="Current slot" value={time(data.originalStartsAt, timezone, true) + (data.originalEndsAt ? ` to ${time(data.originalEndsAt, timezone)}` : '')} />
+      <KeyValue label="New slot" value={time(data.startsAt, timezone, true) + (data.endsAt ? ` to ${time(data.endsAt, timezone)}` : '')} />
       <Body muted>Approve to move this task in Life areas and keep your deadlines and calendar as they are.</Body>
     </> : <Body muted>{TODAY_COPY.approvalBody}</Body>}
     {suite && onReport ? <ReportThis what={reply ? 'draft reply' : move ? 'calendar proposal' : 'proposal'} send={onReport} /> : null}
