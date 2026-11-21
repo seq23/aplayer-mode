@@ -14,7 +14,7 @@ const CODE_COPY: Record<string, string> = {
   microsoft_oauth_client_secret_missing: 'Outlook can’t be connected yet. Try again later.',
   connector_oauth_failed: 'The account didn’t connect. Try again.',
   google_connector_not_configured: 'Google Calendar can’t be connected yet. You can connect an Outlook calendar.',
-  microsoft_connector_not_configured: 'Outlook connection setup is still pending.',
+  microsoft_connector_not_configured: 'Outlook can’t be connected yet. Try again later.',
   proposal_stale: 'The source changed since this was prepared. This proposal is no longer available.',
   action_not_authorized: 'Check your plan and Settings → Privacy → Autonomy before approving this action.',
   invalid_request: 'Something in that was not quite right. Check it and try again.',

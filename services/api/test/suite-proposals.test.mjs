@@ -214,6 +214,8 @@ test('both producers prepare from Radar; retries and no tap perform no provider 
   assert.equal((await prepareSuiteProposals(env, current, now)).prepared, 0, 'replayed against the real action ledger');
   const reply = await find('reply');
   const move = await find('calendar_fix');
+  const waiting = await prepareSuiteProposals(env, graph({ actions: [{ ...move, idempotencyKey: 'suite:calendar_fix:another' }] }), now);
+  assert.ok(waiting.stops.includes('CALENDAR_FIX_ALREADY_PENDING'), 'an open fix is a named stop, not a silent return');
   assert.equal(reply.status, 'prepared');
   assert.equal(reply.requiresApproval, true);
   assert.equal(reply.payload.to, 'jordan@example.com');

@@ -128,7 +128,7 @@ async function* calendarFixes(context: ProducerContext): ReturnType<Producer['pr
       const key = await sourceKey('calendar_fix', account.id, event.externalEventId, new Date(event.startsAt).toISOString());
       if (seen.has(key)) continue;
       if (graph.actions.some((entry) => entry.status === 'prepared' && entry.payload.suiteProposal === 'calendar_fix'
-        && Date.parse(String(entry.payload.originalStartsAt)) > now.getTime())) return;
+        && Date.parse(String(entry.payload.originalStartsAt)) > now.getTime())) return 'CALENDAR_FIX_ALREADY_PENDING';
       const after = new Date(Math.max(...pair.map((entry) => Date.parse(entry.endsAt)))).toISOString();
       const slot = firstClearSlot(event, after, graph, now, overload);
       if (!slot) continue;
