@@ -27,7 +27,7 @@ const env = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_PUBLISHABLE_
 const routeRow = { route_id: 'zdr', model_id: 'vendor/model', provider_id: 'Vendor', status: 'approved', cost_class: 'standard', capabilities: ['extraction', 'structured_output'],
   data_classes_allowed: ['private_life', 'highly_sensitive'], training_allowed: false, retention: 'zero', approved_for_highly_sensitive: false, quality_score: 90, reliability_score: 90, latency_score: 90,
   last_policy_reviewed_at: '2026-10-06T00:00:00Z', last_eval_run_at: null };
-const b64 = (text) => Buffer.from(text, 'utf8').toString('base64').replaceAll('+', '-').replaceAll('/', '_');
+let mailProvider = 'microsoft';
 
 test('email sync: bad answers and sensitive messages are skipped, secrets redacted, commitments keyed on title, cost recorded', async () => {
   const encrypted = await crypto.encryptConnectorCredential(env, { accessToken: 'ya29.token', expiresAt: Date.now() + 3_600_000 });
@@ -42,11 +42,12 @@ test('email sync: bad answers and sensitive messages are skipped, secrets redact
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url); const method = init.method ?? 'GET';
     const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
-    if (href.includes('/rest/v1/integration_connections') && method === 'GET') return json([{ id: CONN, provider: 'google', kind: 'email', encrypted_credentials: encrypted.ciphertext, credential_iv: encrypted.iv }]);
+    if (href.includes('/rest/v1/integration_connections') && method === 'GET') return json([{ id: CONN, provider: mailProvider, kind: 'email', encrypted_credentials: encrypted.ciphertext, credential_iv: encrypted.iv }]);
     if (href.includes('/rest/v1/integration_connections') && method === 'PATCH') { calls.synced = true; return new Response(null, { status: 204 }); }
-    if (href.startsWith('https://gmail.googleapis.com/gmail/v1/users/me/messages?')) return json({ messages: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] });
-    const id = href.match(/messages\/(m\d)\?/)?.[1];
-    if (id) return json({ id, payload: { mimeType: 'text/plain', headers: [{ name: 'Subject', value: id }], body: { data: b64(bodies[id]) } } });
+    if (href.startsWith('https://graph.microsoft.com/v1.0/me/messages?')) return json({ value: ['m1', 'm2', 'm3'].map((id) => ({
+      id, conversationId: `t-${id}`, subject: id, receivedDateTime: '2026-10-06T08:00:00Z', isDraft: false,
+      from: { emailAddress: { address: 'sender@example.com' } }, body: { contentType: 'text', content: bodies[id] } })) });
+    if (href.includes('gmail.googleapis.com')) throw new Error('Gmail is never called');
     if (href.includes('/rest/v1/model_routes')) return json([routeRow]);
     if (href.startsWith('https://openrouter.ai/')) {
       const body = JSON.parse(init.body); calls.openrouter.push(body.messages[1].content);
@@ -61,7 +62,11 @@ test('email sync: bad answers and sensitive messages are skipped, secrets redact
   };
   try {
     const result = await email.syncEmailSignals({ env, accessToken: 'jwt', userId: USER, connectionId: CONN });
-    assert.deepEqual(result, { provider: 'google', messagesProcessed: 3, signalsStored: 1 });
+    assert.deepEqual(result, { provider: 'microsoft', messagesProcessed: 3, signalsStored: 1 });
+    // Mail is Outlook only: a Google mail connection is refused before any provider call.
+    mailProvider = 'google';
+    await assert.rejects(email.syncEmailSignals({ env, accessToken: 'jwt', userId: USER, connectionId: CONN }), /outlook_mail_required/);
+    mailProvider = 'microsoft';
     assert.ok(calls.synced, 'last_sync_at is written: the sync completed');
     assert.equal(calls.openrouter.length, 2, 'the lab-results message never reached an unvetted route');
     assert.doesNotMatch(calls.openrouter[0], /hunter2/);

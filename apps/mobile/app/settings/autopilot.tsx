@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import type { AutopilotActionClass, AutopilotDoneItem, AutopilotRule, AutopilotRuleConstraints } from '@apm/domain';
+import { autopilotFailureSentence } from '@apm/domain';
 import { Body, Button, Card, CardTitle, Chip, ErrorState, KeyValue, ListItem, Pill, Screen, SectionTitle, TextField, uiStyles } from '../../src/components/ui';
 import { TimePicker } from '../../src/components/TimePickerField';
 import {
@@ -271,7 +272,7 @@ export default function AutopilotScreen() {
           <KeyValue label="When" value={new Date(item.at).toLocaleTimeString()} />
           {item.stoppedReason === 'payment_required' ? <Body muted>It asked for a card or deposit, so APM stopped. It is waiting in your life areas for your decision.</Body> : null}
           {item.stoppedReason === 'needs_user' ? <Body muted>This provider has no emailed cancellation route. APM prepared it; finishing it is yours.</Body> : null}
-          {item.failureCode ? <KeyValue label="Failure" value={item.failureCode} /> : null}
+          {item.failureCode ? <Body muted>{autopilotFailureSentence(item.failureCode)}</Body> : null}
           {item.canUndo && item.executionId
             ? <Button label="Undo" variant="secondary" onPress={() => void act(() => undoAutopilotExecution(item.executionId!, accessToken!))} />
             : null}
@@ -431,7 +432,7 @@ export default function AutopilotScreen() {
           </View>
           {run.proposedStartsAt ? <KeyValue label="When" value={new Date(run.proposedStartsAt).toLocaleString()} /> : null}
           <KeyValue label="Ran" value={new Date(run.claimedAt).toLocaleString()} />
-          {run.failureCode ? <KeyValue label="Failure" value={run.failureCode} /> : null}
+          {run.failureCode ? <Body muted>{autopilotFailureSentence(run.failureCode)}</Body> : null}
           {run.status === 'verified' && overview.supported.find((p) => p.actionClass === run.actionClass)?.reversible
             ? <Button label="Undo" variant="secondary" onPress={() => void act(() => undoAutopilotExecution(run.id, accessToken!))} />
             : run.status === 'verified' ? <Body muted>Can't undo.</Body> : null}

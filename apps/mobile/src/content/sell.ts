@@ -249,7 +249,7 @@ export const TIER_GRID_WHO = {
   columns: PAID.map((plan) => PLAN_PRICES[plan].displayName),
   rows: [
     { label: 'You stop having to…', cells: ['decide', 'remember and prepare', 'do the routine work'] },
-    { label: 'It carries', cells: ['What to do, when, and what matters most', 'Everything else in your life, ready to approve', 'The repeat work, done inside your rules'] },
+    { label: 'It carries', cells: ['What to do, when, and what matters most', 'Everything else in your life, ready to approve', 'Calendar work done inside your rules'] },
     { label: 'Left on you', cells: ['Doing the plan', 'Tapping Approve', 'Reading the done-list'] },
     { label: 'Monthly', cells: PAID.map((plan) => monthly(plan)) },
     { label: 'Annual (2 months free)', cells: PAID.map((plan) => annual(plan)) },
@@ -261,13 +261,13 @@ export const TIER_GRID_WHAT = {
   columns: PAID.map((plan) => `${PLAN_PRICES[plan].displayName} (${plan === 'chief_of_staff' ? 'plans it' : plan === 'life_os' ? 'acts on your yes' : 'handles it'})`),
   rows: [
     { label: '"What should I do today?"', cells: ['Agenda arrives, already prioritized', '+ covers family, home, health, money', '+ books the time on your calendar'] },
-    { label: '"Am I forgetting something?"', cells: ['Radar catches dropped promises and deadlines', '+ birthdays, bills, appointments, renewals', '+ sends the follow-ups and confirmations'] },
-    { label: '"How do I even start this goal?"', cells: ['Turns the goal into a plan and daily steps', '+ the supporting logistics', '+ books it and keeps it booked'] },
+    { label: '"Am I forgetting something?"', cells: ['Radar catches dropped promises and deadlines', '+ birthdays, bills, appointments, renewals', '+ drafts the follow-ups for one tap'] },
+    { label: '"How do I even start this goal?"', cells: ['Turns the goal into a plan and daily steps', '+ the supporting logistics', '+ books it on your calendar'] },
     { label: '"I missed yesterday, now I\'m behind"', cells: ['Minimum day, no catch-up, no guilt', '+ pushes back non-urgent life tasks', '+ reschedules and sends the "need to move" notes'] },
     { label: '"I\'m overwhelmed and stuck"', cells: ['Coaching, one question at a time', '+ takes life admin off your plate that day', '+ clears your calendar to your minimum day'] },
-    { label: '"Who do I owe a reply to?"', cells: ['Flags it', 'Drafts it', 'Sends it'] },
+    { label: '"Who do I owe a reply to?"', cells: ['Flags it', 'Drafts it', 'Drafts it, sends on your tap'] },
     { label: '"Is my calendar realistic?"', cells: ['Flags overload and clashes', 'Proposes the fix', 'Moves flexible items, protects focus time'] },
-    { label: '"Am I wasting money on subscriptions?"', cells: ['—', 'Flags unused ones and price rises', 'Cancels them (saves money, never spends it)'] },
+    { label: '"Am I wasting money on subscriptions?"', cells: ['—', 'Flags unused ones and price rises', 'Drafts the cancellation, sends on your tap (never spends money)'] },
   ],
 } as const;
 

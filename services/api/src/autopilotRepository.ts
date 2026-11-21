@@ -7,14 +7,17 @@ import type {
   AutopilotRule,
   AutopilotRuleConstraints,
   AutopilotState,
+  LifeGraphSnapshot,
   Permission,
   SubscriptionEntitlement,
 } from '@apm/domain';
+import { classifyAutopilotFailure } from '@apm/domain';
 import { decideStandingAuthority, standingActionClasses, type PermissionGrant } from '@apm/policy';
 import type { ApiEnv } from './env';
 import { actionDomainEnabled, actionsGloballyEnabled, autopilotClassEnabled, autopilotExecutionEnabled } from './env';
 import { SERVICE_ROLE_TOKEN, SupabaseRestError, supabaseRest } from './db';
 import { executeStandingConnectorAction, revertStandingConnectorAction } from './actionEngine';
+import { liveSlotOccupied } from './suiteCalendar';
 
 /**
  * Autopilot rows are written ONLY through the governed RPCs from migration
@@ -187,6 +190,8 @@ export async function runStandingRule(input: {
   rule: AutopilotRule; state: AutopilotState;
   permission?: Permission; entitlement?: SubscriptionEntitlement;
   idempotencyKey: string; reason: string; payload: Record<string, unknown>;
+  /** For the live free/busy check before a calendar write. */
+  graph: LifeGraphSnapshot;
   now?: Date;
 }): Promise<StandingRunResult> {
   const policy = standingActionClasses[input.rule.actionClass];
@@ -208,9 +213,34 @@ export async function runStandingRule(input: {
   if (!decision.allowed) throw new Error(`autopilot_not_authorized:${decision.reason}`);
   if (!input.env.SUPABASE_SECRET_KEY) throw new Error('autopilot_not_authorized:service_credential_missing');
 
-  const claim = await autopilotRpc<{ replayed: boolean; stopped?: 'payment_required' | 'needs_user'; execution?: ExecutionRow; action: ActionRow }>(input.env, input.accessToken, 'apm_autopilot_claim', {
+  const claim = await autopilotRpc<ClaimRow>(input.env, input.accessToken, 'apm_autopilot_claim', {
     p_rule_id: input.rule.id, p_idempotency_key: input.idempotencyKey, p_payload: input.payload, p_reason: input.reason,
   });
+  return executeClaim(input, claim);
+}
+
+/**
+ * Autopilot never double-books (review fail 1): before its own move or booking lands, the
+ * target slot is checked against the LIVE calendars, the same read a tapped card makes. Taken,
+ * or a calendar that cannot be read, means no write; the ledger row fails and Today says
+ * "Not moved".
+ */
+async function assertLiveSlotFree(action: ActionRecord, input: { env: ApiEnv; accessToken: string; userId: string }, graph: LifeGraphSnapshot) {
+  if (action.actionType !== 'calendar.reschedule' && action.actionType !== 'calendar.create') return;
+  const composed = (action.payload.composed ?? {}) as Record<string, unknown>;
+  const slot = { startsAt: String(composed.startsAt ?? ''), endsAt: String(composed.endsAt ?? '') };
+  if (!Date.parse(slot.startsAt) || !Date.parse(slot.endsAt)) throw new Error('calendar_move_invalid');
+  const self = action.actionType === 'calendar.reschedule'
+    ? { connectionId: String(composed.connectionId ?? ''), externalEventId: String(composed.externalEventId ?? '') } : undefined;
+  if (await liveSlotOccupied(graph, input, slot, self)) {
+    throw new Error('autopilot_slot_taken_live');
+  }
+}
+
+type ClaimRow = { replayed: boolean; stopped?: 'payment_required' | 'needs_user'; execution?: ExecutionRow; action: ActionRow };
+
+/** After a successful database claim: the one provider write, then its result, recorded with the server key. */
+async function executeClaim(input: { env: ApiEnv; accessToken: string; userId: string; graph: LifeGraphSnapshot }, claim: ClaimRow): Promise<StandingRunResult> {
   const action = mapActionRow(claim.action, input.userId);
   if (claim.stopped) return { replayed: claim.replayed, stopped: claim.stopped, action };
   if (!claim.execution) throw new Error('autopilot_invalid_execution_state');
@@ -218,14 +248,16 @@ export async function runStandingRule(input: {
 
   let externalRef: string;
   try {
+    await assertLiveSlotFree(action, input, input.graph);
     externalRef = await executeStandingConnectorAction(action, input);
     if (!externalRef) throw new Error('provider_reference_missing');
   } catch (error) {
-    const failureCode = (error instanceof Error ? error.message : 'unknown_failure').replace(/[^A-Za-z0-9_:.-]/g, '_').slice(0, 120) || 'unknown_failure';
+    // One closed code the app can explain in a sentence (AUTOPILOT_FAILURE_SENTENCES); the cause stays in the thrown error.
+    const failureCode = classifyAutopilotFailure(error);
     await serviceRecord(input.env, 'apm_service_autopilot_record_result', {
       p_user_id: input.userId, p_execution_id: claim.execution.id, p_outcome: 'failed', p_external_ref: null, p_failure_code: failureCode,
     });
-    throw new Error('autopilot_execution_failed');
+    throw new Error('autopilot_execution_failed', { cause: error });
   }
   const verified = await serviceRecord<ExecutionRow>(input.env, 'apm_service_autopilot_record_result', {
     p_user_id: input.userId, p_execution_id: claim.execution.id, p_outcome: 'verified', p_external_ref: externalRef.slice(0, 500), p_failure_code: null,
@@ -233,10 +265,47 @@ export async function runStandingRule(input: {
   return { replayed: false, execution: mapExecution(verified), action: { ...action, status: 'verified' } };
 }
 
+/** Database refusals that mean "no standing authority for this one": the caller prepares an approval card instead. */
+const NOT_STANDING = new Set([
+  'autopilot_required', 'autopilot_permission_required', 'autopilot_paused', 'autopilot_rule_inactive', 'autopilot_rule_expired',
+  'autopilot_class_not_activated', 'autopilot_outside_rule', 'autopilot_collision', 'autopilot_rate_limited', 'autopilot_event_protected',
+  'autopilot_connector_scope_missing', 'autopilot_connection_paused', 'autopilot_wrong_account',
+]);
+
+/**
+ * A server-side standing run (the quarter-hour Suite run has no user session). The Worker's
+ * kill switches are checked first; the database then finds her live rule for this class and
+ * account and runs the same governed claim as POST /v1/autopilot/rules/:id/run (migration
+ * 0103). Returns undefined when Autopilot may not act on this one, so the caller asks her.
+ */
+export async function runServiceStandingRun(input: {
+  env: ApiEnv; userId: string; actionClass: AutopilotActionClass; connectionId: string;
+  idempotencyKey: string; reason: string; payload: Record<string, unknown>;
+  /** Her life graph as the run read it: protected times, phone calendars and connected calendars for the live check. */
+  graph: LifeGraphSnapshot;
+}): Promise<StandingRunResult | undefined> {
+  const policy = standingActionClasses[input.actionClass];
+  if (!input.env.SUPABASE_SECRET_KEY || !actionsGloballyEnabled(input.env) || !actionDomainEnabled(input.env, policy.connector)
+    || !autopilotExecutionEnabled(input.env) || !autopilotClassEnabled(input.env, input.actionClass)) return undefined;
+  let claim: ClaimRow | null;
+  try {
+    claim = await serviceRecord<ClaimRow | null>(input.env, 'apm_service_autopilot_claim', {
+      p_user_id: input.userId, p_action_class: input.actionClass, p_connection_id: input.connectionId,
+      p_idempotency_key: input.idempotencyKey, p_payload: input.payload, p_reason: input.reason,
+    });
+  } catch (error) {
+    if (error instanceof Error && NOT_STANDING.has(error.message)) return undefined;
+    throw error;
+  }
+  if (!claim) return undefined;
+  return executeClaim({ env: input.env, accessToken: SERVICE_ROLE_TOKEN, userId: input.userId, graph: input.graph }, claim);
+}
+
 interface UndoTarget {
   executionId: string; actionClass: AutopilotActionClass; domain: string; connectorKind: 'calendar' | 'email';
   undoMethod: AutopilotActionClassState['undoMethod']; externalRef: string | null; connectionId: string | null;
   originalStartsAt: string | null; originalEndsAt: string | null;
+  movedStartsAt?: string | null; movedEndsAt?: string | null;
 }
 
 /**
@@ -245,14 +314,23 @@ interface UndoTarget {
  * client; the reversal is recorded with the server-only key. Irreversible
  * classes are refused by the database with `autopilot_cannot_undo`.
  */
-export async function undoStandingExecution(input: { env: ApiEnv; accessToken: string; userId: string; executionId: string }): Promise<AutopilotExecution> {
+export async function undoStandingExecution(input: { env: ApiEnv; accessToken: string; userId: string; executionId: string; graph: LifeGraphSnapshot }): Promise<AutopilotExecution> {
   const target = await autopilotRpc<UndoTarget>(input.env, input.accessToken, 'apm_autopilot_undo_target', { p_execution_id: input.executionId });
   if (!actionsGloballyEnabled(input.env) || !actionDomainEnabled(input.env, target.connectorKind ?? target.domain)) throw new Error('autopilot_not_authorized:global_execution_disabled');
   if (!input.env.SUPABASE_SECRET_KEY) throw new Error('autopilot_not_authorized:service_credential_missing');
+  // Undo never double-books either (review fail 2): the old time must still be free on the live
+  // calendars. Taken, the event stays where Autopilot put it and she is told why.
+  if (target.undoMethod === 'restore_time') {
+    if (!target.originalStartsAt || !target.originalEndsAt || !target.connectionId || !target.externalRef) throw new Error('autopilot_undo_event_changed');
+    const live = { env: input.env, accessToken: input.accessToken, userId: input.userId, allowPaused: true };
+    if (await liveSlotOccupied(input.graph, live, { startsAt: target.originalStartsAt, endsAt: target.originalEndsAt },
+      { connectionId: target.connectionId, externalEventId: target.externalRef })) throw new Error('autopilot_undo_slot_taken');
+  }
   await revertStandingConnectorAction({
     undoMethod: target.undoMethod, connectionId: target.connectionId ?? '', externalRef: target.externalRef ?? '',
     originalStartsAt: target.originalStartsAt ?? undefined, originalEndsAt: target.originalEndsAt ?? undefined,
-  }, input);
+    movedStartsAt: target.movedStartsAt ?? undefined, movedEndsAt: target.movedEndsAt ?? undefined,
+  }, { env: input.env, accessToken: input.accessToken, userId: input.userId });
   return mapExecution(await serviceRecord<ExecutionRow>(input.env, 'apm_service_autopilot_record_undo', { p_user_id: input.userId, p_execution_id: input.executionId }));
 }
 
@@ -310,6 +388,8 @@ const AUTOPILOT_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 
   autopilot_payment_data_refused: { error: 'payment_data_refused', status: 403 },
   autopilot_cannot_undo: { error: 'cannot_undo', status: 409 },
   autopilot_execution_failed: { error: 'execution_failed', status: 502 },
+  autopilot_undo_event_changed: { error: 'proposal_stale', status: 409 },
+  autopilot_undo_slot_taken: { error: 'undo_slot_taken', status: 409 },
 };
 
 export function autopilotErrorResponse(error: unknown): { error: string; status: 400 | 403 | 404 | 409 | 502; reason?: string } | undefined {

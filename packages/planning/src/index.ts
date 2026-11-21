@@ -176,7 +176,20 @@ export function buildDailyPlan(
       .filter((commitment) => !['verified', 'closed', 'dismissed'].includes(commitment.status))
       .map((commitment) => commitment.id),
     approvalActionIds: graph.actions
-      .filter((action) => action.status === 'prepared' && action.requiresApproval)
+      .filter((action) => {
+        if (action.status !== 'prepared' || !action.requiresApproval) return false;
+        if (!action.idempotencyKey.startsWith('suite:')) return true;
+        if (!graph.entitlement || !['life_os', 'autopilot'].includes(graph.entitlement.plan)
+          || !['active', 'trialing'].includes(graph.entitlement.status)) return false;
+        if (action.payload.suiteProposal === 'reply' && action.payload.aiGenerated !== true) return false;
+        if (typeof action.payload.day === 'string' && action.payload.day !== date) return false;
+        // A calendar move is pointless once its event has started; any other card lives until its expiresAt.
+        const proposal = action.payload.suiteProposal;
+        const deadlines = (proposal === 'calendar_fix' ? [action.payload.originalStartsAt]
+          : proposal === 'clear_day' ? [action.payload.expiresAt, action.payload.originalStartsAt] : [action.payload.expiresAt]);
+        const nowMs = (options.now ?? new Date()).getTime();
+        return deadlines.every((deadline) => typeof deadline === 'string' && Date.parse(deadline) > nowMs);
+      })
       .map((action) => action.id),
     radarItemIds: graph.radarItems.filter((item) => item.status === 'open').map((item) => item.id),
     completionState,

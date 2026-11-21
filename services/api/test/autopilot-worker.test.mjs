@@ -21,7 +21,7 @@ let engine;
 test.before(async () => {
   outDir = await mkdtemp(join(tmpdir(), 'apm-autopilot-test-'));
   await build({
-    entryPoints: { autopilot: join(srcDir, 'autopilotRepository.ts'), crypto: join(srcDir, 'crypto.ts'), engine: join(srcDir, 'actionEngine.ts') },
+    entryPoints: { autopilot: join(srcDir, 'autopilotRepository.ts'), crypto: join(srcDir, 'crypto.ts'), engine: join(srcDir, 'actionEngine.ts'), domain: fileURLToPath(new URL('../../../packages/domain/src/autopilotFailure.ts', import.meta.url)) },
     bundle: true, format: 'esm', platform: 'neutral', outdir: outDir, logLevel: 'silent',
   });
   repo = await import(pathToFileURL(join(outDir, 'autopilot.js')).href);
@@ -46,7 +46,7 @@ function mockFetch(handler) {
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const headers = new Headers(init.headers);
-    const call = { url: String(url).replace(baseEnv.SUPABASE_URL, ''), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : undefined, apikey: headers.get('apikey'), authorization: headers.get('authorization') };
+    const call = { url: String(url).replace(baseEnv.SUPABASE_URL, ''), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : undefined, apikey: headers.get('apikey'), authorization: headers.get('authorization'), ifMatch: headers.get('if-match') };
     calls.push(call);
     const { status = 200, json } = handler(call);
     return new Response(status === 204 ? null : JSON.stringify(json), { status, headers: { 'content-type': 'application/json' } });
@@ -79,9 +79,12 @@ const executionRow = (overrides = {}) => ({
 const composedCreate = { title: 'Strength', startsAt: payload.startsAt, endsAt: payload.endsAt, location: null, connectionId: CONN };
 const actionRow = { id: 'act-1', user_id: USER, domain: 'calendar', action_type: 'calendar.create', status: 'executing', payload: { ...payload, composed: composedCreate }, reason: 'Routine', permission_id: 'perm-1', idempotency_key: 'autopilot:idem-0001', requires_approval: false, approved_at: '2026-10-06T00:00:00Z', executed_at: null, verified_at: null, failure_code: null, created_at: '2026-10-06T00:00:00Z', updated_at: '2026-10-06T00:00:00Z' };
 
+// Her graph as the route reads it: one connected Google calendar, nothing protected.
+const graph = { identity: { userId: USER, timezone: 'UTC' }, calendarEvents: [], lifeAdminItems: [],
+  connections: [{ id: CONN, userId: USER, provider: 'google', kind: 'calendar', status: 'connected', scopes: ['https://www.googleapis.com/auth/calendar.events'], isPrimary: true }] };
 const run = (env, overrides = {}) => repo.runStandingRule({
   env, accessToken: 'jwt', userId: USER, rule, state: activeState, permission, entitlement,
-  idempotencyKey: 'idem-0001', reason: 'Routine', payload, ...overrides,
+  idempotencyKey: 'idem-0001', reason: 'Routine', payload, graph, ...overrides,
 });
 
 test('standing execution fails closed before any claim when a switch, entitlement, permission, activation or rule is missing', async () => {
@@ -113,7 +116,10 @@ test('standing execution fails closed before any claim when a switch, entitlemen
   assert.deepEqual(repo.autopilotErrorResponse(new Error('autopilot_not_authorized:class_not_activated')), { error: 'autopilot_not_authorized', status: 403, reason: 'class_not_activated' });
 });
 
-async function providerMock(providerStatus) {
+const isLiveRead = (call) => call.method === 'GET' && call.url.startsWith('https://www.googleapis.com/calendar/v3/calendars/primary/events?');
+const liveItem = (startsAt, endsAt, id = 'someone-else') => ({ id, status: 'confirmed', summary: 'Dentist', etag: '"x"', start: { dateTime: startsAt }, end: { dateTime: endsAt }, organizer: { self: true } });
+
+async function providerMock(providerStatus, { live = () => ({ json: { items: [] } }) } = {}) {
   const sealed = await cryptoMod.encryptConnectorCredential(liveEnv, { accessToken: 'provider-token', refreshToken: 'r', expiresAt: Date.now() + 3_600_000 });
   return mockFetch((call) => {
     if (call.url === '/rest/v1/rpc/apm_autopilot_claim') return { json: { replayed: false, execution: executionRow(), action: actionRow } };
@@ -121,6 +127,7 @@ async function providerMock(providerStatus) {
       return { json: executionRow(call.body.p_outcome === 'verified' ? { status: 'verified', external_ref: call.body.p_external_ref } : { status: 'failed', failure_code: call.body.p_failure_code }) };
     }
     if (call.url.startsWith('/rest/v1/integration_connections')) return { json: [{ id: CONN, provider: 'google', kind: 'calendar', encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv }] };
+    if (isLiveRead(call)) return live(call);
     if (call.url.startsWith('https://www.googleapis.com/calendar/v3/calendars/primary/events')) return { status: providerStatus, json: providerStatus === 200 ? { id: 'gcal-1' } : { error: 'x' } };
     return { status: 500, json: { message: `unexpected ${call.url}` } };
   });
@@ -133,15 +140,20 @@ test('a granted claim executes once at the provider and records the verified res
   assertNoDirectAutopilotWrites(mock.calls);
   assert.deepEqual(mock.calls.map((c) => `${c.method} ${c.url.split('?')[0]}`), [
     'POST /rest/v1/rpc/apm_autopilot_claim',
+    // The live free/busy read of the target slot comes first (review fail 1).
+    'GET /rest/v1/integration_connections',
+    'GET https://www.googleapis.com/calendar/v3/calendars/primary/events',
     'GET /rest/v1/integration_connections',
     'POST https://www.googleapis.com/calendar/v3/calendars/primary/events',
     'POST /rest/v1/rpc/apm_service_autopilot_record_result',
   ]);
   assert.deepEqual(mock.calls[0].body, { p_rule_id: 'rule-1', p_idempotency_key: 'idem-0001', p_payload: payload, p_reason: 'Routine' });
   assert.equal(mock.calls[0].authorization, 'Bearer jwt', 'the claim runs as the user');
-  assert.deepEqual(mock.calls[3].body, { p_user_id: USER, p_execution_id: 'exec-1', p_outcome: 'verified', p_external_ref: 'gcal-1', p_failure_code: null });
-  assert.equal(mock.calls[3].apikey, liveEnv.SUPABASE_SECRET_KEY, 'only the server key records the outcome');
-  assert.notEqual(mock.calls[3].authorization, 'Bearer jwt');
+  const live = new URL(mock.calls[2].url);
+  assert.deepEqual([live.searchParams.get('timeMin'), live.searchParams.get('timeMax')], [payload.startsAt, payload.endsAt], 'the live read covers exactly the target slot');
+  assert.deepEqual(mock.calls[5].body, { p_user_id: USER, p_execution_id: 'exec-1', p_outcome: 'verified', p_external_ref: 'gcal-1', p_failure_code: null });
+  assert.equal(mock.calls[5].apikey, liveEnv.SUPABASE_SECRET_KEY, 'only the server key records the outcome');
+  assert.notEqual(mock.calls[5].authorization, 'Bearer jwt');
   assert.equal(result.replayed, false);
   assert.equal(result.execution.status, 'verified');
   assert.equal(result.action.status, 'verified');
@@ -154,9 +166,31 @@ test('a provider failure is recorded as failed through the RPC and surfaces as e
   } finally { mock.restore(); }
   assertNoDirectAutopilotWrites(mock.calls);
   const record = mock.calls.find((c) => c.url === '/rest/v1/rpc/apm_service_autopilot_record_result');
-  assert.deepEqual(record.body, { p_user_id: USER, p_execution_id: 'exec-1', p_outcome: 'failed', p_external_ref: null, p_failure_code: 'google_calendar_action_failed:503' });
+  assert.deepEqual(record.body, { p_user_id: USER, p_execution_id: 'exec-1', p_outcome: 'failed', p_external_ref: null, p_failure_code: 'provider_unavailable' });
   assert.equal(record.apikey, liveEnv.SUPABASE_SECRET_KEY, 'a failure is recorded by the Worker that saw it, never by the user');
   assert.deepEqual(repo.autopilotErrorResponse(new Error('autopilot_execution_failed')), { error: 'execution_failed', status: 502 });
+});
+
+test('Autopilot never double-books: a slot taken on the live calendar, or a calendar that cannot be read, means no write and a failed ("Not moved") row', async () => {
+  for (const [name, live, code] of [
+    ['taken since the last sync', () => ({ json: { items: [liveItem('2099-01-05T06:30:00Z', '2099-01-05T07:30:00Z')] } }), 'slot_taken'],
+    ['provider down', () => ({ status: 503, json: { error: 'down' } }), 'provider_unavailable'],
+  ]) {
+    const mock = await providerMock(200, { live });
+    try {
+      await assert.rejects(run(liveEnv), /^Error: autopilot_execution_failed$/, name);
+    } finally { mock.restore(); }
+    assert.equal(mock.calls.filter((c) => c.url.startsWith('https://') && c.method !== 'GET').length, 0, `${name}: nothing written to the calendar`);
+    const record = mock.calls.find((c) => c.url === '/rest/v1/rpc/apm_service_autopilot_record_result');
+    assert.equal(record.body.p_outcome, 'failed', name);
+    assert.equal(record.body.p_failure_code, code, name);
+  }
+  // Her own protected Life-areas time counts as busy too, and a free live slot still books.
+  const blocked = await providerMock(200);
+  try {
+    await assert.rejects(run(liveEnv, { graph: { ...graph, lifeAdminItems: [{ id: 'l1', status: 'scheduled', startsAt: '2099-01-05T06:00:00Z', endsAt: '2099-01-05T06:30:00Z' }] } }), /autopilot_execution_failed/);
+  } finally { blocked.restore(); }
+  assert.equal(blocked.calls.filter((c) => c.method === 'POST' && c.url.startsWith('https://')).length, 0);
 });
 
 test('a replayed idempotency key never reaches the provider', async () => {
@@ -246,7 +280,7 @@ test('undo reads the owner-only target, needs the provider switches, and records
     return { status: 500, json: {} };
   });
   let reverted;
-  try { reverted = await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1' }); } finally { live.restore(); }
+  try { reverted = await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1', graph }); } finally { live.restore(); }
   assertNoDirectAutopilotWrites(live.calls);
   assert.deepEqual(live.calls.map((c) => `${c.method} ${c.url.split('?')[0]}`), [
     'POST /rest/v1/rpc/apm_autopilot_undo_target',
@@ -312,7 +346,8 @@ test('email actions with control characters in To/Subject are refused before any
 
 async function sealedConnection(kind) {
   const sealed = await cryptoMod.encryptConnectorCredential(liveEnv, { accessToken: 'provider-token', refreshToken: 'r', expiresAt: Date.now() + 3_600_000 });
-  return [{ id: CONN, provider: 'google', kind, encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv }];
+  // Mail is Outlook only; calendars stay Google here.
+  return [{ id: CONN, provider: kind === 'email' ? 'microsoft' : 'google', kind, encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv }];
 }
 
 const classState = (actionClass, domain, connectorKind) => ({
@@ -338,37 +373,36 @@ async function runClass({ actionClass, domain, connectorKind, proposal, composed
   try {
     result = await repo.runStandingRule({
       env: liveEnv, accessToken: 'jwt', userId: USER, rule: { ...rule, actionClass }, state: classState(actionClass, domain, connectorKind),
-      permission: classPermission(domain, actionClass), entitlement, idempotencyKey: 'idem-0001', reason: 'Standing run', payload: proposal,
+      permission: classPermission(domain, actionClass), entitlement, idempotencyKey: 'idem-0001', reason: 'Standing run', payload: proposal, graph,
     });
   } finally { mock.restore(); }
   assertNoDirectAutopilotWrites(mock.calls);
   return { result, calls: mock.calls };
 }
 
-const decodeRaw = (raw) => Buffer.from(raw.replaceAll('-', '+').replaceAll('_', '/'), 'base64').toString('utf8');
-
-test('email.send sends exactly the database-composed message, never the raw proposal', async () => {
+test('email.send sends exactly the database-composed message from Outlook, never the raw proposal', async () => {
   const proposal = { connectionId: CONN, kind: 'template', to: 'coach@club.example.com', templateId: 'birthday' };
   const composed = { to: 'coach@club.example.com', subject: 'Happy birthday!', body: 'Wishing you a wonderful year.', kind: 'template' };
   const { result, calls } = await runClass({
     actionClass: 'email.send', domain: 'email', connectorKind: 'email', proposal, composed,
-    provider: () => ({ json: { id: 'gmail-sent-1' } }),
+    provider: () => ({ status: 202, json: {} }),
   });
-  const send = calls.find((c) => c.url.startsWith('https://gmail.googleapis.com/'));
-  assert.equal(send.url, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send');
-  const mime = decodeRaw(send.body.raw);
-  assert.match(mime, /^To: coach@club\.example\.com\r\nSubject: Happy birthday!\r\n/);
-  assert.match(mime, /Wishing you a wonderful year\.$/);
+  const send = calls.find((c) => c.url.startsWith('https://'));
+  assert.equal(send.url, 'https://graph.microsoft.com/v1.0/me/sendMail');
+  assert.deepEqual(send.body.message.toRecipients, [{ emailAddress: { address: 'coach@club.example.com' } }]);
+  assert.equal(send.body.message.subject, 'Happy birthday!');
+  assert.equal(send.body.message.body.content, 'Wishing you a wonderful year.');
+  assert.equal(calls.some((c) => c.url.includes('gmail.googleapis.com')), false);
   assert.equal(result.execution.status, 'verified');
 });
 
 test('appointment.book and subscription.cancel send fixed text from the user mailbox; a stop never reaches a provider', async () => {
   for (const [actionClass, domain] of [['appointment.book', 'appointment'], ['subscription.cancel', 'subscription']]) {
     const composed = { to: 'desk@clinic.example.com', subject: `Request: ${actionClass}`, body: 'Fixed text.' };
-    const { calls } = await runClass({ actionClass, domain, connectorKind: 'email', proposal: { connectionId: CONN }, composed, provider: () => ({ json: { id: 'm-1' } }) });
+    const { calls } = await runClass({ actionClass, domain, connectorKind: 'email', proposal: { connectionId: CONN }, composed, provider: () => ({ status: 202, json: {} }) });
     const send = calls.find((c) => c.url.startsWith('https://'));
-    assert.equal(send.url, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', actionClass);
-    assert.match(decodeRaw(send.body.raw), /^To: desk@clinic\.example\.com\r\n/);
+    assert.equal(send.url, 'https://graph.microsoft.com/v1.0/me/sendMail', actionClass);
+    assert.deepEqual(send.body.message.toRecipients, [{ emailAddress: { address: 'desk@clinic.example.com' } }]);
   }
 
   const mock = mockFetch((call) => (call.url === '/rest/v1/rpc/apm_autopilot_claim'
@@ -393,22 +427,45 @@ test('calendar.reschedule moves only the database-resolved event, notifying atte
   const proposal = { eventId: '22222222-2222-4222-8222-222222222222', startsAt: '2099-01-05T16:00:00Z', endsAt: '2099-01-05T17:00:00Z' };
   const composed = { externalEventId: 'ev-plain', title: 'Weekly sync', startsAt: proposal.startsAt, endsAt: proposal.endsAt, originalStartsAt: '2099-01-05T10:00:00Z', originalEndsAt: '2099-01-05T11:00:00Z' };
   const { calls } = await runClass({ actionClass: 'calendar.reschedule', domain: 'calendar', connectorKind: 'calendar', proposal, composed, provider: () => ({ json: { id: 'ev-plain' } }) });
-  const patch = calls.find((c) => c.url.startsWith('https://'));
+  const patch = calls.find((c) => c.url.startsWith('https://') && c.method === 'PATCH');
   assert.equal(`${patch.method} ${patch.url}`, 'PATCH https://www.googleapis.com/calendar/v3/calendars/primary/events/ev-plain?sendUpdates=all');
   assert.deepEqual(patch.body, { start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } });
 
   const connection = await sealedConnection('calendar');
-  const target = { executionId: 'exec-1', domain: 'calendar', connectorKind: 'calendar', undoMethod: 'restore_time', externalRef: 'ev-plain', connectionId: CONN, originalStartsAt: composed.originalStartsAt, originalEndsAt: composed.originalEndsAt };
-  const undo = mockFetch((call) => {
+  const target = { executionId: 'exec-1', domain: 'calendar', connectorKind: 'calendar', undoMethod: 'restore_time', externalRef: 'ev-plain', connectionId: CONN,
+    originalStartsAt: composed.originalStartsAt, originalEndsAt: composed.originalEndsAt, movedStartsAt: proposal.startsAt, movedEndsAt: proposal.endsAt };
+  const undoWith = (live, busy = []) => mockFetch((call) => {
     if (call.url === '/rest/v1/rpc/apm_autopilot_undo_target') return { json: target };
     if (call.url.startsWith('/rest/v1/integration_connections')) return { json: connection };
+    if (isLiveRead(call)) return { json: { items: busy } };
+    if (call.url.startsWith('https://') && call.method === 'GET') return { json: live };
     if (call.url.startsWith('https://')) return { json: {} };
     if (call.url === '/rest/v1/rpc/apm_service_autopilot_record_undo') return { json: executionRow({ status: 'reverted' }) };
     return { status: 500, json: {} };
   });
-  try { await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1' }); } finally { undo.restore(); }
-  const back = undo.calls.find((c) => c.url.startsWith('https://'));
+  // She moved it herself since: Undo refuses and writes nothing.
+  const changed = undoWith({ etag: '"e2"', start: { dateTime: '2099-01-06T09:00:00Z' }, end: { dateTime: '2099-01-06T10:00:00Z' } });
+  try {
+    await assert.rejects(repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1', graph }), /autopilot_undo_event_changed/);
+  } finally { changed.restore(); }
+  assert.equal(changed.calls.filter((c) => c.url.startsWith('https://') && c.method !== 'GET').length, 0);
+  assert.equal(changed.calls.some((c) => c.url.includes('record_undo')), false);
+  // Undo never double-books (review fail 2): the old time was taken since, so the event stays where it is.
+  const taken = undoWith({ etag: '"e1"', start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } }, [liveItem('2099-01-05T10:30:00Z', '2099-01-05T11:30:00Z')]);
+  try {
+    await assert.rejects(repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1', graph }), /autopilot_undo_slot_taken/);
+  } finally { taken.restore(); }
+  assert.equal(taken.calls.filter((c) => c.url.startsWith('https://') && c.method !== 'GET').length, 0, 'nothing moved');
+  assert.equal(taken.calls.some((c) => c.url.includes('record_undo')), false);
+  const liveUndo = new URL(taken.calls.find(isLiveRead).url);
+  assert.deepEqual([liveUndo.searchParams.get('timeMin'), liveUndo.searchParams.get('timeMax')], [composed.originalStartsAt, composed.originalEndsAt]);
+  assert.deepEqual(repo.autopilotErrorResponse(new Error('autopilot_undo_slot_taken')), { error: 'undo_slot_taken', status: 409 });
+  // Still where Autopilot put it: restored under that read's ETag.
+  const undo = undoWith({ etag: '"e1"', start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } });
+  try { await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1', graph }); } finally { undo.restore(); }
+  const back = undo.calls.find((c) => c.url.startsWith('https://') && c.method === 'PATCH');
   assert.deepEqual(back.body, { start: { dateTime: composed.originalStartsAt }, end: { dateTime: composed.originalEndsAt } });
+  assert.equal(back.ifMatch, '"e1"');
 });
 
 test('calendar.decline answers as the invited user with the rule note; undo re-accepts', async () => {
@@ -451,12 +508,52 @@ test('write scopes are a separate consent: read is the default, act adds only th
     await build({ entryPoints: { oauth: join(srcDir, 'connectors/oauth.ts') }, bundle: true, format: 'esm', platform: 'neutral', outdir: outOauth, logLevel: 'silent' });
     const { oauthScopes } = await import(pathToFileURL(join(outOauth, 'oauth.js')).href);
     const writes = /calendar\.events|gmail\.(send|compose)|ReadWrite|Mail\.Send/;
-    for (const provider of ['google', 'microsoft']) for (const kind of ['calendar', 'email']) {
+    for (const [provider, kind] of [['google', 'calendar'], ['microsoft', 'calendar'], ['microsoft', 'email']]) {
       assert.equal(oauthScopes(provider, kind).some((scope) => writes.test(scope)), false, `${provider}:${kind} read consent never carries a write scope`);
       assert.equal(oauthScopes(provider, kind, 'act').some((scope) => writes.test(scope)), true, `${provider}:${kind} act consent adds the write scope`);
     }
-    assert.deepEqual(oauthScopes('google', 'email', 'act').filter((scope) => writes.test(scope)), ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send']);
+    assert.throws(() => oauthScopes('google', 'email'), /outlook_mail_required/);
+    assert.throws(() => oauthScopes('google', 'email', 'act'), /outlook_mail_required/);
   } finally { await rm(outOauth, { recursive: true, force: true }); }
   const index = await readFile(join(srcDir, 'index.ts'), 'utf8');
   assert.match(index, /access: z\.enum\(\['read','act'\]\)\.default\('read'\)/);
+});
+
+test('every failure the standing path can throw is recorded as one closed code with a plain sentence; nothing raw reaches a screen', async () => {
+  const domain = await import(pathToFileURL(join(outDir, 'domain.js')).href);
+  const codes = Object.keys(domain.AUTOPILOT_FAILURE_SENTENCES);
+  for (const [code, sentence] of Object.entries(domain.AUTOPILOT_FAILURE_SENTENCES)) {
+    assert.match(sentence, /^[A-Z].*\.$/, code);
+    assert.doesNotMatch(sentence, /\b[a-z]+_[a-z_]+\b|\d{3}/, `${code}: no code or status in the sentence`);
+  }
+  // Every literal error the standing path's files can throw, plus the provider shapes.
+  const files = ['actionEngine.ts', 'autopilotRepository.ts', 'suiteCalendar.ts', 'connectors/oauth.ts', 'connectors/calendar.ts'];
+  const thrown = new Set(['PROVIDER_UNAVAILABLE:503:google', 'CONNECTOR_NEEDS_REAUTH:microsoft', 'google_calendar_action_failed:503', 'microsoft_send_failed:400', 'autopilot_slot_taken_live']);
+  for (const file of files) {
+    for (const [, message] of (await readFile(join(srcDir, file), 'utf8')).matchAll(/throw new Error\(['`]([^'`$]+)/g)) thrown.add(message);
+  }
+  assert.ok(thrown.size >= 25, `found ${thrown.size} thrown messages`);
+  for (const message of thrown) {
+    const code = domain.classifyAutopilotFailure(new Error(message));
+    assert.ok(codes.includes(code), `${message} → ${code}`);
+    assert.equal(domain.autopilotFailureSentence(code), domain.AUTOPILOT_FAILURE_SENTENCES[code]);
+  }
+  assert.equal(domain.classifyAutopilotFailure(new TypeError('fetch failed')), 'provider_unavailable');
+  assert.equal(domain.classifyAutopilotFailure(new Error('autopilot_slot_taken_live')), 'slot_taken');
+  // Rows written before the codes were closed still read as a sentence.
+  assert.equal(domain.autopilotFailureSentence('google_calendar_action_failed:503'), domain.AUTOPILOT_FAILURE_SENTENCES.provider_unavailable);
+  // No screen prints a failure code itself.
+  const appDir = fileURLToPath(new URL('../../../apps/mobile/', import.meta.url));
+  const screens = [];
+  for (const root of ['app', 'src']) {
+    for (const entry of await readdir(join(appDir, root), { recursive: true })) if (/\.tsx$/.test(entry)) screens.push(join(appDir, root, entry));
+  }
+  assert.ok(screens.length > 20);
+  for (const file of screens) {
+    const source = await readFile(file, 'utf8');
+    for (const [match] of source.matchAll(/\{[^{}]*\bfailureCode\b[^{}]*\}/g)) {
+      if (/autopilotFailureSentence\(/.test(match) || /\?\s*</.test(match) || /\?\s*$/.test(match)) continue;
+      assert.fail(`${file}: renders a raw failure code: ${match}`);
+    }
+  }
 });

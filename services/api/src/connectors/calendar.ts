@@ -1,7 +1,7 @@
 import type { CalendarEvent, IntegrationProvider } from '@apm/domain';
 import type { ApiEnv } from '../env';
 import { supabaseRest } from '../db';
-import { getValidConnectorToken } from './oauth';
+import { getValidConnectorToken, handleConnectorFailure } from './oauth';
 
 export interface NormalizedCalendarEventInput {
   provider: string;
@@ -27,7 +27,7 @@ function googleDate(value: { dateTime?: string; date?: string; timeZone?: string
   throw new Error('google_event_missing_time');
 }
 
-async function fetchGoogleEvents(token: string, from: string, to: string): Promise<NormalizedCalendarEventInput[]> {
+export async function fetchGoogleEvents(token: string, from: string, to: string): Promise<NormalizedCalendarEventInput[]> {
   let pageToken: string | undefined;
   const events: NormalizedCalendarEventInput[] = [];
   do {
@@ -45,9 +45,9 @@ async function fetchGoogleEvents(token: string, from: string, to: string): Promi
     if (!response.ok) throw new Error(`google_calendar_sync_failed:${response.status}`);
     const data = await response.json() as {
       items?: Array<{
-        id: string; status?: string; summary?: string; location?: string; start?: { dateTime?: string; date?: string; timeZone?: string };
+        id: string; eventType?: string; status?: string; summary?: string; location?: string; start?: { dateTime?: string; date?: string; timeZone?: string };
         end?: { dateTime?: string; date?: string; timeZone?: string }; transparency?: string; recurrence?: string[]; etag?: string;
-        organizer?: Record<string, unknown>; attendees?: unknown[];
+        organizer?: Record<string, unknown>; attendees?: unknown[]; recurringEventId?: string; attendeesOmitted?: boolean;
       }>;
       nextPageToken?: string;
     };
@@ -58,8 +58,11 @@ async function fetchGoogleEvents(token: string, from: string, to: string): Promi
       events.push({
         provider: 'google', externalEventId: item.id, title: item.summary ?? '', location: item.location,
         startsAt: start.at, endsAt: end.at, timezone: start.timezone ?? end.timezone, allDay: start.allDay,
-        availability: item.transparency === 'transparent' ? 'free' : 'busy',
-        recurrence: { rules: item.recurrence ?? [] }, organizer: item.organizer ?? {}, attendees: item.attendees ?? [],
+        // A working location says where she works, not that she is busy: it keeps Google's own
+        // transparency (free), so an every-weekday location never blocks a whole day. It still
+        // cannot be moved (providerEventType below).
+        availability: ['focusTime', 'outOfOffice'].includes(item.eventType ?? '') ? 'out_of_office' : item.transparency === 'transparent' ? 'free' : 'busy',
+        recurrence: { rules: item.recurrence ?? [], ...(item.recurringEventId ? { series: item.recurringEventId } : {}) }, organizer: { ...(item.organizer ?? {}), providerEventType: item.eventType ?? 'default' }, attendees: item.attendeesOmitted ? [{}] : item.attendees ?? [],
         sourceVersion: item.etag, deleted: item.status === 'cancelled',
       });
     }
@@ -75,8 +78,8 @@ function microsoftAvailability(showAs?: string): CalendarEvent['availability'] {
   return 'busy';
 }
 
-async function fetchMicrosoftEvents(token: string, from: string, to: string): Promise<NormalizedCalendarEventInput[]> {
-  let url: string | undefined = `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${encodeURIComponent(from)}&endDateTime=${encodeURIComponent(to)}&$top=1000&$select=id,subject,location,start,end,isAllDay,showAs,recurrence,organizer,attendees,changeKey,isCancelled,isOrganizer`;
+export async function fetchMicrosoftEvents(token: string, from: string, to: string): Promise<NormalizedCalendarEventInput[]> {
+  let url: string | undefined = `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${encodeURIComponent(from)}&endDateTime=${encodeURIComponent(to)}&$top=1000&$select=id,subject,location,start,end,isAllDay,showAs,recurrence,organizer,attendees,changeKey,isCancelled,isOrganizer,type,categories`;
   const events: NormalizedCalendarEventInput[] = [];
   let pages = 0;
   while (url && pages < 20) {
@@ -86,8 +89,8 @@ async function fetchMicrosoftEvents(token: string, from: string, to: string): Pr
     const data = await response.json() as {
       value?: Array<{
         id: string; subject?: string; location?: { displayName?: string }; start?: { dateTime?: string; timeZone?: string };
-        end?: { dateTime?: string; timeZone?: string }; isAllDay?: boolean; showAs?: string; recurrence?: Record<string, unknown> | null;
-        organizer?: Record<string, unknown>; attendees?: unknown[]; changeKey?: string; isCancelled?: boolean; isOrganizer?: boolean;
+        end?: { dateTime?: string; timeZone?: string }; isAllDay?: boolean; showAs?: string; categories?: string[]; recurrence?: Record<string, unknown> | null;
+        organizer?: Record<string, unknown>; attendees?: unknown[]; changeKey?: string; isCancelled?: boolean; isOrganizer?: boolean; type?: string; '@odata.etag'?: string;
       }>;
       '@odata.nextLink'?: string;
     };
@@ -97,14 +100,15 @@ async function fetchMicrosoftEvents(token: string, from: string, to: string): Pr
         provider: 'microsoft', externalEventId: item.id, title: item.subject ?? '', location: item.location?.displayName,
         startsAt: new Date(`${item.start.dateTime}${item.start.dateTime.endsWith('Z') ? '' : 'Z'}`).toISOString(),
         endsAt: new Date(`${item.end.dateTime}${item.end.dateTime.endsWith('Z') ? '' : 'Z'}`).toISOString(),
-        timezone: item.start.timeZone, allDay: item.isAllDay ?? false, availability: microsoftAvailability(item.showAs),
+        timezone: item.start.timeZone, allDay: item.isAllDay ?? false, availability: item.categories?.some((category) => category.toLowerCase() === 'focus time') ? 'out_of_office' : microsoftAvailability(item.showAs),
         // `self` mirrors Google's organizer.self so Autopilot can tell the user's own meetings from invitations.
-        recurrence: item.recurrence ?? {}, organizer: { ...(item.organizer ?? {}), self: item.isOrganizer === true }, attendees: item.attendees ?? [], sourceVersion: item.changeKey,
+        recurrence: item.recurrence ?? (item.type === 'singleInstance' ? {} : { series: true }), organizer: { ...(item.organizer ?? {}), self: item.isOrganizer === true, providerEventType: item.type ?? 'singleInstance' }, attendees: item.attendees ?? [], sourceVersion: item['@odata.etag'] ?? item.changeKey,
         deleted: item.isCancelled ?? false,
       });
     }
     url = data['@odata.nextLink'];
   }
+  if (url) throw new Error('calendar_window_incomplete');
   return events;
 }
 
@@ -139,9 +143,9 @@ export async function syncCloudCalendar(input: {
   const to = input.to ?? new Date(Date.now() + 90 * 86_400_000).toISOString();
   const auth = await getValidConnectorToken(input);
   if (auth.kind !== 'calendar') throw new Error('connection_is_not_calendar');
-  const events = auth.provider === 'google'
-    ? await fetchGoogleEvents(auth.accessToken, from, to)
-    : await fetchMicrosoftEvents(auth.accessToken, from, to);
+  const events = await (auth.provider === 'google'
+    ? fetchGoogleEvents(auth.accessToken, from, to)
+    : fetchMicrosoftEvents(auth.accessToken, from, to)).catch((error: unknown) => handleConnectorFailure(input, auth.provider, error));
   const count = await persistCalendarSnapshot({ ...input, provider: auth.provider, events, from, to });
   await supabaseRest(input.env, input.accessToken, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(input.connectionId)}`, {
     method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_sync_at: new Date().toISOString(), last_error_code: null, status: 'connected', updated_at: new Date().toISOString() }),

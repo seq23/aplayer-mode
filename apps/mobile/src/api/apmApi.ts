@@ -477,7 +477,7 @@ export async function reportCoachReply(input: { turnId: string; reason: CoachRep
   return request<{ reportId: string }>('/v1/apm/coach/report', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 /** "Report this" on a plan item or a Radar item: ids and a reason, never the text (migration 0099). */
-export async function reportContent(input: { kind: 'plan_item' | 'radar_item'; ref: string; reason: CoachReportReason }, accessToken: string): Promise<{ reportId: string }> {
+export async function reportContent(input: { kind: 'plan_item' | 'radar_item' | 'action_proposal'; ref: string; reason: CoachReportReason }, accessToken: string): Promise<{ reportId: string }> {
   return request<{ reportId: string }>('/v1/apm/content/report', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
 export async function closeCoachSession(sessionId: string, accessToken: string) {
@@ -485,11 +485,15 @@ export async function closeCoachSession(sessionId: string, accessToken: string) 
 }
 
 /** `access: 'act'` asks the provider for write scopes as a separate, explicit consent (Autopilot); the default is read-only. */
-export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; codeChallenge: string; redirectUri: string; access?: 'read' | 'act'; intent?: 'add' | 'reconnect' }, accessToken: string) {
+export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; access?: 'read' | 'act'; intent?: 'add' | 'reconnect'; client?: 'app' | 'web' }, accessToken: string) {
   return request<{ state: string; authorizationUrl: string }>('/v1/connections/oauth/start', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
-export async function exchangeOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; code: string; codeVerifier: string; state: string; redirectUri: string }, accessToken: string) {
-  return request<{ connectionId: string; accountLabel?: string }>('/v1/connections/oauth/exchange', accessToken, { method: 'POST', body: JSON.stringify(input) });
+/** Finishes a connect with the one-time handoff only the consenting client holds; the server checks this session started it. */
+export async function completeOAuthConnection(input: { state: string; handoff: string }, accessToken: string) {
+  return request<{ connectionId: string }>('/v1/connections/oauth/complete', accessToken, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function fetchOAuthConnectionResult(state: string, accessToken: string) {
+  return request<{ connectionId: string | null; error: string | null }>(`/v1/connections/oauth/result/${encodeURIComponent(state)}`, accessToken);
 }
 // Connected accounts (0065): label, primary, reactivate and disconnect are governed RPCs.
 export async function setConnectionLabel(connectionId: string, label: string | null, accessToken: string): Promise<TodayState> {
@@ -524,8 +528,19 @@ export async function setPermission(domain: string, actionType: string, autonomy
 export async function prepareExternalAction(input: { domain: 'calendar' | 'email' | 'routine' | 'life_graph' | 'notification' | 'connector'; actionType: string; payload: Record<string, unknown>; reason: string; idempotencyKey: string }, accessToken: string) {
   return request<{ action: LifeGraphSnapshot['actions'][number] }>('/v1/actions/prepare', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
-export async function approveExternalAction(actionId: string, accessToken: string) {
-  return request<{ action: LifeGraphSnapshot['actions'][number] }>(`/v1/actions/${encodeURIComponent(actionId)}/approve`, accessToken, { method: 'POST' });
+export async function approveExternalAction(actionId: string, accessToken: string, body?: string) {
+  return request<{ action: LifeGraphSnapshot['actions'][number] }>(`/v1/actions/${encodeURIComponent(actionId)}/approve`, accessToken, { method: 'POST', ...(body !== undefined ? { body: JSON.stringify({ body }) } : {}) });
+}
+
+export async function undoExternalAction(actionId: string, accessToken: string) {
+  return request<{ undone: boolean }>(`/v1/actions/${encodeURIComponent(actionId)}/undo`, accessToken, { method: 'POST' });
+}
+
+export async function rejectExternalAction(actionId: string, accessToken: string) {
+  return request<{ rejected: boolean }>(`/v1/actions/${encodeURIComponent(actionId)}/reject`, accessToken, { method: 'POST' });
+}
+export async function fetchFlexibleCalendarEvents(accessToken: string) {
+  return request<{ eventIds: string[] }>('/v1/calendar/flexible-events', accessToken);
 }
 
 export async function registerPushToken(input: { expoPushToken: string; deviceId?: string; platform?: 'ios' | 'android' | 'web' }, accessToken: string) {

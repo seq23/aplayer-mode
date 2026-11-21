@@ -203,6 +203,10 @@ Why this route was first proposed: it was the only current candidate with struct
 
 Promotion is a recorded registry change, never a side effect: run `coaching_v1`, recheck the provider's training/retention policy on the OpenRouter provider page, have a human review the report, then update `model_routes` (status `approved`, quality/reliability/latency scores, `last_eval_run_at`, `last_policy_reviewed_at`) in a reviewed migration that links the report. Until then the route stays `candidate` and coaching runs fully on the deterministic flow.
 
+## Suite mail jobs (owner decision, 21 Nov 2026)
+
+The two Executive Suite jobs that read private Outlook mail, `suite_reply_draft` and `suite_subscription_finding`, run ONLY on the approved zero-retention, no-training route `or_mistral_small_3_2_24b_deepinfra` (about $0.05 per 1K calls). No free route may receive this mail. The owner approved the spend for these two jobs by name. The allow-list is `SUITE_MAIL_ROUTE` in `services/api/src/aiGateway.ts`. Two ceilings are checked before every call, and each ends in a named stop: a per-user cap of 20 calls a day (`SUITE_MAIL_USER_DAILY_CAP`) and an app-wide `SUITE_MAIL_DAILY_CEILING` (production var, 2000; `SUITE_MAIL_DAILY_CEILING_REACHED`, or `SUITE_MAIL_CEILING_UNSET` when it is missing). Neither ceiling falls back to another route.
+
 ## Sources used for this baseline
 
 - OpenRouter provider directory

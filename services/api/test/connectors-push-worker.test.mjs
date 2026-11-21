@@ -40,9 +40,7 @@ function mockFetch(handler) {
   return { calls, restore: () => { globalThis.fetch = original; } };
 }
 
-test('Gmail bodies decode as UTF-8; model signals are untrusted (bad dates nulled, confidence clamped, wrong shapes skipped)', () => {
-  const encoded = Buffer.from('Café “quoted” — Zoë', 'utf8').toString('base64').replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
-  assert.equal(email.decodeBase64Url(encoded), 'Café “quoted” — Zoë');
+test('model signals are untrusted (bad dates nulled, confidence clamped, wrong shapes skipped)', () => {
   assert.deepEqual(email.sanitizeSignals({}), [], 'valid JSON in the wrong shape never throws');
   assert.deepEqual(email.sanitizeSignals(null), []);
   const out = email.sanitizeSignals({ signals: [

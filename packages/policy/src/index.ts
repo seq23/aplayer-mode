@@ -49,7 +49,7 @@ export const productPlanPolicies: Record<ProductPlan, ProductPlanPolicy> = {
   autopilot: {
     plan: 'autopilot',
     displayName: 'Autopilot',
-    promise: 'APM handles recurring things on its own inside rules you set: everything in Executive Suite, across every calendar and inbox you connect (work and personal at once). It saves money, never spends it.',
+    promise: 'APM moves and books calendar time on its own inside rules you set: everything in Executive Suite, across every calendar and inbox you connect (work and personal at once). It never spends money.',
     publicAvailability: 'available',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval','standing_autopilot','multi_account'],
   },

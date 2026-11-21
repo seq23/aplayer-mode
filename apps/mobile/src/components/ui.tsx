@@ -586,7 +586,7 @@ export function TextField({ value, onChangeText, placeholder, multiline = false,
   /** The 6-digit code look: big, spaced, centred. */
   code?: boolean;
   accessibilityLabel?: string;
-} & Pick<TextInputProps, 'autoCapitalize' | 'autoComplete' | 'keyboardType' | 'textContentType' | 'maxLength' | 'onSubmitEditing' | 'onBlur' | 'returnKeyType'>) {
+} & Pick<TextInputProps, 'autoCapitalize' | 'autoComplete' | 'keyboardType' | 'textContentType' | 'maxLength' | 'editable' | 'onSubmitEditing' | 'onBlur' | 'returnKeyType'>) {
   const s = useThemedStyles(fieldStyles);
   const { colors, type } = useTheme();
   const [focused, setFocused] = useState(false);

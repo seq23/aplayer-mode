@@ -126,12 +126,23 @@ function sampleSurroundings(graph: LifeGraphSnapshot): LifeGraphSnapshot {
   const connection = { id: id(), userId: USER, provider: 'google' as const, kind: 'calendar' as const, accountLabel: 'sample@example.com', label: 'Sample calendar', isPrimary: true, status: 'connected' as const, scopes: ['calendar.readonly'], lastSyncAt: stamp() };
   const person = { id: id(), userId: USER, name: 'Jordan (sample)', relationship: 'Sister', provenance: stated() };
   const goalId = graph.goals[0]?.id;
+  const blockId = id();
+  const focusId = id();
+  // The clear-day sample is still ahead today whenever the preview is opened (a card for an event that already started never shows).
+  const laterToday = new Date(Math.max(Date.parse(at(16)), Math.min(Date.now() + 20 * 60_000, Date.parse(at(23, 0))))).toISOString();
+  const tomorrowAt = (hour: number, minute = 0) => {
+    const date = new Date(at(hour, minute));
+    date.setDate(date.getDate() + 1);
+    return date.toISOString();
+  };
   return {
     ...graph,
     connections: [connection],
     calendarEvents: [
       { id: id(), userId: USER, connectionId: connection.id, provider: 'google', externalEventId: 'sample-1', title: 'Team stand-up (sample)', startsAt: at(9, 30), endsAt: at(10), allDay: false, availability: 'busy', recurrence: {}, organizer: {}, attendees: [], deleted: false },
       { id: id(), userId: USER, connectionId: connection.id, provider: 'google', externalEventId: 'sample-2', title: 'School pickup (sample)', startsAt: at(15, 15), endsAt: at(15, 45), allDay: false, availability: 'busy', recurrence: {}, organizer: {}, attendees: [], deleted: false },
+      { id: blockId, userId: USER, connectionId: connection.id, provider: 'google', externalEventId: 'sample-flex', title: 'Equipment inventory', startsAt: tomorrowAt(10), endsAt: tomorrowAt(10, 30), allDay: false, availability: 'busy', recurrence: {}, organizer: { self: true }, attendees: [], deleted: false },
+      { id: focusId, userId: USER, connectionId: connection.id, provider: 'google', externalEventId: 'sample-focus', title: 'Focus time', startsAt: tomorrowAt(9, 30), endsAt: tomorrowAt(11), allDay: false, availability: 'busy', recurrence: {}, organizer: { self: true }, attendees: [], deleted: false },
     ],
     people: [person],
     lifeRelationships: [{ id: id(), userId: USER, personId: person.id, birthday: '1990-03-14', cadenceDays: 14, notes: 'Sample contact', provenance: stated(), createdAt: stamp(), updatedAt: stamp() }],
@@ -140,9 +151,46 @@ function sampleSurroundings(graph: LifeGraphSnapshot): LifeGraphSnapshot {
       { id: id(), userId: USER, kind: 'bill', title: 'Car insurance renewal (sample)', status: 'open', importance: 4, dueAt: at(23, 59), recurrence: { frequency: 'yearly' }, amountMinor: 64000, currency: 'USD', details: {}, provenance: stated(), createdAt: stamp(), updatedAt: stamp() },
     ],
     radarItems: [
-      { id: id(), userId: USER, type: 'conflict', headline: 'Stand-up runs into your focus block (sample)', summary: 'The 9:30 stand-up overlaps the first block of your day.', status: 'open', severity: 'medium', confidence: 0.9, importance: 0.6, urgency: 0.7, goalAlignment: 0.5, consequence: 0.4, sourceRefs: [{ sourceType: 'calendar', label: 'Sample calendar' }], reasonCodes: ['calendar.overlap'], ...(goalId ? { relatedGoalId: goalId } : {}), createdAt: stamp(), firstRelevantAt: stamp() },
+      { id: `radar:calendar_conflict:${[blockId, focusId].sort().join(':')}`, userId: USER, type: 'conflict', headline: 'Equipment inventory overlaps focus time', summary: 'Both blocks are on your sample calendar tomorrow.', status: 'open', severity: 'medium', confidence: 0.9, importance: 0.6, urgency: 0.7, goalAlignment: 0.5, consequence: 0.4, sourceRefs: [{ sourceType: 'calendar', label: 'Sample calendar' }], reasonCodes: ['calendar.busy_overlap'], ...(goalId ? { relatedGoalId: goalId } : {}), createdAt: stamp(), firstRelevantAt: stamp() },
       { id: id(), userId: USER, type: 'upcoming', headline: 'Car insurance renews today (sample)', summary: 'A yearly bill is due. Nothing is paid for you; this is a reminder.', status: 'open', severity: 'high', confidence: 1, importance: 0.7, urgency: 0.9, goalAlignment: 0.2, consequence: 0.6, sourceRefs: [{ sourceType: 'manual', label: 'Life areas' }], reasonCodes: ['life_os.due_today'], createdAt: stamp(), firstRelevantAt: stamp() },
       { id: id(), userId: USER, type: 'slipping', headline: 'Two weeks since you called Jordan (sample)', summary: 'You asked to be in touch every 14 days.', status: 'open', severity: 'low', confidence: 0.8, importance: 0.4, urgency: 0.3, goalAlignment: 0.3, consequence: 0.2, sourceRefs: [{ sourceType: 'manual', label: 'Life areas' }], reasonCodes: ['relationship.cadence'], createdAt: stamp(), firstRelevantAt: stamp() },
+    ],
+    actions: [
+      { id: id(), userId: USER, domain: 'email', actionType: 'email.send', status: 'prepared', requiresApproval: true, approvalAvailable: true,
+        idempotencyKey: 'suite:reply:preview', reason: 'Reply to an email', createdAt: stamp(), updatedAt: stamp(),
+        payload: { suiteProposal: 'reply', subject: 'Spring rehearsal space', to: 'jordan@example.com', account: 'Sample inbox', expiresAt: tomorrowAt(23, 59), aiGenerated: true,
+          body: 'Thanks, Jordan. The hall works for me if it is still free. Should I hold the evening slot, or would you rather wait until the cast list is final?' } },
+      { id: id(), userId: USER, domain: 'email', actionType: 'subscription.cancel', status: 'prepared', requiresApproval: true, approvalAvailable: true,
+        idempotencyKey: 'suite:subscription_cancel:preview', reason: 'Subscription price may have gone up', createdAt: stamp(), updatedAt: stamp(),
+        payload: { suiteProposal: 'subscription_cancel', finding: 'price_rise', aiGenerated: true, title: 'Streamline Music', to: 'billing@streamline.example',
+          account: 'Sample inbox', expiresAt: tomorrowAt(23, 59) } },
+      { id: id(), userId: USER, domain: 'calendar', actionType: 'calendar.reschedule', status: 'prepared', requiresApproval: true, approvalAvailable: true,
+        idempotencyKey: 'suite:calendar_fix:preview', reason: 'Resolve a calendar clash', createdAt: stamp(), updatedAt: stamp(),
+        payload: { suiteProposal: 'calendar_fix', title: 'Equipment inventory', account: 'Sample calendar', timezone: graph.identity.timezone ?? 'UTC',
+          originalStartsAt: tomorrowAt(10), originalEndsAt: tomorrowAt(10, 30), startsAt: tomorrowAt(11), endsAt: tomorrowAt(11, 30) } },
+      { id: id(), userId: USER, domain: 'calendar', actionType: 'calendar.reschedule', status: 'prepared', requiresApproval: true, approvalAvailable: true,
+        idempotencyKey: 'suite:clear_day:preview', reason: 'Clear today to your minimum day', createdAt: stamp(), updatedAt: stamp(),
+        payload: { suiteProposal: 'clear_day', title: 'Choir planning call', account: 'Sample calendar', timezone: graph.identity.timezone ?? 'UTC', others: 2, notify: true,
+          originalStartsAt: laterToday, originalEndsAt: new Date(Date.parse(laterToday) + 30 * 60_000).toISOString(), startsAt: tomorrowAt(9), endsAt: tomorrowAt(9, 30), expiresAt: at(23, 59) } },
+      { id: id(), userId: USER, domain: 'calendar', actionType: 'calendar.reschedule', status: 'verified', requiresApproval: false,
+        idempotencyKey: 'autopilot:suite:clear_day:preview', reason: 'Clear today to your minimum day', createdAt: stamp(), updatedAt: stamp(), executedAt: stamp(),
+        payload: { eventId: id(), startsAt: tomorrowAt(14), endsAt: tomorrowAt(14, 30),
+          composed: { title: 'Pick up dry cleaning', originalStartsAt: at(17), originalEndsAt: at(17, 30), startsAt: tomorrowAt(14), endsAt: tomorrowAt(14, 30) } } },
+      { id: id(), userId: USER, domain: 'life_graph', actionType: 'goal.checklist', status: 'prepared', requiresApproval: true, approvalAvailable: true,
+        idempotencyKey: 'suite:goal_checklist:preview', reason: 'Get a goal step ready', createdAt: stamp(), updatedAt: stamp(),
+        payload: { suiteProposal: 'goal_checklist', title: 'Get ready to record the first interview', detail: 'Pick a recording space and set out the microphone.', expiresAt: tomorrowAt(23, 59) } },
+      { id: id(), userId: USER, domain: 'calendar', actionType: 'calendar.create', status: 'prepared', requiresApproval: true, approvalAvailable: true,
+        idempotencyKey: 'suite:goal_calendar:preview', reason: 'Make time for a goal step', createdAt: stamp(), updatedAt: stamp(),
+        payload: { suiteProposal: 'goal_calendar', title: 'Edit the opening scene', detail: 'A rough cut of the first two minutes, ready to show one person.',
+          account: 'Sample calendar', timezone: graph.identity.timezone ?? 'UTC', startsAt: tomorrowAt(13), endsAt: tomorrowAt(13, 30), expiresAt: tomorrowAt(13) } },
+      { id: id(), userId: USER, domain: 'life_graph', actionType: 'life_admin.defer', status: 'prepared', requiresApproval: true, approvalAvailable: true,
+        idempotencyKey: 'suite:admin_defer:preview-missed', reason: 'Make room on a minimum day', createdAt: stamp(), updatedAt: stamp(),
+        payload: { suiteProposal: 'missed_day', title: 'Pick up printer paper', timezone: graph.identity.timezone ?? 'UTC',
+          originalStartsAt: at(12), startsAt: tomorrowAt(12), expiresAt: tomorrowAt(23, 59) } },
+      { id: id(), userId: USER, domain: 'life_graph', actionType: 'life_admin.defer', status: 'prepared', requiresApproval: true, approvalAvailable: true,
+        idempotencyKey: 'suite:admin_defer:preview-hard', reason: 'Take a task off a hard day', createdAt: stamp(), updatedAt: stamp(),
+        payload: { suiteProposal: 'hard_day', title: 'Plan next week’s lunches', timezone: graph.identity.timezone ?? 'UTC',
+          originalStartsAt: at(15), startsAt: tomorrowAt(15), expiresAt: tomorrowAt(23, 59) } },
     ],
     permissions: [{ id: id(), userId: USER, domain: 'calendar', actionType: 'calendar.create', autonomyLevel: 2, constraints: {}, enabled: true, grantedAt: stamp(), updatedAt: stamp() }],
   };
@@ -508,7 +556,15 @@ function route(method: string, path: string, body: Record<string, unknown>): unk
     return { ok: true };
   }
   // Connections and permissions: real accounts are never connected from the preview
-  if (is('POST', 'connections/oauth/start') || is('POST', 'connections/oauth/exchange') || is('POST', 'actions/prepare') || is('POST', 'actions/*/approve')) throw new ApiError(409, OFF);
+  if (is('POST', 'connections/oauth/start') || is('POST', 'connections/oauth/complete') || is('POST', 'connections/oauth/exchange') || is('POST', 'actions/prepare')) throw new ApiError(409, OFF);
+  if (is('POST', 'actions/*/approve') || is('POST', 'actions/*/reject')) {
+    const action = s.graph.actions.find((item) => item.id === seg[1] && item.status === 'prepared');
+    if (!action) throw new ApiError(409, OFF);
+    const updated = { ...action, status: (seg[2] === 'approve' ? 'verified' : 'cancelled') as 'verified' | 'cancelled' };
+    graph({ actions: s.graph.actions.map((item) => item.id === updated.id ? updated : item) });
+    return seg[2] === 'approve' ? { action: updated } : { rejected: true };
+  }
+  if (is('GET', 'calendar/flexible-events')) return { eventIds: [] };
   if (is('PATCH', 'connections/*')) return graph({ connections: s.graph.connections.map((item) => (item.id === seg[1] ? { ...item, ...(typeof body.label === 'string' ? { label: body.label } : {}) } : item)) });
   if (is('POST', 'connections/*/disconnect')) return graph({ connections: s.graph.connections.map((item) => (item.id === seg[1] ? { ...item, status: 'disconnected' as const } : item)) });
   if (is('POST', 'connections/*/reactivate')) return graph({ connections: s.graph.connections.map((item) => (item.id === seg[1] ? { ...item, status: 'connected' as const } : item)) });

@@ -1,6 +1,7 @@
 import type { ApiEnv } from './env';
 import { requireSupabaseConfig } from './env';
 import { recordAudit } from './audit';
+import { serviceRpc } from './db';
 
 /**
  * App Review demo sign-in (docs/33 §8). Sign-in is a 6-digit email code, which a reviewer
@@ -69,5 +70,12 @@ export async function reviewLogin(env: ApiEnv, input: unknown): Promise<Result> 
   const session = await verified.json() as { access_token?: string; refresh_token?: string; user?: { id?: string } };
   if (!session.access_token || !session.refresh_token || !session.user?.id) return { status: 502, body: { error: 'review_login_unavailable' } };
   await recordAudit(env, session.user.id, { actor: 'user', type: 'auth.review_login' }, { method: 'fixed_code' }, 'auth_user', session.user.id);
+  // App Review reaches Executive Suite and Autopilot with labelled sample Life-areas items
+  // (migration 0105). A failure never blocks the sign-in; it is a named stop someone sees.
+  try {
+    await serviceRpc(env, 'apm_service_review_account_prepare', { p_user_id: session.user.id });
+  } catch {
+    console.warn('NAMED STOP [REVIEW_ACCOUNT_PREPARE_FAILED]');
+  }
   return { status: 200, body: { review: true, session: { access_token: session.access_token, refresh_token: session.refresh_token } } };
 }

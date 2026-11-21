@@ -241,3 +241,17 @@ test('the run of show spans every connected calendar, and one invite on two cale
     ['School pickup', ['conn-personal']],
   ]);
 });
+
+test('a pending clear-day card shows on Today until the end of its day, and not once its event has started', () => {
+  const now = new Date('2026-11-21T09:00:00Z');
+  const card = (payload) => ({ id: `clear-${Object.keys(payload).join('-')}`, domain: 'calendar', actionType: 'calendar.reschedule', status: 'prepared', requiresApproval: true,
+    idempotencyKey: 'suite:clear_day:x', payload: { suiteProposal: 'clear_day', day: '2026-11-21', title: 'Choir planning call', ...payload } });
+  const g = { ...graph(), identity: { userId: 'user-1', displayName: 'Test User', timezone: 'UTC' },
+    entitlement: { userId: 'user-1', plan: 'autopilot', status: 'active' } };
+  const ahead = card({ originalStartsAt: '2026-11-21T16:00:00Z', expiresAt: '2026-11-22T00:00:00Z' });
+  const started = card({ originalStartsAt: '2026-11-21T08:00:00Z', expiresAt: '2026-11-22T00:00:00Z', started: true });
+  const noExpiry = card({ originalStartsAt: '2026-11-21T16:00:00Z', missing: true });
+  g.actions = [ahead, started, noExpiry];
+  assert.deepEqual(buildDailyPlan(g, { date: '2026-11-21', now }).approvalActionIds, [ahead.id]);
+  assert.deepEqual(buildDailyPlan(g, { date: '2026-11-21', now: new Date('2026-11-21T16:30:00Z') }).approvalActionIds, []);
+});

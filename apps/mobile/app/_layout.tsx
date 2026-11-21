@@ -62,6 +62,7 @@ function ThemedStack() {
           <Stack.Screen name="intake" options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }} />
           <Stack.Screen name="account" options={{ headerShown: false }} />
           <Stack.Screen name="+not-found" options={{ headerShown: false }} />
+          <Stack.Screen name="oauth/complete" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Today' }} />
           <Stack.Screen name="settings/index" options={{ title: 'Settings' }} />
           <Stack.Screen name="settings/plan" options={{ title: 'Your plan' }} />

@@ -22,8 +22,8 @@ const REVIEWER = 'appreview@aplayermode.com';
 const USER = '00000000-0000-4000-8000-0000000007a1';
 const env = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', SUPABASE_SECRET_KEY: 'sb_secret_test', APP_REVIEW_EMAIL: REVIEWER, APP_REVIEW_CODE: '424242' };
 
-function harness() {
-  const calls = []; const audits = [];
+function harness({ prepare = () => new Response(JSON.stringify({ plan: 'autopilot' }), { status: 200 }) } = {}) {
+  const calls = []; const audits = []; const prepared = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const path = String(url).replace(env.SUPABASE_URL, '');
@@ -34,9 +34,10 @@ function harness() {
     if (path === '/auth/v1/admin/generate_link') { assert.deepEqual(body, { type: 'magiclink', email: REVIEWER }); return json({ id: USER, hashed_token: 'hash-1' }); }
     if (path === '/auth/v1/verify') { assert.equal(new Headers(init.headers).get('apikey'), env.SUPABASE_PUBLISHABLE_KEY); assert.deepEqual(body, { type: 'magiclink', token_hash: 'hash-1' }); return json({ access_token: 'at', refresh_token: 'rt', user: { id: USER } }); }
     if (path === '/rest/v1/rpc/apm_service_record_audit') { audits.push(body); return new Response(null, { status: 204 }); }
+    if (path === '/rest/v1/rpc/apm_service_review_account_prepare') { assert.equal(new Headers(init.headers).get('apikey'), env.SUPABASE_SECRET_KEY); prepared.push(body); return prepare(); }
     throw new Error(`unexpected ${path}`);
   };
-  return { calls, audits, restore: () => { globalThis.fetch = original; } };
+  return { calls, audits, prepared, restore: () => { globalThis.fetch = original; } };
 }
 
 test('off unless both values are set (and the code is exactly 6 digits, what the app can type): 404 for everyone, no network', async () => {
@@ -70,7 +71,8 @@ test('the reviewer address: no email is sent; a wrong code is refused; the right
     assert.deepEqual(h.calls, [], 'no account work before the code matches');
     const ok = await mod.reviewLogin(env, { email: REVIEWER, code: '424242' });
     assert.deepEqual(ok, { status: 200, body: { review: true, session: { access_token: 'at', refresh_token: 'rt' } } });
-    assert.deepEqual(h.calls, ['/auth/v1/admin/users', '/auth/v1/admin/generate_link', '/auth/v1/verify', '/rest/v1/rpc/apm_service_record_audit']);
+    assert.deepEqual(h.calls, ['/auth/v1/admin/users', '/auth/v1/admin/generate_link', '/auth/v1/verify', '/rest/v1/rpc/apm_service_record_audit', '/rest/v1/rpc/apm_service_review_account_prepare']);
+    assert.deepEqual(h.prepared, [{ p_user_id: USER }], 'the review account is prepared for Suite and Autopilot with the server key');
     assert.equal(h.audits.length, 1);
     assert.equal(h.audits[0].p_event_type, 'auth.review_login');
     assert.equal(h.audits[0].p_actor_type, 'user');
@@ -85,4 +87,16 @@ test('the route is wired and the app falls back to the normal email code when it
   const session = await readFile(fileURLToPath(new URL('../../../apps/mobile/src/state/session.tsx', import.meta.url)), 'utf8');
   assert.match(session, /if \(\(await reviewerSignIn\(\{ email: address \}\)\)\?\.review\) \{ emailMode\.current = 'review'; return; \}/);
   assert.match(session, /supabase\(\)\.auth\.setSession\(review\.session\)/);
+});
+
+test('a failed review-account preparation never blocks the reviewer sign-in; it is a named stop', async (t) => {
+  const warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args.join(' ')));
+  const h = harness({ prepare: () => new Response(JSON.stringify({ message: 'review_account_only' }), { status: 400 }) });
+  try {
+    const ok = await mod.reviewLogin(env, { email: REVIEWER, code: '424242' });
+    assert.equal(ok.status, 200);
+    assert.ok(ok.body.session.access_token);
+  } finally { h.restore(); }
+  assert.ok(warnings.some((line) => line.includes('NAMED STOP [REVIEW_ACCOUNT_PREPARE_FAILED]')));
 });

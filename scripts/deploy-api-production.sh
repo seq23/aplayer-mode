@@ -7,7 +7,7 @@
 #   scripts/deploy-api-production.sh [--secrets-dir DIR]
 #
 # --secrets-dir: a directory of 0600 files named after Worker secrets (OPENROUTER_API_KEY,
-# CONNECTOR_CREDENTIAL_KEY, OAUTH_STATE_SECRET, REVENUECAT_WEBHOOK_SECRET, APP_REVIEW_CODE,
+# CONNECTOR_CREDENTIAL_KEY, REVENUECAT_WEBHOOK_SECRET, APP_REVIEW_CODE,
 # SUPABASE_SECRET_KEY, ...). Each is piped to `wrangler secret put` from the file, so no value is
 # printed or put on a command line. BILLING_ALLOW_SANDBOX is refused in production.
 set -Eeuo pipefail

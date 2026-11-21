@@ -88,3 +88,30 @@ test('a person reports a plan item or a Radar item: ids and reason only, audited
   await rejects(h.as(A, `insert into public.content_reports (user_id, kind, ref, reason) values ($1, 'plan_item', 'y', 'other')`, [A]), /permission denied/);
   await rejects(h.asRole('anon', null, 'select public.apm_report_content($1, $2, $3)', ['plan_item', 'x', 'other']), /permission denied/);
 });
+
+test('0105: only the allowlisted review address gets Autopilot and sample Life-areas items; a store plan is never overwritten; clients cannot call it', async () => {
+  const R = U(663), S2 = U(664);
+  await h.admin("insert into auth.users (id, email) values ($1, 'appreview@aplayermode.com'), ($2, 'someone@example.com')", [R, S2]);
+  const prepare = (id) => h.admin('select public.apm_service_review_account_prepare($1) as r', [id]);
+  const out = (await prepare(R)).rows[0].r;
+  assert.equal(out.plan, 'autopilot');
+  const ent = (await h.admin('select plan, status, provider, current_period_end from public.subscription_entitlements where user_id = $1', [R])).rows[0];
+  assert.deepEqual([ent.plan, ent.status, ent.provider], ['autopilot', 'active', null]);
+  assert.ok(ent.current_period_end > new Date(), 'bounded by the allowlist end date');
+  assert.equal((await h.admin('select private.apm_has_core_access($1) as ok', [R])).rows[0].ok, true);
+  const items = (await h.admin("select kind, title, details from public.life_admin_items where user_id = $1 order by kind", [R])).rows;
+  assert.deepEqual(items.map((i) => i.kind), ['appointment', 'bill', 'shopping']);
+  assert.ok(items.every((i) => i.title.endsWith('(sample)') && i.details.sample === true), 'every sample is labelled');
+  assert.equal(items.find((i) => i.kind === 'shopping').details.flexibleSchedule, true, 'a hard day can move it');
+  // A second sign-in re-times the samples instead of duplicating them.
+  await prepare(R);
+  assert.equal((await h.admin('select count(*)::int as n from public.life_admin_items where user_id = $1', [R])).rows[0].n, 3);
+  // Nobody else, and no autonomy: no permission is switched on.
+  await rejects(prepare(S2), /review_account_only/);
+  assert.equal((await h.admin('select count(*)::int as n from public.permissions where user_id = $1 and enabled', [R])).rows[0].n, 0);
+  await rejects(h.as(R, 'select public.apm_service_review_account_prepare($1)', [R]), /permission denied/);
+  // A store subscription always governs.
+  await h.admin("update public.subscription_entitlements set plan = 'chief_of_staff', provider = 'app_store' where user_id = $1", [R]);
+  await prepare(R);
+  assert.deepEqual((await h.admin('select plan, provider from public.subscription_entitlements where user_id = $1', [R])).rows[0], { plan: 'chief_of_staff', provider: 'app_store' });
+});

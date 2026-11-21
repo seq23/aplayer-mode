@@ -52,7 +52,7 @@ test('price constants are the owner-decided final prices (ADR-0004)', () => {
     assert.ok(productPlanPolicies.life_os.promise.includes(area), `Executive Suite promise covers ${area}`);
   }
   assert.match(productPlanPolicies.life_os.promise, /acts when you tap yes/);
-  assert.match(productPlanPolicies.autopilot.promise, /inside rules you set.*saves money, never spends it/);
+  assert.match(productPlanPolicies.autopilot.promise, /never spends money/, 'the no-spend promise stays (claims safety)');
   for (const policy of Object.values(productPlanPolicies)) {
     assert.doesNotMatch(`${policy.displayName} ${policy.promise}`, /Chief of Staff|Life OS/, `${policy.plan}: no retired plan name`);
   }
