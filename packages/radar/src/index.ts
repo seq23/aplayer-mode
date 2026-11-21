@@ -417,6 +417,26 @@ export function buildRadarItems(graph: LifeGraphSnapshot, options: RadarBuildOpt
     });
   }
 
+  if (graph.entitlement && ['life_os', 'autopilot'].includes(graph.entitlement.plan)
+    && ['active', 'trialing'].includes(graph.entitlement.status)) {
+    for (const signal of graph.messageSignals ?? []) {
+      if (!['subscription_price_rise', 'subscription_unused'].includes(signal.signalType)
+        || !signal.dueAt || Date.parse(signal.dueAt) <= now.getTime()) continue;
+      const cancel = (graph.actions ?? []).find((action) => action.status === 'prepared' && action.payload.suiteProposal === 'subscription_cancel'
+        && action.payload.messageId === signal.externalMessageId && action.payload.connectionId === signal.connectionId);
+      items.push({
+        id: `radar:subscription:${signal.id}`, userId: graph.identity.userId, type: 'recurring',
+        headline: signal.signalType === 'subscription_price_rise' ? `${signal.summary} may cost more now` : `${signal.summary} may be unused`,
+        summary: cancel ? 'Review the cancellation email on Today if you want to end the subscription.' : 'Check the notice in Outlook Mail for details.',
+        status: 'open', severity: 'medium', confidence: signal.confidence,
+        importance: 0.65, urgency: 0.5, goalAlignment: 0.5, consequence: 0.65,
+        sourceRefs: [{ sourceType: 'outlook', sourceRef: signal.externalMessageId }],
+        reasonCodes: [signal.signalType === 'subscription_price_rise' ? 'subscription.price_rise' : 'subscription.unused'],
+        createdAt: signal.observedAt, firstRelevantAt: signal.observedAt, expiresAt: signal.dueAt,
+      });
+    }
+  }
+
   items.push(...calendarConflictItems(graph, now), ...calendarOverloadItems(graph, now));
   items.push(...trackRadarItems(graph, now));
 

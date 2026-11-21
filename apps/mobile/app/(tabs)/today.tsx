@@ -33,6 +33,7 @@ import type { AgendaItem } from '@apm/planning';
 import {
   approveExternalAction,
   rejectExternalAction,
+  undoExternalAction,
   checkInToday,
   closeToday,
   completeAgendaAction,
@@ -180,6 +181,13 @@ export default function TodayScreen() {
     .filter((action): action is NonNullable<typeof action> => Boolean(action))
     .filter(({ payload }) => !recovery || ['missed_day', 'hard_day'].includes(String(payload.suiteProposal)));
 
+  const dateInZone = new Intl.DateTimeFormat('en-CA', { timeZone: graph.identity.timezone || 'UTC', dateStyle: 'short' });
+  const localToday = dateInZone.format(new Date());
+  const outcomes = graph.actions.filter((action) => action.idempotencyKey.startsWith('suite:')
+    && ['verified', 'cancelled'].includes(action.status)
+    && Number.isFinite(Date.parse(action.updatedAt)) && dateInZone.format(new Date(action.updatedAt)) === localToday);
+  const reconnectAccounts = graph.connections.filter((account) => account.status === 'needs_reauth' && !account.pausedAt);
+
   const complete = async () => {
     if (!primaryAction || busy) return;
     setBusy(true); setActionError(undefined);
@@ -188,11 +196,12 @@ export default function TodayScreen() {
     finally { setBusy(false); }
   };
 
-  const decideApproval = async (actionId: string, decision: 'approve' | 'reject') => {
+  const decideApproval = async (actionId: string, decision: 'approve' | 'reject' | 'undo', editedBody?: string) => {
     if (!accessToken || busyActionId) return;
     setBusyActionId(actionId); setActionError(undefined);
     try {
-      if (decision === 'approve') await approveExternalAction(actionId, accessToken);
+      if (decision === 'approve') await approveExternalAction(actionId, accessToken, editedBody);
+      else if (decision === 'undo') await undoExternalAction(actionId, accessToken);
       else await rejectExternalAction(actionId, accessToken);
       await refresh();
     } catch (error) {
@@ -351,11 +360,21 @@ export default function TodayScreen() {
           <Toast message={notice} />
           {actionError ? <ErrorState message={actionError} /> : null}
 
+          {reconnectAccounts.map((account) => <Card key={account.id}>
+            <CardTitle>{account.label ?? (account.kind === 'email' ? 'Outlook Mail' : account.provider === 'google' ? 'Google Calendar' : 'Outlook Calendar')} needs reconnecting</CardTitle>
+            <Body muted>{account.kind === 'email' ? 'Reconnect to get reply drafts and subscription alerts.' : 'Reconnect to get calendar proposals.'}</Body>
+            <Button label="Reconnect" variant="secondary" onPress={() => router.push('/settings/privacy/connections')} />
+          </Card>)}
+
+          {outcomes.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId}
+            onApprove={() => undefined} onReject={() => undefined} onUndo={() => void decideApproval(action.id, 'undo')} />)}
+
           {!hideAgenda && approvals.length ? (
             <>
               <SectionTitle>Needs your approval</SectionTitle>
               {approvals.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId}
-                onApprove={() => void decideApproval(action.id, 'approve')} onReject={() => void decideApproval(action.id, 'reject')}
+                onPermissions={() => router.push('/settings/privacy/autonomy')}
+                onApprove={(body) => void decideApproval(action.id, 'approve', body)} onReject={() => void decideApproval(action.id, 'reject')}
                 onReport={accessToken ? (reason) => reportContent({ kind: 'action_proposal', ref: action.id, reason }, accessToken) : undefined} />)}
             </>
           ) : null}
@@ -373,8 +392,8 @@ export default function TodayScreen() {
 
           {!hideAgenda && !recovery && canUseReplyDrafts && hasLegacyGmail && !hasOutlookMail ? (
             <Card>
-              <CardTitle>Reply drafts use Outlook Mail</CardTitle>
-              <Body muted>Connect Outlook Mail to review replies here before sending.</Body>
+              <CardTitle>Reply drafts and subscription alerts use Outlook Mail</CardTitle>
+              <Body muted>Connect Outlook Mail to review drafts here and see subscription alerts on Radar.</Body>
               <Button label="Manage connections" variant="secondary" onPress={() => router.push('/settings/privacy/connections')} />
             </Card>
           ) : null}

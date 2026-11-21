@@ -1,8 +1,6 @@
-import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
-import { makeRedirectUri } from 'expo-auth-session';
 import { Platform } from 'react-native';
-import { apiBaseUrl, exchangeOAuthConnection, startOAuthConnection } from '../api/apmApi';
+import { apiBaseUrl, fetchOAuthConnectionResult, startOAuthConnection } from '../api/apmApi';
 import { authStartUrl, openAuthSheet } from './authStart';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -10,15 +8,6 @@ WebBrowser.maybeCompleteAuthSession();
 export type OAuthProvider = 'google' | 'microsoft';
 export type OAuthKind = 'calendar' | 'email';
 
-function base64Url(value: string): string {
-  return value.replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-}
-
-function randomVerifier(): string {
-  return `${Crypto.randomUUID()}${Crypto.randomUUID()}`.replaceAll('-', '');
-}
-
-/** Runs Authorization Code + PKCE without exposing provider client secrets in the app. */
 export async function connectOAuthProvider(input: {
   provider: OAuthProvider;
   kind: OAuthKind;
@@ -28,41 +17,40 @@ export async function connectOAuthProvider(input: {
   /** 'add' = another account of this kind (Autopilot only, 0065); 'reconnect' = the same account. */
   intent?: 'add' | 'reconnect';
 }) {
-  const redirectUri = makeRedirectUri({ scheme: 'aplayermode', path: 'oauth' });
-  const codeVerifier = randomVerifier();
-  const digest = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, codeVerifier, {
-    encoding: Crypto.CryptoEncoding.BASE64,
-  });
-  const codeChallenge = base64Url(digest);
+  const popup = Platform.OS === 'web' ? window.open('about:blank', '_blank', 'popup') : null;
+  if (Platform.OS === 'web' && !popup) throw new Error('Allow pop-ups to connect this account.');
+  const redirectUri = 'aplayermode://oauth';
+  try {
+    const started = await startOAuthConnection({
+      provider: input.provider,
+      kind: input.kind,
+      access: input.access ?? 'read',
+      intent: input.intent ?? 'reconnect',
+    }, input.accessToken);
+    if (popup) {
+      popup.opener = null;
+      popup.location.href = started.authorizationUrl;
+      const deadline = Date.now() + 10 * 60_000;
+      while (Date.now() < deadline) {
+        const { connectionId, error } = await fetchOAuthConnectionResult(started.state, input.accessToken);
+        if (connectionId) return { connectionId };
+        if (error || popup.closed) break;
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+      throw new Error('Connection could not be confirmed');
+    }
 
-  const started = await startOAuthConnection({
-    provider: input.provider,
-    kind: input.kind,
-    codeChallenge,
-    redirectUri,
-    access: input.access ?? 'read',
-    intent: input.intent ?? 'reconnect',
-  }, input.accessToken);
+    const start = authStartUrl(started.authorizationUrl, { provider: input.provider, returnUrl: redirectUri, apiBase: apiBaseUrl(), platform: Platform.OS });
+    const returned = await openAuthSheet(WebBrowser.openAuthSessionAsync, start, redirectUri);
+    if (!returned) throw new Error('Connection was cancelled before authorization completed');
 
-  // Opens on api.aplayermode.com first, so iOS names our domain (./authStart.ts).
-  const start = authStartUrl(started.authorizationUrl, { provider: input.provider, returnUrl: redirectUri, apiBase: apiBaseUrl(), platform: Platform.OS });
-  const returned = await openAuthSheet(WebBrowser.openAuthSessionAsync, start, redirectUri);
-  if (!returned) throw new Error('Connection was cancelled before authorization completed');
-
-  const callback = new URL(returned);
-  const error = callback.searchParams.get('error');
-  if (error) throw new Error(`Provider authorization failed: ${error}`);
-  const code = callback.searchParams.get('code');
-  const state = callback.searchParams.get('state');
-  if (!code || !state) throw new Error('Provider callback did not include authorization code and state');
-  if (state !== started.state) throw new Error('OAuth state mismatch');
-
-  return exchangeOAuthConnection({
-    provider: input.provider,
-    kind: input.kind,
-    code,
-    codeVerifier,
-    state,
-    redirectUri,
-  }, input.accessToken);
+    const callback = new URL(returned);
+    if (callback.protocol !== 'aplayermode:' || callback.hostname !== 'oauth'
+      || callback.searchParams.get('connected') !== input.provider) throw new Error('Connection could not be confirmed');
+    const { connectionId } = await fetchOAuthConnectionResult(started.state, input.accessToken);
+    if (!connectionId) throw new Error('Connection could not be confirmed');
+    return { connectionId };
+  } finally {
+    popup?.close();
+  }
 }

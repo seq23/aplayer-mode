@@ -5,7 +5,8 @@
   "compatibility_date": "2026-10-06",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": false }
   },
   // BHPC Morning Trigger: every 15 minutes the scheduled handler (src/entry.ts) prints the
   // agenda for users whose local wake time has arrived and sends one push per user per day.
@@ -40,6 +41,8 @@
         "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_k1YVCTt8hL0gBlWbf7lpYQ__lbnKGt8",
         "ALLOWED_ORIGIN": "https://app.aplayermode.com",
         "APP_PUBLIC_URL": "https://app.aplayermode.com",
+        "GOOGLE_OAUTH_REDIRECT_URI": "https://api.aplayermode.com/v1/oauth/google/callback",
+        "MICROSOFT_OAUTH_REDIRECT_URI": "https://api.aplayermode.com/v1/oauth/microsoft/callback",
         "APP_REVIEW_EMAIL": "appreview@aplayermode.com",
         "REVENUECAT_PROJECT_ID": "proj2c0586cf"
       }

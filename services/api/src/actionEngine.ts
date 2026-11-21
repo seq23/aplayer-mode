@@ -321,6 +321,7 @@ export async function revertConnectorAction(
 export async function approveAndMaybeExecuteAction(input: {
   env: ApiEnv; accessToken: string; userId: string; action: ActionRecord; permission?: Permission; entitlement?: SubscriptionEntitlement;
   atomicWrite?: () => Promise<ActionRow>;
+  claim?: () => Promise<ActionRow>;
   execute?: (claimed: ActionRecord) => Promise<string>;
 }): Promise<ActionRecord> {
   const domain = input.action.domain as ActionDomain;
@@ -338,7 +339,7 @@ export async function approveAndMaybeExecuteAction(input: {
 
   // Atomic claim: `update … where status in ('prepared','approved') returning`. A second
   // concurrent approval gets no row (action_invalid_state) and never reaches the provider.
-  const claimed = mapAction(await serviceRpc<ActionRow>(input.env, 'apm_service_action_claim', { p_user_id: input.userId, p_action_id: input.action.id }), input.userId);
+  const claimed = mapAction(input.claim ? await input.claim() : await serviceRpc<ActionRow>(input.env, 'apm_service_action_claim', { p_user_id: input.userId, p_action_id: input.action.id }), input.userId);
   const provider = String(claimed.payload.provider ?? '');
   let externalRef = '';
   try {

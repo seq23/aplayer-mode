@@ -3,7 +3,7 @@ import type { ApiEnv } from '../env';
 import { supabaseRest } from '../db';
 import { InferenceResponseError, NoEligibleModelRouteError } from '@apm/ai';
 import { runUserInference } from '../aiGateway';
-import { getValidConnectorToken } from './oauth';
+import { getValidConnectorToken, handleConnectorFailure } from './oauth';
 
 interface SourceMessage {
   provider: 'google' | 'microsoft';
@@ -94,11 +94,11 @@ function htmlToText(value: string): string {
   return value.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-async function fetchMicrosoftMessages(token: string, maxMessages: number): Promise<SourceMessage[]> {
+export async function fetchMicrosoftMessages(token: string, maxMessages: number): Promise<SourceMessage[]> {
   const params = new URLSearchParams({
     '$top': String(Math.min(maxMessages, 100)),
     '$orderby': 'receivedDateTime desc',
-    '$select': 'id,conversationId,subject,from,receivedDateTime,body',
+    '$select': 'id,conversationId,subject,from,receivedDateTime,body,isDraft',
   });
   const response = await fetch(`https://graph.microsoft.com/v1.0/me/messages?${params.toString()}`, {
     headers: { authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="text"' },
@@ -106,11 +106,11 @@ async function fetchMicrosoftMessages(token: string, maxMessages: number): Promi
   if (!response.ok) throw new Error(`outlook_messages_failed:${response.status}`);
   const data = await response.json() as {
     value?: Array<{
-      id: string; conversationId?: string; subject?: string; receivedDateTime?: string;
+      id: string; conversationId?: string; subject?: string; receivedDateTime?: string; isDraft?: boolean;
       from?: { emailAddress?: { name?: string; address?: string } }; body?: { content?: string; contentType?: string };
     }>;
   };
-  return (data.value ?? []).map((item) => ({
+  return (data.value ?? []).filter((item) => !item.isDraft).map((item) => ({
     provider: 'microsoft' as const,
     externalMessageId: item.id,
     externalThreadId: item.conversationId,
@@ -228,9 +228,9 @@ export async function syncEmailSignals(input: { env: ApiEnv; accessToken: string
   const auth = await getValidConnectorToken(input);
   if (auth.kind !== 'email') throw new Error('connection_is_not_email');
   const maxMessages = Math.min(input.maxMessages ?? 25, 50);
-  const messages = auth.provider === 'google'
-    ? await fetchGmailMessages(auth.accessToken, maxMessages)
-    : await fetchMicrosoftMessages(auth.accessToken, maxMessages);
+  const messages = await (auth.provider === 'google'
+    ? fetchGmailMessages(auth.accessToken, maxMessages)
+    : fetchMicrosoftMessages(auth.accessToken, maxMessages)).catch((error: unknown) => handleConnectorFailure(input, auth.provider, error));
   let signalsStored = 0;
   for (const message of messages) {
     // A model answer in the wrong shape, or a message no vetted route may receive (e.g.

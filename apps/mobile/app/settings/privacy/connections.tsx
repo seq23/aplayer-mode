@@ -74,6 +74,7 @@ export default function ConnectionsScreen() {
       await work(accessToken);
       await refresh();
     } catch (cause) {
+      await refresh().catch(() => undefined);
       setError(plainError(cause, fallback));
     } finally {
       setBusy(undefined);
@@ -101,7 +102,7 @@ export default function ConnectionsScreen() {
         <View style={uiStyles.row}>
           <CardTitle>{accountName(account)}</CardTitle>
           {account.isPrimary ? <Pill tone="success">Primary</Pill> : null}
-          <Pill tone={account.pausedAt ? 'warning' : account.status === 'connected' ? 'success' : undefined}>{account.pausedAt ? 'Paused' : account.status}</Pill>
+          <Pill tone={account.pausedAt ? 'warning' : account.status === 'connected' ? 'success' : undefined}>{account.pausedAt ? 'Paused' : account.status === 'needs_reauth' ? 'Needs reconnecting' : account.status}</Pill>
         </View>
         <KeyValue label="Provider" value={PROVIDER_NAMES[kind]?.[provider] ?? account.provider} />
         <KeyValue label="Account" value={account.accountLabel ?? 'Connected account'} />
@@ -122,7 +123,10 @@ export default function ConnectionsScreen() {
           <Button label={busy === `reactivate:${account.id}` ? 'Reactivating…' : 'Reactivate'} variant="secondary"
             onPress={() => void run(`reactivate:${account.id}`, (token) => reactivateConnection(account.id, token), 'Unable to reactivate this account.')} />
         ) : null}
-        {!account.pausedAt && supported ? (
+        {!account.pausedAt && supported && account.status === 'needs_reauth' ? <Button
+          label={`Reconnect ${PROVIDER_NAMES[kind][provider]}`} variant="secondary"
+          onPress={() => void connect(provider, kind, 'reconnect', hasWriteScope(kind, account.scopes) ? 'act' : 'read')} /> : null}
+        {!account.pausedAt && supported && account.status !== 'needs_reauth' ? (
           <>
             <Button label={busy === `sync:${account.id}` ? 'Syncing…' : 'Sync now'} variant="secondary" onPress={() => void sync(account)} />
             <Button

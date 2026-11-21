@@ -27,7 +27,6 @@ These secrets should be scoped to the minimum access required by their workflow.
 | `SUPABASE_SECRET_KEY` | Worker secret (server-only) | Agenda-locking writes (check-in, declared replan, reprint; migration 0028) and the scheduled Morning Trigger. Without it check-in answers 503 `service_unavailable` and the cron logs a named stop. Never in the mobile bundle. |
 | `OPENROUTER_API_KEY` | secret | Model inference |
 | `CONNECTOR_CREDENTIAL_KEY` | secret | AES-GCM encryption of provider tokens |
-| `OAUTH_STATE_SECRET` | secret | OAuth state integrity |
 | `GOOGLE_OAUTH_CLIENT_ID` | config | Google OAuth |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | secret where applicable | Google token exchange |
 | `GOOGLE_OAUTH_REDIRECT_URI` | config | Google OAuth callback |
@@ -80,3 +79,13 @@ External setup still requires real accounts/configuration in:
 ## Secret rotation rule
 
 If a credential is exposed in Git, a mobile bundle, a prompt, a screenshot, CI logs, or an uncontrolled channel, treat it as compromised: revoke/rotate it and update the managed secret store. Removing it from Git history alone is not sufficient.
+
+The calendar and mail connectors use web OAuth clients. Register
+`https://api.aplayermode.com/v1/oauth/google/callback` and
+`https://api.aplayermode.com/v1/oauth/microsoft/callback` with the respective providers.
+The Worker runs the code exchange and returns only the connection result to the app.
+
+Suite proposals check `GLOBAL_ACTION_EXECUTION` and the corresponding domain switch
+(`ACTION_EMAIL_EXECUTION`, `ACTION_CALENDAR_EXECUTION`, or `ACTION_LIFE_GRAPH_EXECUTION`).
+Keep production execution disabled until the release review passes. An enabled switch
+still requires a plan, a permission, the provider scope, and an approval for each Suite write.

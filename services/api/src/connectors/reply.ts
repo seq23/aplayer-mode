@@ -13,26 +13,26 @@ export type ReplyTarget = z.infer<typeof replyTarget>;
 const outlook = 'https://graph.microsoft.com/v1.0/me';
 type OutlookMessage = {
   id: string; conversationId?: string; subject?: string; isDraft?: boolean; sentDateTime?: string;
-  from?: Recipient; replyTo?: Recipient[];
+  from?: Recipient; replyTo?: Recipient[]; uniqueBody?: { content?: string; contentType?: string };
 };
 type Recipient = { emailAddress?: { address?: string } };
 
 async function providerJson<T>(url: string, headers: HeadersInit): Promise<T | null> {
   const response = await fetch(url, { headers });
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error('reply_source_unavailable');
+  if (!response.ok) throw new Error(`reply_source_unavailable:${response.status}`);
   return response.json() as Promise<T>;
 }
 
 /** Read headers only. An answered, deleted, ambiguous or outbound thread cannot yield a draft. */
 export async function readReplyTarget(
-  auth: Awaited<ReturnType<typeof getValidConnectorToken>>, messageId: string, threadId: string, account: string,
-): Promise<ReplyTarget | undefined> {
+  auth: Awaited<ReturnType<typeof getValidConnectorToken>>, messageId: string, threadId: string, account: string, includeBody = false,
+): Promise<(ReplyTarget & { excerpts?: Array<{ author: string; text: string }> }) | undefined> {
   if (auth.kind !== 'email' || auth.provider !== 'microsoft' || !address.safeParse(account).success) return;
-  const headers = { authorization: `Bearer ${auth.accessToken}` };
+  const headers = { authorization: `Bearer ${auth.accessToken}`, ...(includeBody ? { Prefer: 'outlook.body-content-type="text"' } : {}) };
   const params = new URLSearchParams({
     '$filter': `conversationId eq '${threadId.replaceAll("'", "''")}'`,
-    '$select': 'id,conversationId,subject,isDraft,sentDateTime,from,replyTo',
+    '$select': 'id,conversationId,subject,isDraft,sentDateTime,from,replyTo' + (includeBody ? ',uniqueBody' : ''),
     '$top': '50',
   });
   const thread = await providerJson<{ value?: OutlookMessage[]; '@odata.nextLink'?: string }>(`${outlook}/messages?${params}`, headers);
@@ -44,7 +44,14 @@ export async function readReplyTarget(
   const recipients = message.replyTo?.length ? message.replyTo : [message.from];
   if (recipients.length !== 1) return;
   const parsed = replyTarget.safeParse({ to: recipients[0]?.emailAddress?.address, subject: message.subject, messageId, threadId });
-  if (parsed.success && parsed.data.to.toLowerCase() !== account.toLowerCase()) return parsed.data;
+  if (!parsed.success || parsed.data.to.toLowerCase() === account.toLowerCase()) return;
+  if (!includeBody) return parsed.data;
+  const excerpts = [...(thread?.value ?? [])]
+    .sort((a, b) => Date.parse(a.sentDateTime ?? '') - Date.parse(b.sentDateTime ?? ''))
+    .slice(-6).flatMap((item) => item.uniqueBody?.contentType?.toLowerCase() === 'text' && item.uniqueBody.content?.trim()
+      ? [{ author: item.from?.emailAddress?.address?.toLowerCase() === account.toLowerCase() ? 'user' : 'other', text: item.uniqueBody.content.slice(0, 1800) }] : []);
+  if (message.uniqueBody?.contentType?.toLowerCase() !== 'text' || !message.uniqueBody.content?.trim()) return;
+  return { ...parsed.data, excerpts };
 }
 
 export async function sendThreadReply(

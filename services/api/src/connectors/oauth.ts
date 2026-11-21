@@ -1,7 +1,7 @@
 import type { IntegrationKind, IntegrationProvider } from '@apm/domain';
 import type { ApiEnv } from '../env';
 import { decryptConnectorCredential, encryptConnectorCredential } from '../crypto';
-import { supabaseRest } from '../db';
+import { SERVICE_ROLE_TOKEN, supabaseRest } from '../db';
 
 export interface ConnectorTokens {
   accessToken: string;
@@ -18,6 +18,7 @@ interface ConnectionSecretRow {
   encrypted_credentials: string | null;
   credential_iv: string | null;
   paused_at?: string | null;
+  status?: string;
 }
 
 /**
@@ -150,6 +151,7 @@ export async function exchangeAndStoreOAuthConnection(input: {
   const tokens = input.provider === 'google'
     ? await exchangeGoogle(input.env, input.code, input.codeVerifier, input.redirectUri)
     : await exchangeMicrosoft(input.env, input.code, input.codeVerifier, input.redirectUri);
+  if (!tokens.refreshToken || !tokens.accessToken) throw new Error('connector_oauth_offline_access_missing');
   const identity = await externalIdentity(input.provider, tokens.accessToken);
   if (!identity.id) throw new Error('connector_identity_missing');
   const encrypted = await encryptConnectorCredential(input.env, tokens);
@@ -177,9 +179,11 @@ export async function exchangeAndStoreOAuthConnection(input: {
 }
 
 async function loadConnectionSecret(env: ApiEnv, accessToken: string, userId: string, connectionId: string, allowPaused = false): Promise<ConnectionSecretRow> {
-  const rows = await supabaseRest<ConnectionSecretRow[]>(env, accessToken, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(connectionId)}&user_id=eq.${encodeURIComponent(userId)}&select=id,provider,kind,encrypted_credentials,credential_iv,paused_at&limit=1`);
+  const rows = await supabaseRest<ConnectionSecretRow[]>(env, accessToken, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(connectionId)}&user_id=eq.${encodeURIComponent(userId)}&select=id,provider,kind,encrypted_credentials,credential_iv,paused_at,status&limit=1`);
   const row = rows[0];
   if (!row?.encrypted_credentials || !row.credential_iv) throw new Error('connection_credentials_missing');
+  if (row.status === 'needs_reauth') throw new ConnectorStop(`CONNECTOR_NEEDS_REAUTH:${row.provider}`);
+  if (row.status === 'disconnected') throw new Error('connection_credentials_missing');
   // A paused account (a downgrade's extra, 0065) neither syncs nor acts. Undo is the one
   // exception: reversing what APM already did on that account is always allowed.
   if (row.paused_at && !allowPaused) throw new Error('connection_paused');
@@ -192,7 +196,11 @@ async function refreshGoogle(env: ApiEnv, token: ConnectorTokens): Promise<Conne
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: env.GOOGLE_OAUTH_CLIENT_ID, client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET, refresh_token: token.refreshToken, grant_type: 'refresh_token' }),
   });
-  if (!response.ok) throw new Error(`google_refresh_failed:${response.status}`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({})) as { error?: string };
+    if (data.error === 'invalid_grant') throw new Error('CONNECTOR_REFRESH_REVOKED');
+    throw new Error(`google_refresh_failed:${response.status}`);
+  }
   const data = await response.json() as { access_token: string; expires_in?: number; token_type?: string; scope?: string };
   return { ...token, accessToken: data.access_token, expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined, tokenType: data.token_type ?? token.tokenType, scope: data.scope ?? token.scope };
 }
@@ -204,7 +212,11 @@ async function refreshMicrosoft(env: ApiEnv, token: ConnectorTokens): Promise<Co
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: env.MICROSOFT_OAUTH_CLIENT_ID, client_secret: env.MICROSOFT_OAUTH_CLIENT_SECRET, refresh_token: token.refreshToken, grant_type: 'refresh_token', scope: token.scope ?? 'offline_access' }),
   });
-  if (!response.ok) throw new Error(`microsoft_refresh_failed:${response.status}`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({})) as { error?: string };
+    if (data.error === 'invalid_grant') throw new Error('CONNECTOR_REFRESH_REVOKED');
+    throw new Error(`microsoft_refresh_failed:${response.status}`);
+  }
   const data = await response.json() as { access_token: string; refresh_token?: string; expires_in?: number; token_type?: string; scope?: string };
   return { accessToken: data.access_token, refreshToken: data.refresh_token ?? token.refreshToken, expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined, tokenType: data.token_type, scope: data.scope ?? token.scope };
 }
@@ -214,7 +226,14 @@ export async function getValidConnectorToken(input: { env: ApiEnv; accessToken: 
   if (row.provider !== 'google' && row.provider !== 'microsoft') throw new Error('oauth_provider_unsupported');
   let tokens = await decryptConnectorCredential<ConnectorTokens>(input.env, row.encrypted_credentials!, row.credential_iv!);
   if (tokens.expiresAt && tokens.expiresAt <= Date.now() + 60_000) {
-    tokens = row.provider === 'google' ? await refreshGoogle(input.env, tokens) : await refreshMicrosoft(input.env, tokens);
+    if (!tokens.refreshToken) {
+      return reconnectRequired(input, row.provider, 'CONNECTOR_TOKEN_EXPIRED');
+    }
+    try {
+      tokens = row.provider === 'google' ? await refreshGoogle(input.env, tokens) : await refreshMicrosoft(input.env, tokens);
+    } catch (error) {
+      return handleConnectorFailure(input, row.provider, error);
+    }
     const encrypted = await encryptConnectorCredential(input.env, tokens);
     await supabaseRest(input.env, input.accessToken, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(row.id)}`, {
       method: 'PATCH', headers: { Prefer: 'return=minimal' },
@@ -222,4 +241,28 @@ export async function getValidConnectorToken(input: { env: ApiEnv; accessToken: 
     });
   }
   return { provider: row.provider, kind: row.kind, accessToken: tokens.accessToken };
+}
+
+export async function reconnectRequired(
+  input: { env: ApiEnv; userId: string; connectionId: string }, provider: string, cause: string,
+): Promise<never> {
+  await supabaseRest(input.env, SERVICE_ROLE_TOKEN, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(input.connectionId)}&user_id=eq.${encodeURIComponent(input.userId)}&status=eq.connected`, {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ status: 'needs_reauth', last_error_code: cause, updated_at: new Date().toISOString() }),
+  });
+  throw new ConnectorStop(`${cause}:${provider}`);
+}
+
+export class ConnectorStop extends Error {}
+
+export async function handleConnectorFailure(
+  input: { env: ApiEnv; userId: string; connectionId: string }, provider: string, error: unknown,
+): Promise<never> {
+  const message = error instanceof Error ? error.message : '';
+  if (message === 'CONNECTOR_REFRESH_REVOKED' || message.endsWith(':401')) {
+    return reconnectRequired(input, provider, 'CONNECTOR_REFRESH_REVOKED');
+  }
+  const status = message.match(/:(5[0-9]{2})$/)?.[1];
+  if (status) return reconnectRequired(input, provider, `PROVIDER_UNAVAILABLE:${status}`);
+  throw error;
 }

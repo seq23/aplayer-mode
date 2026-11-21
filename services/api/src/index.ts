@@ -1,6 +1,7 @@
-import { approveSuiteProposal, prepareSuiteProposals, suiteEntitled, SUITE_PROPOSAL_PREFIX } from './proposalProducers';
-import { movableEventIds } from './suiteCalendar';
+import { approveSuiteProposal, replyBody, suiteEntitled, suitePermission, prepareSuiteProposals, SUITE_PROPOSAL_PREFIX } from './proposalProducers';
+import { executeSuiteCalendarMove, movableEventIds } from './suiteCalendar';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, scoreAgendaDay, selectForeground } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
@@ -43,8 +44,8 @@ import {
   updateLifeAdminItem,
   updateRelationship,
 } from './lifeOsRepository';
-import { createOAuthState, verifyOAuthState } from './crypto';
-import { buildOAuthAuthorizationUrl, exchangeAndStoreOAuthConnection } from './connectors/oauth';
+import { ConnectorStop } from './connectors/oauth';
+import { connectorCallback, connectorConfigStop, connectorFlowResult, startConnectorFlow } from './connectors/oauthFlow';
 import { clearDeviceCalendar, syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
@@ -55,7 +56,7 @@ import { COACH_CHOICES } from './coach/machine';
 import { applyModeToPlan, modeView, reconcileModeState, transitionMode, type ModeEvent, type ModeRequest, type ModeState } from './coach/modes';
 import { ACTIVE_TRACK_KEYS } from './coach/tracks';
 import { getModeState, saveModeState } from './modeRepository';
-import { actionErrorResponse, approveAndMaybeExecuteAction, prepareAction } from './actionEngine';
+import { actionErrorResponse, authorizeAction, approveAndMaybeExecuteAction, prepareAction } from './actionEngine';
 import {
   autopilotErrorResponse,
   getAutopilotDoneList,
@@ -559,6 +560,15 @@ async function buildUserState(env: ApiEnv, accessToken: string, userId: string) 
     ...persistedGraph,
     personalOS: persistedGraph.personalOS ? { ...persistedGraph.personalOS, activeMode: modeState.mode } : undefined,
     radarItems: buildRadarItems(persistedGraph),
+    actions: persistedGraph.actions.map((action) => {
+      if (!action.idempotencyKey.startsWith(SUITE_PROPOSAL_PREFIX)) return action;
+      const permission = suitePermission(persistedGraph, action.payload.suiteProposal);
+      const account = persistedGraph.connections.find((item) => item.id === action.payload.connectionId);
+      return { ...action, approvalAvailable: suiteEntitled(persistedGraph.entitlement)
+        && (!action.payload.connectionId || (account?.status === 'connected' && !account.pausedAt))
+        && Boolean(permission && authorizeAction({ env, userId, domain: action.domain as Parameters<typeof authorizeAction>[0]['domain'], requestedLevel: 4,
+          permission, entitlement: persistedGraph.entitlement, forExecution: true }).allowed) };
+    }),
   };
   const projected = applyModeToPlan(buildDailyPlan(graph, { mode: modeState.mode === 'recovery' ? 'recovery' : undefined, now }), graph, modeState);
   const lastCoaching = persistedGraph.personalOS
@@ -1507,6 +1517,7 @@ function connectionErrorMessage(error: unknown): string {
   return restErrorMessage(error) ?? (error instanceof Error ? error.message : '');
 }
 function connectionFailure(c: any, error: unknown) {
+  if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
   const message = connectionErrorMessage(error);
   if (message === 'connection_multi_account_requires_autopilot') return multiAccountRefusal(c);
   if (message === 'connection_paused') return c.json({ error: 'connection_paused' }, 409);
@@ -1522,38 +1533,33 @@ app.post('/v1/connections/oauth/start', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   // access 'act' is a separate, explicit consent for provider write scopes (Autopilot).
   // intent 'add' = another account of this kind (Autopilot only); 'reconnect' = the same one.
-  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, codeChallenge: z.string().min(20).max(200), redirectUri: z.string().url().optional(), access: z.enum(['read','act']).default('read'), intent: z.enum(['add','reconnect']).default('reconnect') }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, access: z.enum(['read','act']).default('read'), intent: z.enum(['add','reconnect']).default('reconnect') }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
   if (parsed.data.provider === 'google' && parsed.data.kind === 'email') return c.json({ error: 'outlook_mail_required' }, 400);
-  const { GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, MICROSOFT_OAUTH_CLIENT_ID, MICROSOFT_OAUTH_CLIENT_SECRET } = c.env;
-  if (parsed.data.provider === 'google' && (!GOOGLE_OAUTH_CLIENT_ID || !GOOGLE_OAUTH_CLIENT_SECRET)) return c.json({ error: 'google_connector_not_configured' }, 503);
-  if (parsed.data.provider === 'microsoft' && (!MICROSOFT_OAUTH_CLIENT_ID || !MICROSOFT_OAUTH_CLIENT_SECRET)) return c.json({ error: 'microsoft_connector_not_configured' }, 503);
+  const stop = connectorConfigStop(c.env, parsed.data.provider);
+  if (stop) return c.json({ error: stop }, 503);
   if (parsed.data.intent === 'add') {
     const graph = await getLifeGraph(c.env, user.accessToken, user.id);
     const live = graph.connections.filter((item) => item.kind === parsed.data.kind && item.provider !== 'device' && item.status !== 'disconnected' && !item.pausedAt);
     if (live.length > 0 && !hasMultiAccount(graph.entitlement)) return multiAccountRefusal(c);
   }
-  const state = await createOAuthState(c.env, { userId: user.id, provider: parsed.data.provider, kind: parsed.data.kind, codeChallenge: parsed.data.codeChallenge });
-  return c.json({ state, authorizationUrl: buildOAuthAuthorizationUrl({ env: c.env, ...parsed.data, state }) });
+  const { provider, kind, access } = parsed.data;
+  return c.json(await startConnectorFlow(c.env, user.id, provider, kind, access), 200, { 'cache-control': 'no-store' });
 });
 
-app.post('/v1/connections/oauth/exchange', async (c) => {
+app.get('/v1/oauth/:provider/callback', (c) => {
+  const provider = providerSchema.safeParse(c.req.param('provider'));
+  if (!provider.success) return c.notFound();
+  return connectorCallback(c.env, provider.data, new URL(c.req.url), (userId, kind, id) =>
+    audit(c.env, SERVICE_ROLE_TOKEN, userId, 'integration.connected', { provider: provider.data, kind }, 'integration_connection', id));
+});
+
+app.get('/v1/connections/oauth/result/:state', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, code: z.string().min(1), codeVerifier: z.string().min(20).max(200), state: z.string().min(20), redirectUri: z.string().url().optional() }).safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  if (parsed.data.provider === 'google' && parsed.data.kind === 'email') return c.json({ error: 'outlook_mail_required' }, 400);
-  const state = await verifyOAuthState<{ exp: number; userId: string; provider: string; kind: string; codeChallenge: string }>(c.env, parsed.data.state);
-  if (state.userId !== user.id || state.provider !== parsed.data.provider || state.kind !== parsed.data.kind) return c.json({ error: 'oauth_state_mismatch' }, 403);
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(parsed.data.codeVerifier)));
-  let binary = ''; for (const byte of digest) binary += String.fromCharCode(byte);
-  const challenge = btoa(binary).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
-  if (challenge !== state.codeChallenge) return c.json({ error: 'oauth_pkce_mismatch' }, 403);
-  let connection: Awaited<ReturnType<typeof exchangeAndStoreOAuthConnection>>;
-  try {
-    connection = await exchangeAndStoreOAuthConnection({ env: c.env, accessToken: user.accessToken, userId: user.id, provider: parsed.data.provider, kind: parsed.data.kind, code: parsed.data.code, codeVerifier: parsed.data.codeVerifier, redirectUri: parsed.data.redirectUri });
-  } catch (error) { return connectionFailure(c, error); }
-  await audit(c.env, user.accessToken, user.id, 'integration.connected', { provider: parsed.data.provider, kind: parsed.data.kind }, 'integration_connection', connection.connectionId);
-  return c.json(connection);
+  const state = z.uuid().safeParse(c.req.param('state'));
+  if (!state.success) return c.json({ error: 'invalid_request' }, 400);
+  const result = await connectorFlowResult(c.env, user.id, state.data);
+  return c.json(result, 200, { 'cache-control': 'no-store' });
 });
 
 app.post('/v1/calendar/device/sync', async (c) => {
@@ -1673,13 +1679,14 @@ app.post('/v1/actions/prepare', async (c) => {
     const { action, replayed } = await prepareAction({ env: c.env, accessToken: user.accessToken, userId: user.id, ...parsed.data, permission, entitlement: graph.entitlement });
     return c.json({ action, replayed }, replayed ? 200 : 201);
   } catch (error) {
+    if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
     const mapped = actionErrorResponse(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
 });
 
-app.post('/v1/actions/:id/approve', async (c) => {
+app.post('/v1/actions/:id/approve', bodyLimit({ maxSize: 8192 }), async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const { graph } = await buildUserState(c.env, user.accessToken, user.id);
   const action = graph.actions.find((candidate) => candidate.id === c.req.param('id'));
@@ -1687,15 +1694,39 @@ app.post('/v1/actions/:id/approve', async (c) => {
   if (action.status !== 'prepared' && action.status !== 'approved') return c.json({ error: 'invalid_action_state' }, 409);
   // An Autopilot stop (payment asked / no emailed route) is the user's to finish; approval never executes it.
   if (action.payload && typeof action.payload === 'object' && 'stoppedReason' in action.payload) return c.json({ error: 'needs_user' }, 409);
+  const raw = await c.req.text();
+  const edit = z.object({ body: replyBody.optional() }).strict().safeParse(raw ? (() => {
+    try { return JSON.parse(raw); } catch { return null; }
+  })() : {});
+  if (!edit.success || (edit.data.body !== undefined && action.payload.suiteProposal !== 'reply')) return c.json({ error: 'invalid_request' }, 400);
   const connectorInput = { env: c.env, accessToken: user.accessToken, userId: user.id };
   const permission = graph.permissions.find((p) => p.domain === action.domain && p.actionType === action.actionType && p.enabled);
   try {
     // The claim is atomic in the database: of two concurrent approvals only one executes.
     const executed = action.idempotencyKey.startsWith(SUITE_PROPOSAL_PREFIX)
-      ? await approveSuiteProposal(action, graph, connectorInput)
+      ? await approveSuiteProposal(action, graph, connectorInput, undefined, edit.data.body)
       : await approveAndMaybeExecuteAction({ ...connectorInput, action: action as ActionRecord, permission, entitlement: graph.entitlement });
     return c.json({ action: executed });
   } catch (error) {
+    if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
+    const mapped = actionErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
+    throw error;
+  }
+});
+
+app.post('/v1/actions/:id/undo', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const graph = await getLifeGraph(c.env, user.accessToken, user.id);
+  const action = graph.actions.find((item) => item.id === c.req.param('id') && item.idempotencyKey.startsWith('suite:calendar_fix:'));
+  if (!action) return c.json({ error: 'not_found' }, 404);
+  if (action.status !== 'verified') return c.json({ error: 'invalid_action_state' }, 409);
+  try {
+    await executeSuiteCalendarMove(action.payload, graph, { env: c.env, accessToken: user.accessToken, userId: user.id }, new Date(), true);
+    await serviceRpc(c.env, 'apm_service_record_suite_undo', { p_user_id: user.id, p_action_id: action.id });
+    return c.json({ undone: true });
+  } catch (error) {
+    if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
     const mapped = actionErrorResponse(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
@@ -1710,6 +1741,7 @@ app.post('/v1/actions/:id/reject', async (c) => {
     await serviceRpc(c.env, 'apm_service_reject_suite_proposal', { p_user_id: user.id, p_action_id: id.data });
     return c.json({ rejected: true });
   } catch (error) {
+    if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
     const mapped = actionErrorResponse(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;

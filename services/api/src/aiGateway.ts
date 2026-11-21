@@ -77,6 +77,7 @@ export async function runUserInference<T>(input: {
   accessToken: string;
   userId: string;
   task: InferenceTask;
+  zeroCostOnly?: boolean;
 }): Promise<T> {
   // Per-user and global daily ceilings before anything billed is called (src/paidCalls.ts).
   await claimPaidCall(input.env, input.userId);
@@ -86,7 +87,7 @@ export async function runUserInference<T>(input: {
   try {
     result = await runOpenRouterInference<T>({
       apiKey: requireOpenRouterKey(input.env),
-      routes,
+      routes: input.zeroCostOnly ? routes.filter((route) => route.costClass === 'zero' && route.retention === 'zero') : routes,
       task: input.task,
       appName: 'A Player Mode',
       appUrl: input.env.APP_PUBLIC_URL ?? 'https://aplayermode.com',

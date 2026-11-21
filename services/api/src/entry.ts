@@ -1,3 +1,4 @@
+import { expireConnectorFlows } from './connectors/oauthFlow';
 import app from './index';
 import type { ApiEnv } from './env';
 import { runMorningTrigger } from './morningTrigger';
@@ -51,6 +52,9 @@ export default {
         (error: unknown) => console.error('APM intake maintenance failed', { cron: controller.cron, message: error instanceof Error ? error.message : String(error) }),
       ),
     );
+    if (new Date(controller.scheduledTime).getUTCMinutes() === 0 && env.SUPABASE_SECRET_KEY) {
+      ctx.waitUntil(expireConnectorFlows(env).catch(() => console.warn('NAMED STOP [CONNECTOR_OAUTH_CLEANUP_FAILED]')));
+    }
     ctx.waitUntil(runSuiteProposals(env, new Date(controller.scheduledTime)).then(
       (output) => { if (output) console.log(output); },
       () => console.error('OUTPUT 0 suite_proposals_prepared NAMED STOP [SUITE_PROPOSALS_CANDIDATES_UNAVAILABLE]'),
@@ -70,6 +74,9 @@ export default {
     // headers. Hono strips the body for HEAD, and the health wrapper below
     // would then parse an empty body and throw: HEAD /v1/health returned 500.
     if (request.method === 'HEAD') {
+      if (/^\/v1\/oauth\/(google|microsoft)\/callback$/.test(new URL(request.url).pathname)) {
+        return new Response(null, { status: 405, headers: { allow: 'GET', 'cache-control': 'no-store' } });
+      }
       const get = await handleGet(new Request(request, { method: 'GET' }), env);
       await get.body?.cancel();
       return new Response(null, { status: get.status, statusText: get.statusText, headers: get.headers });

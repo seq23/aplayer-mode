@@ -32,7 +32,6 @@ Required server configuration:
 | `SUPABASE_PUBLISHABLE_KEY` | No / treat carefully | RLS-bound Supabase API access |
 | `OPENROUTER_API_KEY` | **Yes** | Server-only inference |
 | `CONNECTOR_CREDENTIAL_KEY` | **Yes** | AES-GCM provider-token encryption |
-| `OAUTH_STATE_SECRET` | **Yes** | OAuth state integrity |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | **Yes** | Google token exchange if configured as confidential client |
 | `MICROSOFT_OAUTH_CLIENT_SECRET` | **Yes** where used | Microsoft token exchange |
 | `GLOBAL_ACTION_EXECUTION` | Config | Global action kill switch |

@@ -20,18 +20,20 @@ const mockModules = {
   'api/apmApi': `export const reportContent = async () => {}; export const setPermission = async () => {};
     export const fetchFlexibleCalendarEvents = async () => ({ eventIds: [] });
     export const setAutopilotEventFlexible = async () => {};
-    ${['approveExternalAction','rejectExternalAction','checkInToday','closeToday','completeAgendaAction','decideGoalPlan','replanToday','recordClinicianClearance','reprintToday','returnAndReset','reviewPlanGate','setTodayPhase','clearDeviceCalendarEvents','disconnectConnection','reactivateConnection','setConnectionLabel','setPrimaryConnection','syncCloudCalendar','syncEmailConnection','syncDeviceCalendarEvents'].map((name) => `export const ${name} = () => {};`).join('\n')}`,
+    ${['approveExternalAction','rejectExternalAction','undoExternalAction','checkInToday','closeToday','completeAgendaAction','decideGoalPlan','replanToday','recordClinicianClearance','reprintToday','returnAndReset','reviewPlanGate','setTodayPhase','clearDeviceCalendarEvents','disconnectConnection','reactivateConnection','setConnectionLabel','setPrimaryConnection','syncCloudCalendar','syncEmailConnection','syncDeviceCalendarEvents'].map((name) => `export const ${name} = () => {};`).join('\n')}`,
   'today/FirstRunCards': ['BedRoutineToday', 'CoachingModeChips', 'PillarRollUpLine', 'PracticesToday', 'QuickTaps', 'SaveAccountBanner'].map((name) => `export const ${name} = () => null;`).join('\n'),
   ui: `import { createElement as h } from 'react';
     const component = (tag) => ({ children, title, message, subtitle, label, value, details }) => h(tag, {}, title, subtitle, message, label, value, details, children);
     export const Button = ({ label, disabled, busy }) => h('button', { disabled, 'aria-busy': busy }, label);
     export const LinkButton = ({ children, accessibilityLabel }) => h('button', { 'aria-label': accessibilityLabel }, children);
+    export const TextField = ({ label, value, editable }) => h('textarea', { 'aria-label': label, defaultValue: value, disabled: editable === false });
     export const uiStyles = {};
-    ${['AnswerCard','Body','Card','CardTitle','ChoiceRow','Disclosure','Divider','EmptyState','ErrorState','Fill','Flow','Heading','Icon','KeyValue','Label','ListRow','Muted','Pill','Row','Screen','SectionTitle','Small','Stack','TextField','Toast'].map((name) => `export const ${name} = component('${name === 'Screen' ? 'main' : 'div'}');`).join('\n')}`,
+    ${['AnswerCard','Body','Card','CardTitle','ChoiceRow','Disclosure','Divider','EmptyState','ErrorState','Fill','Flow','Heading','Icon','KeyValue','Label','ListRow','Muted','Pill','Row','Screen','SectionTitle','Small','Stack','Toast'].map((name) => `export const ${name} = component('${name === 'Screen' ? 'main' : 'div'}');`).join('\n')}`,
 };
 const bundle = await build({
   stdin: { contents: `
     export { default as Today } from './app/(tabs)/today';
+    export { default as Radar } from './app/(tabs)/radar';
     export { default as RadarWhy } from './app/radar/why';
     export { default as Connections } from './app/settings/privacy/connections';
     export { default as LifeAreas } from './app/settings/life';
@@ -54,17 +56,17 @@ const bundle = await build({
 });
 const module = { exports: {} };
 new Function('module', 'exports', 'require', bundle.outputFiles[0].text)(module, module.exports, require);
-const { Today, RadarWhy, Connections, LifeAreas, Autonomy, ActionApprovalCard, buildDailyPlan } = module.exports;
+const { Today, Radar, RadarWhy, Connections, LifeAreas, Autonomy, ActionApprovalCard, buildDailyPlan } = module.exports;
 const at = (hour) => { const day = new Date(); day.setUTCDate(day.getUTCDate() + 1); day.setUTCHours(hour, 0, 0, 0); return day.toISOString(); };
-const reply = { id: 'reply', status: 'prepared', requiresApproval: true, idempotencyKey: 'suite:reply:1', payload: {
-  suiteProposal: 'reply', subject: 'Rehearsal schedule', to: 'jordan@example.com', account: 'Music inbox',
+const reply = { id: 'reply', status: 'prepared', approvalAvailable: true, requiresApproval: true, idempotencyKey: 'suite:reply:1', payload: {
+  suiteProposal: 'reply', aiGenerated: true, subject: 'Rehearsal schedule', to: 'jordan@example.com', account: 'Music inbox',
   body: 'Thanks for your message about rehearsal.', expiresAt: at(17),
 } };
-const move = { id: 'calendar', status: 'prepared', requiresApproval: true, idempotencyKey: 'suite:calendar_fix:1', payload: {
-  suiteProposal: 'calendar_fix', title: 'Equipment inventory', account: 'Work calendar', timezone: 'UTC',
+const move = { id: 'calendar', status: 'prepared', approvalAvailable: true, requiresApproval: true, idempotencyKey: 'suite:calendar_fix:1', payload: {
+  suiteProposal: 'calendar_fix', title: 'Equipment inventory', clash: 'Overlaps Research block', account: 'Work calendar', timezone: 'UTC',
   originalStartsAt: at(10), originalEndsAt: at(11), startsAt: at(13), endsAt: at(14),
 } };
-const events = [{ id: 'first', title: move.payload.title, startsAt: at(10), endsAt: at(11), connectionId: 'calendar', organizer: { self: true }, attendees: [], recurrence: {} }];
+const events = [{ id: 'first', title: move.payload.title, startsAt: at(10), endsAt: at(11), connectionId: 'calendar', availability: 'busy', organizer: { self: true }, attendees: [], recurrence: {} }];
 const conflict = { id: 'radar:calendar_conflict:first:second', status: 'open', headline: 'Equipment inventory overlaps focus time',
   type: 'conflict', severity: 'high', summary: 'Two blocks overlap', confidence: 1, reasonCodes: ['calendar.busy_overlap'], sourceRefs: [] };
 
@@ -99,15 +101,23 @@ test('Today renders both prepared proposals, their reviewable details, report an
   assert.equal((page.match(/>Reject<\/button>/g) ?? []).length, 2);
 });
 
-test('Today removes rejected, executed, expired and downgraded proposals; busy cards disable further decisions', () => {
-  fixture({ actions: [{ ...reply, status: 'cancelled' }, { ...move, status: 'verified' }] });
-  assert.doesNotMatch(render(Today), /Report this (draft reply|calendar proposal)/);
+test('Today shows recent decision receipts, hides expired and downgraded proposals, and disables busy cards', () => {
+  const updatedAt = new Date().toISOString();
+  fixture({ actions: [{ ...reply, status: 'cancelled', updatedAt }, { ...move, status: 'verified', updatedAt }] });
+  const outcomes = render(Today);
+  assert.match(outcomes, />Skipped</);
+  assert.match(outcomes, />Moved</);
+  assert.match(outcomes, />Undo<\/button>/);
+  assert.doesNotMatch(outcomes, /Report this (draft reply|calendar proposal)/);
+  fixture({ actions: [{ ...reply, status: 'verified', updatedAt }] });
+  assert.match(render(Today), />Sent</);
+  assert.match(render(Today), /jordan@example.com in the original thread/);
   fixture({ actions: [{ ...move, payload: { ...move.payload, originalStartsAt: '2000-01-01T08:00:00Z' } }] });
   assert.doesNotMatch(render(Today), /Report this calendar proposal/);
   fixture({ entitlement: { plan: 'chief_of_staff', status: 'active' } });
   assert.doesNotMatch(render(Today), /Report this (draft reply|calendar proposal)/);
   const card = render(ActionApprovalCard, { action: reply, busyId: reply.id });
-  assert.equal((card.match(/disabled=""/g) ?? []).length, 2);
+  assert.equal((card.match(/disabled=""/g) ?? []).length, 3);
   assert.match(card, /aria-busy="true"/);
 });
 
@@ -143,7 +153,7 @@ test('Today points a Gmail-only Suite user to Outlook Mail instead of offering a
   assert.doesNotMatch(page, />Approve<\/button>/);
 });
 
-const checklist = { id: 'goal-checklist', status: 'prepared', requiresApproval: true, idempotencyKey: 'suite:goal_checklist:1', payload: {
+const checklist = { id: 'goal-checklist', status: 'prepared', approvalAvailable: true, requiresApproval: true, idempotencyKey: 'suite:goal_checklist:1', payload: {
   suiteProposal: 'goal_checklist', title: 'Get ready to record the first interview', detail: 'A location and a microphone picked out', expiresAt: at(17),
 } };
 const block = { ...move, id: 'goal-calendar', idempotencyKey: 'suite:goal_calendar:1', payload: {
@@ -195,4 +205,46 @@ test('Life areas and Permissions expose the task and approval setup for Suite', 
   assert.match(permissions, /Approve &amp; execute/);
   fixture({ entitlement: { plan: 'chief_of_staff', status: 'active' } });
   assert.match(render(LifeAreas), /Life areas need/);
+});
+
+test('Today renders an editable AI draft, the named clash and a prepare-only state without Approve', () => {
+  fixture({ actions: [{ ...reply, approvalAvailable: false }, { ...move, approvalAvailable: false }] });
+  const page = render(Today);
+  assert.match(page, /<textarea[^>]*aria-label="Reply draft"/);
+  assert.match(page, />AI draft</);
+  assert.match(page, /Research block/);
+  assert.match(page, />Prepare only</);
+  assert.match(page, />Action permissions<\/button>/);
+  assert.doesNotMatch(page, />Approve<\/button>/);
+});
+
+test('Today and Connections render a reconnect action for a failed Outlook mailbox', () => {
+  fixture({ actions: [], connections: [{ id: 'failed', kind: 'email', provider: 'microsoft', scopes: ['Mail.Read', 'Mail.Send'],
+    label: 'Music inbox', status: 'needs_reauth', isPrimary: true }] });
+  const today = render(Today);
+  assert.match(today, /Music inbox needs reconnecting/);
+  assert.match(today, />Reconnect<\/button>/);
+  const settings = render(Connections);
+  assert.match(settings, /Needs reconnecting/);
+  assert.match(settings, />Reconnect Outlook \/ Microsoft Mail<\/button>/);
+  assert.doesNotMatch(settings, />Sync now<\/button>/);
+});
+
+test('Radar and Today show the flagged subscription and the proposed cancellation email with AI reporting', () => {
+  const cancel = { ...reply, id: 'cancel', idempotencyKey: 'suite:subscription_cancel:1', reason: 'Subscription price may have gone up',
+    payload: { ...reply.payload, suiteProposal: 'subscription_cancel', title: 'Community pool passes', to: 'support@example.com' } };
+  const signal = { ...conflict, id: 'radar:subscription:pool', type: 'recurring', headline: 'Community pool passes may cost more now',
+    summary: 'Review the cancellation email on Today.', reasonCodes: ['subscription.price_rise'], confidence: 0.75 };
+  fixture({ actions: [cancel], radarItems: [signal] });
+  globalThis.suiteTest.radarId = signal.id;
+  const today = render(Today);
+  assert.match(today, /Community pool passes/);
+  assert.match(today, /support@example.com/);
+  assert.match(today, /Report this proposal/);
+  assert.match(today, />Approve<\/button>/);
+  const radar = render(Radar);
+  assert.match(radar, /Community pool passes may cost more now/);
+  assert.match(radar, /AI finding/);
+  assert.match(radar, /Report this item/);
+  assert.match(render(RadarWhy), /AI identified a subscription notice/);
 });

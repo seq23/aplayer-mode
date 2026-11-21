@@ -485,11 +485,11 @@ export async function closeCoachSession(sessionId: string, accessToken: string) 
 }
 
 /** `access: 'act'` asks the provider for write scopes as a separate, explicit consent (Autopilot); the default is read-only. */
-export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; codeChallenge: string; redirectUri: string; access?: 'read' | 'act'; intent?: 'add' | 'reconnect' }, accessToken: string) {
+export async function startOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; access?: 'read' | 'act'; intent?: 'add' | 'reconnect' }, accessToken: string) {
   return request<{ state: string; authorizationUrl: string }>('/v1/connections/oauth/start', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
-export async function exchangeOAuthConnection(input: { provider: 'google' | 'microsoft'; kind: 'calendar' | 'email'; code: string; codeVerifier: string; state: string; redirectUri: string }, accessToken: string) {
-  return request<{ connectionId: string; accountLabel?: string }>('/v1/connections/oauth/exchange', accessToken, { method: 'POST', body: JSON.stringify(input) });
+export async function fetchOAuthConnectionResult(state: string, accessToken: string) {
+  return request<{ connectionId: string | null; error: string | null }>(`/v1/connections/oauth/result/${encodeURIComponent(state)}`, accessToken);
 }
 // Connected accounts (0065): label, primary, reactivate and disconnect are governed RPCs.
 export async function setConnectionLabel(connectionId: string, label: string | null, accessToken: string): Promise<TodayState> {
@@ -524,8 +524,12 @@ export async function setPermission(domain: string, actionType: string, autonomy
 export async function prepareExternalAction(input: { domain: 'calendar' | 'email' | 'routine' | 'life_graph' | 'notification' | 'connector'; actionType: string; payload: Record<string, unknown>; reason: string; idempotencyKey: string }, accessToken: string) {
   return request<{ action: LifeGraphSnapshot['actions'][number] }>('/v1/actions/prepare', accessToken, { method: 'POST', body: JSON.stringify(input) });
 }
-export async function approveExternalAction(actionId: string, accessToken: string) {
-  return request<{ action: LifeGraphSnapshot['actions'][number] }>(`/v1/actions/${encodeURIComponent(actionId)}/approve`, accessToken, { method: 'POST' });
+export async function approveExternalAction(actionId: string, accessToken: string, body?: string) {
+  return request<{ action: LifeGraphSnapshot['actions'][number] }>(`/v1/actions/${encodeURIComponent(actionId)}/approve`, accessToken, { method: 'POST', ...(body !== undefined ? { body: JSON.stringify({ body }) } : {}) });
+}
+
+export async function undoExternalAction(actionId: string, accessToken: string) {
+  return request<{ undone: boolean }>(`/v1/actions/${encodeURIComponent(actionId)}/undo`, accessToken, { method: 'POST' });
 }
 
 export async function rejectExternalAction(actionId: string, accessToken: string) {

@@ -19,17 +19,16 @@ OPENROUTER_API_KEY=
 
 # Server-only connector credential encryption + OAuth state signing secrets.
 CONNECTOR_CREDENTIAL_KEY=
-OAUTH_STATE_SECRET=
 
 # Google OAuth server credentials.
 GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
-GOOGLE_OAUTH_REDIRECT_URI=
+GOOGLE_OAUTH_REDIRECT_URI=https://api.aplayermode.com/v1/oauth/google/callback
 
 # Microsoft OAuth server credentials.
 MICROSOFT_OAUTH_CLIENT_ID=
 MICROSOFT_OAUTH_CLIENT_SECRET=
-MICROSOFT_OAUTH_REDIRECT_URI=
+MICROSOFT_OAUTH_REDIRECT_URI=https://api.aplayermode.com/v1/oauth/microsoft/callback
 MICROSOFT_TENANT=common
 
 # Server-side Expo push credential/token when required by the delivery path.

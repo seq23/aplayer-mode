@@ -8,7 +8,6 @@ export interface ApiEnv {
   ALLOWED_ORIGIN?: string;
   APP_PUBLIC_URL?: string;
   CONNECTOR_CREDENTIAL_KEY?: string;
-  OAUTH_STATE_SECRET?: string;
   GOOGLE_OAUTH_CLIENT_ID?: string;
   GOOGLE_OAUTH_CLIENT_SECRET?: string;
   GOOGLE_OAUTH_REDIRECT_URI?: string;

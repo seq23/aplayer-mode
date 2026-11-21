@@ -3,7 +3,7 @@ import { calendarBusyDays } from '@apm/radar';
 import { calendarDateInTimezone } from '@apm/planning';
 import { z } from 'zod';
 import { fetchGoogleEvents, fetchMicrosoftEvents, type NormalizedCalendarEventInput } from './connectors/calendar';
-import { getValidConnectorToken } from './connectors/oauth';
+import { getValidConnectorToken, handleConnectorFailure } from './connectors/oauth';
 import { serviceRpc } from './db';
 
 type ConnectorInput = Omit<Parameters<typeof getValidConnectorToken>[0], 'connectionId'>;
@@ -21,12 +21,12 @@ export const calendarMove = z.object({
   originalEndsAt: z.iso.datetime(),
   sourceVersion: z.string().min(1),
   timezone: z.string(),
+  originalConflicts: z.array(z.object({ connectionId: z.string().optional(), externalEventId: z.string(), sourceVersion: z.string().optional() })).optional(),
 });
 
 const MINUTE = 60_000;
 const overlaps = (a: EventTime, b: EventTime) => Date.parse(a.startsAt) < Date.parse(b.endsAt) && Date.parse(b.startsAt) < Date.parse(a.endsAt);
 const iso = (ms: number) => new Date(ms).toISOString();
-const protectedTitle = (title: string) => /(deep[ -]?work|focus|foreground)/i.test(title);
 export const activeCalendar = (connection: LifeGraphSnapshot['connections'][number]) =>
   connection.kind === 'calendar' && connection.status === 'connected' && !connection.pausedAt;
 
@@ -34,8 +34,7 @@ export function canMove(event: NormalizedCalendarEventInput): boolean {
   return !event.deleted && !event.allDay && event.availability === 'busy' && Boolean(event.title && event.sourceVersion)
     && event.organizer?.self === true && event.attendees?.length === 0
     && !event.recurrence?.series && !Object.keys(event.recurrence ?? {}).some((key) => key !== 'rules')
-    && Array.isArray(event.recurrence?.rules ?? []) && !(event.recurrence?.rules as unknown[] | undefined)?.length
-    && !protectedTitle(event.title);
+    && Array.isArray(event.recurrence?.rules ?? []) && !(event.recurrence?.rules as unknown[] | undefined)?.length;
 }
 
 function protectedTimes(graph: LifeGraphSnapshot): EventTime[] {
@@ -45,7 +44,7 @@ function protectedTimes(graph: LifeGraphSnapshot): EventTime[] {
 }
 
 export function suiteSlotOccupied(slot: EventTime, events: BusyEvent[], graph: LifeGraphSnapshot, except?: Pick<BusyEvent, 'connectionId' | 'externalEventId'>): boolean {
-  return events.some((event) => !event.deleted && (event.availability !== 'free' || protectedTitle(event.title))
+  return events.some((event) => !event.deleted && event.availability !== 'free'
     && !(except && event.connectionId === except.connectionId && event.externalEventId === except.externalEventId)
     && (event.allDay
       ? event.provider === 'device' ? overlaps(slot, event)
@@ -82,26 +81,31 @@ export function movableEventIds(input: Pick<ConnectorInput, 'env' | 'userId'>, e
   return serviceRpc<string[]>(input.env, 'apm_service_suite_flexible_events', { p_user_id: input.userId, p_eligible_only: eligibleOnly });
 }
 
-export async function executeSuiteCalendarMove(action: unknown, graph: LifeGraphSnapshot, input: ConnectorInput, now = new Date()): Promise<string> {
+export async function executeSuiteCalendarMove(action: unknown, graph: LifeGraphSnapshot, input: ConnectorInput, now = new Date(), undo = false): Promise<string> {
   const move = calendarMove.parse(action);
   const event = graph.calendarEvents.find((item) => item.id === move.eventId && item.connectionId === move.connectionId
     && item.externalEventId === move.externalEventId && item.sourceVersion === move.sourceVersion);
-  if (!event || !canMove(event) || Date.parse(move.originalStartsAt) <= now.getTime()
+  if (!undo && (!event || !canMove(event) || Date.parse(move.originalStartsAt) <= now.getTime()
     || graph.personalOS?.activeMode === 'deep_work' || protectedTimes(graph).some((block) => overlaps(event, block))
-    || !(await movableEventIds(input)).includes(move.eventId)) throw new Error('action_proposal_stale');
+    || !(await movableEventIds(input)).includes(move.eventId))) throw new Error('action_proposal_stale');
 
   const calendars = graph.connections.filter(activeCalendar);
   if (!calendars.some((connection) => connection.id === move.connectionId && connection.scopes.some((scope) =>
     ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar', 'calendars.readwrite'].includes(scope.toLowerCase())))) throw new Error('action_proposal_stale');
+  const destination = undo ? { startsAt: move.originalStartsAt, endsAt: move.originalEndsAt } : move;
+  const current = undo ? move : { startsAt: move.originalStartsAt, endsAt: move.originalEndsAt };
+  if (Date.parse(destination.startsAt) <= now.getTime() || Date.parse(current.startsAt) <= now.getTime()) throw new Error('action_proposal_stale');
   const from = move.originalStartsAt;
   const to = move.endsAt;
   const snapshots = await suiteCalendarSnapshots(calendars, input, from, to);
   const target = snapshots.find((snapshot) => snapshot.connectionId === move.connectionId)!;
   const live = target.events.find((item) => item.externalEventId === move.externalEventId);
-  const busy = [...snapshots.flatMap((snapshot) => snapshot.events), ...graph.calendarEvents.filter((item) => item.provider === 'device')];
-  if (!live || !canMove(live) || live.sourceVersion !== move.sourceVersion
-    || Date.parse(live.startsAt) !== Date.parse(move.originalStartsAt) || Date.parse(live.endsAt) !== Date.parse(move.originalEndsAt)
-    || suiteSlotOccupied(move, busy, graph, live)) throw new Error('action_proposal_stale');
+  const busy = [...snapshots.flatMap((snapshot) => snapshot.events), ...graph.calendarEvents.filter((item) => item.provider === 'device')]
+    .filter((item) => !undo || !move.originalConflicts?.some((conflict) => conflict.connectionId === item.connectionId
+      && conflict.externalEventId === item.externalEventId && conflict.sourceVersion === item.sourceVersion));
+  if (!live || !canMove(live) || (!undo && live.sourceVersion !== move.sourceVersion)
+    || Date.parse(live.startsAt) !== Date.parse(current.startsAt) || Date.parse(live.endsAt) !== Date.parse(current.endsAt)
+    || suiteSlotOccupied(destination, busy, graph, live)) throw new Error('action_proposal_stale');
 
   const id = encodeURIComponent(move.externalEventId);
   // Only the two timestamps are patched. An ETag catches concurrent edits to this event.
@@ -110,18 +114,18 @@ export async function executeSuiteCalendarMove(action: unknown, graph: LifeGraph
     ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}?sendUpdates=none`
     : `https://graph.microsoft.com/v1.0/me/events/${id}`, {
     method: 'PATCH',
-    headers: { authorization: `Bearer ${target.auth.accessToken}`, 'content-type': 'application/json', 'if-match': move.sourceVersion,
+    headers: { authorization: `Bearer ${target.auth.accessToken}`, 'content-type': 'application/json', 'if-match': live.sourceVersion!,
       ...(google ? {} : { Prefer: 'outlook.timezone="UTC"' }) },
     body: JSON.stringify(google
-      ? { start: { dateTime: move.startsAt }, end: { dateTime: move.endsAt } }
-      : { start: { dateTime: move.startsAt.slice(0, -1), timeZone: 'UTC' }, end: { dateTime: move.endsAt.slice(0, -1), timeZone: 'UTC' } }),
+      ? { start: { dateTime: destination.startsAt }, end: { dateTime: destination.endsAt } }
+      : { start: { dateTime: destination.startsAt.slice(0, -1), timeZone: 'UTC' }, end: { dateTime: destination.endsAt.slice(0, -1), timeZone: 'UTC' } }),
   });
   if (response.status === 412) throw new Error('action_proposal_stale');
-  if (!response.ok) throw new Error(`calendar_move_failed:${response.status}`);
+  if (!response.ok) await handleConnectorFailure({ ...input, connectionId: move.connectionId }, target.auth.provider, new Error(`calendar_move_failed:${response.status}`));
   const updated = await response.json() as { id?: string; start?: { dateTime?: string }; end?: { dateTime?: string } };
   const utc = (time: string | undefined) => time ? Date.parse(!google && !time.endsWith('Z') ? `${time}Z` : time) : NaN;
-  if (updated.id !== move.externalEventId || utc(updated.start?.dateTime) !== Date.parse(move.startsAt)
-    || utc(updated.end?.dateTime) !== Date.parse(move.endsAt)) throw new Error('calendar_move_receipt_mismatch');
+  if (updated.id !== move.externalEventId || utc(updated.start?.dateTime) !== Date.parse(destination.startsAt)
+    || utc(updated.end?.dateTime) !== Date.parse(destination.endsAt)) throw new Error('calendar_move_receipt_mismatch');
   return updated.id;
 }
 
@@ -129,7 +133,8 @@ export function suiteCalendarSnapshots(calendars: LifeGraphSnapshot['connections
   return Promise.all(calendars.map(async (connection) => {
     const auth = await getValidConnectorToken({ ...input, connectionId: connection.id });
     if (auth.kind !== 'calendar' || auth.provider !== connection.provider) throw new Error('action_proposal_stale');
-    const events = await (auth.provider === 'google' ? fetchGoogleEvents : fetchMicrosoftEvents)(auth.accessToken, from, to);
+    const events = await (auth.provider === 'google' ? fetchGoogleEvents : fetchMicrosoftEvents)(auth.accessToken, from, to)
+      .catch((error: unknown) => handleConnectorFailure({ ...input, connectionId: connection.id }, auth.provider, error));
     return { auth, connectionId: connection.id, events: events.map((item) => ({ ...item, connectionId: connection.id })) };
   }));
 }

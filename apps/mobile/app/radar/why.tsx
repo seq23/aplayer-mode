@@ -10,7 +10,6 @@ import {
   Screen,
   SectionTitle,
 } from '../../src/components/ui';
-import { isFocusBlockTitle } from '../../src/integrations/accounts';
 import { CalendarFlexibility } from '../../src/components/CalendarFlexibility';
 import { useSession } from '../../src/state/session';
 import { radarTag } from '../../src/content/words';
@@ -24,6 +23,8 @@ const reasonText: Record<string, string> = {
   'calendar.overload': 'Three or more blocks add up to at least six busy hours.',
   'calendar.busy_overlap': 'Two busy calendar blocks overlap.',
   'email.reply_owed': 'An open request was identified in the connected inbox.',
+  'subscription.price_rise': 'A notice or receipt in Outlook Mail indicated a higher recurring price.',
+  'subscription.unused': 'A provider notice in Outlook Mail indicated no recent use.',
   'goal.health_stalled': 'The goal is explicitly marked stalled.',
 };
 
@@ -51,14 +52,16 @@ export default function RadarWhyScreen() {
     : item.reasonCodes.includes('calendar.overload') ? item.sourceRefs.map((source) => source.sourceRef) : [];
   const eligible = graph.calendarEvents.filter((event) => conflictEventIds.includes(event.id)
     && Boolean(event.connectionId) && event.organizer.self === true && event.attendees.length === 0
-    && !event.allDay && !event.deleted && !isFocusBlockTitle(event.title)
+    && !event.allDay && !event.deleted && event.availability === 'busy'
     && Date.parse(event.startsAt) > Date.now());
   const explanations = item.reasonCodes.map((code) => reasonText[code] ?? code);
 
   return (
     <Screen
       title={item.headline}
-      subtitle={item.reasonCodes.includes('email.reply_owed')
+      subtitle={item.reasonCodes.some((code) => code.startsWith('subscription.'))
+        ? 'AI identified a subscription notice in Outlook Mail.'
+        : item.reasonCodes.includes('email.reply_owed')
         ? 'AI helped identify the request in your connected inbox.'
         : 'APM worked this out from what it already knows about you, with fixed rules. No AI model was involved.'}
     >
