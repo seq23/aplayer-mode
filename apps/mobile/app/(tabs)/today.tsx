@@ -177,7 +177,8 @@ export default function TodayScreen() {
   const canUseReplyDrafts = graph.entitlement?.plan === 'life_os' || graph.entitlement?.plan === 'autopilot';
   const approvals = (todayPlan?.approvalActionIds ?? [])
     .map((id) => graph.actions.find((action) => action.id === id))
-    .filter((action): action is NonNullable<typeof action> => Boolean(action));
+    .filter((action): action is NonNullable<typeof action> => Boolean(action))
+    .filter(({ payload }) => !recovery || ['missed_day', 'hard_day'].includes(String(payload.suiteProposal)));
 
   const complete = async () => {
     if (!primaryAction || busy) return;
@@ -350,7 +351,7 @@ export default function TodayScreen() {
           <Toast message={notice} />
           {actionError ? <ErrorState message={actionError} /> : null}
 
-          {!hideAgenda && !recovery && approvals.length ? (
+          {!hideAgenda && approvals.length ? (
             <>
               <SectionTitle>Needs your approval</SectionTitle>
               {approvals.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId}
@@ -358,6 +359,17 @@ export default function TodayScreen() {
                 onReport={accessToken ? (reason) => reportContent({ kind: 'action_proposal', ref: action.id, reason }, accessToken) : undefined} />)}
             </>
           ) : null}
+
+          {!hideAgenda && !recovery ? graph.actions.filter((action) => action.status === 'verified' && action.payload.suiteProposal === 'goal_checklist').map((action) => {
+            const task = graph.nextActions.find((item) => item.id === action.id && item.status === 'open');
+            if (!task || agenda?.dailyStack.some((item) => item.nextActionId === task.id)) return null;
+            return <Card key={task.id}>
+              <Label>Goal checklist</Label>
+              <CardTitle>{task.title}</CardTitle>
+              <Body>{String(action.payload.detail)}</Body>
+              <Body muted>Saved for your next full day.</Body>
+            </Card>;
+          }) : null}
 
           {!hideAgenda && !recovery && canUseReplyDrafts && hasLegacyGmail && !hasOutlookMail ? (
             <Card>
@@ -428,7 +440,7 @@ export default function TodayScreen() {
                 ) : null}
               </>
             ) : null}
-            {!hideAgenda && recovery ? <Body muted>Light day: your schedule, approvals and open loops wait until tomorrow. One thing, then close.</Body> : null}
+            {!hideAgenda && recovery ? <Body muted>One small thing, then close the day. The rest can wait.</Body> : null}
             {graph.tracks.some((track) => track.active) ? <Card tone="muted"><Label>Running in the background</Label><Body>{graph.tracks.filter((track) => track.active).map((track) => track.name).join(', ')}</Body></Card> : null}
             {todayLoop.locked && !todayLoop.closed ? (
               <>

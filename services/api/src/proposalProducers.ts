@@ -8,16 +8,17 @@ import { SERVICE_ROLE_TOKEN, restErrorMessage, serviceRpc } from './db';
 import { entitlementIsUsable } from './entitlement';
 import type { ApiEnv } from './env';
 import { getLifeGraph } from './lifeGraphRepository';
+import { applySuiteLifeGraph, deferAdmin, executeGoalCalendar, goalCalendar, goalChecklist } from './suitePlans';
 import { calendarMove, canMove, executeSuiteCalendarMove, firstClearSlot, movableEventIds } from './suiteCalendar';
 
 export const SUITE_PROPOSAL_PREFIX = 'suite:';
 type ConnectorInput = Omit<Parameters<typeof getValidConnectorToken>[0], 'connectionId'>;
-type SuiteProposalKind = 'reply' | 'calendar_fix';
-type Domain = 'email' | 'calendar';
+type SuiteProposalKind = 'reply' | 'calendar_fix' | 'goal_calendar' | 'goal_checklist' | 'missed_day' | 'hard_day';
+type Domain = 'email' | 'calendar' | 'life_graph';
 
 type Proposal = { key: string; payload: Record<string, unknown>; reason: string };
-type ProducerContext = ConnectorInput & { graph: LifeGraphSnapshot; now: Date; radar: RadarItem[]; seen: Set<string> };
-type Producer = {
+type ProducerContext = ConnectorInput & { graph: LifeGraphSnapshot; now: Date; radar: RadarItem[]; seen: Set<string>; reserved: Array<{ startsAt: string; endsAt: string }> };
+export type Producer = {
   kind: SuiteProposalKind;
   domain: Domain;
   actionType: string;
@@ -36,7 +37,7 @@ export function suitePermission(graph: Graph, kind: unknown) {
   return producer && graph.permissions.find((p) => p.domain === producer.domain && p.actionType === producer.permissionType);
 }
 
-function canWrite(connection: IntegrationConnection, domain: Domain): boolean {
+export function canWrite(connection: IntegrationConnection, domain: Exclude<Domain, 'life_graph'>): boolean {
   if (connection.kind !== domain || connection.status !== 'connected' || connection.pausedAt) return false;
   const scopes = connection.scopes.map((scope) => scope.toLowerCase());
   if (domain === 'email') return connection.provider === 'microsoft' && scopes.includes('mail.send')
@@ -45,7 +46,7 @@ function canWrite(connection: IntegrationConnection, domain: Domain): boolean {
   return connection.provider === 'google' && ['calendar.events', 'calendar'].some((scope) => scopes.includes(`https://www.googleapis.com/auth/${scope}`));
 }
 
-async function sourceKey(kind: SuiteProposalKind, ...parts: string[]): Promise<string> {
+export async function sourceKey(kind: SuiteProposalKind | 'admin_defer', ...parts: string[]): Promise<string> {
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(parts)));
   return `${SUITE_PROPOSAL_PREFIX}${kind}:${Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 }
@@ -118,6 +119,10 @@ async function* calendarFixes(context: ProducerContext): ReturnType<Producer['pr
 }
 
 export const proposalProducers: readonly Producer[] = [
+  { kind: 'hard_day', domain: 'life_graph', actionType: 'life_admin.defer', permissionType: 'plan_logistics', propose: deferAdmin('hard_day') },
+  { kind: 'missed_day', domain: 'life_graph', actionType: 'life_admin.defer', permissionType: 'plan_logistics', propose: deferAdmin('missed_day') },
+  { kind: 'goal_checklist', domain: 'life_graph', actionType: 'goal.checklist', permissionType: 'plan_logistics', propose: goalChecklist },
+  { kind: 'goal_calendar', domain: 'calendar', actionType: 'calendar.create', permissionType: 'event_write', propose: goalCalendar },
   { kind: 'reply', domain: 'email', actionType: 'email.send', permissionType: 'send', propose: replies },
   { kind: 'calendar_fix', domain: 'calendar', actionType: 'calendar.reschedule', permissionType: 'event_write', propose: calendarFixes },
 ];
@@ -142,25 +147,36 @@ export async function executeSuiteReply(payload: Record<string, unknown>, graph:
 export function approveSuiteProposal(action: ActionRecord, graph: Graph, input: ConnectorInput, now = new Date()) {
   if (!suiteEntitled(graph.entitlement)) throw new Error('action_not_authorized:entitlement_too_low');
   const kind = action.payload.suiteProposal;
+  const producer = proposalProducers.find((entry) => entry.kind === kind);
+  if (!producer || producer.domain !== action.domain || producer.actionType !== action.actionType) throw new Error('action_invalid_state');
   return approveAndMaybeExecuteAction({
     ...input, action, entitlement: graph.entitlement, permission: suitePermission(graph, kind),
+    atomicWrite: producer.domain === 'life_graph' ? () => applySuiteLifeGraph(action, graph, input, now) : undefined,
     execute: (claimed) => {
       if (kind === 'reply') return executeSuiteReply(claimed.payload, graph, input, now);
+      if (kind === 'goal_calendar') return executeGoalCalendar(claimed, graph, input, now);
       if (kind === 'calendar_fix') return executeSuiteCalendarMove(claimed.payload, graph, input, now);
       throw new Error('action_invalid_state');
     },
   });
 }
 
-export async function prepareSuiteProposals(env: ApiEnv, graph: Graph, now: Date, accessToken = SERVICE_ROLE_TOKEN) {
+export async function prepareSuiteProposals(env: ApiEnv, graph: Graph, now: Date, accessToken = SERVICE_ROLE_TOKEN, plansOnly = false) {
   const result = { prepared: 0, stops: [] as string[] };
   if (!suiteEntitled(graph.entitlement)) return result;
   const context: ProducerContext = {
     env, accessToken, userId: graph.identity.userId, graph, now,
     radar: buildRadarItems(graph, { now, maxItems: Number.POSITIVE_INFINITY }),
     seen: new Set(graph.actions.map((action) => action.idempotencyKey)),
+    reserved: graph.actions.flatMap(({ status, payload }) => {
+      if (!['prepared', 'executing'].includes(status) || !['apm', 'google', 'microsoft'].includes(String(payload.provider))
+        || typeof payload.startsAt !== 'string' || Date.parse(payload.startsAt) <= now.getTime()) return [];
+      const endsAt = typeof payload.endsAt === 'string' ? payload.endsAt : new Date(Date.parse(payload.startsAt) + 30 * 60_000).toISOString();
+      return [{ startsAt: payload.startsAt, endsAt }];
+    }),
   };
   for (const producer of proposalProducers) {
+    if (plansOnly && (producer.kind === 'reply' || producer.kind === 'calendar_fix')) continue;
     const permission = suitePermission(graph, producer.kind);
     if (!authorizeAction({ ...context, domain: producer.domain, requestedLevel: 3, permission, entitlement: graph.entitlement }).allowed) continue;
     const iterator = producer.propose(context);
@@ -188,7 +204,7 @@ export async function prepareSuiteProposals(env: ApiEnv, graph: Graph, now: Date
         count += 1;
       }
     } catch {
-      result.stops.push(producer.kind === 'reply' ? 'REPLY_PRODUCER_UNAVAILABLE' : 'CALENDAR_PRODUCER_UNAVAILABLE');
+      result.stops.push(producer.kind === 'calendar_fix' ? 'CALENDAR_PRODUCER_UNAVAILABLE' : `${producer.kind.toUpperCase()}_PRODUCER_UNAVAILABLE`);
     } finally {
       await iterator.return(undefined);
     }

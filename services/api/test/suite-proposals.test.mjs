@@ -6,10 +6,10 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bundle = await build({
-  stdin: { contents: "export * from './src/proposalProducers'; export * from './src/crypto'; export { buildRadarItems } from '@apm/radar';", resolveDir: root },
+  stdin: { contents: "export * from './src/proposalProducers'; export * from './src/crypto'; export { buildRadarItems } from '@apm/radar'; export { generateGoalPlan } from '@apm/planning';", resolveDir: root },
   bundle: true, write: false, format: 'esm', platform: 'neutral',
 });
-const { approveSuiteProposal, buildRadarItems, encryptConnectorCredential, prepareSuiteProposals, runSuiteProposals } =
+const { approveSuiteProposal, buildRadarItems, encryptConnectorCredential, generateGoalPlan, prepareSuiteProposals, runSuiteProposals } =
   await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 const userId = U(520), otherId = U(521), emailId = U(522), calendarId = U(523);
@@ -24,11 +24,12 @@ const at = (hour, minute = 0, offset = 1) => {
 const env = {
   SUPABASE_URL: 'https://phase-one.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test',
   SUPABASE_SECRET_KEY: 'sb_secret_test', CONNECTOR_CREDENTIAL_KEY: Buffer.alloc(32, 7).toString('base64'),
-  GLOBAL_ACTION_EXECUTION: 'true', ACTION_EMAIL_EXECUTION: 'true', ACTION_CALENDAR_EXECUTION: 'true',
+  GLOBAL_ACTION_EXECUTION: 'true', ACTION_EMAIL_EXECUTION: 'true', ACTION_CALENDAR_EXECUTION: 'true', ACTION_LIFE_GRAPH_EXECUTION: 'true',
 };
 const input = { env, userId, accessToken: 'user-jwt' };
 const permissions = [
   { id: U(528), userId, domain: 'email', actionType: 'send', enabled: true, autonomyLevel: 4 },
+  { id: U(536), userId, domain: 'life_graph', actionType: 'plan_logistics', enabled: true, autonomyLevel: 4 },
   { id: U(529), userId, domain: 'calendar', actionType: 'event_write', enabled: true, autonomyLevel: 4 },
 ];
 const entitlement = { userId, plan: 'life_os', status: 'active' };
@@ -60,10 +61,10 @@ const commitments = [{
 }];
 const graph = (overrides = {}) => ({
   identity: { userId, timezone: 'UTC' }, goals: [], projects: [], nextActions: [], lifeAdminItems: [], lifeRelationships: [],
-  calendarEvents, connections, permissions, entitlement, messageSignals, commitments, actions: [],
+  calendarEvents, connections, permissions, entitlement, messageSignals, commitments, actions: [], dayRecords: [], goalPlans: [], planCompletions: [], tracks: [], roles: [], pillarSettings: [],
   ...overrides,
 });
-let h, encrypted, calls, latest, calendarVersion, currentEvents;
+let h, encrypted, calls, latest, calendarVersion, currentEvents, unavailable;
 const rpc = async (name, args = []) => (await h.service(
   `select public.${name}(${args.map((_, i) => `$${i + 1}`).join(',')}) as result`, args,
 )).rows[0].result;
@@ -93,9 +94,13 @@ test.before(async () => {
   }
   for (const id of [flexId, focusId]) await h.as(userId, 'select public.apm_autopilot_set_event_flexible($1,true)', [id]);
 });
+test.afterEach(async () => {
+  if (h) await h.admin('delete from public.life_admin_items where user_id = $1', [userId]);
+});
 test.after(async () => h?.db.close());
 test.beforeEach((t) => {
   calls = [];
+  unavailable = undefined;
   latest = 'incoming-1';
   calendarVersion = '"v1"';
   currentEvents = calendarEvents;
@@ -113,7 +118,9 @@ test.beforeEach((t) => {
           apm_service_action_result: ['user_id', 'action_id', 'outcome', 'provider', 'external_ref', 'failure_code'],
           apm_service_suite_flexible_events: ['user_id', 'eligible_only'],
           apm_service_suite_proposal_candidates: ['slot'],
+          apm_service_apply_suite_life_graph: ['user_id', 'action_id'],
         }[name];
+        if (name === unavailable) return json({ message: 'unavailable' }, 503);
         if (!args) throw new Error(`Unexpected RPC ${name}`);
         assert.equal(new Headers(options.headers).get('apikey'), env.SUPABASE_SECRET_KEY);
         try { return json(await rpc(name, args.map((arg) => body[`p_${arg}`]))); }
@@ -133,6 +140,7 @@ test.beforeEach((t) => {
       ] });
     }
     if (url.hostname === 'graph.microsoft.com' && url.pathname === '/v1.0/me/messages/incoming-1/reply') return new Response(null, { status: 202 });
+    if (url.hostname === 'www.googleapis.com' && method === 'POST') return json({ id: 'created-goal-block', ...body });
     if (url.hostname === 'www.googleapis.com' && url.pathname.endsWith('/events')) return json({
       items: currentEvents.map((e) => ({
         id: e.externalEventId, summary: e.title, start: { dateTime: e.startsAt }, end: { dateTime: e.endsAt },
@@ -178,7 +186,7 @@ test('Roundtable, lapsed plans, disabled permissions, and missing write-scoped c
   });
   assert.equal(calls.length, 0);
   await assert.rejects(async () => approveSuiteProposal(await find('reply'), graph({ entitlement: { ...entitlement, plan: 'chief_of_staff' } }), input, now), /not_authorized/);
-  await assert.rejects(async () => approveSuiteProposal(await find('reply'), graph({ permissions: [permissions[1]] }), input, now), /not_authorized/);
+  await assert.rejects(async () => approveSuiteProposal(await find('reply'), graph({ permissions: permissions.filter((entry) => entry.domain !== 'email') }), input, now), /not_authorized/);
   assert.equal(writes().length, 0);
 });
 
@@ -264,4 +272,133 @@ test('the existing quarter-hour cron assigns each eligible user to one daily slo
   tick.setUTCHours(0, ((slot + 1) % 96) * 15, 0, 0);
   assert.match(await runSuiteProposals(env, tick), /^OUTPUT 0 .*NO_ELIGIBLE_PROPOSALS/);
   assert.match(await runSuiteProposals({}, tick), /^OUTPUT 0 .*SUITE_PROPOSALS_NO_SERVICE_CREDENTIAL/);
+});
+
+const phaseTime = new Date(at(8));
+const phaseDay = phaseTime.toISOString().slice(0, 10);
+const priorDay = at(0, 0, 0).slice(0, 10);
+const prepPlans = (state) => prepareSuiteProposals(env, state, phaseTime, undefined, true);
+const nextActionCount = async () => (await h.admin('select count(*)::int as count from public.next_actions where user_id = $1', [userId])).rows[0].count;
+
+async function makeGoal(offset, seed, title) {
+  const goal = { id: U(seed), userId, title, priority: 1, status: 'active' };
+  const plan = generateGoalPlan(title, { startDate: at(0, 0, offset).slice(0, 10) });
+  const record = { id: U(seed + 1), userId, goalId: goal.id, startDate: plan.startDate, endDate: plan.endDate, status: 'active', plan };
+  await h.admin("insert into public.goals(id,user_id,title,status,health,provenance_kind,source_type) values($1,$2,$3,'active','on_track','stated','manual')", [goal.id, userId, title]);
+  await h.admin("insert into public.goal_plans(id,user_id,goal_id,plan_key,template_key,persona,foreground_pillar,start_date,end_date,plan) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    [record.id, userId, goal.id, plan.id, plan.provenance.templateKey, plan.persona.key, plan.foreground.pillar, plan.startDate, plan.endDate, plan]);
+  return graph({ goals: [goal], goalPlans: [record], dayRecords: [{ day: priorDay, verdict: 'full_day', replans: [] }, { day: phaseDay, checkedInAt: phaseTime.toISOString(), replans: [] }] });
+}
+
+test('a saved setup step prepares a checklist without a connector and adds it just once after approval', async () => {
+  const state = await makeGoal(1, 540, 'Release a short film');
+  const local = { ...state, connections: [], calendarEvents: [] };
+  assert.equal((await prepPlans({ ...local, entitlement: { ...entitlement, plan: 'chief_of_staff' } })).prepared, 0);
+  assert.equal((await prepPlans(local)).prepared, 1);
+  assert.equal((await prepPlans(local)).prepared, 0);
+  const action = await find('goal_checklist');
+  assert.equal(action.payload.goalId, state.goals[0].id);
+  assert.equal(action.requiresApproval, true);
+  assert.equal(await nextActionCount(), 0);
+  await rejects(h.as(userId, 'select public.apm_service_apply_suite_life_graph($1,$2)', [userId, action.id]), /permission denied/);
+  await rejects(rpc('apm_service_apply_suite_life_graph', [otherId, action.id]), /action_invalid_state/);
+  unavailable = 'apm_service_apply_suite_life_graph';
+  await assert.rejects(approveSuiteProposal(action, local, input, phaseTime));
+  assert.equal(await nextActionCount(), 0);
+  unavailable = undefined;
+  const outcomes = await Promise.allSettled([
+    approveSuiteProposal(action, local, input, phaseTime), approveSuiteProposal(action, local, input, phaseTime),
+  ]);
+  assert.equal(outcomes.filter((entry) => entry.status === 'fulfilled').length, 1);
+  assert.equal((await find('goal_checklist')).status, 'verified');
+  assert.deepEqual((await h.admin('select title, goal_id from public.next_actions where id = $1', [action.id])).rows,
+    [{ title: action.payload.title, goal_id: state.goals[0].id }]);
+  assert.equal(writes().length, 0);
+});
+
+test('a normal foreground step reserves real time after the tap, with a connector stop and live collision guard', async () => {
+  const state = await makeGoal(-8, 542, 'Pass the architecture exam');
+  assert.deepEqual(await prepPlans({ ...state, connections: [] }), { prepared: 0, stops: ['GOAL_CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'] });
+  assert.equal((await prepPlans(state)).prepared, 1);
+  const action = await find('goal_calendar');
+  assert.equal(action.payload.goalId, state.goals[0].id);
+  assert.equal(writes().length, 0);
+  const copy = mapAction((await rpc('apm_service_action_prepare', [
+    userId, action.domain, action.actionType, action.payload, 'Block time', null, 'suite:goal_calendar:collision',
+  ])).action);
+  currentEvents = [...calendarEvents, event(U(545), 'New meeting', action.payload.startsAt, action.payload.endsAt)];
+  await assert.rejects(approveSuiteProposal(copy, state, input, phaseTime), /action_proposal_stale/);
+  assert.equal(writes().length, 0);
+  currentEvents = calendarEvents;
+  assert.equal((await approveSuiteProposal(action, state, input, phaseTime)).status, 'verified');
+  assert.equal(writes().length, 1);
+  assert.deepEqual(writes()[0].body, {
+    summary: action.payload.title, start: { dateTime: action.payload.startsAt }, end: { dateTime: action.payload.endsAt },
+  });
+});
+
+const adminItem = async (number, kind, start, options = {}) => {
+  const id = U(number);
+  const { endsAt, dueAt, importance = 2, flexible = true } = options;
+  const details = { flexibleSchedule: flexible };
+  const [row] = (await h.admin(`insert into public.life_admin_items
+    (id,user_id,kind,title,starts_at,ends_at,due_at,importance,details) values($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    returning updated_at`, [id, userId, kind, `Task ${number}`, start, endsAt ?? null, dueAt ?? null, importance, details])).rows;
+  return { id, userId, kind, title: `Task ${number}`, startsAt: start, endsAt, dueAt, importance, status: 'open',
+    details, recurrence: {}, updatedAt: row.updated_at.toISOString(), provenance: { kind: 'stated', sourceType: 'manual' } };
+};
+const savedStart = async (id) => (await h.admin('select starts_at from public.life_admin_items where id=$1', [id])).rows[0].starts_at.toISOString();
+
+test('a missed day proposes only eligible tasks and a rejected proposal leaves its schedule intact', async () => {
+  const flexible = await adminItem(550, 'shopping', at(12, 0, 0));
+  const bill = await adminItem(551, 'bill', at(12));
+  await h.as(userId, "select public.apm_record_consent('consumer_health_data','granted','2026-10-08')");
+  const medicine = await adminItem(552, 'health_routine', at(12));
+  const deadline = await adminItem(553, 'shopping', at(12), { dueAt: at(17) });
+  const fixed = await adminItem(554, 'meal_plan', at(12), { flexible: false });
+  const state = graph({ lifeAdminItems: [flexible, bill, medicine, deadline, fixed], dayRecords: [{ day: priorDay, verdict: 'miss' }] });
+  assert.equal((await prepPlans({ ...state, permissions: [] })).prepared, 0);
+  assert.equal((await prepPlans(state)).prepared, 1);
+  const action = await find('missed_day');
+  assert.equal(action.payload.itemId, flexible.id);
+  assert.ok(action.payload.startsAt.slice(0, 10) > phaseDay);
+  assert.equal(await savedStart(flexible.id), flexible.startsAt);
+  await rpc('apm_service_reject_suite_proposal', [userId, action.id]);
+  assert.equal((await prepPlans(state)).prepared, 0);
+  await assert.rejects(approveSuiteProposal(action, state, input, phaseTime));
+  for (const item of [flexible, bill, medicine, deadline, fixed]) assert.equal(await savedStart(item.id), item.startsAt);
+
+  const another = await adminItem(555, 'meal_plan', at(15), { endsAt: at(15, 30) });
+  const next = { ...state, lifeAdminItems: [another] };
+  assert.equal((await prepPlans(next)).prepared, 1);
+  const proposal = await find('missed_day');
+  assert.equal((await approveSuiteProposal(proposal, next, input, phaseTime)).status, 'verified');
+  assert.equal(await savedStart(another.id), proposal.payload.startsAt);
+  assert.equal(writes().length, 0);
+});
+
+test('low mood or recovery mode proposes only today’s flexible admin, with an atomic stale-source check', async () => {
+  const first = await adminItem(556, 'shopping', at(12));
+  const second = await adminItem(557, 'meal_plan', at(14));
+  const yesterday = await adminItem(558, 'shopping', at(14, 0, 0));
+  const assumedNormal = graph({ lifeAdminItems: [first, second, yesterday] });
+  assert.equal((await prepPlans(assumedNormal)).prepared, 0);
+  const recovery = { ...assumedNormal, personalOS: { activeMode: 'recovery' }, lifeAdminItems: [first, yesterday] };
+  assert.equal((await prepPlans(recovery)).prepared, 1);
+  const action = await find('hard_day');
+  assert.equal(action.payload.itemId, first.id);
+  assert.equal(await savedStart(first.id), first.startsAt);
+  await assert.rejects(approveSuiteProposal(action, recovery, { ...input, env: { ...env, ACTION_LIFE_GRAPH_EXECUTION: 'false' } }, phaseTime), /domain_execution_disabled/);
+  await h.admin("update public.life_admin_items set due_at = now() where id = $1", [first.id]);
+  await assert.rejects(approveSuiteProposal(action, recovery, input, phaseTime));
+  assert.equal(await savedStart(first.id), first.startsAt);
+  assert.equal((await find('hard_day')).status, 'prepared');
+  const mood = { ...assumedNormal, lifeAdminItems: [second, yesterday], dayRecords: [{ day: phaseDay, mood: 2 }] };
+  assert.equal((await prepPlans(mood)).prepared, 1);
+  const proposal = await find('hard_day');
+  assert.equal(proposal.payload.itemId, second.id);
+  assert.equal((await approveSuiteProposal(proposal, mood, input, phaseTime)).status, 'verified');
+  assert.equal(await savedStart(second.id), proposal.payload.startsAt);
+  assert.equal(await savedStart(yesterday.id), yesterday.startsAt);
+  assert.equal(writes().length, 0);
 });

@@ -17,7 +17,7 @@ const mockModules = {
   'billing/purchases': "export const appDistribution = () => 'web'; export const billingAvailability = () => ({ available: false });",
   'integrations/oauth': 'export const connectOAuthProvider = () => {};',
   'integrations/deviceCalendar': 'export const chosenCalendars = () => []; export const listPhoneCalendars = () => []; export const syncChosenDeviceCalendars = () => {}; export const chooseCalendars = () => {}; export const removePhoneCalendarEvents = () => {};',
-  'api/apmApi': `export const reportContent = async () => {};
+  'api/apmApi': `export const reportContent = async () => {}; export const setPermission = async () => {};
     export const fetchFlexibleCalendarEvents = async () => ({ eventIds: [] });
     export const setAutopilotEventFlexible = async () => {};
     ${['approveExternalAction','rejectExternalAction','checkInToday','closeToday','completeAgendaAction','decideGoalPlan','replanToday','recordClinicianClearance','reprintToday','returnAndReset','reviewPlanGate','setTodayPhase','clearDeviceCalendarEvents','disconnectConnection','reactivateConnection','setConnectionLabel','setPrimaryConnection','syncCloudCalendar','syncEmailConnection','syncDeviceCalendarEvents'].map((name) => `export const ${name} = () => {};`).join('\n')}`,
@@ -34,6 +34,8 @@ const bundle = await build({
     export { default as Today } from './app/(tabs)/today';
     export { default as RadarWhy } from './app/radar/why';
     export { default as Connections } from './app/settings/privacy/connections';
+    export { default as LifeAreas } from './app/settings/life';
+    export { default as Autonomy } from './app/settings/privacy/autonomy';
     export { ActionApprovalCard } from './src/components/today/ActionApprovalCard';
     export { buildDailyPlan } from '@apm/planning';`, resolveDir: dir },
   platform: 'node', format: 'cjs', jsx: 'automatic', bundle: true, write: false,
@@ -52,7 +54,7 @@ const bundle = await build({
 });
 const module = { exports: {} };
 new Function('module', 'exports', 'require', bundle.outputFiles[0].text)(module, module.exports, require);
-const { Today, RadarWhy, Connections, ActionApprovalCard, buildDailyPlan } = module.exports;
+const { Today, RadarWhy, Connections, LifeAreas, Autonomy, ActionApprovalCard, buildDailyPlan } = module.exports;
 const at = (hour) => { const day = new Date(); day.setUTCDate(day.getUTCDate() + 1); day.setUTCHours(hour, 0, 0, 0); return day.toISOString(); };
 const reply = { id: 'reply', status: 'prepared', requiresApproval: true, idempotencyKey: 'suite:reply:1', payload: {
   suiteProposal: 'reply', subject: 'Rehearsal schedule', to: 'jordan@example.com', account: 'Music inbox',
@@ -70,7 +72,7 @@ function fixture(overrides) {
   const graph = {
     identity: { userId: 'player', timezone: 'UTC' }, personalOS: { activeMode: 'standard', morningSequence: [] },
     entitlement: { plan: 'life_os', status: 'active' }, calendarEvents: [], connections: [], nextActions: [], radarItems: [conflict], evidence: [],
-    dayRecords: [], tracks: [], routines: [], commitments: [], goals: [], actions: [reply, move], ...overrides,
+    dayRecords: [], people: [], lifeAdminItems: [], lifeRelationships: [], permissions: [], tracks: [], routines: [], commitments: [], goals: [], actions: [reply, move], ...overrides,
   };
   const todayPlan = buildDailyPlan(graph);
   globalThis.suiteTest = {
@@ -139,4 +141,58 @@ test('Today points a Gmail-only Suite user to Outlook Mail instead of offering a
   assert.match(page, /Outlook Mail/);
   assert.match(page, /<button[^>]*>Manage connections<\/button>/);
   assert.doesNotMatch(page, />Approve<\/button>/);
+});
+
+const checklist = { id: 'goal-checklist', status: 'prepared', requiresApproval: true, idempotencyKey: 'suite:goal_checklist:1', payload: {
+  suiteProposal: 'goal_checklist', title: 'Get ready to record the first interview', detail: 'A location and a microphone picked out', expiresAt: at(17),
+} };
+const block = { ...move, id: 'goal-calendar', idempotencyKey: 'suite:goal_calendar:1', payload: {
+  ...move.payload, suiteProposal: 'goal_calendar', title: 'Edit the opening scene', expiresAt: at(17),
+} };
+const missed = { ...move, id: 'missed-day', idempotencyKey: 'suite:admin_defer:1', payload: {
+  ...move.payload, suiteProposal: 'missed_day', title: 'Pick up printer paper', expiresAt: at(17),
+} };
+const hard = { ...missed, id: 'hard-day', idempotencyKey: 'suite:admin_defer:2', payload: {
+  ...missed.payload, suiteProposal: 'hard_day', title: 'Plan next week’s lunches',
+} };
+
+test('Today renders both methods for arranging a goal step and the checklist after approval', () => {
+  fixture({ actions: [block, checklist] });
+  const page = render(Today);
+  for (const detail of [checklist.payload.title, checklist.payload.detail, block.payload.title, block.payload.account]) assert.ok(page.includes(detail));
+  assert.match(page, /Approve to add this block/);
+  assert.match(page, /Approve to add this to your goal checklist/);
+  assert.equal((page.match(/Report this proposal/g) ?? []).length, 2);
+
+  fixture({ actions: [{ ...checklist, status: 'verified' }], nextActions: [{ id: checklist.id, status: 'open', title: checklist.payload.title }] });
+  const approved = render(Today);
+  assert.ok(approved.includes(checklist.payload.title));
+  assert.match(approved, /Saved for your next full day/);
+  assert.ok(!approved.includes('>Approve</button>'));
+});
+
+test('minimum-day and hard-day proposals render during recovery with the old slot, destination, and decision controls', () => {
+  fixture({ actions: [missed, hard, block, { ...checklist, status: 'cancelled' }] });
+  globalThis.suiteTest.life.todayLoop.agenda.mode = 'recovery';
+  const page = render(Today);
+  for (const expected of [missed.payload.title, hard.payload.title, 'Current slot', 'New slot', 'Life areas', 'deadlines and calendar']) {
+    assert.ok(page.includes(expected), expected);
+  }
+  assert.ok(!page.includes(block.payload.title));
+  assert.equal((page.match(/Report this proposal/g) ?? []).length, 2);
+  assert.equal(page.split('>Approve</button>').length - 1, 2);
+  assert.equal(page.split('>Reject</button>').length - 1, 2);
+
+  fixture({ actions: [{ ...hard, payload: { ...hard.payload, day: '2000-01-01' } }], entitlement: { plan: 'chief_of_staff', status: 'active' } });
+  assert.ok(!render(Today).includes('>Approve</button>'));
+});
+
+test('Life areas and Permissions expose the task and approval setup for Suite', () => {
+  fixture({ lifeAdminItems: [{ id: 'errand', kind: 'shopping', title: 'Pick up printer paper', status: 'open', importance: 2, recurrence: {}, details: { flexibleSchedule: true }, startsAt: at(12) }] });
+  assert.match(render(LifeAreas), /Pick up printer paper/);
+  const permissions = render(Autonomy);
+  assert.match(permissions, /Goal checklists and task moves/);
+  assert.match(permissions, /Approve &amp; execute/);
+  fixture({ entitlement: { plan: 'chief_of_staff', status: 'active' } });
+  assert.match(render(LifeAreas), /Life areas need/);
 });

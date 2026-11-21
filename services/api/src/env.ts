@@ -20,6 +20,7 @@ export interface ApiEnv {
   GLOBAL_ACTION_EXECUTION?: string;
   ACTION_CALENDAR_EXECUTION?: string;
   ACTION_EMAIL_EXECUTION?: string;
+  ACTION_LIFE_GRAPH_EXECUTION?: string;
   /** Phase C kill switch for standing (level-5) execution. Off unless exactly 'true'. */
   AUTOPILOT_EXECUTION?: string;
   /**
@@ -79,6 +80,7 @@ export function actionsGloballyEnabled(env: ApiEnv): boolean {
 
 export function actionDomainEnabled(env: ApiEnv, domain: string): boolean {
   if (domain === 'calendar') return env.ACTION_CALENDAR_EXECUTION === 'true';
+  if (domain === 'life_graph') return env.ACTION_LIFE_GRAPH_EXECUTION === 'true';
   if (domain === 'email') return env.ACTION_EMAIL_EXECUTION === 'true';
   return false;
 }

@@ -6,7 +6,7 @@ import { restErrorMessage, serviceRpc } from './db';
 import { getValidConnectorToken } from './connectors/oauth';
 import { entitlementIsUsable } from './entitlement';
 
-interface ActionRow {
+export interface ActionRow {
   id: string; domain: string; action_type: string; status: ActionRecord['status']; payload: Record<string, unknown>;
   reason: string; permission_id: string | null; idempotency_key: string; requires_approval: boolean;
   approved_at: string | null; executed_at: string | null; verified_at: string | null; failure_code: string | null;
@@ -121,7 +121,7 @@ async function executeCalendar(action: ActionRecord, input: { env: ApiEnv; acces
   const response = await fetch(url, {
     method: eventId ? 'PATCH' : 'POST',
     headers: { authorization: `Bearer ${auth.accessToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ subject: title, start: { dateTime: startsAt, timeZone: 'UTC' }, end: { dateTime: endsAt, timeZone: 'UTC' }, location: action.payload.location ? { displayName: String(action.payload.location) } : undefined }),
+    body: JSON.stringify({ subject: title, start: { dateTime: new Date(startsAt).toISOString().slice(0, -1), timeZone: 'UTC' }, end: { dateTime: new Date(endsAt).toISOString().slice(0, -1), timeZone: 'UTC' }, location: action.payload.location ? { displayName: String(action.payload.location) } : undefined }),
   });
   if (!response.ok) throw new Error(`microsoft_calendar_action_failed:${response.status}`);
   if (response.status === 204) return eventId;
@@ -320,6 +320,7 @@ export async function revertConnectorAction(
 
 export async function approveAndMaybeExecuteAction(input: {
   env: ApiEnv; accessToken: string; userId: string; action: ActionRecord; permission?: Permission; entitlement?: SubscriptionEntitlement;
+  atomicWrite?: () => Promise<ActionRow>;
   execute?: (claimed: ActionRecord) => Promise<string>;
 }): Promise<ActionRecord> {
   const domain = input.action.domain as ActionDomain;
@@ -332,6 +333,8 @@ export async function approveAndMaybeExecuteAction(input: {
   const requestedLevel: AutonomyLevel = 4;
   const decision = authorizeAction({ ...input, domain, requestedLevel, forExecution: true });
   if (!decision.allowed) throw new Error(`action_not_authorized:${decision.reason}`);
+
+  if (input.atomicWrite) return mapAction(await input.atomicWrite(), input.userId);
 
   // Atomic claim: `update … where status in ('prepared','approved') returning`. A second
   // concurrent approval gets no row (action_invalid_state) and never reaches the provider.

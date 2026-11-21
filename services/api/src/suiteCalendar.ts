@@ -40,16 +40,17 @@ export function canMove(event: NormalizedCalendarEventInput): boolean {
 
 function protectedTimes(graph: LifeGraphSnapshot): EventTime[] {
   return (graph.lifeAdminItems ?? []).flatMap((item) =>
-    item.startsAt && item.endsAt && !['completed', 'cancelled', 'paused'].includes(item.status)
-      ? [{ startsAt: item.startsAt, endsAt: item.endsAt }] : []);
+    item.startsAt && !['completed', 'cancelled', 'paused'].includes(item.status)
+      ? [{ startsAt: item.startsAt, endsAt: item.endsAt ?? iso(Date.parse(item.startsAt) + 30 * MINUTE) }] : []);
 }
 
-function occupied(slot: EventTime, events: BusyEvent[], graph: LifeGraphSnapshot, except: Pick<BusyEvent, 'connectionId' | 'externalEventId'>): boolean {
+export function suiteSlotOccupied(slot: EventTime, events: BusyEvent[], graph: LifeGraphSnapshot, except?: Pick<BusyEvent, 'connectionId' | 'externalEventId'>): boolean {
   return events.some((event) => !event.deleted && (event.availability !== 'free' || protectedTitle(event.title))
-    && !(event.connectionId === except.connectionId && event.externalEventId === except.externalEventId)
+    && !(except && event.connectionId === except.connectionId && event.externalEventId === except.externalEventId)
     && (event.allDay
-      ? calendarDateInTimezone(slot.startsAt, graph.identity.timezone) >= event.startsAt.slice(0, 10)
-        && calendarDateInTimezone(slot.startsAt, graph.identity.timezone) < event.endsAt.slice(0, 10)
+      ? event.provider === 'device' ? overlaps(slot, event)
+        : calendarDateInTimezone(slot.startsAt, graph.identity.timezone) >= event.startsAt.slice(0, 10)
+          && calendarDateInTimezone(slot.startsAt, graph.identity.timezone) < event.endsAt.slice(0, 10)
       : overlaps(slot, event)))
     || protectedTimes(graph).some((block) => overlaps(slot, block));
 }
@@ -73,7 +74,7 @@ export function firstClearSlot(event: CalendarEvent, after: string, graph: LifeG
     if (calendarDateInTimezone(slot.endsAt, timezone) !== targetDay || clock.format(start) < '08:00' || clock.format(start + duration) > '18:00') continue;
     if (spreadLoad ? targetDay <= day || ['Sat', 'Sun'].includes(weekday.format(start))
       || (load?.get(targetDay)?.busyMs ?? 0) + duration >= fromLoad - duration : targetDay !== day) continue;
-    if (!occupied(slot, events, graph, event)) return slot;
+    if (!suiteSlotOccupied(slot, events, graph, event)) return slot;
   }
 }
 
@@ -94,18 +95,13 @@ export async function executeSuiteCalendarMove(action: unknown, graph: LifeGraph
     ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar', 'calendars.readwrite'].includes(scope.toLowerCase())))) throw new Error('action_proposal_stale');
   const from = move.originalStartsAt;
   const to = move.endsAt;
-  const snapshots = await Promise.all(calendars.map(async (connection) => {
-    const auth = await getValidConnectorToken({ ...input, connectionId: connection.id });
-    if (auth.kind !== 'calendar' || auth.provider !== connection.provider) throw new Error('action_proposal_stale');
-    const events = await (auth.provider === 'google' ? fetchGoogleEvents : fetchMicrosoftEvents)(auth.accessToken, from, to);
-    return { auth, connectionId: connection.id, events: events.map((item) => ({ ...item, connectionId: connection.id })) };
-  }));
+  const snapshots = await suiteCalendarSnapshots(calendars, input, from, to);
   const target = snapshots.find((snapshot) => snapshot.connectionId === move.connectionId)!;
   const live = target.events.find((item) => item.externalEventId === move.externalEventId);
   const busy = [...snapshots.flatMap((snapshot) => snapshot.events), ...graph.calendarEvents.filter((item) => item.provider === 'device')];
   if (!live || !canMove(live) || live.sourceVersion !== move.sourceVersion
     || Date.parse(live.startsAt) !== Date.parse(move.originalStartsAt) || Date.parse(live.endsAt) !== Date.parse(move.originalEndsAt)
-    || occupied(move, busy, graph, live)) throw new Error('action_proposal_stale');
+    || suiteSlotOccupied(move, busy, graph, live)) throw new Error('action_proposal_stale');
 
   const id = encodeURIComponent(move.externalEventId);
   // Only the two timestamps are patched. An ETag catches concurrent edits to this event.
@@ -127,4 +123,30 @@ export async function executeSuiteCalendarMove(action: unknown, graph: LifeGraph
   if (updated.id !== move.externalEventId || utc(updated.start?.dateTime) !== Date.parse(move.startsAt)
     || utc(updated.end?.dateTime) !== Date.parse(move.endsAt)) throw new Error('calendar_move_receipt_mismatch');
   return updated.id;
+}
+
+export function suiteCalendarSnapshots(calendars: LifeGraphSnapshot['connections'], input: ConnectorInput, from: string, to: string) {
+  return Promise.all(calendars.map(async (connection) => {
+    const auth = await getValidConnectorToken({ ...input, connectionId: connection.id });
+    if (auth.kind !== 'calendar' || auth.provider !== connection.provider) throw new Error('action_proposal_stale');
+    const events = await (auth.provider === 'google' ? fetchGoogleEvents : fetchMicrosoftEvents)(auth.accessToken, from, to);
+    return { auth, connectionId: connection.id, events: events.map((item) => ({ ...item, connectionId: connection.id })) };
+  }));
+}
+
+export function clearSuiteSlot(graph: LifeGraphSnapshot, after: number, duration: number, earliest: string, latest: string, reserved: EventTime[] = [], weekdaysOnly = false) {
+  if (!Number.isFinite(duration) || duration <= 0 || duration > 10 * 60 * MINUTE) return;
+  const timezone = graph.identity.timezone || 'UTC';
+  const clock = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short' });
+  const step = 15 * MINUTE;
+  for (let start = Math.ceil(after / step) * step; start < Date.parse(latest) + 2 * 86_400_000; start += step) {
+    const slot = { startsAt: iso(start), endsAt: iso(start + duration) };
+    const day = calendarDateInTimezone(slot.startsAt, timezone);
+    if (day > latest) break;
+    if (day < earliest || calendarDateInTimezone(slot.endsAt, timezone) !== day) continue;
+    const [weekday, hour] = clock.format(start).split(' ');
+    if (weekdaysOnly && ['Sat', 'Sun'].includes(weekday!)) continue;
+    if (hour! < '08:00' || clock.format(start + duration).split(' ')[1]! > '18:00') continue;
+    if (!reserved.some((block) => overlaps(slot, block)) && !suiteSlotOccupied(slot, graph.calendarEvents, graph)) return slot;
+  }
 }

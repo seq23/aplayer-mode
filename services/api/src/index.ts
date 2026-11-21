@@ -1,4 +1,4 @@
-import { approveSuiteProposal, SUITE_PROPOSAL_PREFIX } from './proposalProducers';
+import { approveSuiteProposal, prepareSuiteProposals, suiteEntitled, SUITE_PROPOSAL_PREFIX } from './proposalProducers';
 import { movableEventIds } from './suiteCalendar';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -1014,6 +1014,18 @@ app.post('/v1/intake/synthesis', async (c) => {
   return c.json(result);
 });
 
+async function stateWithPlanProposals(env: ApiEnv, accessToken: string, userId: string) {
+  const state = await buildUserState(env, accessToken, userId);
+  if (!suiteEntitled(state.graph.entitlement)) return state;
+  const result = await prepareSuiteProposals(env, state.graph, new Date(), accessToken, true).catch(() => ({
+    prepared: 0, stops: ['SUITE_PLAN_PROPOSALS_UNAVAILABLE'],
+  }));
+  if (result.prepared || result.stops.length) {
+    console.log(`OUTPUT ${result.prepared} suite_plan_proposals_prepared${result.stops.length ? ` NAMED STOP [${result.stops.join(', ')}]` : ''}`);
+  }
+  return result.prepared ? buildUserState(env, accessToken, userId) : state;
+}
+
 const modeRequestSchema = z.union([
   z.object({ action: z.literal('exit') }),
   z.object({ action: z.literal('enter').default('enter'), mode: z.enum(['standard','high_pressure','executive_review','recovery']) }),
@@ -1043,7 +1055,7 @@ app.post('/v1/methodology/mode', async (c) => {
   const result = await changeMode(c.env, user.accessToken, user.id, parsed.data as ModeRequest);
   if (!result.ok) return c.json({ error: result.error, message: result.message }, 409);
   await audit(c.env, user.accessToken, user.id, 'operating_mode.changed', { mode: result.state.mode }, 'personal_os', user.id);
-  return c.json(await buildUserState(c.env, user.accessToken, user.id));
+  return c.json(await stateWithPlanProposals(c.env, user.accessToken, user.id));
 });
 
 app.post('/v1/methodology/day/close', async (c) => {
@@ -1071,7 +1083,7 @@ app.post('/v1/today/check-in', async (c) => {
   const mood = moodAllowed ? parsed.data.mood : undefined;
   const state = await buildUserState(c.env, user.accessToken, user.id);
   if (!state.graph.personalOS) return c.json({ error: 'personal_os_missing', message: 'Complete the Personal OS intake first.' }, 409);
-  if (state.today.checkedIn) return c.json({ replayed: true, ...state });
+  if (state.today.checkedIn) return c.json({ replayed: true, ...(await stateWithPlanProposals(c.env, user.accessToken, user.id)) });
   // Never lock an agenda from a plan that has not received an in-effect pillar change yet.
   // Fail closed: if the check itself fails, the plans' state is unknown, so do not lock.
   if (await pillarRebuildsPending(c.env, user.id).catch(() => true)) {
@@ -1081,7 +1093,7 @@ app.post('/v1/today/check-in', async (c) => {
   const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, ...(mood !== undefined ? { mood } : {}) });
   try { await checkInDay(c.env, user.id, { day: state.today.date, ...(mood !== undefined ? { mood } : {}), agenda }); }
   catch (error) { return loopFailure(c, error); }
-  return c.json({ replayed: false, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+  return c.json({ replayed: false, ...(await stateWithPlanProposals(c.env, user.accessToken, user.id)) });
 });
 
 app.post('/v1/today/actions/complete', async (c) => {
@@ -1118,7 +1130,7 @@ app.post('/v1/today/replan', async (c) => {
   const agenda = freshAgenda(state.graph, { date: state.today.date, state: dayState, mood: state.today.day?.mood });
   try { await replanDay(c.env, user.id, { day: state.today.date, reason: parsed.data.reason, detail: parsed.data.detail, agenda }); }
   catch (error) { return loopFailure(c, error); }
-  return c.json({ message: decision.message, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+  return c.json({ message: decision.message, ...(await stateWithPlanProposals(c.env, user.accessToken, user.id)) });
 });
 
 // End-of-day check-in (BHPC Prompt #6): what was completed pillar by pillar, Hit /
@@ -1416,7 +1428,7 @@ app.post('/v1/apm/coach', async (c) => {
     // Deep Work ended early / Executive Review closed: the same deterministic
     // transition rules apply, and the client gets the rebuilt Today with it.
     const changed = await changeMode(c.env, user.accessToken, user.id, turn.modeRequest);
-    if (changed.ok) today = await buildUserState(c.env, user.accessToken, user.id);
+    if (changed.ok) today = await stateWithPlanProposals(c.env, user.accessToken, user.id);
   }
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'coaching_turn', { mode: reply.mode, phase: reply.phase, engine: reply.engine, step: reply.step });
   return c.json({ ...reply, modeState: today?.mode ?? state.mode, ...(today ? { today } : {}) });

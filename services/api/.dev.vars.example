@@ -39,6 +39,7 @@ EXPO_ACCESS_TOKEN=
 # but provider-side execution requires BOTH the global switch and the documented domain switch.
 GLOBAL_ACTION_EXECUTION=false
 ACTION_CALENDAR_EXECUTION=false
+ACTION_LIFE_GRAPH_EXECUTION=false
 ACTION_EMAIL_EXECUTION=false
 # Phase C standing (level-5) execution; stays false until a class is activated with runtime evidence.
 AUTOPILOT_EXECUTION=false
