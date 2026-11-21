@@ -16,6 +16,7 @@ const mockModules = {
   'state/consent': 'export const useConsent = () => ({});',
   'billing/purchases': "export const appDistribution = () => 'web'; export const billingAvailability = () => ({ available: false });",
   'integrations/oauth': 'export const connectOAuthProvider = () => {};',
+  'intake/storage': 'export const readSync = () => null; export const writeSync = () => {}; export const removeSync = () => {};',
   'integrations/deviceCalendar': 'export const chosenCalendars = () => []; export const listPhoneCalendars = () => []; export const syncChosenDeviceCalendars = () => {}; export const chooseCalendars = () => {}; export const removePhoneCalendarEvents = () => {};',
   'api/apmApi': `export const reportContent = async () => {}; export const setPermission = async () => {};
     export const fetchFlexibleCalendarEvents = async () => ({ eventIds: [] });
@@ -39,6 +40,7 @@ const bundle = await build({
     export { default as LifeAreas } from './app/settings/life';
     export { default as Autonomy } from './app/settings/privacy/autonomy';
     export { ActionApprovalCard } from './src/components/today/ActionApprovalCard';
+    export { previewRequest } from './src/preview/server';
     export { buildDailyPlan } from '@apm/planning';`, resolveDir: dir },
   platform: 'node', format: 'cjs', jsx: 'automatic', bundle: true, write: false,
   external: ['react', 'react/jsx-runtime'],
@@ -56,7 +58,7 @@ const bundle = await build({
 });
 const module = { exports: {} };
 new Function('module', 'exports', 'require', bundle.outputFiles[0].text)(module, module.exports, require);
-const { Today, Radar, RadarWhy, Connections, LifeAreas, Autonomy, ActionApprovalCard, buildDailyPlan } = module.exports;
+const { Today, Radar, RadarWhy, Connections, LifeAreas, Autonomy, ActionApprovalCard, buildDailyPlan, previewRequest } = module.exports;
 const at = (hour) => { const day = new Date(); day.setUTCDate(day.getUTCDate() + 1); day.setUTCHours(hour, 0, 0, 0); return day.toISOString(); };
 const reply = { id: 'reply', status: 'prepared', approvalAvailable: true, requiresApproval: true, idempotencyKey: 'suite:reply:1', payload: {
   suiteProposal: 'reply', aiGenerated: true, subject: 'Rehearsal schedule', to: 'jordan@example.com', account: 'Music inbox',
@@ -256,4 +258,20 @@ test('Radar and Today show the flagged subscription and the proposed cancellatio
   assert.match(radar, /AI finding/);
   assert.match(radar, /Report this item/);
   assert.match(render(RadarWhy), /AI identified a subscription notice/);
+});
+
+test('the CI web preview reaches every paid Suite state: each sample card can be approved, the draft is model-shaped', async () => {
+  await previewRequest('/v1/preview/sample-account', { method: 'POST', body: '{}' });
+  const { graph } = await previewRequest('/v1/me/today');
+  const suite = graph.actions.filter((action) => action.idempotencyKey.startsWith('suite:') && action.status === 'prepared');
+  const kinds = new Set(suite.map((action) => action.payload.suiteProposal));
+  for (const kind of ['reply', 'calendar_fix', 'goal_checklist', 'goal_calendar', 'missed_day', 'hard_day', 'subscription_cancel']) assert.ok(kinds.has(kind), kind);
+  for (const action of suite) {
+    const card = renderToStaticMarkup(createElement(ActionApprovalCard, { action, onApprove() {}, onReject() {} }));
+    assert.match(card, />Approve<\/button>/, `${action.payload.suiteProposal} can be approved in the preview`);
+  }
+  const reply = suite.find((action) => action.payload.suiteProposal === 'reply');
+  assert.equal(reply.payload.aiGenerated, true);
+  assert.doesNotMatch(reply.payload.body, /received your request/i, 'never the fixed receipt line');
+  assert.ok(reply.payload.body.includes('?'), 'a grounded draft answers the thread');
 });
