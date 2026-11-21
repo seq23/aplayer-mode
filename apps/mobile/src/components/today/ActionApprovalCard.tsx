@@ -50,7 +50,7 @@ export function ActionApprovalCard({ action, busyId, onApprove, onReject, onRepo
   if (autopilotMove && action.status === 'failed') return <Card tone="warning">
     <Label tone="warning">{label}</Label>
     <CardTitle>Not moved</CardTitle>
-    <Body>{`${String(data.title)} is still at ${time(data.originalStartsAt, timezone)}. Your calendar didn't accept the change, so nothing else was moved.`}</Body>
+    <Body>{`${String(data.title)} is still at ${time(data.originalStartsAt, timezone)}. The new time wasn't free on your calendar when Autopilot checked, or your calendar didn't answer, so it stayed put.`}</Body>
   </Card>;
   if (suite && (action.status === 'verified' || action.status === 'cancelled')) return <Card>
     <Label>{label}</Label>

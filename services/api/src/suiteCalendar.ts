@@ -161,6 +161,18 @@ export function suiteCalendarSnapshots(calendars: LifeGraphSnapshot['connections
   }));
 }
 
+/**
+ * The live free/busy read before any calendar write lands (a tapped card, an Autopilot move or
+ * booking, an Undo): every connected calendar re-read now, plus phone calendars and protected
+ * Life-areas times. Stored events sync only on connect or Sync, so they never decide alone. A
+ * calendar that cannot be read throws, and the caller does not write.
+ */
+export async function liveSlotOccupied(graph: LifeGraphSnapshot, input: ConnectorInput, slot: EventTime, except?: Pick<BusyEvent, 'connectionId' | 'externalEventId'>) {
+  const snapshots = await suiteCalendarSnapshots(graph.connections.filter(activeCalendar), input, slot.startsAt, slot.endsAt);
+  const busy = [...snapshots.flatMap((snapshot) => snapshot.events), ...graph.calendarEvents.filter((event) => event.provider === 'device')];
+  return suiteSlotOccupied(slot, busy, graph, except);
+}
+
 export function clearSuiteSlot(graph: LifeGraphSnapshot, after: number, duration: number, earliest: string, latest: string, reserved: EventTime[] = [], weekdaysOnly = false) {
   if (!Number.isFinite(duration) || duration <= 0 || duration > 10 * 60 * MINUTE) return;
   const timezone = graph.identity.timezone || 'UTC';

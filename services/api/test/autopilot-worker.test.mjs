@@ -79,9 +79,12 @@ const executionRow = (overrides = {}) => ({
 const composedCreate = { title: 'Strength', startsAt: payload.startsAt, endsAt: payload.endsAt, location: null, connectionId: CONN };
 const actionRow = { id: 'act-1', user_id: USER, domain: 'calendar', action_type: 'calendar.create', status: 'executing', payload: { ...payload, composed: composedCreate }, reason: 'Routine', permission_id: 'perm-1', idempotency_key: 'autopilot:idem-0001', requires_approval: false, approved_at: '2026-10-06T00:00:00Z', executed_at: null, verified_at: null, failure_code: null, created_at: '2026-10-06T00:00:00Z', updated_at: '2026-10-06T00:00:00Z' };
 
+// Her graph as the route reads it: one connected Google calendar, nothing protected.
+const graph = { identity: { userId: USER, timezone: 'UTC' }, calendarEvents: [], lifeAdminItems: [],
+  connections: [{ id: CONN, userId: USER, provider: 'google', kind: 'calendar', status: 'connected', scopes: ['https://www.googleapis.com/auth/calendar.events'], isPrimary: true }] };
 const run = (env, overrides = {}) => repo.runStandingRule({
   env, accessToken: 'jwt', userId: USER, rule, state: activeState, permission, entitlement,
-  idempotencyKey: 'idem-0001', reason: 'Routine', payload, ...overrides,
+  idempotencyKey: 'idem-0001', reason: 'Routine', payload, graph, ...overrides,
 });
 
 test('standing execution fails closed before any claim when a switch, entitlement, permission, activation or rule is missing', async () => {
@@ -113,7 +116,10 @@ test('standing execution fails closed before any claim when a switch, entitlemen
   assert.deepEqual(repo.autopilotErrorResponse(new Error('autopilot_not_authorized:class_not_activated')), { error: 'autopilot_not_authorized', status: 403, reason: 'class_not_activated' });
 });
 
-async function providerMock(providerStatus) {
+const isLiveRead = (call) => call.method === 'GET' && call.url.startsWith('https://www.googleapis.com/calendar/v3/calendars/primary/events?');
+const liveItem = (startsAt, endsAt, id = 'someone-else') => ({ id, status: 'confirmed', summary: 'Dentist', etag: '"x"', start: { dateTime: startsAt }, end: { dateTime: endsAt }, organizer: { self: true } });
+
+async function providerMock(providerStatus, { live = () => ({ json: { items: [] } }) } = {}) {
   const sealed = await cryptoMod.encryptConnectorCredential(liveEnv, { accessToken: 'provider-token', refreshToken: 'r', expiresAt: Date.now() + 3_600_000 });
   return mockFetch((call) => {
     if (call.url === '/rest/v1/rpc/apm_autopilot_claim') return { json: { replayed: false, execution: executionRow(), action: actionRow } };
@@ -121,6 +127,7 @@ async function providerMock(providerStatus) {
       return { json: executionRow(call.body.p_outcome === 'verified' ? { status: 'verified', external_ref: call.body.p_external_ref } : { status: 'failed', failure_code: call.body.p_failure_code }) };
     }
     if (call.url.startsWith('/rest/v1/integration_connections')) return { json: [{ id: CONN, provider: 'google', kind: 'calendar', encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv }] };
+    if (isLiveRead(call)) return live(call);
     if (call.url.startsWith('https://www.googleapis.com/calendar/v3/calendars/primary/events')) return { status: providerStatus, json: providerStatus === 200 ? { id: 'gcal-1' } : { error: 'x' } };
     return { status: 500, json: { message: `unexpected ${call.url}` } };
   });
@@ -133,15 +140,20 @@ test('a granted claim executes once at the provider and records the verified res
   assertNoDirectAutopilotWrites(mock.calls);
   assert.deepEqual(mock.calls.map((c) => `${c.method} ${c.url.split('?')[0]}`), [
     'POST /rest/v1/rpc/apm_autopilot_claim',
+    // The live free/busy read of the target slot comes first (review fail 1).
+    'GET /rest/v1/integration_connections',
+    'GET https://www.googleapis.com/calendar/v3/calendars/primary/events',
     'GET /rest/v1/integration_connections',
     'POST https://www.googleapis.com/calendar/v3/calendars/primary/events',
     'POST /rest/v1/rpc/apm_service_autopilot_record_result',
   ]);
   assert.deepEqual(mock.calls[0].body, { p_rule_id: 'rule-1', p_idempotency_key: 'idem-0001', p_payload: payload, p_reason: 'Routine' });
   assert.equal(mock.calls[0].authorization, 'Bearer jwt', 'the claim runs as the user');
-  assert.deepEqual(mock.calls[3].body, { p_user_id: USER, p_execution_id: 'exec-1', p_outcome: 'verified', p_external_ref: 'gcal-1', p_failure_code: null });
-  assert.equal(mock.calls[3].apikey, liveEnv.SUPABASE_SECRET_KEY, 'only the server key records the outcome');
-  assert.notEqual(mock.calls[3].authorization, 'Bearer jwt');
+  const live = new URL(mock.calls[2].url);
+  assert.deepEqual([live.searchParams.get('timeMin'), live.searchParams.get('timeMax')], [payload.startsAt, payload.endsAt], 'the live read covers exactly the target slot');
+  assert.deepEqual(mock.calls[5].body, { p_user_id: USER, p_execution_id: 'exec-1', p_outcome: 'verified', p_external_ref: 'gcal-1', p_failure_code: null });
+  assert.equal(mock.calls[5].apikey, liveEnv.SUPABASE_SECRET_KEY, 'only the server key records the outcome');
+  assert.notEqual(mock.calls[5].authorization, 'Bearer jwt');
   assert.equal(result.replayed, false);
   assert.equal(result.execution.status, 'verified');
   assert.equal(result.action.status, 'verified');
@@ -157,6 +169,28 @@ test('a provider failure is recorded as failed through the RPC and surfaces as e
   assert.deepEqual(record.body, { p_user_id: USER, p_execution_id: 'exec-1', p_outcome: 'failed', p_external_ref: null, p_failure_code: 'google_calendar_action_failed:503' });
   assert.equal(record.apikey, liveEnv.SUPABASE_SECRET_KEY, 'a failure is recorded by the Worker that saw it, never by the user');
   assert.deepEqual(repo.autopilotErrorResponse(new Error('autopilot_execution_failed')), { error: 'execution_failed', status: 502 });
+});
+
+test('Autopilot never double-books: a slot taken on the live calendar, or a calendar that cannot be read, means no write and a failed ("Not moved") row', async () => {
+  for (const [name, live, code] of [
+    ['taken since the last sync', () => ({ json: { items: [liveItem('2099-01-05T06:30:00Z', '2099-01-05T07:30:00Z')] } }), 'autopilot_slot_taken_live'],
+    ['provider down', () => ({ status: 503, json: { error: 'down' } }), 'PROVIDER_UNAVAILABLE:503:google'],
+  ]) {
+    const mock = await providerMock(200, { live });
+    try {
+      await assert.rejects(run(liveEnv), /^Error: autopilot_execution_failed$/, name);
+    } finally { mock.restore(); }
+    assert.equal(mock.calls.filter((c) => c.url.startsWith('https://') && c.method !== 'GET').length, 0, `${name}: nothing written to the calendar`);
+    const record = mock.calls.find((c) => c.url === '/rest/v1/rpc/apm_service_autopilot_record_result');
+    assert.equal(record.body.p_outcome, 'failed', name);
+    assert.equal(record.body.p_failure_code, code, name);
+  }
+  // Her own protected Life-areas time counts as busy too, and a free live slot still books.
+  const blocked = await providerMock(200);
+  try {
+    await assert.rejects(run(liveEnv, { graph: { ...graph, lifeAdminItems: [{ id: 'l1', status: 'scheduled', startsAt: '2099-01-05T06:00:00Z', endsAt: '2099-01-05T06:30:00Z' }] } }), /autopilot_execution_failed/);
+  } finally { blocked.restore(); }
+  assert.equal(blocked.calls.filter((c) => c.method === 'POST' && c.url.startsWith('https://')).length, 0);
 });
 
 test('a replayed idempotency key never reaches the provider', async () => {
@@ -246,7 +280,7 @@ test('undo reads the owner-only target, needs the provider switches, and records
     return { status: 500, json: {} };
   });
   let reverted;
-  try { reverted = await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1' }); } finally { live.restore(); }
+  try { reverted = await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1', graph }); } finally { live.restore(); }
   assertNoDirectAutopilotWrites(live.calls);
   assert.deepEqual(live.calls.map((c) => `${c.method} ${c.url.split('?')[0]}`), [
     'POST /rest/v1/rpc/apm_autopilot_undo_target',
@@ -339,7 +373,7 @@ async function runClass({ actionClass, domain, connectorKind, proposal, composed
   try {
     result = await repo.runStandingRule({
       env: liveEnv, accessToken: 'jwt', userId: USER, rule: { ...rule, actionClass }, state: classState(actionClass, domain, connectorKind),
-      permission: classPermission(domain, actionClass), entitlement, idempotencyKey: 'idem-0001', reason: 'Standing run', payload: proposal,
+      permission: classPermission(domain, actionClass), entitlement, idempotencyKey: 'idem-0001', reason: 'Standing run', payload: proposal, graph,
     });
   } finally { mock.restore(); }
   assertNoDirectAutopilotWrites(mock.calls);
@@ -393,16 +427,17 @@ test('calendar.reschedule moves only the database-resolved event, notifying atte
   const proposal = { eventId: '22222222-2222-4222-8222-222222222222', startsAt: '2099-01-05T16:00:00Z', endsAt: '2099-01-05T17:00:00Z' };
   const composed = { externalEventId: 'ev-plain', title: 'Weekly sync', startsAt: proposal.startsAt, endsAt: proposal.endsAt, originalStartsAt: '2099-01-05T10:00:00Z', originalEndsAt: '2099-01-05T11:00:00Z' };
   const { calls } = await runClass({ actionClass: 'calendar.reschedule', domain: 'calendar', connectorKind: 'calendar', proposal, composed, provider: () => ({ json: { id: 'ev-plain' } }) });
-  const patch = calls.find((c) => c.url.startsWith('https://'));
+  const patch = calls.find((c) => c.url.startsWith('https://') && c.method === 'PATCH');
   assert.equal(`${patch.method} ${patch.url}`, 'PATCH https://www.googleapis.com/calendar/v3/calendars/primary/events/ev-plain?sendUpdates=all');
   assert.deepEqual(patch.body, { start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } });
 
   const connection = await sealedConnection('calendar');
   const target = { executionId: 'exec-1', domain: 'calendar', connectorKind: 'calendar', undoMethod: 'restore_time', externalRef: 'ev-plain', connectionId: CONN,
     originalStartsAt: composed.originalStartsAt, originalEndsAt: composed.originalEndsAt, movedStartsAt: proposal.startsAt, movedEndsAt: proposal.endsAt };
-  const undoWith = (live) => mockFetch((call) => {
+  const undoWith = (live, busy = []) => mockFetch((call) => {
     if (call.url === '/rest/v1/rpc/apm_autopilot_undo_target') return { json: target };
     if (call.url.startsWith('/rest/v1/integration_connections')) return { json: connection };
+    if (isLiveRead(call)) return { json: { items: busy } };
     if (call.url.startsWith('https://') && call.method === 'GET') return { json: live };
     if (call.url.startsWith('https://')) return { json: {} };
     if (call.url === '/rest/v1/rpc/apm_service_autopilot_record_undo') return { json: executionRow({ status: 'reverted' }) };
@@ -411,13 +446,23 @@ test('calendar.reschedule moves only the database-resolved event, notifying atte
   // She moved it herself since: Undo refuses and writes nothing.
   const changed = undoWith({ etag: '"e2"', start: { dateTime: '2099-01-06T09:00:00Z' }, end: { dateTime: '2099-01-06T10:00:00Z' } });
   try {
-    await assert.rejects(repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1' }), /autopilot_undo_event_changed/);
+    await assert.rejects(repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1', graph }), /autopilot_undo_event_changed/);
   } finally { changed.restore(); }
   assert.equal(changed.calls.filter((c) => c.url.startsWith('https://') && c.method !== 'GET').length, 0);
   assert.equal(changed.calls.some((c) => c.url.includes('record_undo')), false);
+  // Undo never double-books (review fail 2): the old time was taken since, so the event stays where it is.
+  const taken = undoWith({ etag: '"e1"', start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } }, [liveItem('2099-01-05T10:30:00Z', '2099-01-05T11:30:00Z')]);
+  try {
+    await assert.rejects(repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1', graph }), /autopilot_undo_slot_taken/);
+  } finally { taken.restore(); }
+  assert.equal(taken.calls.filter((c) => c.url.startsWith('https://') && c.method !== 'GET').length, 0, 'nothing moved');
+  assert.equal(taken.calls.some((c) => c.url.includes('record_undo')), false);
+  const liveUndo = new URL(taken.calls.find(isLiveRead).url);
+  assert.deepEqual([liveUndo.searchParams.get('timeMin'), liveUndo.searchParams.get('timeMax')], [composed.originalStartsAt, composed.originalEndsAt]);
+  assert.deepEqual(repo.autopilotErrorResponse(new Error('autopilot_undo_slot_taken')), { error: 'undo_slot_taken', status: 409 });
   // Still where Autopilot put it: restored under that read's ETag.
   const undo = undoWith({ etag: '"e1"', start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } });
-  try { await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1' }); } finally { undo.restore(); }
+  try { await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1', graph }); } finally { undo.restore(); }
   const back = undo.calls.find((c) => c.url.startsWith('https://') && c.method === 'PATCH');
   assert.deepEqual(back.body, { start: { dateTime: composed.originalStartsAt }, end: { dateTime: composed.originalEndsAt } });
   assert.equal(back.ifMatch, '"e1"');

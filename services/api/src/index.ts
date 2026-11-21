@@ -1740,7 +1740,7 @@ app.post('/v1/actions/:id/undo', async (c) => {
     if (action.idempotencyKey.startsWith('autopilot:')) {
       const executionId = await serviceRpc<string | null>(c.env, 'apm_service_autopilot_execution_for_action', { p_user_id: user.id, p_action_id: action.id });
       if (!executionId) return c.json({ error: 'not_found' }, 404);
-      await undoStandingExecution({ env: c.env, accessToken: user.accessToken, userId: user.id, executionId });
+      await undoStandingExecution({ env: c.env, accessToken: user.accessToken, userId: user.id, executionId, graph });
       return c.json({ undone: true });
     }
     await executeSuiteCalendarMove(action.payload, graph, { env: c.env, accessToken: user.accessToken, userId: user.id }, new Date(), true);
@@ -1886,7 +1886,7 @@ app.post('/v1/autopilot/rules/:id/run', async (c) => {
   try {
     const result = await runStandingRule({
       env: c.env, accessToken: user.accessToken, userId: user.id, rule, state, permission, entitlement: graph.entitlement,
-      idempotencyKey: base.data.idempotencyKey, reason: base.data.reason, payload: payload.data,
+      idempotencyKey: base.data.idempotencyKey, reason: base.data.reason, payload: payload.data, graph,
     });
     if (!result.replayed) {
       await recordAnalyticsEvent(c.env, user.accessToken, user.id, result.stopped ? 'autopilot_stopped' : 'autopilot_executed', { actionClass: rule.actionClass });
@@ -1898,7 +1898,8 @@ app.post('/v1/autopilot/rules/:id/run', async (c) => {
 app.post('/v1/autopilot/executions/:id/undo', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   try {
-    const execution = await undoStandingExecution({ env: c.env, accessToken: user.accessToken, userId: user.id, executionId: c.req.param('id') });
+    const graph = await getLifeGraph(c.env, user.accessToken, user.id);
+    const execution = await undoStandingExecution({ env: c.env, accessToken: user.accessToken, userId: user.id, executionId: c.req.param('id'), graph });
     return c.json({ execution });
   } catch (error) { return autopilotFailure(c, error); }
 });

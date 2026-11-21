@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { executeConnectorAction, type ActionRow } from './actionEngine';
 import { freshAgenda } from './dailyLoop';
 import { serviceRpc } from './db';
-import { activeCalendar, clearSuiteSlot, suiteCalendarSnapshots, suiteSlotOccupied } from './suiteCalendar';
+import { activeCalendar, clearSuiteSlot, liveSlotOccupied, suiteSlotOccupied } from './suiteCalendar';
 import type { Producer } from './proposalProducers';
 import { canWrite, sourceKey } from './proposalProducers';
 
@@ -149,9 +149,7 @@ export async function executeGoalCalendar(action: ActionRecord, graph: Graph, in
   const end = Date.parse(slot.endsAt);
   if (!step?.checkedIn || start <= now.getTime() || end - start !== step.durationMinutes * MINUTE
     || !target || graph.personalOS?.hardBoundaries?.length) throw new Error('action_proposal_stale');
-  const snapshots = await suiteCalendarSnapshots(calendars, input, slot.startsAt, slot.endsAt);
-  const events = [...snapshots.flatMap((snapshot) => snapshot.events), ...graph.calendarEvents.filter((event) => event.provider === 'device')];
-  if (suiteSlotOccupied(slot, events, graph)) throw new Error('action_proposal_stale');
+  if (await liveSlotOccupied(graph, input, slot)) throw new Error('action_proposal_stale');
   const receipt = await executeConnectorAction(action, input);
   if (!receipt) throw new Error('calendar_create_receipt_missing');
   return receipt;

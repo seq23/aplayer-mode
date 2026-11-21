@@ -404,7 +404,7 @@ export async function prepareSuiteProposals(env: ApiEnv, graph: Graph, now: Date
           let run;
           try {
             run = await runServiceStandingRun({ env, userId: graph.identity.userId, actionClass: producer.standingClass,
-              connectionId: String(payload.connectionId), idempotencyKey: key, reason, payload: standing });
+              connectionId: String(payload.connectionId), idempotencyKey: key, reason, payload: standing, graph });
           } catch (error) {
             // Stop at the first failure: what already moved is on the done-list, nothing is half-moved.
             const cause = error instanceof Error ? error.cause : undefined;

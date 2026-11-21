@@ -13,6 +13,7 @@ const CODE_COPY: Record<string, string> = {
   google_oauth_client_secret_missing: 'Google Calendar can’t be connected yet. You can connect an Outlook calendar.',
   microsoft_oauth_client_secret_missing: 'Outlook can’t be connected yet. Try again later.',
   connector_oauth_failed: 'The account didn’t connect. Try again.',
+  undo_slot_taken: 'The old time is taken now, so the event stayed at its new time. Nothing was double-booked.',
   connector_provider_unavailable: 'Google or Microsoft didn’t answer, so nothing was connected. Try again in a minute.',
   oauth_session_mismatch: 'This link was started from a different A Player Mode account, so nothing was connected. Start again from Settings → Connections.',
   oauth_flow_expired: 'That connection link expired or was already used. Start again from Settings → Connections.',
