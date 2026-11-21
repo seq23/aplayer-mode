@@ -45,7 +45,14 @@
         "MICROSOFT_OAUTH_REDIRECT_URI": "https://api.aplayermode.com/v1/oauth/microsoft/callback",
         "APP_REVIEW_EMAIL": "appreview@aplayermode.com",
         "REVENUECAT_PROJECT_ID": "proj2c0586cf",
-        "SUITE_MAIL_DAILY_CEILING": "2000"
+        "SUITE_MAIL_DAILY_CEILING": "2000",
+        // Action Engine + Autopilot switches (docs/26 §8, docs/31). Calendar only: the two
+        // classes below are also activated in autopilot_action_classes (migration 0106).
+        // Every other domain and class stays off. Set to "false" here to kill them.
+        "GLOBAL_ACTION_EXECUTION": "true",
+        "ACTION_CALENDAR_EXECUTION": "true",
+        "AUTOPILOT_EXECUTION": "true",
+        "AUTOPILOT_ENABLED_CLASSES": "calendar.reschedule,calendar.create"
       }
     }
   }
