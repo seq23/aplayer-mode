@@ -11,6 +11,7 @@ import type {
   Permission,
   SubscriptionEntitlement,
 } from '@apm/domain';
+import { classifyAutopilotFailure } from '@apm/domain';
 import { decideStandingAuthority, standingActionClasses, type PermissionGrant } from '@apm/policy';
 import type { ApiEnv } from './env';
 import { actionDomainEnabled, actionsGloballyEnabled, autopilotClassEnabled, autopilotExecutionEnabled } from './env';
@@ -251,7 +252,8 @@ async function executeClaim(input: { env: ApiEnv; accessToken: string; userId: s
     externalRef = await executeStandingConnectorAction(action, input);
     if (!externalRef) throw new Error('provider_reference_missing');
   } catch (error) {
-    const failureCode = (error instanceof Error ? error.message : 'unknown_failure').replace(/[^A-Za-z0-9_:.-]/g, '_').slice(0, 120) || 'unknown_failure';
+    // One closed code the app can explain in a sentence (AUTOPILOT_FAILURE_SENTENCES); the cause stays in the thrown error.
+    const failureCode = classifyAutopilotFailure(error);
     await serviceRecord(input.env, 'apm_service_autopilot_record_result', {
       p_user_id: input.userId, p_execution_id: claim.execution.id, p_outcome: 'failed', p_external_ref: null, p_failure_code: failureCode,
     });

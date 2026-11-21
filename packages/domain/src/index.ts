@@ -1025,3 +1025,4 @@ export interface LifeGraphSnapshot {
   osChanges: OsChangeRequest[];
   entitlement?: SubscriptionEntitlement;
 }
+export * from './autopilotFailure.js';

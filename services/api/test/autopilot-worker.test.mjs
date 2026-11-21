@@ -21,7 +21,7 @@ let engine;
 test.before(async () => {
   outDir = await mkdtemp(join(tmpdir(), 'apm-autopilot-test-'));
   await build({
-    entryPoints: { autopilot: join(srcDir, 'autopilotRepository.ts'), crypto: join(srcDir, 'crypto.ts'), engine: join(srcDir, 'actionEngine.ts') },
+    entryPoints: { autopilot: join(srcDir, 'autopilotRepository.ts'), crypto: join(srcDir, 'crypto.ts'), engine: join(srcDir, 'actionEngine.ts'), domain: fileURLToPath(new URL('../../../packages/domain/src/autopilotFailure.ts', import.meta.url)) },
     bundle: true, format: 'esm', platform: 'neutral', outdir: outDir, logLevel: 'silent',
   });
   repo = await import(pathToFileURL(join(outDir, 'autopilot.js')).href);
@@ -166,15 +166,15 @@ test('a provider failure is recorded as failed through the RPC and surfaces as e
   } finally { mock.restore(); }
   assertNoDirectAutopilotWrites(mock.calls);
   const record = mock.calls.find((c) => c.url === '/rest/v1/rpc/apm_service_autopilot_record_result');
-  assert.deepEqual(record.body, { p_user_id: USER, p_execution_id: 'exec-1', p_outcome: 'failed', p_external_ref: null, p_failure_code: 'google_calendar_action_failed:503' });
+  assert.deepEqual(record.body, { p_user_id: USER, p_execution_id: 'exec-1', p_outcome: 'failed', p_external_ref: null, p_failure_code: 'provider_unavailable' });
   assert.equal(record.apikey, liveEnv.SUPABASE_SECRET_KEY, 'a failure is recorded by the Worker that saw it, never by the user');
   assert.deepEqual(repo.autopilotErrorResponse(new Error('autopilot_execution_failed')), { error: 'execution_failed', status: 502 });
 });
 
 test('Autopilot never double-books: a slot taken on the live calendar, or a calendar that cannot be read, means no write and a failed ("Not moved") row', async () => {
   for (const [name, live, code] of [
-    ['taken since the last sync', () => ({ json: { items: [liveItem('2099-01-05T06:30:00Z', '2099-01-05T07:30:00Z')] } }), 'autopilot_slot_taken_live'],
-    ['provider down', () => ({ status: 503, json: { error: 'down' } }), 'PROVIDER_UNAVAILABLE:503:google'],
+    ['taken since the last sync', () => ({ json: { items: [liveItem('2099-01-05T06:30:00Z', '2099-01-05T07:30:00Z')] } }), 'slot_taken'],
+    ['provider down', () => ({ status: 503, json: { error: 'down' } }), 'provider_unavailable'],
   ]) {
     const mock = await providerMock(200, { live });
     try {
@@ -517,4 +517,43 @@ test('write scopes are a separate consent: read is the default, act adds only th
   } finally { await rm(outOauth, { recursive: true, force: true }); }
   const index = await readFile(join(srcDir, 'index.ts'), 'utf8');
   assert.match(index, /access: z\.enum\(\['read','act'\]\)\.default\('read'\)/);
+});
+
+test('every failure the standing path can throw is recorded as one closed code with a plain sentence; nothing raw reaches a screen', async () => {
+  const domain = await import(pathToFileURL(join(outDir, 'domain.js')).href);
+  const codes = Object.keys(domain.AUTOPILOT_FAILURE_SENTENCES);
+  for (const [code, sentence] of Object.entries(domain.AUTOPILOT_FAILURE_SENTENCES)) {
+    assert.match(sentence, /^[A-Z].*\.$/, code);
+    assert.doesNotMatch(sentence, /\b[a-z]+_[a-z_]+\b|\d{3}/, `${code}: no code or status in the sentence`);
+  }
+  // Every literal error the standing path's files can throw, plus the provider shapes.
+  const files = ['actionEngine.ts', 'autopilotRepository.ts', 'suiteCalendar.ts', 'connectors/oauth.ts', 'connectors/calendar.ts'];
+  const thrown = new Set(['PROVIDER_UNAVAILABLE:503:google', 'CONNECTOR_NEEDS_REAUTH:microsoft', 'google_calendar_action_failed:503', 'microsoft_send_failed:400', 'autopilot_slot_taken_live']);
+  for (const file of files) {
+    for (const [, message] of (await readFile(join(srcDir, file), 'utf8')).matchAll(/throw new Error\(['`]([^'`$]+)/g)) thrown.add(message);
+  }
+  assert.ok(thrown.size >= 25, `found ${thrown.size} thrown messages`);
+  for (const message of thrown) {
+    const code = domain.classifyAutopilotFailure(new Error(message));
+    assert.ok(codes.includes(code), `${message} → ${code}`);
+    assert.equal(domain.autopilotFailureSentence(code), domain.AUTOPILOT_FAILURE_SENTENCES[code]);
+  }
+  assert.equal(domain.classifyAutopilotFailure(new TypeError('fetch failed')), 'provider_unavailable');
+  assert.equal(domain.classifyAutopilotFailure(new Error('autopilot_slot_taken_live')), 'slot_taken');
+  // Rows written before the codes were closed still read as a sentence.
+  assert.equal(domain.autopilotFailureSentence('google_calendar_action_failed:503'), domain.AUTOPILOT_FAILURE_SENTENCES.provider_unavailable);
+  // No screen prints a failure code itself.
+  const appDir = fileURLToPath(new URL('../../../apps/mobile/', import.meta.url));
+  const screens = [];
+  for (const root of ['app', 'src']) {
+    for (const entry of await readdir(join(appDir, root), { recursive: true })) if (/\.tsx$/.test(entry)) screens.push(join(appDir, root, entry));
+  }
+  assert.ok(screens.length > 20);
+  for (const file of screens) {
+    const source = await readFile(file, 'utf8');
+    for (const [match] of source.matchAll(/\{[^{}]*\bfailureCode\b[^{}]*\}/g)) {
+      if (/autopilotFailureSentence\(/.test(match) || /\?\s*</.test(match) || /\?\s*$/.test(match)) continue;
+      assert.fail(`${file}: renders a raw failure code: ${match}`);
+    }
+  }
 });
