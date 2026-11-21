@@ -1718,16 +1718,24 @@ app.post('/v1/actions/:id/approve', bodyLimit({ maxSize: 8192 }), async (c) => {
 app.post('/v1/actions/:id/undo', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const graph = await getLifeGraph(c.env, user.accessToken, user.id);
-  const action = graph.actions.find((item) => item.id === c.req.param('id') && item.idempotencyKey.startsWith('suite:calendar_fix:'));
+  const action = graph.actions.find((item) => item.id === c.req.param('id')
+    && /^(?:autopilot:)?suite:(?:calendar_fix|clear_day):/.test(item.idempotencyKey));
   if (!action) return c.json({ error: 'not_found' }, 404);
   if (action.status !== 'verified') return c.json({ error: 'invalid_action_state' }, 409);
   try {
+    // An Autopilot move is undone through its execution: the ledger target, checked against the live event.
+    if (action.idempotencyKey.startsWith('autopilot:')) {
+      const executionId = await serviceRpc<string | null>(c.env, 'apm_service_autopilot_execution_for_action', { p_user_id: user.id, p_action_id: action.id });
+      if (!executionId) return c.json({ error: 'not_found' }, 404);
+      await undoStandingExecution({ env: c.env, accessToken: user.accessToken, userId: user.id, executionId });
+      return c.json({ undone: true });
+    }
     await executeSuiteCalendarMove(action.payload, graph, { env: c.env, accessToken: user.accessToken, userId: user.id }, new Date(), true);
     await serviceRpc(c.env, 'apm_service_record_suite_undo', { p_user_id: user.id, p_action_id: action.id });
     return c.json({ undone: true });
   } catch (error) {
     if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
-    const mapped = actionErrorResponse(error);
+    const mapped = actionErrorResponse(error) ?? autopilotErrorResponse(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }

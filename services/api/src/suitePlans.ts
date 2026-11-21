@@ -11,9 +11,9 @@ import { canWrite, sourceKey } from './proposalProducers';
 type Graph = LifeGraphSnapshot;
 const DAY = 86_400_000;
 const MINUTE = 60_000;
-const dateAfter = (day: string, days: number) => new Date(Date.parse(day) + days * DAY).toISOString().slice(0, 10);
+export const dateAfter = (day: string, days: number) => new Date(Date.parse(day) + days * DAY).toISOString().slice(0, 10);
 
-function dayContext(graph: Graph, now: Date) {
+export function dayContext(graph: Graph, now: Date) {
   const timezone = graph.identity.timezone || 'UTC';
   const day = calendarDateInTimezone(now, timezone);
   const record = graph.dayRecords?.find((entry) => entry.day === day);

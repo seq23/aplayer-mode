@@ -10,21 +10,27 @@ import { actionDomainEnabled, actionsGloballyEnabled, type ApiEnv } from './env'
 import { runUserInference, SuiteMailStop } from './aiGateway';
 import { fetchMicrosoftMessages } from './connectors/email';
 import { getLifeGraph } from './lifeGraphRepository';
-import { applySuiteLifeGraph, deferAdmin, executeGoalCalendar, goalCalendar, goalChecklist } from './suitePlans';
-import { calendarMove, canMove, executeSuiteCalendarMove, firstClearSlot, movableEventIds, suiteCalendarSnapshots } from './suiteCalendar';
+import { applySuiteLifeGraph, dateAfter, dayContext, deferAdmin, executeGoalCalendar, goalCalendar, goalChecklist } from './suitePlans';
+import { calendarMove, canMove, clearSuiteSlot, executeSuiteCalendarMove, firstClearSlot, movableEventIds, otherAttendees, suiteCalendarSnapshots } from './suiteCalendar';
+import { calendarDateInTimezone } from '@apm/planning';
+import type { AutopilotActionClass } from '@apm/domain';
+import { hasAutopilotAccess, runServiceStandingRun } from './autopilotRepository';
 
 export const SUITE_PROPOSAL_PREFIX = 'suite:';
 type ConnectorInput = Omit<Parameters<typeof getValidConnectorToken>[0], 'connectionId'>;
-type SuiteProposalKind = 'reply' | 'calendar_fix' | 'goal_calendar' | 'goal_checklist' | 'missed_day' | 'hard_day' | 'subscription_cancel';
+type SuiteProposalKind = 'reply' | 'calendar_fix' | 'goal_calendar' | 'goal_checklist' | 'missed_day' | 'hard_day' | 'subscription_cancel' | 'clear_day';
 type Domain = 'email' | 'calendar' | 'life_graph';
 
-type Proposal = { key: string; payload: Record<string, unknown>; reason: string };
+/** `standing` is the exact payload of the producer's Autopilot class (its database claim schema). */
+type Proposal = { key: string; payload: Record<string, unknown>; reason: string; standing?: Record<string, unknown> };
 type ProducerContext = ConnectorInput & { graph: LifeGraphSnapshot; now: Date; radar: RadarItem[]; seen: Set<string>; reserved: Array<{ startsAt: string; endsAt: string }> };
 export type Producer = {
   kind: SuiteProposalKind;
   domain: Domain;
   actionType: string;
   permissionType: string;
+  /** With her standing Autopilot rule for this class, the server acts at once instead of asking (Autopilot only). */
+  standingClass?: AutopilotActionClass;
   propose(context: ProducerContext): AsyncGenerator<Proposal, string | undefined>;
 };
 
@@ -152,6 +158,58 @@ async function* calendarFixes(context: ProducerContext): ReturnType<Producer['pr
   return 'NO_SAFE_CALENDAR_MOVE';
 }
 
+const DAY_MS = 86_400_000;
+
+/**
+ * Autopilot: clear the calendar to the minimum day. On a hard or missed day, every event she
+ * marked flexible that is still ahead today moves to the first clear weekday slot in the next
+ * week. Fixed items stay: all-day, focus time and out-of-office (provider event type), travel,
+ * recurring series, anything someone else organised. Her own meeting with other people moves
+ * only with the provider's update to them (`notify`).
+ */
+async function* clearDay(context: ProducerContext): ReturnType<Producer['propose']> {
+  const { graph, now, seen, reserved } = context;
+  if (graph.entitlement?.plan !== 'autopilot') return;
+  const { day, timezone, hard, missed, record } = dayContext(graph, now);
+  if (record?.closedAt || !(hard || missed)) return;
+  const accounts = graph.connections.filter((connection) => canWrite(connection, 'calendar'));
+  if (!accounts.length) return 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY';
+  const flexible = new Set(await movableEventIds(context));
+  const ahead = graph.calendarEvents
+    .filter((event) => flexible.has(event.id) && canMove(event, true) && calendarDateInTimezone(event.startsAt, timezone) === day
+      && Date.parse(event.startsAt) > now.getTime() + 15 * 60_000)
+    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  let noSlot = false;
+  for (const event of ahead) {
+    const account = accounts.find((entry) => entry.id === event.connectionId && entry.provider === event.provider);
+    if (!account) continue;
+    const key = await sourceKey('clear_day', account.id, event.externalEventId, new Date(event.startsAt).toISOString());
+    if (seen.has(key)) continue;
+    const earliest = dateAfter(day, 1);
+    const slot = clearSuiteSlot(graph, Date.parse(earliest) - DAY_MS / 2, Date.parse(event.endsAt) - Date.parse(event.startsAt),
+      earliest, dateAfter(day, 7), reserved, true);
+    if (!slot) { noSlot = true; continue; }
+    // The live calendar, not last night's sync, decides: same version, still movable.
+    const [snapshot] = await suiteCalendarSnapshots([account], context, new Date(event.startsAt).toISOString(), slot.endsAt);
+    const live = snapshot?.events.find((item) => item.externalEventId === event.externalEventId);
+    if (!live || !canMove(live, true) || live.sourceVersion !== event.sourceVersion
+      || Date.parse(live.startsAt) !== Date.parse(event.startsAt) || Date.parse(live.endsAt) !== Date.parse(event.endsAt)) continue;
+    reserved.push(slot);
+    const others = otherAttendees(live);
+    const move = calendarMove.parse({
+      ...slot, connectionId: account.id, eventId: event.id, externalEventId: event.externalEventId, title: event.title,
+      originalStartsAt: new Date(event.startsAt).toISOString(), originalEndsAt: new Date(event.endsAt).toISOString(),
+      sourceVersion: event.sourceVersion, timezone, notify: others > 0,
+    });
+    yield {
+      key, reason: 'Clear today to your minimum day',
+      payload: { ...move, others, day, provider: account.provider, account: account.label ?? account.accountLabel ?? account.provider },
+      standing: { eventId: event.id, startsAt: slot.startsAt, endsAt: slot.endsAt },
+    };
+  }
+  return noSlot ? 'NO_SAFE_CLEAR_DAY_SLOT' : undefined;
+}
+
 const subscriptionTitle = z.string().trim().min(1).max(100).regex(/^[^\x00-\x1f\x7f<>]+$/);
 const subscriptionFinding = z.object({
   source: z.number().int().nonnegative(),
@@ -260,6 +318,7 @@ export const proposalProducers: readonly Producer[] = [
   { kind: 'reply', domain: 'email', actionType: 'email.send', permissionType: 'send', propose: replies },
   { kind: 'subscription_cancel', domain: 'email', actionType: 'subscription.cancel', permissionType: 'send', propose: subscriptions },
   { kind: 'calendar_fix', domain: 'calendar', actionType: 'calendar.reschedule', permissionType: 'event_write', propose: calendarFixes },
+  { kind: 'clear_day', domain: 'calendar', actionType: 'calendar.reschedule', permissionType: 'event_write', standingClass: 'calendar.reschedule', propose: clearDay },
 ];
 
 export async function executeSuiteReply(payload: Record<string, unknown>, graph: Graph, input: ConnectorInput, now = new Date()): Promise<string> {
@@ -297,19 +356,20 @@ export function approveSuiteProposal(action: ActionRecord, graph: Graph, input: 
       if (kind === 'subscription_cancel') return executeSubscriptionCancel(claimed, graph, input, now);
       if (kind === 'reply') return executeSuiteReply(claimed.payload, graph, input, now);
       if (kind === 'goal_calendar') return executeGoalCalendar(claimed, graph, input, now);
-      if (kind === 'calendar_fix') return executeSuiteCalendarMove(claimed.payload, graph, input, now);
+      if (kind === 'calendar_fix' || kind === 'clear_day') return executeSuiteCalendarMove(claimed.payload, graph, input, now);
       throw new Error('action_invalid_state');
     },
   });
 }
 
 export async function prepareSuiteProposals(env: ApiEnv, graph: Graph, now: Date, accessToken = SERVICE_ROLE_TOKEN, plansOnly = false) {
-  const result = { prepared: 0, stops: [] as string[] };
+  const result = { prepared: 0, autopilot: 0, stops: [] as string[] };
   if (!suiteEntitled(graph.entitlement)) return result;
   const context: ProducerContext = {
     env, accessToken, userId: graph.identity.userId, graph, now,
     radar: buildRadarItems(graph, { now, maxItems: Number.POSITIVE_INFINITY }),
-    seen: new Set(graph.actions.map((action) => action.idempotencyKey)),
+    // An Autopilot run of a proposal is ledgered as `autopilot:<key>`: it counts as seen too.
+    seen: new Set(graph.actions.map((action) => action.idempotencyKey.replace(/^autopilot:(?=suite:)/, ''))),
     reserved: graph.actions.flatMap(({ status, payload }) => {
       if (!['prepared', 'executing'].includes(status) || !['apm', 'google', 'microsoft'].includes(String(payload.provider))
         || typeof payload.startsAt !== 'string' || Date.parse(payload.startsAt) <= now.getTime()) return [];
@@ -319,8 +379,11 @@ export async function prepareSuiteProposals(env: ApiEnv, graph: Graph, now: Date
   };
   for (const producer of proposalProducers) {
     if (plansOnly && (producer.kind === 'reply' || producer.kind === 'calendar_fix' || producer.kind === 'subscription_cancel')) continue;
+
     const permission = suitePermission(graph, producer.kind);
-    if (producer.kind !== 'subscription_cancel' && !authorizeAction({ ...context, domain: producer.domain, requestedLevel: 3, permission, entitlement: graph.entitlement }).allowed) continue;
+    // A standing Autopilot class can act without the Suite permission; asking her needs it.
+    const canAsk = authorizeAction({ ...context, domain: producer.domain, requestedLevel: 3, permission, entitlement: graph.entitlement }).allowed;
+    if (producer.kind !== 'subscription_cancel' && !canAsk && !(producer.standingClass && hasAutopilotAccess(graph.entitlement))) continue;
     if (!actionsGloballyEnabled(env) || !actionDomainEnabled(env, producer.domain)) {
       result.stops.push(`ACTION_EXECUTION_DISABLED:${producer.domain}`);
       if (producer.kind !== 'subscription_cancel') continue;
@@ -334,7 +397,26 @@ export async function prepareSuiteProposals(env: ApiEnv, graph: Graph, now: Date
           if (next.value) result.stops.push(next.value);
           break;
         }
-        const { key, payload, reason } = next.value;
+        const { key, payload, reason, standing } = next.value;
+        if (producer.standingClass && standing && hasAutopilotAccess(graph.entitlement)) {
+          let run;
+          try {
+            run = await runServiceStandingRun({ env, userId: graph.identity.userId, actionClass: producer.standingClass,
+              connectionId: String(payload.connectionId), idempotencyKey: key, reason, payload: standing });
+          } catch (error) {
+            // Stop at the first failure: what already moved is on the done-list, nothing is half-moved.
+            const cause = error instanceof Error ? error.cause : undefined;
+            result.stops.push(cause instanceof ConnectorStop ? cause.message : 'AUTOPILOT_RUN_STOPPED');
+            break;
+          }
+          if (run) {
+            if (!run.replayed) result.autopilot += 1;
+            context.seen.add(key);
+            count += 1;
+            continue;
+          }
+        }
+        if (!canAsk) { result.stops.push(`${producer.kind.toUpperCase()}_PERMISSION_OFF`); break; }
         try {
           const { replayed } = await prepareAction({
             ...context, domain: producer.domain, actionType: producer.actionType,
@@ -364,24 +446,26 @@ function isIdempotencyConflict(error: unknown) {
 
 export async function runSuiteProposals(env: ApiEnv, now: Date): Promise<string | undefined> {
   if (now.getUTCMinutes() % 15 !== 0) return;
-  const output = (count: number, stops: string[]) =>
-    `OUTPUT ${count} suite_proposals_prepared${stops.length ? ` NAMED STOP [${stops.join(', ')}]` : ''}`;
+  const output = (count: number, stops: string[], moved = 0) =>
+    `OUTPUT ${count} suite_proposals_prepared ${moved} autopilot_moves${stops.length ? ` NAMED STOP [${stops.join(', ')}]` : ''}`;
   if (!env.SUPABASE_SECRET_KEY || !env.SUPABASE_URL) return output(0, ['SUITE_PROPOSALS_NO_SERVICE_CREDENTIAL']);
   const users = await serviceRpc<string[]>(env, 'apm_service_suite_proposal_candidates', {
     p_slot: now.getUTCHours() * 4 + now.getUTCMinutes() / 15,
   });
   let total = 0;
+  let moved = 0;
   const stops = new Set<string>();
   for (const userId of users) {
     try {
       const graph = await getLifeGraph(env, SERVICE_ROLE_TOKEN, userId);
-      const { prepared, stops: userStops } = await prepareSuiteProposals(env, graph, now);
+      const { prepared, autopilot, stops: userStops } = await prepareSuiteProposals(env, graph, now);
       total += prepared;
+      moved += autopilot;
       userStops.forEach((stop) => stops.add(stop));
     } catch {
       stops.add('SUITE_PROPOSALS_USER_UNAVAILABLE');
     }
   }
-  if (!total && !stops.size) stops.add('NO_ELIGIBLE_PROPOSALS');
-  return output(total, [...stops]);
+  if (!total && !moved && !stops.size) stops.add('NO_ELIGIBLE_PROPOSALS');
+  return output(total, [...stops], moved);
 }

@@ -66,6 +66,8 @@ const graph = (overrides = {}) => ({
   ...overrides,
 });
 let usageTotal = 0, usageMine = 0;
+const extraConnections = [];
+let patchFailure, expireAfterPatches, patchCount = 0;
 let h, encrypted, calls, latest, calendarVersion, currentEvents, unavailable, connectorFailure, mailbox, modelReply, modelFindings;
 const rpc = async (name, args = []) => (await h.service(
   `select public.${name}(${args.map((_, i) => `$${i + 1}`).join(',')}) as result`, args,
@@ -103,6 +105,7 @@ test.after(async () => h?.db.close());
 test.beforeEach((t) => {
   calls = [];
   usageTotal = 0; usageMine = 0;
+  patchFailure = undefined; expireAfterPatches = undefined; patchCount = 0;
   unavailable = undefined;
   connectorFailure = undefined;
   mailbox = [];
@@ -149,6 +152,8 @@ test.beforeEach((t) => {
           apm_service_suite_flexible_events: ['user_id', 'eligible_only'],
           apm_service_suite_proposal_candidates: ['slot'],
           apm_service_apply_suite_life_graph: ['user_id', 'action_id'],
+          apm_service_autopilot_claim: ['user_id', 'action_class', 'connection_id', 'idempotency_key', 'payload', 'reason'],
+          apm_service_autopilot_record_result: ['user_id', 'execution_id', 'outcome', 'external_ref', 'failure_code'],
         }[name];
         if (name === unavailable) return json({ message: 'unavailable' }, 503);
         if (!args) throw new Error(`Unexpected RPC ${name}`);
@@ -156,12 +161,12 @@ test.beforeEach((t) => {
         try { return json(await rpc(name, args.map((arg) => body[`p_${arg}`]))); }
         catch (e) { return json({ message: e.message }, 400); }
       }
-      const c = connections.find((entry) => url.searchParams.get('id') === `eq.${entry.id}`);
+      const c = [...connections, ...extraConnections].find((entry) => url.searchParams.get('id') === `eq.${entry.id}`);
       if (c && method === 'PATCH') {
         await h.admin('update public.integration_connections set status=$1, last_error_code=$2 where id=$3', [body.status, body.last_error_code, c.id]);
         return new Response(null, { status: 204 });
       }
-      if (c && connectorFailure === 'expired' && c.id === emailId) {
+      if (c && ((connectorFailure === 'expired' && c.id === emailId) || (expireAfterPatches !== undefined && patchCount >= expireAfterPatches && c.kind === 'calendar'))) {
         const expired = await encryptConnectorCredential(env, { accessToken: 'unused-expired-token', expiresAt: 1 });
         return json([{ id: c.id, kind: c.kind, provider: c.provider, encrypted_credentials: expired.ciphertext, credential_iv: expired.iv }]);
       }
@@ -200,7 +205,12 @@ test.beforeEach((t) => {
         eventType: e.id === focusId ? 'focusTime' : 'default', organizer: e.organizer, attendees: e.attendees, etag: e.id === flexId ? calendarVersion : e.sourceVersion,
       })),
     });
-    if (url.hostname === 'www.googleapis.com' && method === 'PATCH') return json({ id: flexId, ...body });
+    if (url.hostname === 'www.googleapis.com' && method === 'PATCH') {
+      const eventId = decodeURIComponent(url.pathname.split('/').at(-1));
+      if (patchFailure?.id === eventId) return json({}, patchFailure.status);
+      patchCount += 1;
+      return json({ id: eventId, ...body });
+    }
     throw new Error(`Unexpected request ${method} ${url.href}`);
   });
 });
@@ -210,7 +220,7 @@ test('both producers prepare from Radar; retries and no tap perform no provider 
   const radar = buildRadarItems(current, { now });
   assert.ok(radar.some((item) => item.relatedCommitmentId === commitmentId && item.reasonCodes.includes('email.reply_owed')));
   assert.ok(radar.some((item) => item.reasonCodes.includes('calendar.busy_overlap')));
-  assert.deepEqual(await prepareSuiteProposals(env, current, now), { prepared: 2, stops: [] });
+  assert.deepEqual(await prepareSuiteProposals(env, current, now), { prepared: 2, autopilot: 0, stops: [] });
   assert.equal((await prepareSuiteProposals(env, current, now)).prepared, 0, 'replayed against the real action ledger');
   const reply = await find('reply');
   const move = await find('calendar_fix');
@@ -236,11 +246,11 @@ test('Roundtable, lapsed plans, disabled permissions, and missing write-scoped c
   assert.ok(calls.every((call) => call.method === 'GET'), 'read-only subscription discovery cannot prepare or send an action');
   calls.length = 0;
   assert.deepEqual(await prepareSuiteProposals(env, graph({ connections: [] }), now), {
-    prepared: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'SUBSCRIPTION_OUTLOOK_MAIL_REQUIRED', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
+    prepared: 0, autopilot: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'SUBSCRIPTION_OUTLOOK_MAIL_REQUIRED', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
   });
   const googleMail = connection(emailId, 'email', 'google', 'https://www.googleapis.com/auth/gmail.send');
   assert.deepEqual(await prepareSuiteProposals(env, graph({ connections: [googleMail] }), now), {
-    prepared: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'SUBSCRIPTION_OUTLOOK_MAIL_REQUIRED', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
+    prepared: 0, autopilot: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'SUBSCRIPTION_OUTLOOK_MAIL_REQUIRED', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
   });
   assert.equal(calls.length, 0);
   await assert.rejects(async () => approveSuiteProposal(await find('reply'), graph({ entitlement: { ...entitlement, plan: 'chief_of_staff' } }), input, now), /not_authorized/);
@@ -379,7 +389,7 @@ test('a saved setup step prepares a checklist without a connector and adds it ju
 
 test('a normal foreground step reserves real time after the tap, with a connector stop and live collision guard', async () => {
   const state = await makeGoal(-8, 542, 'Pass the architecture exam');
-  assert.deepEqual(await prepPlans({ ...state, connections: [] }), { prepared: 0, stops: ['GOAL_CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'] });
+  assert.deepEqual(await prepPlans({ ...state, connections: [] }), { prepared: 0, autopilot: 0, stops: ['GOAL_CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'] });
   assert.equal((await prepPlans(state)).prepared, 1);
   const action = await find('goal_calendar');
   assert.equal(action.payload.goalId, state.goals[0].id);
@@ -635,4 +645,208 @@ test('a Google working location does not block the day: a clash on that day stil
   const current = graph({ calendarEvents: [...calendarEvents, { ...location, id: U(560), userId, connectionId: calendarId, provider: 'google' }] });
   const flex = current.calendarEvents.find((item) => item.id === flexId);
   assert.ok(firstClearSlot(flex, at(11, 30), current, now), 'a slot later that day is still found');
+});
+
+// ---------------------------------------------------------------- Phase 4: Autopilot clears the calendar to the minimum day
+const apUser = U(540), apCal = U(541);
+const apConnection = { id: apCal, userId: apUser, kind: 'calendar', provider: 'google', scopes: ['https://www.googleapis.com/auth/calendar.events'],
+  status: 'connected', accountLabel: 'sam@example.com', label: 'Home calendar', isPrimary: true };
+const day1 = (hour, minute = 0) => at(hour, minute, 1);
+const clearNow = new Date(day1(6));
+const apEvent = (n, title, startsAt, endsAt, extra = {}) => ({
+  id: U(n), userId: apUser, connectionId: apCal, provider: 'google', externalEventId: U(n), title, startsAt, endsAt,
+  allDay: false, availability: 'busy', recurrence: {}, organizer: { self: true }, attendees: [], sourceVersion: '"a1"', deleted: false, ...extra,
+});
+const solo = apEvent(542, 'Pick up dry cleaning', day1(9), day1(9, 30));
+const ownMeeting = apEvent(543, 'Choir planning call', day1(10), day1(10, 30),
+  { attendees: [{ email: 'pat@example.com' }, { email: 'sam@example.com', self: true }] });
+const fixedEvents = [
+  apEvent(544, 'Vendor review', day1(11), day1(12), { organizer: { self: false, email: 'vendor@example.com' }, attendees: [{ email: 'vendor@example.com' }] }),
+  apEvent(545, 'Writing block', day1(13), day1(14), { availability: 'out_of_office', organizer: { self: true, providerEventType: 'focusTime' } }),
+  apEvent(546, 'Flight to Denver', day1(15), day1(16)),
+  apEvent(547, 'Garden day', day1(0), at(0, 0, 2), { allDay: true }),
+];
+const laterDay = apEvent(548, 'Grocery run', at(10, 0, 2), at(10, 30, 2));
+const apEvents = [solo, ownMeeting, ...fixedEvents, laterDay];
+const apPermissions = [
+  { id: U(549), userId: apUser, domain: 'calendar', actionType: 'event_write', enabled: true, autonomyLevel: 4 },
+  { id: U(550), userId: apUser, domain: 'calendar', actionType: 'calendar.reschedule', enabled: true, autonomyLevel: 5 },
+];
+const apEntitlement = { userId: apUser, plan: 'autopilot', status: 'active' };
+const apEnv = { ...env, AUTOPILOT_EXECUTION: 'true', AUTOPILOT_ENABLED_CLASSES: 'calendar.reschedule' };
+const apGraph = (overrides = {}) => graph({
+  identity: { userId: apUser, timezone: 'UTC' }, personalOS: { activeMode: 'recovery' }, connections: [apConnection],
+  calendarEvents: apEvents, permissions: apPermissions, entitlement: apEntitlement, messageSignals: [], commitments: [], ...overrides,
+});
+const apPatches = () => writes().filter((call) => call.method === 'PATCH' && call.url.includes('/calendars/primary/events/'));
+const apLedger = async () => (await h.admin(`select e.status, a.idempotency_key, a.payload from public.autopilot_executions e
+  join public.actions a on a.id = e.action_id where e.user_id = $1 order by e.claimed_at`, [apUser])).rows;
+let apRule;
+
+let seeded;
+async function resetAutopilot({ level = 5 } = {}) {
+  seeded ??= seedAutopilot();
+  await seeded;
+  await h.admin('delete from public.autopilot_executions where user_id = $1', [apUser]);
+  await h.admin('delete from public.actions where user_id = $1', [apUser]);
+  await h.admin("update public.subscription_entitlements set plan = 'autopilot', status = 'active' where user_id = $1", [apUser]);
+  await h.admin("update public.permissions set enabled = $2 where user_id = $1 and action_type = 'calendar.reschedule'", [apUser, level === 5]);
+  await h.admin("update public.integration_connections set status = 'connected', last_error_code = null where id = $1", [apCal]);
+  currentEvents = apEvents;
+}
+
+async function seedAutopilot() {
+  extraConnections.push(apConnection);
+  await h.admin('insert into auth.users (id) values ($1)', [apUser]);
+  await h.admin("insert into public.subscription_entitlements (user_id, plan, status) values ($1, 'autopilot', 'active') on conflict (user_id) do update set plan = excluded.plan, status = excluded.status", [apUser]);
+  for (const p of apPermissions) await h.admin('insert into public.permissions (id,user_id,domain,action_type,autonomy_level,enabled) values ($1,$2,$3,$4,$5,true)',
+    [p.id, apUser, p.domain, p.actionType, p.autonomyLevel]);
+  await h.as(apUser, 'insert into public.integration_connections(id,user_id,provider,kind,external_account_id,status,scopes) values($1,$2,$3,$4,$5,$6,$7)',
+    [apCal, apUser, 'google', 'calendar', apConnection.accountLabel, 'connected', apConnection.scopes]);
+  for (const e of apEvents) {
+    await h.admin(`insert into public.calendar_events (id,user_id,connection_id,provider,external_event_id,title,starts_at,ends_at,all_day,availability,organizer,attendees,source_version)
+      values ($1,$2,$3,'google',$1::uuid::text,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [e.id, apUser, apCal, e.title, e.startsAt, e.endsAt, e.allDay, e.availability, JSON.stringify(e.organizer), JSON.stringify(e.attendees), e.sourceVersion]);
+    await h.as(apUser, 'select public.apm_autopilot_set_event_flexible($1,true)', [e.id]);
+  }
+  await h.admin(`update public.autopilot_action_classes set activation_status = 'active', evidence_ref = 'test-receipt', activated_at = now() where class_key = 'calendar.reschedule'`);
+  apRule = (await h.as(apUser, 'select public.apm_autopilot_grant_rule($1, $2::jsonb, $3::timestamptz, $4::uuid) as r', ['calendar.reschedule', JSON.stringify({
+    timezone: 'UTC', weekdays: [1, 2, 3, 4, 5, 6, 7], windowStart: '00:00', windowEnd: '23:59', maxPerDay: 10, horizonDays: 14, maxShiftDays: 7,
+    collision: 'never_overlap_busy', matchTitleKeywords: [], maxAttendees: 10, protectedTitleKeywords: [],
+  }), new Date(Date.now() + 30 * 86_400_000).toISOString(), apCal])).rows[0].r;
+}
+
+test('Autopilot clears a hard day: flexible own items move, meetings with others carry the update, fixed and other-day items stay', async () => {
+  await resetAutopilot();
+  const result = await prepareSuiteProposals(apEnv, apGraph(), clearNow);
+  assert.equal(result.autopilot, 2, JSON.stringify(result));
+  assert.equal(result.prepared, 0, 'with the permission on, nothing waits for a tap');
+  const moved = apPatches();
+  assert.deepEqual(moved.map((call) => decodeURIComponent(new URL(call.url).pathname.split('/').at(-1))).sort(), [solo.id, ownMeeting.id].sort());
+  assert.ok(moved.every((call) => new URL(call.url).searchParams.get('sendUpdates') === 'all'), 'the people invited get the new time');
+  for (const fixed of [...fixedEvents, laterDay]) assert.ok(!moved.some((call) => call.url.includes(fixed.id)), `${fixed.title} stays`);
+  for (const call of moved) {
+    const to = Date.parse(call.body.start.dateTime);
+    assert.ok(to > Date.parse(day1(23, 59)), 'moved off the minimum day');
+    assert.ok(!apEvents.some((e) => !e.allDay && e.id !== decodeURIComponent(new URL(call.url).pathname.split('/').at(-1))
+      && Date.parse(e.startsAt) < Date.parse(call.body.end.dateTime) && Date.parse(e.endsAt) > to), 'never onto a busy slot');
+  }
+  const ledger = await apLedger();
+  assert.deepEqual(ledger.map((row) => row.status), ['verified', 'verified']);
+  assert.ok(ledger.every((row) => row.idempotency_key.startsWith('autopilot:suite:clear_day:')), 'on the done-list and Today, with Undo');
+});
+
+test('a replayed Autopilot run never moves anything twice (idempotency key)', async () => {
+  await resetAutopilot();
+  await prepareSuiteProposals(apEnv, apGraph(), clearNow);
+  assert.equal(apPatches().length, 2);
+  calls = [];
+  // The cron reads a stale graph (its own run is not in it yet): the database replays the claim.
+  const stale = await prepareSuiteProposals(apEnv, apGraph(), clearNow);
+  assert.equal(stale.autopilot, 0);
+  assert.equal(apPatches().length, 0);
+  // The next tick sees the ledger: nothing is even proposed again.
+  const actions = (await h.admin('select * from public.actions where user_id=$1', [apUser])).rows.map(mapAction);
+  calls = [];
+  const next = await prepareSuiteProposals(apEnv, apGraph({ actions }), clearNow);
+  assert.equal(next.autopilot + next.prepared, 0);
+  assert.equal(apPatches().length, 0);
+  assert.equal((await apLedger()).length, 2);
+});
+
+test('without the Autopilot entitlement or its permission the server refuses the move; with the permission off it asks', async () => {
+  await resetAutopilot();
+  const payload = { eventId: solo.id, startsAt: at(9, 0, 3), endsAt: at(9, 30, 3) };
+  // The service entry point is server-only.
+  await rejects(h.as(apUser, "select public.apm_service_autopilot_claim($1,'calendar.reschedule',$2,'suite:clear_day:lying-client',$3::jsonb,'Clear today')",
+    [apUser, apCal, JSON.stringify(payload)]), /permission denied/);
+  // A lapsed Autopilot plan: the database refuses, and the Worker never even proposes.
+  await h.admin("update public.subscription_entitlements set plan = 'life_os' where user_id = $1", [apUser]);
+  await rejects(rpc('apm_service_autopilot_claim', [apUser, 'calendar.reschedule', apCal, 'suite:clear_day:no-plan', payload, 'Clear today']), /autopilot_required/);
+  const lapsed = await prepareSuiteProposals(apEnv, apGraph({ entitlement: { ...apEntitlement, plan: 'life_os' } }), clearNow);
+  assert.equal(lapsed.autopilot + lapsed.prepared, 0);
+  // Autopilot, permission switched off: the same moves become approval cards, nothing moves.
+  await resetAutopilot({ level: 4 });
+  await rejects(rpc('apm_service_autopilot_claim', [apUser, 'calendar.reschedule', apCal, 'suite:clear_day:no-permission', payload, 'Clear today']), /autopilot_permission_required/);
+  calls = [];
+  const asked = await prepareSuiteProposals(apEnv, apGraph({ permissions: [apPermissions[0], { ...apPermissions[1], enabled: false }] }), clearNow);
+  assert.equal(asked.autopilot, 0);
+  assert.equal(asked.prepared, 2);
+  assert.equal(apPatches().length, 0, 'no tap, no move');
+  const cards = (await h.admin("select * from public.actions where user_id=$1 and payload->>'suiteProposal'='clear_day'", [apUser])).rows.map(mapAction);
+  assert.deepEqual(cards.map((card) => card.payload.eventId).sort(), [solo.id, ownMeeting.id].sort());
+  assert.equal(cards.find((card) => card.payload.eventId === ownMeeting.id).payload.notify, true);
+  assert.equal(cards.find((card) => card.payload.eventId === solo.id).payload.notify, false);
+  // Approving the meeting card moves only it, with the update to the people invited and the live ETag.
+  const meeting = cards.find((card) => card.payload.eventId === ownMeeting.id);
+  const approved = await approveSuiteProposal(meeting, apGraph({ actions: cards }), { env: apEnv, userId: apUser, accessToken: 'user-jwt' }, clearNow);
+  assert.equal(approved.status, 'verified');
+  const [patch] = apPatches();
+  assert.equal(apPatches().length, 1);
+  assert.ok(patch.url.includes(ownMeeting.id) && patch.url.includes('sendUpdates=all'));
+  assert.equal(patch.headers.get('if-match'), '"a1"');
+  // Undo from the card: refused while the event is not where APM put it, then restored once.
+  const done = mapAction((await h.admin('select * from public.actions where id=$1', [meeting.id])).rows[0]);
+  calls = [];
+  const apInput = { env: apEnv, userId: apUser, accessToken: 'user-jwt' };
+  await assert.rejects(executeSuiteCalendarMove(done.payload, apGraph(), apInput, clearNow, true), /action_proposal_stale/);
+  assert.equal(apPatches().length, 0, 'she moved it since: Undo writes nothing');
+  // (The busy all-day "Garden day" would block any move back into that day, so it is left out here.)
+  currentEvents = apEvents.filter((e) => !e.allDay).map((e) => e.id === ownMeeting.id ? { ...e, startsAt: done.payload.startsAt, endsAt: done.payload.endsAt } : e);
+  await executeSuiteCalendarMove(done.payload, apGraph(), apInput, clearNow, true);
+  assert.equal(apPatches().length, 1);
+  assert.equal(apPatches()[0].body.start.dateTime, ownMeeting.startsAt);
+  assert.ok(apPatches()[0].url.includes('sendUpdates=all'), 'the people invited hear it moved back');
+  await rpc('apm_service_record_suite_undo', [apUser, meeting.id]);
+  await rejects(rpc('apm_service_record_suite_undo', [apUser, meeting.id]), /action_invalid_state/);
+});
+
+test('a meeting someone else organised, or one whose update cannot go out, never moves, even after a tap', async () => {
+  await resetAutopilot({ level: 4 });
+  const forged = { id: U(551), userId: apUser, domain: 'calendar', actionType: 'calendar.reschedule', status: 'prepared', requiresApproval: true,
+    idempotencyKey: 'suite:clear_day:forged', payload: { suiteProposal: 'clear_day', connectionId: apCal, eventId: ownMeeting.id, externalEventId: ownMeeting.id,
+      title: ownMeeting.title, startsAt: at(9, 0, 3), endsAt: at(9, 30, 3), originalStartsAt: ownMeeting.startsAt, originalEndsAt: ownMeeting.endsAt,
+      sourceVersion: '"a1"', timezone: 'UTC', notify: false } };
+  await h.admin(`insert into public.actions (id,user_id,domain,action_type,status,payload,reason,idempotency_key,requires_approval)
+    values ($1,$2,'calendar','calendar.reschedule','prepared',$3,'Clear today to your minimum day',$4,true)`, [forged.id, apUser, JSON.stringify(forged.payload), forged.idempotencyKey]);
+  await assert.rejects(approveSuiteProposal(forged, apGraph({ actions: [forged] }), { env: apEnv, userId: apUser, accessToken: 'user-jwt' }, clearNow), /action_proposal_stale/);
+  const other = fixedEvents[0];
+  const theirs = { ...forged, id: U(552), idempotencyKey: 'suite:clear_day:theirs', payload: { ...forged.payload, eventId: other.id, externalEventId: other.id, notify: true,
+    originalStartsAt: other.startsAt, originalEndsAt: other.endsAt, title: other.title } };
+  await h.admin(`insert into public.actions (id,user_id,domain,action_type,status,payload,reason,idempotency_key,requires_approval)
+    values ($1,$2,'calendar','calendar.reschedule','prepared',$3,'Clear today to your minimum day',$4,true)`, [theirs.id, apUser, JSON.stringify(theirs.payload), theirs.idempotencyKey]);
+  await assert.rejects(approveSuiteProposal(theirs, apGraph({ actions: [theirs] }), { env: apEnv, userId: apUser, accessToken: 'user-jwt' }, clearNow), /action_proposal_stale/);
+  assert.equal(apPatches().length, 0);
+});
+
+// The 5xx hits the second move itself (recorded as failed); the expired token is caught at the
+// live re-read before the second claim (nothing claimed). Either way nothing is half-moved.
+for (const [failure, stop, status, statuses] of [
+  ['provider 5xx', 'PROVIDER_UNAVAILABLE:503:google', 'error', ['verified', 'failed']],
+  ['expired token', 'CONNECTOR_TOKEN_EXPIRED:google', 'needs_reauth', ['verified']],
+]) {
+  test(`${failure} mid-run: the run stops, reports exactly what moved, never says done`, async () => {
+    await resetAutopilot();
+    if (failure === 'provider 5xx') patchFailure = { id: ownMeeting.id, status: 503 };
+    else expireAfterPatches = 1;
+    const result = await prepareSuiteProposals(apEnv, apGraph(), clearNow);
+    assert.equal(result.autopilot, 1, 'the first move landed and is counted');
+    assert.ok(result.stops.includes(stop), JSON.stringify(result.stops));
+    const ledger = await apLedger();
+    assert.deepEqual(ledger.map((row) => row.status), statuses, 'exactly what moved, nothing claimed as done that did not happen');
+    assert.equal(apPatches().filter((call) => call.url.includes(solo.id)).length, 1);
+    const [account] = (await h.admin('select status from public.integration_connections where id=$1', [apCal])).rows;
+    assert.equal(account.status, status);
+  });
+}
+
+test('Today finds the execution behind an Autopilot move so Undo can reach it, for its owner only', async () => {
+  await resetAutopilot();
+  await prepareSuiteProposals(apEnv, apGraph(), clearNow);
+  const [{ id: actionId }] = (await h.admin("select id from public.actions where user_id=$1 and idempotency_key like 'autopilot:suite:clear_day:%' limit 1", [apUser])).rows;
+  const executionId = await rpc('apm_service_autopilot_execution_for_action', [apUser, actionId]);
+  assert.match(executionId, /^[0-9a-f-]{36}$/);
+  assert.equal(await rpc('apm_service_autopilot_execution_for_action', [userId, actionId]), null);
+  const target = (await h.as(apUser, 'select public.apm_autopilot_undo_target($1) as r', [executionId])).rows[0].r;
+  assert.ok(target.movedStartsAt && target.movedEndsAt && target.originalStartsAt, 'Undo knows where Autopilot left it');
 });

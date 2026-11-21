@@ -22,6 +22,8 @@ export const calendarMove = z.object({
   sourceVersion: z.string().min(1),
   timezone: z.string(),
   originalConflicts: z.array(z.object({ connectionId: z.string().optional(), externalEventId: z.string(), sourceVersion: z.string().optional() })).optional(),
+  /** Her own meeting with other people: the provider sends them the new time. */
+  notify: z.boolean().optional(),
 });
 
 const MINUTE = 60_000;
@@ -30,9 +32,26 @@ const iso = (ms: number) => new Date(ms).toISOString();
 export const activeCalendar = (connection: LifeGraphSnapshot['connections'][number]) =>
   connection.kind === 'calendar' && connection.status === 'connected' && !connection.pausedAt;
 
-export function canMove(event: NormalizedCalendarEventInput): boolean {
+/** People invited besides her. Google's "attendees omitted" counts as someone else. */
+export function otherAttendees(event: Pick<NormalizedCalendarEventInput, 'attendees'>): number {
+  return (event.attendees ?? []).filter((attendee) => !(attendee && typeof attendee === 'object' && (attendee as { self?: unknown }).self === true)).length;
+}
+
+// Travel is fixed: it cannot be moved without moving a booking. A hard safety stop, so code.
+const TRAVEL = /\b(flights?|fly|airport|train|travel|drive to|commute|hotel|check[- ]?in|boarding|layover)\b/i;
+
+/**
+ * Only her own, single, timed, busy event moves. With `withOthers` (clearing a hard day), her
+ * own meeting with other people may move too, and only because the provider then sends them
+ * the new time. Fixed stays fixed: all-day, focus time and out-of-office (provider event type),
+ * travel, recurring series and anything someone else organised.
+ */
+export function canMove(event: NormalizedCalendarEventInput, withOthers = false): boolean {
+  const type = event.organizer?.providerEventType;
   return !event.deleted && !event.allDay && event.availability === 'busy' && Boolean(event.title && event.sourceVersion)
-    && event.organizer?.self === true && event.attendees?.length === 0
+    && event.organizer?.self === true && (withOthers || event.attendees?.length === 0)
+    && (type === undefined || type === 'default' || type === 'singleInstance')
+    && !(withOthers && TRAVEL.test(`${event.title} ${event.location ?? ''}`))
     && !event.recurrence?.series && !Object.keys(event.recurrence ?? {}).some((key) => key !== 'rules')
     && Array.isArray(event.recurrence?.rules ?? []) && !(event.recurrence?.rules as unknown[] | undefined)?.length;
 }
@@ -85,7 +104,8 @@ export async function executeSuiteCalendarMove(action: unknown, graph: LifeGraph
   const move = calendarMove.parse(action);
   const event = graph.calendarEvents.find((item) => item.id === move.eventId && item.connectionId === move.connectionId
     && item.externalEventId === move.externalEventId && item.sourceVersion === move.sourceVersion);
-  if (!undo && (!event || !canMove(event) || Date.parse(move.originalStartsAt) <= now.getTime()
+  const notify = move.notify === true;
+  if (!undo && (!event || !canMove(event, notify) || Date.parse(move.originalStartsAt) <= now.getTime()
     || graph.personalOS?.activeMode === 'deep_work' || protectedTimes(graph).some((block) => overlaps(event, block))
     || !(await movableEventIds(input)).includes(move.eventId))) throw new Error('action_proposal_stale');
 
@@ -103,7 +123,9 @@ export async function executeSuiteCalendarMove(action: unknown, graph: LifeGraph
   const busy = [...snapshots.flatMap((snapshot) => snapshot.events), ...graph.calendarEvents.filter((item) => item.provider === 'device')]
     .filter((item) => !undo || !move.originalConflicts?.some((conflict) => conflict.connectionId === item.connectionId
       && conflict.externalEventId === item.externalEventId && conflict.sourceVersion === item.sourceVersion));
-  if (!live || !canMove(live) || (!undo && live.sourceVersion !== move.sourceVersion)
+  // Moving a meeting she organised with other people needs the new time to reach them.
+  if (!live || !canMove(live, notify) || (!undo && live.sourceVersion !== move.sourceVersion)
+    || (otherAttendees(live) > 0 && !notify)
     || Date.parse(live.startsAt) !== Date.parse(current.startsAt) || Date.parse(live.endsAt) !== Date.parse(current.endsAt)
     || suiteSlotOccupied(destination, busy, graph, live)) throw new Error('action_proposal_stale');
 
@@ -111,7 +133,7 @@ export async function executeSuiteCalendarMove(action: unknown, graph: LifeGraph
   // Only the two timestamps are patched. An ETag catches concurrent edits to this event.
   const google = target.auth.provider === 'google';
   const response = await fetch(google
-    ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}?sendUpdates=none`
+    ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}?sendUpdates=${notify ? 'all' : 'none'}`
     : `https://graph.microsoft.com/v1.0/me/events/${id}`, {
     method: 'PATCH',
     headers: { authorization: `Bearer ${target.auth.accessToken}`, 'content-type': 'application/json', 'if-match': live.sourceVersion!,

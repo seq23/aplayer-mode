@@ -265,7 +265,7 @@ test('the CI web preview reaches every paid Suite state: each sample card can be
   const { graph } = await previewRequest('/v1/me/today');
   const suite = graph.actions.filter((action) => action.idempotencyKey.startsWith('suite:') && action.status === 'prepared');
   const kinds = new Set(suite.map((action) => action.payload.suiteProposal));
-  for (const kind of ['reply', 'calendar_fix', 'goal_checklist', 'goal_calendar', 'missed_day', 'hard_day', 'subscription_cancel']) assert.ok(kinds.has(kind), kind);
+  for (const kind of ['reply', 'calendar_fix', 'goal_checklist', 'goal_calendar', 'missed_day', 'hard_day', 'subscription_cancel', 'clear_day']) assert.ok(kinds.has(kind), kind);
   for (const action of suite) {
     const card = renderToStaticMarkup(createElement(ActionApprovalCard, { action, onApprove() {}, onReject() {} }));
     assert.match(card, />Approve<\/button>/, `${action.payload.suiteProposal} can be approved in the preview`);
@@ -274,4 +274,25 @@ test('the CI web preview reaches every paid Suite state: each sample card can be
   assert.equal(reply.payload.aiGenerated, true);
   assert.doesNotMatch(reply.payload.body, /received your request/i, 'never the fixed receipt line');
   assert.ok(reply.payload.body.includes('?'), 'a grounded draft answers the thread');
+});
+
+test('Today shows the clear-day card with who is told, and an Autopilot move with Undo or a plain "Not moved"', () => {
+  const clear = { id: 'clear', domain: 'calendar', actionType: 'calendar.reschedule', status: 'prepared', requiresApproval: true, approvalAvailable: true,
+    idempotencyKey: 'suite:clear_day:1', reason: 'Clear today to your minimum day', payload: { suiteProposal: 'clear_day', title: 'Choir planning call',
+      account: 'Home calendar', timezone: 'UTC', others: 2, notify: true, originalStartsAt: at(10), originalEndsAt: at(11), startsAt: at(14), endsAt: at(15) } };
+  const card = renderToStaticMarkup(createElement(ActionApprovalCard, { action: clear, onApprove() {}, onReject() {}, onReport: async () => {} }));
+  assert.match(card, /Clear today to your minimum day/);
+  assert.match(card, /2 other people invited/);
+  assert.match(card, />Approve<\/button>/);
+  assert.match(card, />Reject<\/button>/);
+  const composed = { title: 'Pick up dry cleaning', originalStartsAt: at(20), originalEndsAt: at(21), startsAt: at(14), endsAt: at(15) };
+  const moved = { id: 'auto', domain: 'calendar', actionType: 'calendar.reschedule', status: 'verified', requiresApproval: false,
+    idempotencyKey: 'autopilot:suite:clear_day:1', reason: 'Clear today to your minimum day', payload: { composed } };
+  const done = renderToStaticMarkup(createElement(ActionApprovalCard, { action: moved, onApprove() {}, onReject() {}, onUndo() {}, timezoneHint: 'UTC' }));
+  assert.match(done, /Moved by Autopilot/);
+  assert.match(done, /Pick up dry cleaning/);
+  assert.match(done, />Undo<\/button>/);
+  const failed = renderToStaticMarkup(createElement(ActionApprovalCard, { action: { ...moved, status: 'failed' }, onApprove() {}, onReject() {}, onUndo() {}, timezoneHint: 'UTC' }));
+  assert.match(failed, /Not moved/);
+  assert.doesNotMatch(failed, /Moved by Autopilot|>Undo</);
 });

@@ -46,7 +46,7 @@ function mockFetch(handler) {
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const headers = new Headers(init.headers);
-    const call = { url: String(url).replace(baseEnv.SUPABASE_URL, ''), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : undefined, apikey: headers.get('apikey'), authorization: headers.get('authorization') };
+    const call = { url: String(url).replace(baseEnv.SUPABASE_URL, ''), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : undefined, apikey: headers.get('apikey'), authorization: headers.get('authorization'), ifMatch: headers.get('if-match') };
     calls.push(call);
     const { status = 200, json } = handler(call);
     return new Response(status === 204 ? null : JSON.stringify(json), { status, headers: { 'content-type': 'application/json' } });
@@ -398,17 +398,29 @@ test('calendar.reschedule moves only the database-resolved event, notifying atte
   assert.deepEqual(patch.body, { start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } });
 
   const connection = await sealedConnection('calendar');
-  const target = { executionId: 'exec-1', domain: 'calendar', connectorKind: 'calendar', undoMethod: 'restore_time', externalRef: 'ev-plain', connectionId: CONN, originalStartsAt: composed.originalStartsAt, originalEndsAt: composed.originalEndsAt };
-  const undo = mockFetch((call) => {
+  const target = { executionId: 'exec-1', domain: 'calendar', connectorKind: 'calendar', undoMethod: 'restore_time', externalRef: 'ev-plain', connectionId: CONN,
+    originalStartsAt: composed.originalStartsAt, originalEndsAt: composed.originalEndsAt, movedStartsAt: proposal.startsAt, movedEndsAt: proposal.endsAt };
+  const undoWith = (live) => mockFetch((call) => {
     if (call.url === '/rest/v1/rpc/apm_autopilot_undo_target') return { json: target };
     if (call.url.startsWith('/rest/v1/integration_connections')) return { json: connection };
+    if (call.url.startsWith('https://') && call.method === 'GET') return { json: live };
     if (call.url.startsWith('https://')) return { json: {} };
     if (call.url === '/rest/v1/rpc/apm_service_autopilot_record_undo') return { json: executionRow({ status: 'reverted' }) };
     return { status: 500, json: {} };
   });
+  // She moved it herself since: Undo refuses and writes nothing.
+  const changed = undoWith({ etag: '"e2"', start: { dateTime: '2099-01-06T09:00:00Z' }, end: { dateTime: '2099-01-06T10:00:00Z' } });
+  try {
+    await assert.rejects(repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1' }), /autopilot_undo_event_changed/);
+  } finally { changed.restore(); }
+  assert.equal(changed.calls.filter((c) => c.url.startsWith('https://') && c.method !== 'GET').length, 0);
+  assert.equal(changed.calls.some((c) => c.url.includes('record_undo')), false);
+  // Still where Autopilot put it: restored under that read's ETag.
+  const undo = undoWith({ etag: '"e1"', start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } });
   try { await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1' }); } finally { undo.restore(); }
-  const back = undo.calls.find((c) => c.url.startsWith('https://'));
+  const back = undo.calls.find((c) => c.url.startsWith('https://') && c.method === 'PATCH');
   assert.deepEqual(back.body, { start: { dateTime: composed.originalStartsAt }, end: { dateTime: composed.originalEndsAt } });
+  assert.equal(back.ifMatch, '"e1"');
 });
 
 test('calendar.decline answers as the invited user with the rule note; undo re-accepts', async () => {

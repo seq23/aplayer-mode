@@ -14,8 +14,10 @@ function time(value: unknown, timezone: string, includeDate = false) {
   });
 }
 
-export function ActionApprovalCard({ action, busyId, onApprove, onReject, onReport, onPermissions, onUndo }: {
+export function ActionApprovalCard({ action, busyId, onApprove, onReject, onReport, onPermissions, onUndo, timezoneHint }: {
   action: ActionRecord;
+  /** Her timezone, for Autopilot moves (their ledger row carries none). */
+  timezoneHint?: string;
   busyId?: string;
   onApprove: (editedBody?: string) => void;
   onPermissions?: () => void;
@@ -23,27 +25,39 @@ export function ActionApprovalCard({ action, busyId, onApprove, onReject, onRepo
   onReject: () => void;
   onReport?: (reason: CoachReportReason) => Promise<unknown>;
 }) {
-  const data = action.payload;
+  // An Autopilot move (her standing rule acted, no tap): shown from the ledger's composed write.
+  const autopilotMove = action.idempotencyKey.startsWith('autopilot:suite:clear_day:');
+  const composed = (action.payload.composed ?? {}) as Record<string, unknown>;
+  const data = autopilotMove ? { ...composed, suiteProposal: 'clear_day', timezone: action.payload.timezone ?? timezoneHint } : action.payload;
   const reply = data.suiteProposal === 'reply';
   const [body, setBody] = useState(() => String(data.body ?? ''));
   const cancel = data.suiteProposal === 'subscription_cancel';
-  const move = data.suiteProposal === 'calendar_fix';
+  const clear = data.suiteProposal === 'clear_day';
+  const move = data.suiteProposal === 'calendar_fix' || clear;
+  const others = typeof data.others === 'number' ? data.others : 0;
   const goalBlock = data.suiteProposal === 'goal_calendar';
   const checklist = data.suiteProposal === 'goal_checklist';
   const missed = data.suiteProposal === 'missed_day';
   const defer = missed || data.suiteProposal === 'hard_day';
   const suite = reply || cancel || move || goalBlock || checklist || defer;
-  const label = reply ? 'Email reply' : cancel ? 'Subscription check' : move ? 'Calendar fix' : goalBlock ? 'Time for your goal'
+  const label = autopilotMove ? 'Cleared for your minimum day' : reply ? 'Email reply' : cancel ? 'Subscription check' : clear ? 'Clear today to your minimum day' : move ? 'Calendar fix' : goalBlock ? 'Time for your goal'
     : checklist ? 'Goal checklist' : missed ? 'Make room on a minimum day' : defer ? 'Take a task off today' : actionTag(action.domain, action.actionType);
   const busy = busyId === action.id;
   const timezone = typeof data.timezone === 'string' ? data.timezone : 'UTC';
+  // Autopilot tried and the calendar did not take it: say so plainly, never "done".
+  if (autopilotMove && action.status === 'failed') return <Card tone="warning">
+    <Label tone="warning">{label}</Label>
+    <CardTitle>Not moved</CardTitle>
+    <Body>{`${String(data.title)} is still at ${time(data.originalStartsAt, timezone)}. Your calendar didn't accept the change, so nothing else was moved.`}</Body>
+  </Card>;
   if (suite && (action.status === 'verified' || action.status === 'cancelled')) return <Card>
     <Label>{label}</Label>
-    <CardTitle>{action.status === 'cancelled' ? (action.executedAt ? 'Undone' : 'Skipped')
-      : reply || cancel ? 'Sent' : move || defer ? 'Moved' : 'Added'}</CardTitle>
+    <CardTitle>{action.status === 'cancelled' ? (action.executedAt || autopilotMove ? 'Undone' : 'Skipped')
+      : reply || cancel ? 'Sent' : autopilotMove ? 'Moved by Autopilot' : move || defer ? 'Moved' : 'Added'}</CardTitle>
     <Body>{action.status === 'cancelled' ? (action.executedAt ? String(data.title) : 'Nothing changed.')
       : reply || cancel ? `To ${String(data.to)}${reply ? ' in the original thread.' : '.'}`
       : move || defer ? `${String(data.title)} · ${time(data.startsAt, timezone, true)}` : String(data.title)}</Body>
+    {autopilotMove && action.status === 'verified' ? <Body muted>Off today so the day fits your minimum. Anyone invited was sent the new time.</Body> : null}
     {move && action.status === 'verified' && onUndo && Date.parse(String(data.originalStartsAt)) > Date.now()
       ? <Button label="Undo" variant="secondary" disabled={Boolean(busyId)} onPress={onUndo} /> : null}
   </Card>;
@@ -70,7 +84,10 @@ export function ActionApprovalCard({ action, busyId, onApprove, onReject, onRepo
       <KeyValue label="Current time" value={`${time(data.originalStartsAt, timezone, true)} to ${time(data.originalEndsAt, timezone)}`} />
       <KeyValue label="Proposed time" value={`${time(data.startsAt, timezone, true)} to ${time(data.endsAt, timezone)}`} />
       {typeof data.clash === 'string' ? <Body>{data.clash}</Body> : null}
-      <Body muted>Approve to move this block and leave your focus time and other events as they are.</Body>
+      {clear ? <Body muted>{others
+        ? `Approve to move it off today and send the new time to the ${others === 1 ? 'other person' : `${others} other people`} invited. Fixed events stay where they are.`
+        : 'Approve to move it off today so the day fits your minimum. Fixed events stay where they are.'}</Body>
+        : <Body muted>Approve to move this block and leave your focus time and other events as they are.</Body>}
     </> : goalBlock ? <>
       <KeyValue label="Calendar" value={String(data.account)} />
       <KeyValue label="Time" value={`${time(data.startsAt, timezone, true)} to ${time(data.endsAt, timezone)}`} />

@@ -179,12 +179,13 @@ export default function TodayScreen() {
   const approvals = (todayPlan?.approvalActionIds ?? [])
     .map((id) => graph.actions.find((action) => action.id === id))
     .filter((action): action is NonNullable<typeof action> => Boolean(action))
-    .filter(({ payload }) => !recovery || ['missed_day', 'hard_day'].includes(String(payload.suiteProposal)));
+    .filter(({ payload }) => !recovery || ['missed_day', 'hard_day', 'clear_day'].includes(String(payload.suiteProposal)));
 
   const dateInZone = new Intl.DateTimeFormat('en-CA', { timeZone: graph.identity.timezone || 'UTC', dateStyle: 'short' });
   const localToday = dateInZone.format(new Date());
-  const outcomes = graph.actions.filter((action) => action.idempotencyKey.startsWith('suite:')
-    && ['verified', 'cancelled'].includes(action.status)
+  const outcomes = graph.actions.filter((action) => (action.idempotencyKey.startsWith('suite:')
+    ? ['verified', 'cancelled'].includes(action.status)
+    : action.idempotencyKey.startsWith('autopilot:suite:clear_day:') && ['verified', 'cancelled', 'failed'].includes(action.status))
     && Number.isFinite(Date.parse(action.updatedAt)) && dateInZone.format(new Date(action.updatedAt)) === localToday);
   const reconnectAccounts = graph.connections.filter((account) => account.status === 'needs_reauth' && !account.pausedAt);
   // A provider outage heals on the next good run; she has nothing to do.
@@ -373,7 +374,7 @@ export default function TodayScreen() {
             <Body muted>We'll try again on the next check. Nothing changed in your account.</Body>
           </Card>)}
 
-          {outcomes.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId}
+          {outcomes.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId} timezoneHint={graph.identity.timezone || 'UTC'}
             onApprove={() => undefined} onReject={() => undefined} onUndo={() => void decideApproval(action.id, 'undo')} />)}
 
           {!hideAgenda && approvals.length ? (

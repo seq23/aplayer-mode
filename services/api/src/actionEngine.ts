@@ -3,7 +3,7 @@ import { decideAuthority, maxAutonomyForPlan, type ActionDomain, type Entitlemen
 import type { ApiEnv } from './env';
 import { actionDomainEnabled, actionsGloballyEnabled } from './env';
 import { restErrorMessage, serviceRpc } from './db';
-import { getValidConnectorToken } from './connectors/oauth';
+import { getValidConnectorToken, handleConnectorFailure } from './connectors/oauth';
 import { entitlementIsUsable } from './entitlement';
 
 export interface ActionRow {
@@ -192,22 +192,44 @@ function composedOf(action: ActionRecord): Record<string, unknown> {
   return composed as Record<string, unknown>;
 }
 
-async function moveCalendarEvent(connectionId: string, externalEventId: string, startsAt: string, endsAt: string, input: ConnectorInput): Promise<string> {
+const utcLocal = (time: string) => new Date(time).toISOString().slice(0, -1);
+
+/**
+ * Moves one event. `expect` (Undo) first reads the live event: it must still be exactly where
+ * Autopilot put it, and the restore carries that read's ETag, so an event she changed since is
+ * never overwritten. A 401 or 5xx goes through handleConnectorFailure (reconnect or retry).
+ */
+async function moveCalendarEvent(connectionId: string, externalEventId: string, startsAt: string, endsAt: string, input: ConnectorInput,
+  expect?: { startsAt: string; endsAt: string }): Promise<string> {
   if (!connectionId || !externalEventId || !startsAt || !endsAt) throw new Error('calendar_move_invalid');
-  const auth = await getValidConnectorToken({ ...input, connectionId });
+  const connector = { ...input, connectionId };
+  const auth = await getValidConnectorToken(connector);
   if (auth.kind !== 'calendar') throw new Error('action_connection_kind_mismatch');
   const id = encodeURIComponent(externalEventId);
-  const response = auth.provider === 'google'
-    // sendUpdates=all: attendees get the provider's own update notice.
-    ? await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}?sendUpdates=all`, {
-      method: 'PATCH', headers: { authorization: `Bearer ${auth.accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ start: { dateTime: startsAt }, end: { dateTime: endsAt } }),
-    })
-    : await fetch(`https://graph.microsoft.com/v1.0/me/events/${id}`, {
-      method: 'PATCH', headers: { authorization: `Bearer ${auth.accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ start: { dateTime: startsAt, timeZone: 'UTC' }, end: { dateTime: endsAt, timeZone: 'UTC' } }),
-    });
-  if (!response.ok) throw new Error(`${auth.provider}_calendar_move_failed:${response.status}`);
+  const google = auth.provider === 'google';
+  const url = google ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}` : `https://graph.microsoft.com/v1.0/me/events/${id}`;
+  const headers: Record<string, string> = { authorization: `Bearer ${auth.accessToken}`, 'content-type': 'application/json', ...(google ? {} : { Prefer: 'outlook.timezone="UTC"' }) };
+  if (expect) {
+    const current = await fetch(url, { headers });
+    if (current.status === 404 || current.status === 410) throw new Error('autopilot_undo_event_changed');
+    if (!current.ok) return handleConnectorFailure(connector, auth.provider, new Error(`calendar_read_failed:${current.status}`));
+    const live = await current.json() as { etag?: string; '@odata.etag'?: string; status?: string; isCancelled?: boolean; start?: { dateTime?: string }; end?: { dateTime?: string } };
+    const at = (time?: string) => time ? Date.parse(!google && !time.endsWith('Z') ? `${time}Z` : time) : NaN;
+    if (live.status === 'cancelled' || live.isCancelled || at(live.start?.dateTime) !== Date.parse(expect.startsAt) || at(live.end?.dateTime) !== Date.parse(expect.endsAt)) {
+      throw new Error('autopilot_undo_event_changed');
+    }
+    const etag = google ? live.etag : live['@odata.etag'];
+    if (etag) headers['if-match'] = etag;
+  }
+  // sendUpdates=all: attendees get the provider's own update notice (Outlook sends one for the organiser's change).
+  const response = await fetch(google ? `${url}?sendUpdates=all` : url, {
+    method: 'PATCH', headers,
+    body: JSON.stringify(google
+      ? { start: { dateTime: startsAt }, end: { dateTime: endsAt } }
+      : { start: { dateTime: utcLocal(startsAt), timeZone: 'UTC' }, end: { dateTime: utcLocal(endsAt), timeZone: 'UTC' } }),
+  });
+  if (response.status === 412) throw new Error('autopilot_undo_event_changed');
+  if (!response.ok) return handleConnectorFailure(connector, auth.provider, new Error(`${auth.provider}_calendar_move_failed:${response.status}`));
   return externalEventId;
 }
 
@@ -274,14 +296,17 @@ export async function executeStandingConnectorAction(action: ActionRecord, input
 
 /** Reverses a reversible standing write from the ledger's undo target. */
 export async function revertStandingConnectorAction(
-  target: { undoMethod: 'delete_event' | 'delete_draft' | 'restore_time' | 'reaccept' | 'none'; connectionId: string; externalRef: string; originalStartsAt?: string; originalEndsAt?: string },
+  target: { undoMethod: 'delete_event' | 'delete_draft' | 'restore_time' | 'reaccept' | 'none'; connectionId: string; externalRef: string;
+    originalStartsAt?: string; originalEndsAt?: string; movedStartsAt?: string; movedEndsAt?: string },
   connectorInput: ConnectorInput,
 ): Promise<void> {
   if (target.undoMethod === 'none') throw new Error('autopilot_cannot_undo');
   // Undo goes back to the account that acted, even if that account was paused since.
   const input = { ...connectorInput, allowPaused: true };
   if (target.undoMethod === 'restore_time') {
-    await moveCalendarEvent(target.connectionId, target.externalRef, target.originalStartsAt ?? '', target.originalEndsAt ?? '', input);
+    if (!target.movedStartsAt || !target.movedEndsAt) throw new Error('autopilot_undo_event_changed');
+    await moveCalendarEvent(target.connectionId, target.externalRef, target.originalStartsAt ?? '', target.originalEndsAt ?? '', input,
+      { startsAt: target.movedStartsAt, endsAt: target.movedEndsAt });
     return;
   }
   if (target.undoMethod === 'reaccept') {
