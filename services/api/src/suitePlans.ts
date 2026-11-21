@@ -13,6 +13,14 @@ const DAY = 86_400_000;
 const MINUTE = 60_000;
 export const dateAfter = (day: string, days: number) => new Date(Date.parse(day) + days * DAY).toISOString().slice(0, 10);
 
+/** The first instant of the day after `day` in `timezone` (any offset, including quarter hours and DST). */
+export function endOfDayInTimezone(day: string, timezone: string): string {
+  const next = dateAfter(day, 1);
+  let at = Date.parse(`${day}T00:00:00Z`) - 14 * 60 * MINUTE;
+  while (calendarDateInTimezone(new Date(at), timezone) < next) at += 15 * MINUTE;
+  return new Date(at).toISOString();
+}
+
 export function dayContext(graph: Graph, now: Date) {
   const timezone = graph.identity.timezone || 'UTC';
   const day = calendarDateInTimezone(now, timezone);

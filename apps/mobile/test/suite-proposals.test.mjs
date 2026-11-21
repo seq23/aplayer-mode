@@ -295,3 +295,12 @@ test('Today shows the clear-day card with who is told, and an Autopilot move wit
   assert.match(failed, /Not moved/);
   assert.doesNotMatch(failed, /Moved by Autopilot|>Undo</);
 });
+
+test('the preview Today shows the pending clear-day card ("Choir planning call") among its approvals', async () => {
+  await previewRequest('/v1/preview/sample-account', { method: 'POST', body: '{}' });
+  const state = await previewRequest('/v1/me/today');
+  const shown = new Set(state.plan.approvalActionIds);
+  const clear = state.graph.actions.find((action) => action.payload.suiteProposal === 'clear_day' && action.status === 'prepared');
+  assert.equal(clear.payload.title, 'Choir planning call');
+  assert.ok(shown.has(clear.id), 'the clear-day card is on Today');
+});

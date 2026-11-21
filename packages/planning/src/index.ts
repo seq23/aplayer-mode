@@ -183,8 +183,12 @@ export function buildDailyPlan(
           || !['active', 'trialing'].includes(graph.entitlement.status)) return false;
         if (action.payload.suiteProposal === 'reply' && action.payload.aiGenerated !== true) return false;
         if (typeof action.payload.day === 'string' && action.payload.day !== date) return false;
-        const deadline = action.payload.suiteProposal === 'calendar_fix' ? action.payload.originalStartsAt : action.payload.expiresAt;
-        return typeof deadline === 'string' && Date.parse(deadline) > (options.now ?? new Date()).getTime();
+        // A calendar move is pointless once its event has started; any other card lives until its expiresAt.
+        const proposal = action.payload.suiteProposal;
+        const deadlines = (proposal === 'calendar_fix' ? [action.payload.originalStartsAt]
+          : proposal === 'clear_day' ? [action.payload.expiresAt, action.payload.originalStartsAt] : [action.payload.expiresAt]);
+        const nowMs = (options.now ?? new Date()).getTime();
+        return deadlines.every((deadline) => typeof deadline === 'string' && Date.parse(deadline) > nowMs);
       })
       .map((action) => action.id),
     radarItemIds: graph.radarItems.filter((item) => item.status === 'open').map((item) => item.id),

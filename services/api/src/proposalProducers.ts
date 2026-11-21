@@ -10,7 +10,7 @@ import { actionDomainEnabled, actionsGloballyEnabled, type ApiEnv } from './env'
 import { runUserInference, SuiteMailStop } from './aiGateway';
 import { fetchMicrosoftMessages } from './connectors/email';
 import { getLifeGraph } from './lifeGraphRepository';
-import { applySuiteLifeGraph, dateAfter, dayContext, deferAdmin, executeGoalCalendar, goalCalendar, goalChecklist } from './suitePlans';
+import { applySuiteLifeGraph, dateAfter, dayContext, endOfDayInTimezone, deferAdmin, executeGoalCalendar, goalCalendar, goalChecklist } from './suitePlans';
 import { calendarMove, canMove, clearSuiteSlot, executeSuiteCalendarMove, firstClearSlot, movableEventIds, otherAttendees, suiteCalendarSnapshots } from './suiteCalendar';
 import { calendarDateInTimezone } from '@apm/planning';
 import type { AutopilotActionClass } from '@apm/domain';
@@ -204,7 +204,8 @@ async function* clearDay(context: ProducerContext): ReturnType<Producer['propose
     });
     yield {
       key, reason: 'Clear today to your minimum day',
-      payload: { ...move, others, day, provider: account.provider, account: account.label ?? account.accountLabel ?? account.provider },
+      // Today shows a card only until its deadline: the end of the day it clears.
+      payload: { ...move, others, day, expiresAt: endOfDayInTimezone(day, timezone), provider: account.provider, account: account.label ?? account.accountLabel ?? account.provider },
       standing: { eventId: event.id, startsAt: slot.startsAt, endsAt: slot.endsAt },
     };
   }

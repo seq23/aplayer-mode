@@ -777,6 +777,8 @@ test('without the Autopilot entitlement or its permission the server refuses the
   assert.deepEqual(cards.map((card) => card.payload.eventId).sort(), [solo.id, ownMeeting.id].sort());
   assert.equal(cards.find((card) => card.payload.eventId === ownMeeting.id).payload.notify, true);
   assert.equal(cards.find((card) => card.payload.eventId === solo.id).payload.notify, false);
+  // Each card lives until the end of the day it clears, so Today shows it (review: cards without one were dropped).
+  for (const card of cards) assert.equal(card.payload.expiresAt, new Date(Date.parse(card.payload.day) + 86_400_000).toISOString(), 'midnight after the day, UTC');
   // Approving the meeting card moves only it, with the update to the people invited and the live ETag.
   const meeting = cards.find((card) => card.payload.eventId === ownMeeting.id);
   const approved = await approveSuiteProposal(meeting, apGraph({ actions: cards }), { env: apEnv, userId: apUser, accessToken: 'user-jwt' }, clearNow);
