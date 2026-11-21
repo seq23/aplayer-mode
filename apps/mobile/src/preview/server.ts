@@ -129,7 +129,8 @@ function sampleSurroundings(graph: LifeGraphSnapshot): LifeGraphSnapshot {
   const blockId = id();
   const focusId = id();
   // The clear-day sample is still ahead today whenever the preview is opened (a card for an event that already started never shows).
-  const laterToday = new Date(Math.max(Date.parse(at(16)), Math.min(Date.now() + 20 * 60_000, Date.parse(at(23, 0))))).toISOString();
+  // Always in the future (a past event drops off Today), whatever the hour: 4 pm, or 20 minutes from now late in the day.
+  const laterToday = new Date(Math.max(Date.parse(at(16)), Date.now() + 20 * 60_000)).toISOString();
   const tomorrowAt = (hour: number, minute = 0) => {
     const date = new Date(at(hour, minute));
     date.setDate(date.getDate() + 1);
@@ -171,7 +172,7 @@ function sampleSurroundings(graph: LifeGraphSnapshot): LifeGraphSnapshot {
       { id: id(), userId: USER, domain: 'calendar', actionType: 'calendar.reschedule', status: 'prepared', requiresApproval: true, approvalAvailable: true,
         idempotencyKey: 'suite:clear_day:preview', reason: 'Clear today to your minimum day', createdAt: stamp(), updatedAt: stamp(),
         payload: { suiteProposal: 'clear_day', title: 'Choir planning call', account: 'Sample calendar', timezone: graph.identity.timezone ?? 'UTC', others: 2, notify: true,
-          originalStartsAt: laterToday, originalEndsAt: new Date(Date.parse(laterToday) + 30 * 60_000).toISOString(), startsAt: tomorrowAt(9), endsAt: tomorrowAt(9, 30), expiresAt: at(23, 59) } },
+          originalStartsAt: laterToday, originalEndsAt: new Date(Date.parse(laterToday) + 30 * 60_000).toISOString(), startsAt: tomorrowAt(9), endsAt: tomorrowAt(9, 30), expiresAt: new Date(Math.max(Date.parse(at(23, 59)), Date.parse(laterToday) + 30 * 60_000)).toISOString() } },
       { id: id(), userId: USER, domain: 'calendar', actionType: 'calendar.reschedule', status: 'verified', requiresApproval: false,
         idempotencyKey: 'autopilot:suite:clear_day:preview', reason: 'Clear today to your minimum day', createdAt: stamp(), updatedAt: stamp(), executedAt: stamp(),
         payload: { eventId: id(), startsAt: tomorrowAt(14), endsAt: tomorrowAt(14, 30),
