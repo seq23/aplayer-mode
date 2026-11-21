@@ -30,6 +30,7 @@ export type Producer = {
 
 export const replyBody = z.string().trim().min(1).max(1000)
   .refine((body) => !/[\u0000-\u0008\u000b-\u001f\u007f]/.test(body) && new TextEncoder().encode(body).length <= 4000);
+const generatedReply = z.strictObject({ body: replyBody });
 const replyDraft = replyTarget.extend({ body: replyBody, connectionId: z.string().uuid(), signalId: z.string().uuid(), expiresAt: z.iso.datetime() });
 type Graph = LifeGraphSnapshot;
 export function suiteEntitled(entitlement: Graph['entitlement']): boolean {
@@ -91,13 +92,13 @@ async function* replies(context: ProducerContext): ReturnType<Producer['propose'
     } catch {
       return 'REPLY_DRAFT_ROUTE_UNAVAILABLE';
     }
-    const body = replyBody.safeParse((generated as { body?: unknown } | null)?.body);
+    const draft = generatedReply.safeParse(generated);
     // Generated drafts cannot contain links, addresses, amounts or numeric dates.
-    if (!body.success || /[0-9@$€£]|https?:|www\.|[\w-]+\.(?:com|net|org|io|co|app|dev|me)\b/i.test(body.data)) continue;
+    if (!draft.success || /[0-9@$€£]|https?:|www\.|[\w-]+\.(?:com|net|org|io|co|app|dev|me)\b/i.test(draft.data.body)) continue;
     yield {
       key, reason: 'Reply to an email',
       payload: { ...headers, provider: account.provider, connectionId: account.id, account: account.label && account.label !== account.accountLabel ? `${account.label} (${account.accountLabel})` : account.accountLabel, signalId: signal.id,
-        expiresAt: new Date(Date.parse(signal.observedAt) + 14 * 86_400_000).toISOString(), body: body.data, aiGenerated: true },
+        expiresAt: new Date(Date.parse(signal.observedAt) + 14 * 86_400_000).toISOString(), body: draft.data.body, aiGenerated: true },
     };
   }
 }

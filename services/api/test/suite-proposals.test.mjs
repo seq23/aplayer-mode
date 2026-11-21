@@ -453,9 +453,14 @@ test('low mood or recovery mode proposes only today’s flexible admin, with an 
 });
 
 test('a model drafts from the real thread and unsafe generated content cannot become a proposal', async () => {
-  modelReply = { body: 'I booked it for you. Visit https://bad.example.', to: 'other@example.com' };
   const current = graph({ calendarEvents: [] });
-  assert.equal((await prepareSuiteProposals(env, current, now)).prepared, 0);
+  for (const response of [
+    { body: 'I booked it for you. Visit https://bad.example.' },
+    { body: 'Could you send the updated schedule?', to: 'other@example.com' },
+  ]) {
+    modelReply = response;
+    assert.equal((await prepareSuiteProposals(env, current, now)).prepared, 0);
+  }
   const model = calls.find((call) => call.url.startsWith('https://openrouter.ai/'));
   assert.match(model.body.messages[0].content, /untrusted data/);
   assert.match(model.body.messages[1].content, /rehearsal schedule/);
@@ -466,12 +471,20 @@ test('a model drafts from the real thread and unsafe generated content cannot be
 test('production execution switches prevent unavailable action offers and a level-three grant cannot execute', async () => {
   const source = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
   const production = JSON.parse(source.replace(/^\s*\/\/.*$/gm, '')).env.production.vars;
-  const off = { ...env, GLOBAL_ACTION_EXECUTION: 'false' };
-  for (const settings of [production, off, { ...env, ACTION_EMAIL_EXECUTION: 'false', ACTION_CALENDAR_EXECUTION: 'false' }]) {
-    const result = await prepareSuiteProposals(settings, graph(), now);
-    assert.equal(result.prepared, 0);
-    assert.ok(result.stops.includes('ACTION_EXECUTION_DISABLED:email'));
-    assert.ok(result.stops.includes('ACTION_EXECUTION_DISABLED:calendar'));
+  for (const domain of ['email', 'calendar']) {
+    const flag = `ACTION_${domain.toUpperCase()}_EXECUTION`;
+    const productionSwitches = { GLOBAL_ACTION_EXECUTION: production.GLOBAL_ACTION_EXECUTION, [flag]: production[flag] };
+    const current = graph({ permissions: permissions.filter((permission) => permission.domain === domain) });
+    const disabled = [
+      { GLOBAL_ACTION_EXECUTION: 'false', [flag]: 'true' },
+      { GLOBAL_ACTION_EXECUTION: 'true', [flag]: 'false' },
+    ];
+    if (productionSwitches.GLOBAL_ACTION_EXECUTION !== 'true' || productionSwitches[flag] !== 'true') disabled.push(productionSwitches);
+    for (const switches of disabled) {
+      const result = await prepareSuiteProposals({ ...env, ...switches }, current, now);
+      assert.equal(result.prepared, 0);
+      assert.ok(result.stops.includes(`ACTION_EXECUTION_DISABLED:${domain}`));
+    }
   }
   const permission = permissions.map((item) => item.domain === 'email' ? { ...item, autonomyLevel: 3 } : item);
   await assert.rejects(approveSuiteProposal(await find('reply'), graph({ permissions: permission }), input, now), /action_not_authorized/);
