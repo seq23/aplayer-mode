@@ -66,6 +66,27 @@ test('undo is true: reversible actions are calendar changes or drafts with an un
   }
 });
 
+test('undo is promised only where it exists: Autopilot, not the tap-approve cards on Today', async () => {
+  const undo = catalog.trustLines('app_store').find((line) => line.title === 'Undo');
+  assert.ok(undo, 'the trust line has an Undo line');
+  // Today's approval card (tap-approve path): which kinds render an Undo button.
+  const card = await readFile(join(appDir, 'src/components/today/ActionApprovalCard.tsx'), 'utf8');
+  const undoButtons = [...card.matchAll(/\{([^{}]*?)\?\s*<Button label="Undo"/g)].map((m) => m[1]);
+  assert.ok(undoButtons.length > 0, 'the approval card was read');
+  const tapApproveUndoesBlocksOrReplies = undoButtons.some((cond) => !/^\s*move\b/.test(cond));
+  // Every "undo in one tap" sentence must be scoped to Autopilot unless the tap-approve path undoes blocks and replies too.
+  for (const sentence of undo.body.split(/(?<=\.)\s+/)) {
+    if (/undo in one tap/i.test(sentence) && !tapApproveUndoesBlocksOrReplies) assert.match(sentence, /Autopilot/, `"${sentence}" promises undo the tap-approve path does not have`);
+  }
+  // "Autopilot says so before you allow it": the grant screen shows each class's undo label before the grant button.
+  if (/before you allow it/.test(undo.body)) {
+    const autopilot = await readFile(join(appDir, 'app/settings/autopilot.tsx'), 'utf8');
+    const label = autopilot.indexOf('{policy.undoLabel}');
+    const grant = autopilot.indexOf("'Grant standing authority'");
+    assert.ok(label > 0 && grant > label, 'the "Can\'t undo" label is shown before the grant button');
+  }
+});
+
 test('never spends: the only money action APM can take on its own is a cancellation', () => {
   const money = Object.values(policy.standingActionClasses).filter((action) => action.domain === 'subscription').map((action) => action.actionClass);
   assert.deepEqual(money, ['subscription.cancel']);
