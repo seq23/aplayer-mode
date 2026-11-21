@@ -66,3 +66,18 @@ test('the Android build blocks every permission the app does not use, and keeps 
     assert.ok(android.blockedPermissions.includes(`android.permission.${p}`), `${p} must be blocked`);
   for (const p of ['READ_CALENDAR', 'WRITE_CALENDAR']) assert.ok(!android.blockedPermissions.some((b) => b.endsWith(p)), `${p} must not be blocked`);
 });
+
+test('the store listings promise the same setup time the app computes from its question path (10 s a question, measured)', async () => {
+  const { build } = await import('esbuild');
+  const { fileURLToPath } = await import('node:url');
+  const bundle = await build({ stdin: { contents: "export { QUICK_SETUP_MINUTES } from './src/content/sell';", resolveDir: fileURLToPath(new URL('../', import.meta.url)) },
+    bundle: true, write: false, format: 'esm', platform: 'neutral', logLevel: 'silent', external: ['react-native', 'expo-*'] });
+  const { QUICK_SETUP_MINUTES } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+  assert.ok(Number.isInteger(QUICK_SETUP_MINUTES) && QUICK_SETUP_MINUTES > 0);
+  const play = JSON.parse(await readFile(new URL('../store/google-play.json', import.meta.url), 'utf8'));
+  for (const [name, text] of [['App Store', listing.description], ['Google Play', play.fullDescription]]) {
+    const claims = [...text.matchAll(/about (\d+) minutes/g)].map((m) => Number(m[1]));
+    assert.ok(claims.length >= 1, `${name}: states the setup time`);
+    assert.deepEqual([...new Set(claims)], [QUICK_SETUP_MINUTES], `${name}: about ${QUICK_SETUP_MINUTES} minutes, like the app`);
+  }
+});
