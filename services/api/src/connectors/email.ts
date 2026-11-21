@@ -3,7 +3,7 @@ import type { ApiEnv } from '../env';
 import { supabaseRest } from '../db';
 import { InferenceResponseError, NoEligibleModelRouteError } from '@apm/ai';
 import { runUserInference } from '../aiGateway';
-import { getValidConnectorToken, handleConnectorFailure } from './oauth';
+import { connectorCall, getValidConnectorToken } from './oauth';
 
 interface SourceMessage {
   provider: 'google' | 'microsoft';
@@ -228,9 +228,9 @@ export async function syncEmailSignals(input: { env: ApiEnv; accessToken: string
   const auth = await getValidConnectorToken(input);
   if (auth.kind !== 'email') throw new Error('connection_is_not_email');
   const maxMessages = Math.min(input.maxMessages ?? 25, 50);
-  const messages = await (auth.provider === 'google'
+  const messages = await connectorCall(input, auth, () => auth.provider === 'google'
     ? fetchGmailMessages(auth.accessToken, maxMessages)
-    : fetchMicrosoftMessages(auth.accessToken, maxMessages)).catch((error: unknown) => handleConnectorFailure(input, auth.provider, error));
+    : fetchMicrosoftMessages(auth.accessToken, maxMessages));
   let signalsStored = 0;
   for (const message of messages) {
     // A model answer in the wrong shape, or a message no vetted route may receive (e.g.

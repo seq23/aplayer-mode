@@ -2,7 +2,7 @@ import type { ActionRecord, IntegrationConnection, LifeGraphSnapshot, RadarItem 
 import { buildRadarItems } from '@apm/radar';
 import { z } from 'zod';
 import { approveAndMaybeExecuteAction, authorizeAction, prepareAction, executeStandingConnectorAction } from './actionEngine';
-import { ConnectorStop, getValidConnectorToken, handleConnectorFailure } from './connectors/oauth';
+import { ConnectorStop, connectorCall, getValidConnectorToken, handleConnectorFailure } from './connectors/oauth';
 import { readReplyTarget, replyTarget, sendThreadReply } from './connectors/reply';
 import { SERVICE_ROLE_TOKEN, restErrorMessage, serviceRpc, supabaseRest } from './db';
 import { entitlementIsUsable } from './entitlement';
@@ -71,8 +71,10 @@ async function* replies(context: ProducerContext): ReturnType<Producer['propose'
     checked += 1;
     const auth = await getValidConnectorToken({ ...context, connectionId: account.id });
     if (auth.provider !== signal.provider) continue;
-    const target = await readReplyTarget(auth, signal.externalMessageId, signal.externalThreadId, account.accountLabel, true)
-      .catch((error: unknown) => handleConnectorFailure({ ...context, connectionId: account.id }, auth.provider, error));
+    const { externalMessageId, externalThreadId } = signal;
+    const label = account.accountLabel;
+    const target = await connectorCall({ ...context, connectionId: account.id }, auth,
+      () => readReplyTarget(auth, externalMessageId, externalThreadId, label, true));
     if (!target?.excerpts?.length) continue;
     const { excerpts, ...headers } = target;
     let generated: unknown;
@@ -178,8 +180,7 @@ async function* subscriptions(context: ProducerContext): ReturnType<Producer['pr
     const auth = await getValidConnectorToken(connector);
     if (auth.provider !== 'microsoft' || auth.kind !== 'email') continue;
     const recentSince = context.now.getTime() - 14 * 86_400_000;
-    const messages = (await fetchMicrosoftMessages(auth.accessToken, 30)
-      .catch((error: unknown) => handleConnectorFailure(connector, auth.provider, error)))
+    const messages = (await connectorCall(connector, auth, () => fetchMicrosoftMessages(auth.accessToken, 30)))
       .filter((item) => item.body.trim() && subscriptionAddress.safeParse(item.from).success
         && item.from?.toLowerCase() !== account.accountLabel?.toLowerCase()
         && Number.isFinite(Date.parse(item.receivedAt ?? '')));
@@ -272,8 +273,8 @@ export async function executeSuiteReply(payload: Record<string, unknown>, graph:
     throw new Error('action_proposal_stale');
   }
   const auth = await getValidConnectorToken({ ...input, connectionId: draft.connectionId });
-  const target = await readReplyTarget(auth, draft.messageId, draft.threadId, account.accountLabel)
-    .catch((error: unknown) => handleConnectorFailure({ ...input, connectionId: draft.connectionId }, auth.provider, error));
+  const target = await connectorCall({ ...input, connectionId: draft.connectionId }, auth,
+    () => readReplyTarget(auth, draft.messageId, draft.threadId, account.accountLabel!));
   if (!target || auth.provider !== signal.provider || target.to !== draft.to || target.subject !== draft.subject) {
     throw new Error('action_proposal_stale');
   }

@@ -165,7 +165,10 @@ test.beforeEach((t) => {
         const expired = await encryptConnectorCredential(env, { accessToken: 'unused-expired-token', expiresAt: 1 });
         return json([{ id: c.id, kind: c.kind, provider: c.provider, encrypted_credentials: expired.ciphertext, credential_iv: expired.iv }]);
       }
-      if (c) return json([{ id: c.id, kind: c.kind, provider: c.provider, encrypted_credentials: encrypted.ciphertext, credential_iv: encrypted.iv }]);
+      if (c) {
+        const [{ status }] = (await h.admin('select status from public.integration_connections where id=$1', [c.id])).rows;
+        return json([{ id: c.id, kind: c.kind, provider: c.provider, status, encrypted_credentials: encrypted.ciphertext, credential_iv: encrypted.iv }]);
+      }
     }
     if (url.hostname === 'openrouter.ai') {
       const output = body.response_format.json_schema.name === 'suite_reply_draft' ? modelReply : modelFindings;
@@ -530,7 +533,7 @@ for (const [failure, stop] of [
   ['revoked', 'CONNECTOR_REFRESH_REVOKED:microsoft'],
   ['outage', 'PROVIDER_UNAVAILABLE:503:microsoft'],
 ]) {
-  test(`${failure} mail connection stops proposals and records reconnect status with no provider write`, async () => {
+  test(`${failure} mail connection stops proposals with no provider write; only bad sign-ins need reconnecting`, async () => {
     connectorFailure = failure;
     const before = (await h.admin('select count(*)::int as count from public.actions')).rows[0].count;
     const result = await prepareSuiteProposals(env, graph({ calendarEvents: [] }), now);
@@ -539,8 +542,16 @@ for (const [failure, stop] of [
     assert.equal(writes().length, 0);
     assert.equal((await h.admin('select count(*)::int as count from public.actions')).rows[0].count, before);
     const [account] = (await h.admin('select status, last_error_code from public.integration_connections where id=$1', [emailId])).rows;
-    assert.equal(account.status, 'needs_reauth');
+    assert.equal(account.status, failure === 'outage' ? 'error' : 'needs_reauth', 'a provider outage never asks her to sign in again');
     assert.equal(account.last_error_code, stop.replace(/:microsoft$/, ''));
+    if (failure === 'outage') {
+      // The next healthy run heals the account by itself.
+      connectorFailure = undefined;
+      const healed = await prepareSuiteProposals(env, graph({ calendarEvents: [] }), now);
+      assert.ok(!healed.stops.some((code) => code.startsWith('PROVIDER_UNAVAILABLE')));
+      const [after] = (await h.admin('select status, last_error_code from public.integration_connections where id=$1', [emailId])).rows;
+      assert.deepEqual(after, { status: 'connected', last_error_code: null });
+    }
     await h.admin("update public.integration_connections set status='connected',last_error_code=null where id=$1", [emailId]);
   });
 }

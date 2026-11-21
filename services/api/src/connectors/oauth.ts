@@ -221,7 +221,7 @@ async function refreshMicrosoft(env: ApiEnv, token: ConnectorTokens): Promise<Co
   return { accessToken: data.access_token, refreshToken: data.refresh_token ?? token.refreshToken, expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined, tokenType: data.token_type, scope: data.scope ?? token.scope };
 }
 
-export async function getValidConnectorToken(input: { env: ApiEnv; accessToken: string; userId: string; connectionId: string; allowPaused?: boolean }): Promise<{ provider: 'google' | 'microsoft'; kind: IntegrationKind; accessToken: string }> {
+export async function getValidConnectorToken(input: { env: ApiEnv; accessToken: string; userId: string; connectionId: string; allowPaused?: boolean }): Promise<{ provider: 'google' | 'microsoft'; kind: IntegrationKind; accessToken: string; status?: string }> {
   const row = await loadConnectionSecret(input.env, input.accessToken, input.userId, input.connectionId, input.allowPaused === true);
   if (row.provider !== 'google' && row.provider !== 'microsoft') throw new Error('oauth_provider_unsupported');
   let tokens = await decryptConnectorCredential<ConnectorTokens>(input.env, row.encrypted_credentials!, row.credential_iv!);
@@ -240,7 +240,25 @@ export async function getValidConnectorToken(input: { env: ApiEnv; accessToken: 
       body: JSON.stringify({ encrypted_credentials: encrypted.ciphertext, credential_iv: encrypted.iv, status: 'connected', updated_at: new Date().toISOString() }),
     });
   }
-  return { provider: row.provider, kind: row.kind, accessToken: tokens.accessToken };
+  return { provider: row.provider, kind: row.kind, accessToken: tokens.accessToken, status: row.status };
+}
+
+/**
+ * One provider call: a failure goes through handleConnectorFailure, and the first good call
+ * after a provider outage clears the account's 'error' status, so a blip heals by itself.
+ */
+export async function connectorCall<T>(
+  input: { env: ApiEnv; userId: string; connectionId: string }, auth: { provider: string; status?: string }, call: () => Promise<T>,
+): Promise<T> {
+  let result: T;
+  try { result = await call(); } catch (error) { return handleConnectorFailure(input, auth.provider, error); }
+  if (auth.status === 'error') {
+    await supabaseRest(input.env, SERVICE_ROLE_TOKEN, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(input.connectionId)}&user_id=eq.${encodeURIComponent(input.userId)}&status=eq.error`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ status: 'connected', last_error_code: null, updated_at: new Date().toISOString() }),
+    }).catch(() => undefined);
+  }
+  return result;
 }
 
 export async function reconnectRequired(
@@ -263,6 +281,15 @@ export async function handleConnectorFailure(
     return reconnectRequired(input, provider, 'CONNECTOR_REFRESH_REVOKED');
   }
   const status = message.match(/:(5[0-9]{2})$/)?.[1];
-  if (status) return reconnectRequired(input, provider, `PROVIDER_UNAVAILABLE:${status}`);
+  if (status) return providerUnavailable(input, provider, `PROVIDER_UNAVAILABLE:${status}`);
   throw error;
+}
+
+/** A provider outage is the provider's, not hers: the account is marked 'error' (no sign-in needed) until a good call. */
+async function providerUnavailable(input: { env: ApiEnv; userId: string; connectionId: string }, provider: string, cause: string): Promise<never> {
+  await supabaseRest(input.env, SERVICE_ROLE_TOKEN, `/rest/v1/integration_connections?id=eq.${encodeURIComponent(input.connectionId)}&user_id=eq.${encodeURIComponent(input.userId)}&status=in.(connected,error)`, {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ status: 'error', last_error_code: cause, updated_at: new Date().toISOString() }),
+  });
+  throw new ConnectorStop(`${cause}:${provider}`);
 }

@@ -102,7 +102,7 @@ export default function ConnectionsScreen() {
         <View style={uiStyles.row}>
           <CardTitle>{accountName(account)}</CardTitle>
           {account.isPrimary ? <Pill tone="success">Primary</Pill> : null}
-          <Pill tone={account.pausedAt ? 'warning' : account.status === 'connected' ? 'success' : undefined}>{account.pausedAt ? 'Paused' : account.status === 'needs_reauth' ? 'Needs reconnecting' : account.status}</Pill>
+          <Pill tone={account.pausedAt ? 'warning' : account.status === 'connected' ? 'success' : undefined}>{account.pausedAt ? 'Paused' : account.status === 'needs_reauth' ? 'Needs reconnecting' : account.status === 'error' ? 'Not responding, retrying' : account.status === 'connected' ? 'Connected' : account.status}</Pill>
         </View>
         <KeyValue label="Provider" value={PROVIDER_NAMES[kind]?.[provider] ?? account.provider} />
         <KeyValue label="Account" value={account.accountLabel ?? 'Connected account'} />

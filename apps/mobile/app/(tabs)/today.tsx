@@ -187,6 +187,8 @@ export default function TodayScreen() {
     && ['verified', 'cancelled'].includes(action.status)
     && Number.isFinite(Date.parse(action.updatedAt)) && dateInZone.format(new Date(action.updatedAt)) === localToday);
   const reconnectAccounts = graph.connections.filter((account) => account.status === 'needs_reauth' && !account.pausedAt);
+  // A provider outage heals on the next good run; she has nothing to do.
+  const waitingAccounts = graph.connections.filter((account) => account.status === 'error' && !account.pausedAt);
 
   const complete = async () => {
     if (!primaryAction || busy) return;
@@ -364,6 +366,11 @@ export default function TodayScreen() {
             <CardTitle>{account.label ?? (account.kind === 'email' ? 'Outlook Mail' : account.provider === 'google' ? 'Google Calendar' : 'Outlook Calendar')} needs reconnecting</CardTitle>
             <Body muted>{account.kind === 'email' ? 'Reconnect to get reply drafts and subscription alerts.' : 'Reconnect to get calendar proposals.'}</Body>
             <Button label="Reconnect" variant="secondary" onPress={() => router.push('/settings/privacy/connections')} />
+          </Card>)}
+
+          {waitingAccounts.map((account) => <Card key={account.id}>
+            <CardTitle>{`${account.kind === 'email' || account.provider === 'microsoft' ? 'Outlook' : 'Google Calendar'} isn't responding`}</CardTitle>
+            <Body muted>We'll try again on the next check. Nothing changed in your account.</Body>
           </Card>)}
 
           {outcomes.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId}

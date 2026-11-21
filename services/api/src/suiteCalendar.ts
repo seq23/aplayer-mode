@@ -3,7 +3,7 @@ import { calendarBusyDays } from '@apm/radar';
 import { calendarDateInTimezone } from '@apm/planning';
 import { z } from 'zod';
 import { fetchGoogleEvents, fetchMicrosoftEvents, type NormalizedCalendarEventInput } from './connectors/calendar';
-import { getValidConnectorToken, handleConnectorFailure } from './connectors/oauth';
+import { connectorCall, getValidConnectorToken, handleConnectorFailure } from './connectors/oauth';
 import { serviceRpc } from './db';
 
 type ConnectorInput = Omit<Parameters<typeof getValidConnectorToken>[0], 'connectionId'>;
@@ -133,8 +133,8 @@ export function suiteCalendarSnapshots(calendars: LifeGraphSnapshot['connections
   return Promise.all(calendars.map(async (connection) => {
     const auth = await getValidConnectorToken({ ...input, connectionId: connection.id });
     if (auth.kind !== 'calendar' || auth.provider !== connection.provider) throw new Error('action_proposal_stale');
-    const events = await (auth.provider === 'google' ? fetchGoogleEvents : fetchMicrosoftEvents)(auth.accessToken, from, to)
-      .catch((error: unknown) => handleConnectorFailure({ ...input, connectionId: connection.id }, auth.provider, error));
+    const events = await connectorCall({ ...input, connectionId: connection.id }, auth,
+      () => (auth.provider === 'google' ? fetchGoogleEvents : fetchMicrosoftEvents)(auth.accessToken, from, to));
     return { auth, connectionId: connection.id, events: events.map((item) => ({ ...item, connectionId: connection.id })) };
   }));
 }

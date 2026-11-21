@@ -230,6 +230,15 @@ test('Today and Connections render a reconnect action for a failed Outlook mailb
   assert.doesNotMatch(settings, />Sync now<\/button>/);
 });
 
+test('a provider outage shows a calm retry line, never a reconnect button', () => {
+  fixture({ actions: [], connections: [{ id: 'blip', kind: 'email', provider: 'microsoft', scopes: ['Mail.Read', 'Mail.Send'],
+    label: 'Music inbox', status: 'error', isPrimary: true }] });
+  const today = render(Today);
+  assert.match(today, /Outlook isn(?:'|&#x27;)t responding/);
+  assert.doesNotMatch(today, />Reconnect<\/button>/);
+  assert.match(render(Connections), /Not responding, retrying/);
+});
+
 test('Radar and Today show the flagged subscription and the proposed cancellation email with AI reporting', () => {
   const cancel = { ...reply, id: 'cancel', idempotencyKey: 'suite:subscription_cancel:1', reason: 'Subscription price may have gone up',
     payload: { ...reply.payload, suiteProposal: 'subscription_cancel', title: 'Community pool passes', to: 'support@example.com' } };
