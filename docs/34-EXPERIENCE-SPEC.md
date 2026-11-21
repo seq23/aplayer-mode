@@ -129,7 +129,7 @@ Executive Coach · Executive Assistant · Chief of Staff · Accountability Partn
 | | Executive Roundtable | Executive Suite | Autopilot |
 |---|---|---|---|
 | **You stop having to…** | **decide** | **remember and prepare** | **do the routine work** |
-| **It carries** | What to do, when, and what matters most | Everything else in your life, ready to approve | The repeat work, done inside your rules |
+| **It carries** | What to do, when, and what matters most | Everything else in your life, ready to approve | Calendar work done inside your rules |
 | **Left on you** | Doing the plan | Tapping Approve | Reading the done-list |
 | **Monthly** | $24.99 | $39.99 | $79.99 |
 
@@ -138,13 +138,13 @@ Executive Coach · Executive Assistant · Chief of Staff · Accountability Partn
 | What's in your head today | Executive Roundtable (plans it) | Executive Suite (acts on your yes) | Autopilot (handles it) |
 |---|---|---|---|
 | "What should I do today?" | Agenda arrives, already prioritised | + covers family, home, health, money | + books the time on your calendar |
-| "Am I forgetting something?" | Radar catches dropped promises and deadlines | + birthdays, bills, appointments, renewals | + sends the follow-ups and confirmations |
-| "How do I even start this goal?" | Turns the goal into a plan and daily steps | + the supporting logistics (shopping, bookings) | + books it and keeps it booked |
+| "Am I forgetting something?" | Radar catches dropped promises and deadlines | + birthdays, bills, appointments, renewals | + drafts the follow-ups for one tap |
+| "How do I even start this goal?" | Turns the goal into a plan and daily steps | + the supporting logistics (shopping, bookings) | + books it on your calendar |
 | "I missed yesterday, now I'm behind" | Minimum day, no catch-up, no guilt | + pushes back non-urgent life tasks | + reschedules and sends the "need to move" notes |
 | "I'm overwhelmed and stuck" | Coaching, one question at a time | + takes life admin off your plate that day | + clears your calendar to your minimum day |
-| "Who do I owe a reply to?" | Flags it | Drafts it | Sends it |
+| "Who do I owe a reply to?" | Flags it | Drafts it | Drafts it, sends on your tap |
 | "Is my calendar realistic?" | Flags overload and clashes | Proposes the fix | Moves flexible items, protects focus time |
-| "Am I wasting money on subscriptions?" | — | Flags unused ones and price rises | Cancels them (saves money, never spends it) |
+| "Am I wasting money on subscriptions?" | — | Flags unused ones and price rises | Drafts the cancellation, sends on your tap (never spends money) |
 
 ### 3.7 Prices (ADR-0004; one source of truth is `packages/policy`)
 
