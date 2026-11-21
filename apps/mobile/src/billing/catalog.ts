@@ -83,6 +83,35 @@ export function tierOffers(period: BillingPeriod, founding: boolean, storePrices
 }
 
 /**
+ * The trust line (paywall and Settings): what APM never does, in four plain lines. Each line
+ * is a rule the code enforces, so it may only change with that code:
+ *   - never spends: Autopilot may cancel to save money, never sign up, upgrade or pay
+ *     (packages/policy, R-SUB-05; `subscription.cancel` / free bookings only);
+ *   - never sends on its own: every send waits for a tap, or for a standing rule the person
+ *     granted, which expires and can be revoked (policy STANDING_ACTIONS, drafts never auto-send);
+ *   - undo: Autopilot's calendar changes and drafts undo (StandingUndo); its sends are labelled
+ *     "Can't undo" in Settings, Autopilot before the rule is granted. Tap-approved items on Today
+ *     have no Undo (only moved meetings do), so the line promises undo for Autopilot only;
+ *   - billing: the store that bills, cancel without a call, and the yearly renewal email
+ *     (services/api/src/renewalReminders.ts, migration 0098: App Store and card plans, sent
+ *     15 to 45 days before renewal; Google Play is left out because it sends its own).
+ */
+export function trustLines(channel: BillingChannel): { title: string; body: string }[] {
+  const reminder = channel === 'google_play' ? '' : ' On a yearly plan, we email you at least 15 days before it renews.';
+  const billed = channel === 'app_store'
+    ? { title: 'Billed by Apple', body: `Cancel any time in your iPhone's Settings, no call needed.${reminder}` }
+    : channel === 'google_play'
+      ? { title: 'Billed by Google Play', body: 'Cancel any time in Google Play, no call needed.' }
+      : { title: 'Billed to your card', body: `Cancel any time in Manage subscription, no call needed.${reminder}` };
+  return [
+    { title: 'Never spends your money', body: 'Autopilot can cancel a subscription you name. APM never buys anything for you, upgrades a plan or enters a card.' },
+    { title: 'Never sends on its own', body: 'Each message waits for your tap, or for a rule you set. Rules expire, and you can switch one off any time.' },
+    { title: 'Undo', body: "Autopilot's calendar changes and drafts undo in one tap. A send can't be undone, and Autopilot says so before you allow it." },
+    billed,
+  ];
+}
+
+/**
  * The store-required subscription disclosure (App Store Review Guideline 3.1.2, Google
  * Play subscription policy): what is bought, price and period, auto-renewal, how the
  * charge happens, how to cancel, and the intro / founding terms. Links to the Terms of
