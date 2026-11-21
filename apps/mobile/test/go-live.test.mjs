@@ -56,7 +56,8 @@ test('the legal pages are real, dated, and name the entity and contact', async (
   // policy names must be one the API asks for (no Gmail in v1, her call 21 Nov 2026).
   const googleScopes = new Set([...(await read('../../services/api/src/connectors/oauth.ts')).matchAll(/googleapis\.com\/auth\/([a-z.]+)/g)].map((m) => m[1]));
   assert.ok(googleScopes.size > 0, 'read the API scopes');
-  const named = [...privacy.matchAll(/<code>((?:calendar|gmail)\.[a-z]+)<\/code>/g)].map((m) => m[1]);
+  const googleItem = privacy.match(/<li>Google:[\s\S]*?<\/li>/)?.[0] ?? '';
+  const named = [...googleItem.matchAll(/<code>([^<]+)<\/code>/g)].map((m) => m[1].replace(/^https:\/\/www\.googleapis\.com\/auth\//, ''));
   assert.ok(named.length > 0, 'the policy names its Google scopes');
   for (const scope of named) assert.ok(googleScopes.has(scope), `policy names ${scope}, which the API never requests`);
   // Privacy claims match the code (FTC Act s.5): the policy, the iOS permission prompt and the
