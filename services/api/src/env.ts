@@ -5,6 +5,8 @@ export interface ApiEnv {
   SUPABASE_SECRET_KEY?: string;
   AUTH_DEV_BYPASS_USER_ID?: string;
   OPENROUTER_API_KEY?: string;
+  /** App-wide daily call ceiling for the two Suite mail jobs (aiGateway.ts SUITE_MAIL_ROUTE). Unset = named stop. */
+  SUITE_MAIL_DAILY_CEILING?: string;
   ALLOWED_ORIGIN?: string;
   APP_PUBLIC_URL?: string;
   CONNECTOR_CREDENTIAL_KEY?: string;

@@ -25,7 +25,7 @@ const at = (hour, minute = 0, offset = 1) => {
 const env = {
   SUPABASE_URL: 'https://phase-one.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test',
   SUPABASE_SECRET_KEY: 'sb_secret_test', CONNECTOR_CREDENTIAL_KEY: Buffer.alloc(32, 7).toString('base64'),
-  OPENROUTER_API_KEY: 'fixture-model-key', GLOBAL_ACTION_EXECUTION: 'true', ACTION_EMAIL_EXECUTION: 'true', ACTION_CALENDAR_EXECUTION: 'true', ACTION_LIFE_GRAPH_EXECUTION: 'true',
+  OPENROUTER_API_KEY: 'fixture-model-key', SUITE_MAIL_DAILY_CEILING: '2000', GLOBAL_ACTION_EXECUTION: 'true', ACTION_EMAIL_EXECUTION: 'true', ACTION_CALENDAR_EXECUTION: 'true', ACTION_LIFE_GRAPH_EXECUTION: 'true',
 };
 const input = { env, userId, accessToken: 'user-jwt' };
 const permissions = [
@@ -65,6 +65,7 @@ const graph = (overrides = {}) => ({
   calendarEvents, connections, permissions, entitlement, messageSignals, commitments, actions: [], dayRecords: [], goalPlans: [], planCompletions: [], tracks: [], roles: [], pillarSettings: [],
   ...overrides,
 });
+let usageTotal = 0, usageMine = 0;
 let h, encrypted, calls, latest, calendarVersion, currentEvents, unavailable, connectorFailure, mailbox, modelReply, modelFindings;
 const rpc = async (name, args = []) => (await h.service(
   `select public.${name}(${args.map((_, i) => `$${i + 1}`).join(',')}) as result`, args,
@@ -101,6 +102,7 @@ test.afterEach(async () => {
 test.after(async () => h?.db.close());
 test.beforeEach((t) => {
   calls = [];
+  usageTotal = 0; usageMine = 0;
   unavailable = undefined;
   connectorFailure = undefined;
   mailbox = [];
@@ -115,12 +117,21 @@ test.beforeEach((t) => {
     const method = options.method ?? 'GET';
     calls.push({ url: url.href, method, body, headers: new Headers(options.headers) });
     if (url.origin === env.SUPABASE_URL) {
-      if (url.pathname === '/rest/v1/ai_usage_events') return new Response(null, { status: 204, headers: { 'content-range': '0-0/0' } });
+      if (url.pathname === '/rest/v1/ai_usage_events') {
+        const count = method === 'HEAD' && url.searchParams.has('user_id') ? usageMine : method === 'HEAD' ? usageTotal : 0;
+        return new Response(null, { status: method === 'HEAD' ? 206 : 204, headers: { 'content-range': `0-0/${count}` } });
+      }
+      // A free zero-cost route that ranks higher must never receive private mail.
       if (url.pathname === '/rest/v1/model_routes') return json([{
-        route_id: 'reviewed-test-route', model_id: 'example/private-test-model', provider_id: 'TestProvider',
+        route_id: 'free-zero-route', model_id: 'example/free-model', provider_id: 'FreeProvider',
         status: 'approved', cost_class: 'zero', capabilities: ['extraction', 'structured_output'],
         data_classes_allowed: ['private_life'], training_allowed: false, retention: 'zero',
-        approved_for_highly_sensitive: false, quality_score: 99, reliability_score: 99, latency_score: 99,
+        approved_for_highly_sensitive: false, quality_score: 100, reliability_score: 100, latency_score: 100,
+      }, {
+        route_id: 'or_mistral_small_3_2_24b_deepinfra', model_id: 'mistralai/mistral-small-3.2-24b-instruct', provider_id: 'DeepInfra',
+        status: 'approved', cost_class: 'low', capabilities: ['conversation', 'reasoning', 'structured_output'],
+        data_classes_allowed: ['private_life'], training_allowed: false, retention: 'zero',
+        approved_for_highly_sensitive: false, quality_score: 99, reliability_score: 99, latency_score: 95,
       }]);
       if (url.pathname === '/rest/v1/message_signals' && method === 'POST') {
         await h.service(`insert into public.message_signals(user_id, connection_id, provider, external_message_id, signal_type, summary, observed_at, due_at, confidence)
@@ -158,6 +169,7 @@ test.beforeEach((t) => {
     }
     if (url.hostname === 'openrouter.ai') {
       const output = body.response_format.json_schema.name === 'suite_reply_draft' ? modelReply : modelFindings;
+      assert.equal(body.model, 'mistralai/mistral-small-3.2-24b-instruct', 'only the owner-approved mail route');
       assert.equal(body.provider.zdr, true);
       assert.equal(body.provider.data_collection, 'deny');
       return json({ choices: [{ message: { content: JSON.stringify(output) } }], usage: { cost: 0 } });
@@ -466,6 +478,28 @@ test('a model drafts from the real thread and unsafe generated content cannot be
   assert.match(model.body.messages[1].content, /rehearsal schedule/);
   assert.doesNotMatch(JSON.stringify(model.body), /fake-connector-token|jordan@example.com/);
   assert.equal(writes().filter((call) => call.url.includes('microsoft.com')).length, 0);
+});
+
+test('mail jobs use only the owner-approved route and stop by name at either daily ceiling, never switching route', async () => {
+  const current = graph({ connections: [connections[0]], calendarEvents: [] });
+  const fresh = graph({ connections: [connections[0]], calendarEvents: [], actions: [] });
+  for (const [setup, stop] of [
+    [() => { usageTotal = 2000; }, 'SUITE_MAIL_DAILY_CEILING_REACHED'],
+    [() => { usageMine = 20; }, 'SUITE_MAIL_USER_DAILY_CAP'],
+  ]) {
+    usageTotal = 0; usageMine = 0; calls = [];
+    setup();
+    const result = await prepareSuiteProposals(env, fresh, now);
+    assert.equal(result.prepared, 0);
+    assert.ok(result.stops.includes(stop), `${stop} in ${result.stops}`);
+    assert.equal(calls.filter((call) => call.url.startsWith('https://openrouter.ai/')).length, 0, 'no model call past a ceiling');
+  }
+  usageTotal = 0; usageMine = 0; calls = [];
+  const unset = await prepareSuiteProposals({ ...env, SUITE_MAIL_DAILY_CEILING: undefined }, current, now);
+  assert.ok(unset.stops.includes('SUITE_MAIL_CEILING_UNSET'));
+  assert.equal(calls.filter((call) => call.url.startsWith('https://openrouter.ai/')).length, 0);
+  const source = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  assert.ok(Number(JSON.parse(source.replace(/^\s*\/\/.*$/gm, '')).env.production.vars.SUITE_MAIL_DAILY_CEILING) > 0, 'production has a ceiling');
 });
 
 test('production execution switches prevent unavailable action offers and a level-three grant cannot execute', async () => {

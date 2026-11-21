@@ -44,7 +44,8 @@
         "GOOGLE_OAUTH_REDIRECT_URI": "https://api.aplayermode.com/v1/oauth/google/callback",
         "MICROSOFT_OAUTH_REDIRECT_URI": "https://api.aplayermode.com/v1/oauth/microsoft/callback",
         "APP_REVIEW_EMAIL": "appreview@aplayermode.com",
-        "REVENUECAT_PROJECT_ID": "proj2c0586cf"
+        "REVENUECAT_PROJECT_ID": "proj2c0586cf",
+        "SUITE_MAIL_DAILY_CEILING": "2000"
       }
     }
   }
