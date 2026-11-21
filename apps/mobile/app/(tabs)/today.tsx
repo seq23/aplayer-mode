@@ -32,6 +32,8 @@ import {
 import type { AgendaItem } from '@apm/planning';
 import {
   approveExternalAction,
+  rejectExternalAction,
+  undoExternalAction,
   checkInToday,
   closeToday,
   completeAgendaAction,
@@ -46,6 +48,7 @@ import {
   type ReplanReason,
 } from '../../src/api/apmApi';
 import { useLifeGraph } from '../../src/state/lifeGraph';
+import { ActionApprovalCard } from '../../src/components/today/ActionApprovalCard';
 import { ReportThis } from '../../src/components/ReportThis';
 import { areaDisplay, areaShort } from '../../src/content/areas';
 import { BedRoutineToday, CoachingModeChips, PillarRollUpLine, PracticesToday, QuickTaps, SaveAccountBanner } from '../../src/components/today/FirstRunCards';
@@ -57,7 +60,7 @@ import { appDistribution, billingAvailability } from '../../src/billing/purchase
 import { webCheckoutAllowed } from '../../src/billing/distribution';
 import { plainError } from '../../src/api/errors';
 import { greetingLine, hourIn, todayLine } from '../../src/content/greeting';
-import { GATE_WORDS, ITEM_KIND_WORDS, MODE_WORDS, TODAY_COPY, VERDICT_WORDS, actionTag, radarTag, shortDate } from '../../src/content/words';
+import { GATE_WORDS, ITEM_KIND_WORDS, MODE_WORDS, TODAY_COPY, VERDICT_WORDS, radarTag, shortDate } from '../../src/content/words';
 
 function timeLabel(value?: string) {
   if (!value) return undefined;
@@ -168,9 +171,26 @@ export default function TodayScreen() {
     [todayPlan?.routineIds.length ?? 0, 'routine', 'routines'],
     [todayPlan?.radarItemIds.length ?? 0, 'heads-up', 'heads-ups'],
   ].filter(([n]) => Number(n) > 0).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+  // Mail is Outlook only: a Google Calendar person is told which connection brings drafts and alerts.
+  const hasGoogleCalendar = graph.connections.some((account) => account.kind === 'calendar'
+    && account.provider === 'google' && account.status === 'connected' && !account.pausedAt);
+  const hasOutlookMail = graph.connections.some((account) => account.kind === 'email'
+    && account.provider === 'microsoft' && account.status === 'connected' && !account.pausedAt);
+  const canUseReplyDrafts = graph.entitlement?.plan === 'life_os' || graph.entitlement?.plan === 'autopilot';
   const approvals = (todayPlan?.approvalActionIds ?? [])
     .map((id) => graph.actions.find((action) => action.id === id))
-    .filter((action): action is NonNullable<typeof action> => Boolean(action));
+    .filter((action): action is NonNullable<typeof action> => Boolean(action))
+    .filter(({ payload }) => !recovery || ['missed_day', 'hard_day', 'clear_day'].includes(String(payload.suiteProposal)));
+
+  const dateInZone = new Intl.DateTimeFormat('en-CA', { timeZone: graph.identity.timezone || 'UTC', dateStyle: 'short' });
+  const localToday = dateInZone.format(new Date());
+  const outcomes = graph.actions.filter((action) => (action.idempotencyKey.startsWith('suite:')
+    ? ['verified', 'cancelled'].includes(action.status)
+    : action.idempotencyKey.startsWith('autopilot:suite:clear_day:') && ['verified', 'cancelled', 'failed'].includes(action.status))
+    && Number.isFinite(Date.parse(action.updatedAt)) && dateInZone.format(new Date(action.updatedAt)) === localToday);
+  const reconnectAccounts = graph.connections.filter((account) => account.status === 'needs_reauth' && !account.pausedAt);
+  // A provider outage heals on the next good run; she has nothing to do.
+  const waitingAccounts = graph.connections.filter((account) => account.status === 'error' && !account.pausedAt);
 
   const complete = async () => {
     if (!primaryAction || busy) return;
@@ -180,14 +200,17 @@ export default function TodayScreen() {
     finally { setBusy(false); }
   };
 
-  const approve = async (actionId: string) => {
+  const decideApproval = async (actionId: string, decision: 'approve' | 'reject' | 'undo', editedBody?: string) => {
     if (!accessToken || busyActionId) return;
     setBusyActionId(actionId); setActionError(undefined);
     try {
-      await approveExternalAction(actionId, accessToken);
+      if (decision === 'approve') await approveExternalAction(actionId, accessToken, editedBody);
+      else if (decision === 'undo') await undoExternalAction(actionId, accessToken);
+      else await rejectExternalAction(actionId, accessToken);
       await refresh();
     } catch (error) {
-      setActionError(plainError(error, 'That action did not run. Nothing was sent; try again.'));
+      await refresh().catch(() => undefined);
+      setActionError(plainError(error, decision === 'reject' ? 'That proposal could not be rejected. Refresh Today and try again.' : 'We could not confirm that action. Check the connected account before trying again.'));
     } finally { setBusyActionId(undefined); }
   };
 
@@ -341,11 +364,47 @@ export default function TodayScreen() {
           <Toast message={notice} />
           {actionError ? <ErrorState message={actionError} /> : null}
 
-          {!hideAgenda && !recovery && approvals.length ? (
+          {reconnectAccounts.map((account) => <Card key={account.id}>
+            <CardTitle>{account.label ?? (account.kind === 'email' ? 'Outlook Mail' : account.provider === 'google' ? 'Google Calendar' : 'Outlook Calendar')} needs reconnecting</CardTitle>
+            <Body muted>{account.kind === 'email' ? 'Reconnect to get reply drafts and subscription alerts.' : 'Reconnect to get calendar proposals.'}</Body>
+            <Button label="Reconnect" variant="secondary" onPress={() => router.push('/settings/privacy/connections')} />
+          </Card>)}
+
+          {waitingAccounts.map((account) => <Card key={account.id}>
+            <CardTitle>{`${account.kind === 'email' || account.provider === 'microsoft' ? 'Outlook' : 'Google Calendar'} isn't responding`}</CardTitle>
+            <Body muted>We'll try again on the next check. Nothing changed in your account.</Body>
+          </Card>)}
+
+          {outcomes.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId} timezoneHint={graph.identity.timezone || 'UTC'}
+            onApprove={() => undefined} onReject={() => undefined} onUndo={() => void decideApproval(action.id, 'undo')} />)}
+
+          {!hideAgenda && approvals.length ? (
             <>
               <SectionTitle>Needs your approval</SectionTitle>
-              {approvals.map((action) => <Card key={action.id} tone="warning"><Label tone="warning">{actionTag(action.domain, action.actionType)}</Label><CardTitle>{action.reason}</CardTitle><Body muted>{TODAY_COPY.approvalBody}</Body><Button label={busyActionId === action.id ? TODAY_COPY.approvalBusy : TODAY_COPY.approvalButton} busy={busyActionId === action.id} disabled={Boolean(busyActionId) && busyActionId !== action.id} onPress={() => approve(action.id)} /></Card>)}
+              {approvals.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId}
+                onPermissions={() => router.push('/settings/privacy/autonomy')}
+                onApprove={(body) => void decideApproval(action.id, 'approve', body)} onReject={() => void decideApproval(action.id, 'reject')}
+                onReport={accessToken ? (reason) => reportContent({ kind: 'action_proposal', ref: action.id, reason }, accessToken) : undefined} />)}
             </>
+          ) : null}
+
+          {!hideAgenda && !recovery ? graph.actions.filter((action) => action.status === 'verified' && action.payload.suiteProposal === 'goal_checklist').map((action) => {
+            const task = graph.nextActions.find((item) => item.id === action.id && item.status === 'open');
+            if (!task || agenda?.dailyStack.some((item) => item.nextActionId === task.id)) return null;
+            return <Card key={task.id}>
+              <Label>Goal checklist</Label>
+              <CardTitle>{task.title}</CardTitle>
+              <Body>{String(action.payload.detail)}</Body>
+              <Body muted>Saved for your next full day.</Body>
+            </Card>;
+          }) : null}
+
+          {!hideAgenda && !recovery && canUseReplyDrafts && hasGoogleCalendar && !hasOutlookMail ? (
+            <Card>
+              <CardTitle>Reply drafts and subscription alerts use Outlook Mail</CardTitle>
+              <Body muted>Connect Outlook Mail to review drafts here and see subscription alerts on Radar.</Body>
+              <Button label="Manage connections" variant="secondary" onPress={() => router.push('/settings/privacy/connections')} />
+            </Card>
           ) : null}
 
           <BedRoutineToday graph={graph} />
@@ -409,7 +468,7 @@ export default function TodayScreen() {
                 ) : null}
               </>
             ) : null}
-            {!hideAgenda && recovery ? <Body muted>Light day: your schedule, approvals and open loops wait until tomorrow. One thing, then close.</Body> : null}
+            {!hideAgenda && recovery ? <Body muted>One small thing, then close the day. The rest can wait.</Body> : null}
             {graph.tracks.some((track) => track.active) ? <Card tone="muted"><Label>Running in the background</Label><Body>{graph.tracks.filter((track) => track.active).map((track) => track.name).join(', ')}</Body></Card> : null}
             {todayLoop.locked && !todayLoop.closed ? (
               <>

@@ -37,7 +37,7 @@ import { plainError } from '../../../src/api/errors';
 // The provider write scopes the Autopilot claim checks (migration 0033 required_scopes).
 const WRITE_SCOPES: Record<OAuthKind, string[]> = {
   calendar: ['https://www.googleapis.com/auth/calendar.events', 'Calendars.ReadWrite'],
-  email: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.compose', 'Mail.Send', 'Mail.ReadWrite'],
+  email: ['Mail.Send'],
 };
 const hasWriteScope = (kind: OAuthKind, scopes: string[]) => scopes.some((scope) => WRITE_SCOPES[kind].includes(scope));
 
@@ -48,7 +48,7 @@ const PROVIDER_NAMES: Record<OAuthKind, Record<OAuthProvider, string>> = {
 const KIND_TITLES: Record<OAuthKind, string> = { calendar: 'Calendars', email: 'Inboxes' };
 const KIND_DETAIL: Record<OAuthKind, string> = {
   calendar: 'Direct cloud calendar sync. Conflicts are checked across every calendar you connect, so work never double-books personal.',
-  email: 'Detects commitments, requests, follow-ups and deadlines from permitted email metadata/content.',
+  email: 'Connect Outlook Mail for commitments and reply drafts. Google connects your calendar.',
 };
 
 export default function ConnectionsScreen() {
@@ -74,6 +74,7 @@ export default function ConnectionsScreen() {
       await work(accessToken);
       await refresh();
     } catch (cause) {
+      await refresh().catch(() => undefined);
       setError(plainError(cause, fallback));
     } finally {
       setBusy(undefined);
@@ -95,18 +96,19 @@ export default function ConnectionsScreen() {
     const provider = account.provider as OAuthProvider;
     const note = pausedNote(account, graph.entitlement);
     const draft = labels[account.id] ?? account.label ?? '';
+    const supported = kind !== 'email' || provider === 'microsoft';
     return (
       <Card key={account.id} tone={account.pausedAt ? 'muted' : 'default'}>
         <View style={uiStyles.row}>
           <CardTitle>{accountName(account)}</CardTitle>
           {account.isPrimary ? <Pill tone="success">Primary</Pill> : null}
-          <Pill tone={account.pausedAt ? 'warning' : account.status === 'connected' ? 'success' : undefined}>{account.pausedAt ? 'Paused' : account.status}</Pill>
+          <Pill tone={account.pausedAt ? 'warning' : account.status === 'connected' ? 'success' : undefined}>{account.pausedAt ? 'Paused' : account.status === 'needs_reauth' ? 'Needs reconnecting' : account.status === 'error' ? 'Not responding, retrying' : account.status === 'connected' ? 'Connected' : account.status}</Pill>
         </View>
         <KeyValue label="Provider" value={PROVIDER_NAMES[kind]?.[provider] ?? account.provider} />
         <KeyValue label="Account" value={account.accountLabel ?? 'Connected account'} />
         <KeyValue label="Last sync" value={syncedWords(account.lastSyncAt)} />
-        <KeyValue label="Autopilot can act" value={hasWriteScope(kind, account.scopes) ? 'Yes · write consent given' : 'No · read only'} />
-        {note ? <Body>{note}</Body> : null}
+        <KeyValue label="Account write access" value={hasWriteScope(kind, account.scopes) ? 'Yes · write consent given' : 'No · read only'} />
+        {supported && note ? <Body>{note}</Body> : null}
         <TextField label="Your name for this account" placeholder="Work, Personal…" value={draft} onChangeText={(value) => setLabels((current) => ({ ...current, [account.id]: value }))} />
         {draft.trim() !== (account.label ?? '') ? (
           <Button label={busy === `label:${account.id}` ? 'Saving…' : 'Save name'} variant="secondary"
@@ -116,15 +118,18 @@ export default function ConnectionsScreen() {
           <Button label={busy === `primary:${account.id}` ? 'Switching…' : `Make this my primary ${KIND_NOUN[kind]}`} variant="secondary"
             onPress={() => void run(`primary:${account.id}`, (token) => setPrimaryConnection(account.id, token), 'Unable to change the primary account.')} />
         ) : null}
-        {account.pausedAt && multi ? (
+        {account.pausedAt && multi && supported ? (
           <Button label={busy === `reactivate:${account.id}` ? 'Reactivating…' : 'Reactivate'} variant="secondary"
             onPress={() => void run(`reactivate:${account.id}`, (token) => reactivateConnection(account.id, token), 'Unable to reactivate this account.')} />
         ) : null}
-        {!account.pausedAt ? (
+        {!account.pausedAt && supported && account.status === 'needs_reauth' ? <Button
+          label={`Reconnect ${PROVIDER_NAMES[kind][provider]}`} variant="secondary"
+          onPress={() => void connect(provider, kind, 'reconnect', hasWriteScope(kind, account.scopes) ? 'act' : 'read')} /> : null}
+        {!account.pausedAt && supported && account.status !== 'needs_reauth' ? (
           <>
             <Button label={busy === `sync:${account.id}` ? 'Syncing…' : 'Sync now'} variant="secondary" onPress={() => void sync(account)} />
             <Button
-              label={hasWriteScope(kind, account.scopes) ? 'Refresh Autopilot write consent' : 'Allow Autopilot to act on this account'}
+              label={hasWriteScope(kind, account.scopes) ? 'Refresh write consent' : 'Allow writes on this account'}
               variant="secondary"
               onPress={() => void connect(provider, kind, 'reconnect', 'act')}
             />
@@ -148,7 +153,7 @@ export default function ConnectionsScreen() {
         {add.allowed ? (
           <Card>
             <CardTitle>{accounts.length ? 'Add another account' : `Connect a ${KIND_NOUN[kind]}`}</CardTitle>
-            {(['google', 'microsoft'] as const).map((provider) => (
+            {(['google', 'microsoft'] as const).filter((provider) => kind === 'calendar' || provider === 'microsoft').map((provider) => (
               <Button key={provider} label={busy === `${provider}:${kind}:${intent}:read` ? 'Connecting / syncing…' : `Connect ${PROVIDER_NAMES[kind][provider]}`}
                 variant="secondary" onPress={() => void connect(provider, kind, intent)} />
             ))}

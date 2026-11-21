@@ -625,6 +625,8 @@ export interface CalendarEvent {
 }
 
 export type MessageSignalType =
+  | 'subscription_price_rise'
+  | 'subscription_unused'
   | 'commitment'
   | 'request'
   | 'follow_up'
@@ -677,6 +679,7 @@ export type ActionStatus =
   | 'cancelled';
 
 export interface ActionRecord {
+  approvalAvailable?: boolean;
   id: UUID;
   userId: UUID;
   domain: string;

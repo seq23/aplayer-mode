@@ -190,11 +190,18 @@ test('export: the registry covers every table with a user column; the export car
   });
   await h.admin(`insert into public.coaching_turns (user_id, session_id, role, content) values ('${A}', '${U(900)}', 'user', 'I keep missing mornings')`);
   await h.admin(`insert into public.integration_connections (user_id, provider, kind, external_account_id, encrypted_credentials, credential_iv) values ('${A}', 'google', 'calendar', 'a@x', 'cipher', 'iv')`);
+  await h.admin(`insert into public.connector_oauth_flows (id, user_id, provider, kind, verifier_ciphertext, verifier_iv, expires_at)
+    values ($1, $2, 'google', 'calendar', 'encrypted-verifier', 'flow-iv', now() + interval '10 minutes')`, [U(901), A]);
+  await rejects(h.as(A, 'select * from public.connector_oauth_flows'), /permission denied/);
+  await h.admin(`insert into public.audit_events (user_id, event_type, actor_type)
+    select $1, 'export.fixture', 'system' from generate_series(1, 251)`, [A]);
   const out = (await h.as(A, 'select public.apm_data_rights_export() e')).rows[0].e;
   assert.deepEqual(out.coaching_turns.map((t) => t.content), ['I keep missing mornings']);
   assert.equal(out.integration_connections[0].external_account_id, 'a@x');
   assert.ok(!('encrypted_credentials' in out.integration_connections[0]) && !('credential_iv' in out.integration_connections[0]));
-  assert.ok(out.audit_events.length > 10, 'no 250-row cap; every audit row');
+  assert.equal(out.connector_oauth_flows.length, 1);
+  for (const field of ['id', 'verifier_ciphertext', 'verifier_iv']) assert.ok(!(field in out.connector_oauth_flows[0]));
+  assert.equal(out.audit_events.filter((event) => event.event_type === 'export.fixture').length, 251, 'every audit row is exported');
   assert.ok(out.audit_events.every((e) => e.user_id === A), 'own rows only');
   await rejects(h.asRole('anon', null, 'select public.apm_data_rights_export()'), /permission denied/);
 });

@@ -31,6 +31,7 @@ const labels: Record<AutonomyLevel, string> = {
 const controls = [
   { domain: 'calendar', actionType: 'event_write', title: 'Calendar changes' },
   { domain: 'email', actionType: 'send', title: 'Email sending' },
+  { domain: 'life_graph', actionType: 'plan_logistics', title: 'Goal checklists and task moves' },
   { domain: 'routine', actionType: 'schedule', title: 'Routine scheduling' },
 ] as const;
 
@@ -82,7 +83,8 @@ export default function AutonomyScreen() {
           const permission = graph.permissions.find((item) => item.domain === control.domain && item.actionType === control.actionType);
           const current = (permission?.enabled ? permission.autonomyLevel : 0) as AutonomyLevel;
           const lower = Math.min(ceiling, Math.max(0, current - 1)) as AutonomyLevel;
-          const higher = Math.min(ceiling, current + 1) as AutonomyLevel;
+          const limit = control.domain === 'life_graph' ? Math.min(ceiling, 4) : ceiling;
+          const higher = Math.min(limit, current + 1) as AutonomyLevel;
           return (
             <Card key={key}>
               <View style={uiStyles.row}>
@@ -90,10 +92,10 @@ export default function AutonomyScreen() {
                 <Pill>{labels[current]}</Pill>
               </View>
               <KeyValue label="Current level" value={`${current} · ${labels[current]}`} />
-              <KeyValue label="Current product ceiling" value={`${ceiling} · ${labels[ceiling]}`} />
+              <KeyValue label="Current product ceiling" value={`${limit} · ${labels[limit as AutonomyLevel]}`} />
               <Body muted>Increasing a level is explicit. Level 4 still requires per-action approval; level 5 is standing authority within configured constraints.</Body>
               <Button label={busy === key ? 'Saving…' : `Reduce to ${labels[lower]}`} variant="secondary" onPress={() => void change(control.domain, control.actionType, lower)} />
-              {current < ceiling ? <Button label={busy === key ? 'Saving…' : `Increase to ${labels[higher]}`} onPress={() => void change(control.domain, control.actionType, higher)} /> : null}
+              {current < limit ? <Button label={busy === key ? 'Saving…' : `Increase to ${labels[higher]}`} onPress={() => void change(control.domain, control.actionType, higher)} /> : null}
             </Card>
           );
         })}

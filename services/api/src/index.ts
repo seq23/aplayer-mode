@@ -1,4 +1,7 @@
+import { approveSuiteProposal, replyBody, suiteEntitled, suitePermission, prepareSuiteProposals, SUITE_PROPOSAL_PREFIX } from './proposalProducers';
+import { executeSuiteCalendarMove, movableEventIds } from './suiteCalendar';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { buildDailyPlan, reprintAgenda, weeklyDebrief, carryForwardProblem, continuityView, dayInsight, midDayReplanDecision, scoreAgendaDay, selectForeground } from '@apm/planning';
 import { buildRadarItems } from '@apm/radar';
@@ -9,7 +12,7 @@ import { claimIntakeInstall, deleteAuthUser, finishIntakeInstall, getIntakeDraft
 import { synthesizeIntake } from './intakeSynthesis';
 import { AGE_GATE_OPEN_ROUTES, AGE_REQUIRED_BODY, AgeConfirmationRequired, ageConfirmed, carryConsents, CONSUMER_HEALTH_POLICY_VERSION, getConsentState, HEALTH_REQUIRED_BODY, healthConsentActive, recordConsent, withoutHealthData } from './consent';
 import type { ApiEnv } from './env';
-import { restErrorMessage, SERVICE_ROLE_TOKEN, SupabaseRestError, supabaseRest } from './db';
+import { restErrorMessage, serviceRpc, SERVICE_ROLE_TOKEN, SupabaseRestError, supabaseRest } from './db';
 import { claimPrecheckout, attachPrecheckout, billingOfferingFor, foundingPlaces, foundingPlacesFrom, handleRevenueCatWebhook, reconcileBillingFor, webCustomerPortalFor } from './billing';
 import {
   completeNextAction,
@@ -41,8 +44,8 @@ import {
   updateLifeAdminItem,
   updateRelationship,
 } from './lifeOsRepository';
-import { createOAuthState, verifyOAuthState } from './crypto';
-import { buildOAuthAuthorizationUrl, exchangeAndStoreOAuthConnection } from './connectors/oauth';
+import { ConnectorStop } from './connectors/oauth';
+import { connectorCallback, connectorConfigStop, connectorFlowResult, startConnectorFlow } from './connectors/oauthFlow';
 import { clearDeviceCalendar, syncCloudCalendar, syncDeviceCalendar } from './connectors/calendar';
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
@@ -53,7 +56,7 @@ import { COACH_CHOICES } from './coach/machine';
 import { applyModeToPlan, modeView, reconcileModeState, transitionMode, type ModeEvent, type ModeRequest, type ModeState } from './coach/modes';
 import { ACTIVE_TRACK_KEYS } from './coach/tracks';
 import { getModeState, saveModeState } from './modeRepository';
-import { actionErrorResponse, approveAndMaybeExecuteAction, prepareAction } from './actionEngine';
+import { actionErrorResponse, authorizeAction, approveAndMaybeExecuteAction, prepareAction } from './actionEngine';
 import {
   autopilotErrorResponse,
   getAutopilotDoneList,
@@ -557,6 +560,15 @@ async function buildUserState(env: ApiEnv, accessToken: string, userId: string) 
     ...persistedGraph,
     personalOS: persistedGraph.personalOS ? { ...persistedGraph.personalOS, activeMode: modeState.mode } : undefined,
     radarItems: buildRadarItems(persistedGraph),
+    actions: persistedGraph.actions.map((action) => {
+      if (!action.idempotencyKey.startsWith(SUITE_PROPOSAL_PREFIX)) return action;
+      const permission = suitePermission(persistedGraph, action.payload.suiteProposal);
+      const account = persistedGraph.connections.find((item) => item.id === action.payload.connectionId);
+      return { ...action, approvalAvailable: suiteEntitled(persistedGraph.entitlement)
+        && (!action.payload.connectionId || (account?.status === 'connected' && !account.pausedAt))
+        && Boolean(permission && authorizeAction({ env, userId, domain: action.domain as Parameters<typeof authorizeAction>[0]['domain'], requestedLevel: 4,
+          permission, entitlement: persistedGraph.entitlement, forExecution: true }).allowed) };
+    }),
   };
   const projected = applyModeToPlan(buildDailyPlan(graph, { mode: modeState.mode === 'recovery' ? 'recovery' : undefined, now }), graph, modeState);
   const lastCoaching = persistedGraph.personalOS
@@ -1012,6 +1024,18 @@ app.post('/v1/intake/synthesis', async (c) => {
   return c.json(result);
 });
 
+async function stateWithPlanProposals(env: ApiEnv, accessToken: string, userId: string) {
+  const state = await buildUserState(env, accessToken, userId);
+  if (!suiteEntitled(state.graph.entitlement)) return state;
+  const result = await prepareSuiteProposals(env, state.graph, new Date(), accessToken, true).catch(() => ({
+    prepared: 0, stops: ['SUITE_PLAN_PROPOSALS_UNAVAILABLE'],
+  }));
+  if (result.prepared || result.stops.length) {
+    console.log(`OUTPUT ${result.prepared} suite_plan_proposals_prepared${result.stops.length ? ` NAMED STOP [${result.stops.join(', ')}]` : ''}`);
+  }
+  return result.prepared ? buildUserState(env, accessToken, userId) : state;
+}
+
 const modeRequestSchema = z.union([
   z.object({ action: z.literal('exit') }),
   z.object({ action: z.literal('enter').default('enter'), mode: z.enum(['standard','high_pressure','executive_review','recovery']) }),
@@ -1041,7 +1065,7 @@ app.post('/v1/methodology/mode', async (c) => {
   const result = await changeMode(c.env, user.accessToken, user.id, parsed.data as ModeRequest);
   if (!result.ok) return c.json({ error: result.error, message: result.message }, 409);
   await audit(c.env, user.accessToken, user.id, 'operating_mode.changed', { mode: result.state.mode }, 'personal_os', user.id);
-  return c.json(await buildUserState(c.env, user.accessToken, user.id));
+  return c.json(await stateWithPlanProposals(c.env, user.accessToken, user.id));
 });
 
 app.post('/v1/methodology/day/close', async (c) => {
@@ -1069,7 +1093,7 @@ app.post('/v1/today/check-in', async (c) => {
   const mood = moodAllowed ? parsed.data.mood : undefined;
   const state = await buildUserState(c.env, user.accessToken, user.id);
   if (!state.graph.personalOS) return c.json({ error: 'personal_os_missing', message: 'Complete the Personal OS intake first.' }, 409);
-  if (state.today.checkedIn) return c.json({ replayed: true, ...state });
+  if (state.today.checkedIn) return c.json({ replayed: true, ...(await stateWithPlanProposals(c.env, user.accessToken, user.id)) });
   // Never lock an agenda from a plan that has not received an in-effect pillar change yet.
   // Fail closed: if the check itself fails, the plans' state is unknown, so do not lock.
   if (await pillarRebuildsPending(c.env, user.id).catch(() => true)) {
@@ -1079,7 +1103,7 @@ app.post('/v1/today/check-in', async (c) => {
   const agenda = freshAgenda(state.graph, { date: state.today.date, state: state.today.dayState.state, ...(mood !== undefined ? { mood } : {}) });
   try { await checkInDay(c.env, user.id, { day: state.today.date, ...(mood !== undefined ? { mood } : {}), agenda }); }
   catch (error) { return loopFailure(c, error); }
-  return c.json({ replayed: false, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+  return c.json({ replayed: false, ...(await stateWithPlanProposals(c.env, user.accessToken, user.id)) });
 });
 
 app.post('/v1/today/actions/complete', async (c) => {
@@ -1116,7 +1140,7 @@ app.post('/v1/today/replan', async (c) => {
   const agenda = freshAgenda(state.graph, { date: state.today.date, state: dayState, mood: state.today.day?.mood });
   try { await replanDay(c.env, user.id, { day: state.today.date, reason: parsed.data.reason, detail: parsed.data.detail, agenda }); }
   catch (error) { return loopFailure(c, error); }
-  return c.json({ message: decision.message, ...(await buildUserState(c.env, user.accessToken, user.id)) });
+  return c.json({ message: decision.message, ...(await stateWithPlanProposals(c.env, user.accessToken, user.id)) });
 });
 
 // End-of-day check-in (BHPC Prompt #6): what was completed pillar by pillar, Hit /
@@ -1414,7 +1438,7 @@ app.post('/v1/apm/coach', async (c) => {
     // Deep Work ended early / Executive Review closed: the same deterministic
     // transition rules apply, and the client gets the rebuilt Today with it.
     const changed = await changeMode(c.env, user.accessToken, user.id, turn.modeRequest);
-    if (changed.ok) today = await buildUserState(c.env, user.accessToken, user.id);
+    if (changed.ok) today = await stateWithPlanProposals(c.env, user.accessToken, user.id);
   }
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'coaching_turn', { mode: reply.mode, phase: reply.phase, engine: reply.engine, step: reply.step });
   return c.json({ ...reply, modeState: today?.mode ?? state.mode, ...(today ? { today } : {}) });
@@ -1442,7 +1466,7 @@ app.post('/v1/apm/coach/report', async (c) => {
 app.post('/v1/apm/content/report', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({
-    kind: z.enum(['plan_item', 'radar_item']),
+    kind: z.enum(['plan_item', 'radar_item', 'action_proposal']),
     ref: z.string().min(1).max(200).regex(/^[^\x00-\x1f\x7f]+$/),
     reason: z.enum(['harmful', 'wrong', 'inappropriate', 'other']),
   }).strict().safeParse(await c.req.json().catch(() => null));
@@ -1453,6 +1477,7 @@ app.post('/v1/apm/content/report', async (c) => {
     });
     return c.json(result, result.replayed ? 200 : 201);
   } catch (error) {
+    if (restErrorMessage(error) === 'report_invalid_ref') return c.json({ error: 'invalid_request' }, 400);
     if (error instanceof SupabaseRestError && error.status === 404) {
       console.error('NAMED STOP [CONTENT_REPORT_MIGRATION_MISSING] apply services/api/migrations/0099_content_reports.sql');
       return c.json({ error: 'unavailable', message: 'The report did not send. Try again later.' }, 503);
@@ -1492,6 +1517,7 @@ function connectionErrorMessage(error: unknown): string {
   return restErrorMessage(error) ?? (error instanceof Error ? error.message : '');
 }
 function connectionFailure(c: any, error: unknown) {
+  if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
   const message = connectionErrorMessage(error);
   if (message === 'connection_multi_account_requires_autopilot') return multiAccountRefusal(c);
   if (message === 'connection_paused') return c.json({ error: 'connection_paused' }, 409);
@@ -1507,33 +1533,33 @@ app.post('/v1/connections/oauth/start', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   // access 'act' is a separate, explicit consent for provider write scopes (Autopilot).
   // intent 'add' = another account of this kind (Autopilot only); 'reconnect' = the same one.
-  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, codeChallenge: z.string().min(20).max(200), redirectUri: z.string().url().optional(), access: z.enum(['read','act']).default('read'), intent: z.enum(['add','reconnect']).default('reconnect') }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, access: z.enum(['read','act']).default('read'), intent: z.enum(['add','reconnect']).default('reconnect') }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (parsed.data.provider === 'google' && parsed.data.kind === 'email') return c.json({ error: 'outlook_mail_required' }, 400);
+  const stop = connectorConfigStop(c.env, parsed.data.provider);
+  if (stop) return c.json({ error: stop }, 503);
   if (parsed.data.intent === 'add') {
     const graph = await getLifeGraph(c.env, user.accessToken, user.id);
     const live = graph.connections.filter((item) => item.kind === parsed.data.kind && item.provider !== 'device' && item.status !== 'disconnected' && !item.pausedAt);
     if (live.length > 0 && !hasMultiAccount(graph.entitlement)) return multiAccountRefusal(c);
   }
-  const state = await createOAuthState(c.env, { userId: user.id, provider: parsed.data.provider, kind: parsed.data.kind, codeChallenge: parsed.data.codeChallenge });
-  return c.json({ state, authorizationUrl: buildOAuthAuthorizationUrl({ env: c.env, ...parsed.data, state }) });
+  const { provider, kind, access } = parsed.data;
+  return c.json(await startConnectorFlow(c.env, user.id, provider, kind, access), 200, { 'cache-control': 'no-store' });
 });
 
-app.post('/v1/connections/oauth/exchange', async (c) => {
+app.get('/v1/oauth/:provider/callback', (c) => {
+  const provider = providerSchema.safeParse(c.req.param('provider'));
+  if (!provider.success) return c.notFound();
+  return connectorCallback(c.env, provider.data, new URL(c.req.url), (userId, kind, id) =>
+    audit(c.env, SERVICE_ROLE_TOKEN, userId, 'integration.connected', { provider: provider.data, kind }, 'integration_connection', id));
+});
+
+app.get('/v1/connections/oauth/result/:state', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
-  const parsed = z.object({ provider: providerSchema, kind: integrationKindSchema, code: z.string().min(1), codeVerifier: z.string().min(20).max(200), state: z.string().min(20), redirectUri: z.string().url().optional() }).safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
-  const state = await verifyOAuthState<{ exp: number; userId: string; provider: string; kind: string; codeChallenge: string }>(c.env, parsed.data.state);
-  if (state.userId !== user.id || state.provider !== parsed.data.provider || state.kind !== parsed.data.kind) return c.json({ error: 'oauth_state_mismatch' }, 403);
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(parsed.data.codeVerifier)));
-  let binary = ''; for (const byte of digest) binary += String.fromCharCode(byte);
-  const challenge = btoa(binary).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
-  if (challenge !== state.codeChallenge) return c.json({ error: 'oauth_pkce_mismatch' }, 403);
-  let connection: Awaited<ReturnType<typeof exchangeAndStoreOAuthConnection>>;
-  try {
-    connection = await exchangeAndStoreOAuthConnection({ env: c.env, accessToken: user.accessToken, userId: user.id, provider: parsed.data.provider, kind: parsed.data.kind, code: parsed.data.code, codeVerifier: parsed.data.codeVerifier, redirectUri: parsed.data.redirectUri });
-  } catch (error) { return connectionFailure(c, error); }
-  await audit(c.env, user.accessToken, user.id, 'integration.connected', { provider: parsed.data.provider, kind: parsed.data.kind }, 'integration_connection', connection.connectionId);
-  return c.json(connection);
+  const state = z.uuid().safeParse(c.req.param('state'));
+  if (!state.success) return c.json({ error: 'invalid_request' }, 400);
+  const result = await connectorFlowResult(c.env, user.id, state.data);
+  return c.json(result, 200, { 'cache-control': 'no-store' });
 });
 
 app.post('/v1/calendar/device/sync', async (c) => {
@@ -1645,7 +1671,7 @@ app.put('/v1/permissions/:domain/:actionType', async (c) => {
 app.post('/v1/actions/prepare', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const parsed = z.object({ domain: z.enum(['calendar','email','routine','life_graph','notification','connector']), actionType: z.string().min(3).max(120), payload: z.record(z.string(), z.unknown()), reason: z.string().min(3).max(1000), idempotencyKey: z.string().min(8).max(200) }).safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  if (!parsed.success || parsed.data.idempotencyKey.startsWith(SUITE_PROPOSAL_PREFIX) || 'suiteProposal' in parsed.data.payload) return c.json({ error: 'invalid_request' }, 400);
   const { graph } = await buildUserState(c.env, user.accessToken, user.id);
   const permission = graph.permissions.find((p) => p.domain === parsed.data.domain && p.actionType === parsed.data.actionType && p.enabled);
   try {
@@ -1653,13 +1679,14 @@ app.post('/v1/actions/prepare', async (c) => {
     const { action, replayed } = await prepareAction({ env: c.env, accessToken: user.accessToken, userId: user.id, ...parsed.data, permission, entitlement: graph.entitlement });
     return c.json({ action, replayed }, replayed ? 200 : 201);
   } catch (error) {
+    if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
     const mapped = actionErrorResponse(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
 });
 
-app.post('/v1/actions/:id/approve', async (c) => {
+app.post('/v1/actions/:id/approve', bodyLimit({ maxSize: 8192 }), async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
   const { graph } = await buildUserState(c.env, user.accessToken, user.id);
   const action = graph.actions.find((candidate) => candidate.id === c.req.param('id'));
@@ -1667,16 +1694,71 @@ app.post('/v1/actions/:id/approve', async (c) => {
   if (action.status !== 'prepared' && action.status !== 'approved') return c.json({ error: 'invalid_action_state' }, 409);
   // An Autopilot stop (payment asked / no emailed route) is the user's to finish; approval never executes it.
   if (action.payload && typeof action.payload === 'object' && 'stoppedReason' in action.payload) return c.json({ error: 'needs_user' }, 409);
+  const raw = await c.req.text();
+  const edit = z.object({ body: replyBody.optional() }).strict().safeParse(raw ? (() => {
+    try { return JSON.parse(raw); } catch { return null; }
+  })() : {});
+  if (!edit.success || (edit.data.body !== undefined && action.payload.suiteProposal !== 'reply')) return c.json({ error: 'invalid_request' }, 400);
+  const connectorInput = { env: c.env, accessToken: user.accessToken, userId: user.id };
   const permission = graph.permissions.find((p) => p.domain === action.domain && p.actionType === action.actionType && p.enabled);
   try {
     // The claim is atomic in the database: of two concurrent approvals only one executes.
-    const executed = await approveAndMaybeExecuteAction({ env: c.env, accessToken: user.accessToken, userId: user.id, action: action as ActionRecord, permission, entitlement: graph.entitlement });
+    const executed = action.idempotencyKey.startsWith(SUITE_PROPOSAL_PREFIX)
+      ? await approveSuiteProposal(action, graph, connectorInput, undefined, edit.data.body)
+      : await approveAndMaybeExecuteAction({ ...connectorInput, action: action as ActionRecord, permission, entitlement: graph.entitlement });
     return c.json({ action: executed });
   } catch (error) {
+    if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
     const mapped = actionErrorResponse(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
     throw error;
   }
+});
+
+app.post('/v1/actions/:id/undo', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const graph = await getLifeGraph(c.env, user.accessToken, user.id);
+  const action = graph.actions.find((item) => item.id === c.req.param('id')
+    && /^(?:autopilot:)?suite:(?:calendar_fix|clear_day):/.test(item.idempotencyKey));
+  if (!action) return c.json({ error: 'not_found' }, 404);
+  if (action.status !== 'verified') return c.json({ error: 'invalid_action_state' }, 409);
+  try {
+    // An Autopilot move is undone through its execution: the ledger target, checked against the live event.
+    if (action.idempotencyKey.startsWith('autopilot:')) {
+      const executionId = await serviceRpc<string | null>(c.env, 'apm_service_autopilot_execution_for_action', { p_user_id: user.id, p_action_id: action.id });
+      if (!executionId) return c.json({ error: 'not_found' }, 404);
+      await undoStandingExecution({ env: c.env, accessToken: user.accessToken, userId: user.id, executionId });
+      return c.json({ undone: true });
+    }
+    await executeSuiteCalendarMove(action.payload, graph, { env: c.env, accessToken: user.accessToken, userId: user.id }, new Date(), true);
+    await serviceRpc(c.env, 'apm_service_record_suite_undo', { p_user_id: user.id, p_action_id: action.id });
+    return c.json({ undone: true });
+  } catch (error) {
+    if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
+    const mapped = actionErrorResponse(error) ?? autopilotErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
+    throw error;
+  }
+});
+
+app.post('/v1/actions/:id/reject', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  const id = z.uuid().safeParse(c.req.param('id'));
+  if (!id.success) return c.json({ error: 'invalid_request' }, 400);
+  try {
+    await serviceRpc(c.env, 'apm_service_reject_suite_proposal', { p_user_id: user.id, p_action_id: id.data });
+    return c.json({ rejected: true });
+  } catch (error) {
+    if (error instanceof ConnectorStop) return c.json({ error: 'connection_needs_reauth' }, 409);
+    const mapped = actionErrorResponse(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
+    throw error;
+  }
+});
+
+app.get('/v1/calendar/flexible-events', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'unauthorized' }, 401);
+  return c.json({ eventIds: await movableEventIds({ env: c.env, userId: user.id }, false) });
 });
 
 async function autopilotContext(env: ApiEnv, accessToken: string, userId: string) {

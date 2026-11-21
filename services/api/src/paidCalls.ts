@@ -58,18 +58,19 @@ export function paidRouteAllowed(env: ApiEnv, userId: string): Promise<boolean> 
   return limiterAllows(env.PAID_CALL_LIMITER, `paid-call:${userId}`, PAID_CALL_LIMITS.perUserPerMinute);
 }
 
-function utcDayStart(now: Date): string {
+export function utcDayStart(now: Date): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
 }
 
 /** Exact row count of ai_usage_events since `since` (optionally one user's), with the service key. */
-async function usageCount(env: ApiEnv, since: string, userId?: string): Promise<number> {
+export async function usageCount(env: ApiEnv, since: string, userId?: string, taskTypes?: readonly string[]): Promise<number> {
   const { url } = requireSupabaseConfig(env);
   const secret = env.SUPABASE_SECRET_KEY;
   if (!secret) throw new Error('no service credential');
   const headers = new Headers({ apikey: secret, prefer: 'count=exact', range: '0-0', 'range-unit': 'items' });
   if (secret.split('.').length === 3) headers.set('authorization', `Bearer ${secret}`);
-  const filter = `created_at=gte.${encodeURIComponent(since)}${userId ? `&user_id=eq.${encodeURIComponent(userId)}` : ''}`;
+  const filter = `created_at=gte.${encodeURIComponent(since)}${userId ? `&user_id=eq.${encodeURIComponent(userId)}` : ''}`
+    + (taskTypes?.length ? `&task_type=in.(${taskTypes.map(encodeURIComponent).join(',')})` : '');
   const response = await fetch(`${url}/rest/v1/ai_usage_events?select=id&${filter}`, { method: 'HEAD', headers });
   if (!response.ok && response.status !== 206) throw new Error(`count failed ${response.status}`);
   const total = Number((response.headers.get('content-range') ?? '').split('/')[1]);

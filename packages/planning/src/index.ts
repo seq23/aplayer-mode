@@ -176,7 +176,16 @@ export function buildDailyPlan(
       .filter((commitment) => !['verified', 'closed', 'dismissed'].includes(commitment.status))
       .map((commitment) => commitment.id),
     approvalActionIds: graph.actions
-      .filter((action) => action.status === 'prepared' && action.requiresApproval)
+      .filter((action) => {
+        if (action.status !== 'prepared' || !action.requiresApproval) return false;
+        if (!action.idempotencyKey.startsWith('suite:')) return true;
+        if (!graph.entitlement || !['life_os', 'autopilot'].includes(graph.entitlement.plan)
+          || !['active', 'trialing'].includes(graph.entitlement.status)) return false;
+        if (action.payload.suiteProposal === 'reply' && action.payload.aiGenerated !== true) return false;
+        if (typeof action.payload.day === 'string' && action.payload.day !== date) return false;
+        const deadline = action.payload.suiteProposal === 'calendar_fix' ? action.payload.originalStartsAt : action.payload.expiresAt;
+        return typeof deadline === 'string' && Date.parse(deadline) > (options.now ?? new Date()).getTime();
+      })
       .map((action) => action.id),
     radarItemIds: graph.radarItems.filter((item) => item.status === 'open').map((item) => item.id),
     completionState,

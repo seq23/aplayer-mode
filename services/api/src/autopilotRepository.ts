@@ -208,9 +208,16 @@ export async function runStandingRule(input: {
   if (!decision.allowed) throw new Error(`autopilot_not_authorized:${decision.reason}`);
   if (!input.env.SUPABASE_SECRET_KEY) throw new Error('autopilot_not_authorized:service_credential_missing');
 
-  const claim = await autopilotRpc<{ replayed: boolean; stopped?: 'payment_required' | 'needs_user'; execution?: ExecutionRow; action: ActionRow }>(input.env, input.accessToken, 'apm_autopilot_claim', {
+  const claim = await autopilotRpc<ClaimRow>(input.env, input.accessToken, 'apm_autopilot_claim', {
     p_rule_id: input.rule.id, p_idempotency_key: input.idempotencyKey, p_payload: input.payload, p_reason: input.reason,
   });
+  return executeClaim(input, claim);
+}
+
+type ClaimRow = { replayed: boolean; stopped?: 'payment_required' | 'needs_user'; execution?: ExecutionRow; action: ActionRow };
+
+/** After a successful database claim: the one provider write, then its result, recorded with the server key. */
+async function executeClaim(input: { env: ApiEnv; accessToken: string; userId: string }, claim: ClaimRow): Promise<StandingRunResult> {
   const action = mapActionRow(claim.action, input.userId);
   if (claim.stopped) return { replayed: claim.replayed, stopped: claim.stopped, action };
   if (!claim.execution) throw new Error('autopilot_invalid_execution_state');
@@ -225,7 +232,7 @@ export async function runStandingRule(input: {
     await serviceRecord(input.env, 'apm_service_autopilot_record_result', {
       p_user_id: input.userId, p_execution_id: claim.execution.id, p_outcome: 'failed', p_external_ref: null, p_failure_code: failureCode,
     });
-    throw new Error('autopilot_execution_failed');
+    throw new Error('autopilot_execution_failed', { cause: error });
   }
   const verified = await serviceRecord<ExecutionRow>(input.env, 'apm_service_autopilot_record_result', {
     p_user_id: input.userId, p_execution_id: claim.execution.id, p_outcome: 'verified', p_external_ref: externalRef.slice(0, 500), p_failure_code: null,
@@ -233,10 +240,45 @@ export async function runStandingRule(input: {
   return { replayed: false, execution: mapExecution(verified), action: { ...action, status: 'verified' } };
 }
 
+/** Database refusals that mean "no standing authority for this one": the caller prepares an approval card instead. */
+const NOT_STANDING = new Set([
+  'autopilot_required', 'autopilot_permission_required', 'autopilot_paused', 'autopilot_rule_inactive', 'autopilot_rule_expired',
+  'autopilot_class_not_activated', 'autopilot_outside_rule', 'autopilot_collision', 'autopilot_rate_limited', 'autopilot_event_protected',
+  'autopilot_connector_scope_missing', 'autopilot_connection_paused', 'autopilot_wrong_account',
+]);
+
+/**
+ * A server-side standing run (the quarter-hour Suite run has no user session). The Worker's
+ * kill switches are checked first; the database then finds her live rule for this class and
+ * account and runs the same governed claim as POST /v1/autopilot/rules/:id/run (migration
+ * 0103). Returns undefined when Autopilot may not act on this one, so the caller asks her.
+ */
+export async function runServiceStandingRun(input: {
+  env: ApiEnv; userId: string; actionClass: AutopilotActionClass; connectionId: string;
+  idempotencyKey: string; reason: string; payload: Record<string, unknown>;
+}): Promise<StandingRunResult | undefined> {
+  const policy = standingActionClasses[input.actionClass];
+  if (!input.env.SUPABASE_SECRET_KEY || !actionsGloballyEnabled(input.env) || !actionDomainEnabled(input.env, policy.connector)
+    || !autopilotExecutionEnabled(input.env) || !autopilotClassEnabled(input.env, input.actionClass)) return undefined;
+  let claim: ClaimRow | null;
+  try {
+    claim = await serviceRecord<ClaimRow | null>(input.env, 'apm_service_autopilot_claim', {
+      p_user_id: input.userId, p_action_class: input.actionClass, p_connection_id: input.connectionId,
+      p_idempotency_key: input.idempotencyKey, p_payload: input.payload, p_reason: input.reason,
+    });
+  } catch (error) {
+    if (error instanceof Error && NOT_STANDING.has(error.message)) return undefined;
+    throw error;
+  }
+  if (!claim) return undefined;
+  return executeClaim({ env: input.env, accessToken: SERVICE_ROLE_TOKEN, userId: input.userId }, claim);
+}
+
 interface UndoTarget {
   executionId: string; actionClass: AutopilotActionClass; domain: string; connectorKind: 'calendar' | 'email';
   undoMethod: AutopilotActionClassState['undoMethod']; externalRef: string | null; connectionId: string | null;
   originalStartsAt: string | null; originalEndsAt: string | null;
+  movedStartsAt?: string | null; movedEndsAt?: string | null;
 }
 
 /**
@@ -252,6 +294,7 @@ export async function undoStandingExecution(input: { env: ApiEnv; accessToken: s
   await revertStandingConnectorAction({
     undoMethod: target.undoMethod, connectionId: target.connectionId ?? '', externalRef: target.externalRef ?? '',
     originalStartsAt: target.originalStartsAt ?? undefined, originalEndsAt: target.originalEndsAt ?? undefined,
+    movedStartsAt: target.movedStartsAt ?? undefined, movedEndsAt: target.movedEndsAt ?? undefined,
   }, input);
   return mapExecution(await serviceRecord<ExecutionRow>(input.env, 'apm_service_autopilot_record_undo', { p_user_id: input.userId, p_execution_id: input.executionId }));
 }
@@ -310,6 +353,7 @@ const AUTOPILOT_ERRORS: Record<string, { error: string; status: 400 | 403 | 404 
   autopilot_payment_data_refused: { error: 'payment_data_refused', status: 403 },
   autopilot_cannot_undo: { error: 'cannot_undo', status: 409 },
   autopilot_execution_failed: { error: 'execution_failed', status: 502 },
+  autopilot_undo_event_changed: { error: 'proposal_stale', status: 409 },
 };
 
 export function autopilotErrorResponse(error: unknown): { error: string; status: 400 | 403 | 404 | 409 | 502; reason?: string } | undefined {

@@ -161,6 +161,7 @@ export default function LifeOsScreen() {
   const [dueDate, setDueDate] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [frequency, setFrequency] = useState<'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'>('none');
+  const [flexible, setFlexible] = useState<'fixed' | 'flexible'>('fixed');
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('');
   const [busy, setBusy] = useState(false);
@@ -168,6 +169,7 @@ export default function LifeOsScreen() {
 
   const peopleById = useMemo(() => new Map(graph.people.map((person) => [person.id, person])), [graph.people]);
   const activeItems = graph.lifeAdminItems.filter((item) => !['completed','cancelled'].includes(item.status));
+  const canMarkFlexible = (kind === 'meal_plan' || kind === 'shopping') && !dueDate.trim();
   const editingItem = editingItemId ? graph.lifeAdminItems.find((item) => item.id === editingItemId) : undefined;
 
   const resetRelationshipForm = () => {
@@ -186,6 +188,7 @@ export default function LifeOsScreen() {
     setDueDate('');
     setScheduledDate('');
     setFrequency('none');
+    setFlexible('fixed');
     setAmount('');
     setCurrency('');
   };
@@ -208,6 +211,7 @@ export default function LifeOsScreen() {
     setDueDate(formatDate(item.dueAt, timezone));
     setScheduledDate(formatDate(item.startsAt, timezone));
     setFrequency(item.recurrence.frequency ?? 'none');
+    setFlexible(item.details.flexibleSchedule === true ? 'flexible' : 'fixed');
     setAmount(item.amountMinor !== undefined ? (item.amountMinor / 100).toFixed(2) : '');
     setCurrency(item.currency ?? '');
     setError(undefined);
@@ -264,9 +268,11 @@ export default function LifeOsScreen() {
 
       if (editingItemId && editingItem) {
         const schedule: { dueAt?: string; startsAt?: string; endsAt?: string } = {};
-        if (editingItem.startsAt) {
+        if (editingItem.startsAt || scheduledDate.trim()) {
           if (scheduledDate.trim()) {
-            const shifted = shiftTimedRangeToDate(editingItem.startsAt, editingItem.endsAt, scheduledDate.trim(), timezone);
+            const shifted = editingItem.startsAt
+              ? shiftTimedRangeToDate(editingItem.startsAt, editingItem.endsAt, scheduledDate.trim(), timezone)
+              : { startsAt: dateToIso(scheduledDate, timezone), endsAt: undefined };
             schedule.startsAt = shifted.startsAt;
             if (editingItem.endsAt) schedule.endsAt = shifted.endsAt ?? '';
           } else {
@@ -284,6 +290,7 @@ export default function LifeOsScreen() {
           recurrence,
           amountMinor: amountMinor ?? null,
           currency: amountMinor !== undefined ? normalizedCurrency : '',
+          details: { ...editingItem.details, flexibleSchedule: canMarkFlexible && flexible === 'flexible' && Boolean(scheduledDate.trim()) },
           ...schedule,
         });
       } else {
@@ -291,6 +298,8 @@ export default function LifeOsScreen() {
           kind,
           title: title.trim(),
           dueAt: dateToIso(dueDate, timezone),
+          startsAt: dateToIso(scheduledDate, timezone),
+          details: { flexibleSchedule: canMarkFlexible && flexible === 'flexible' && Boolean(scheduledDate.trim()) },
           recurrence,
           amountMinor,
           currency: amountMinor !== undefined ? normalizedCurrency : undefined,
@@ -395,10 +404,14 @@ export default function LifeOsScreen() {
         {editingItemId ? <Body muted>Corrections update the canonical record that drives Today and Radar.</Body> : null}
         <ChoiceRow options={kinds} value={kind} onChange={(next) => { setKind(next); if (!recurringKinds.has(next)) setFrequency('none'); }} />
         <TextField value={title} onChangeText={setTitle} placeholder="What needs to be handled?" />
-        {editingItem?.startsAt ? (
+        {editingItem?.startsAt || kind === 'shopping' || kind === 'meal_plan' ? (
           <TextField value={scheduledDate} onChangeText={setScheduledDate} placeholder="Scheduled date · YYYY-MM-DD" />
         ) : null}
         <TextField value={dueDate} onChangeText={setDueDate} placeholder="Due date · YYYY-MM-DD · optional" />
+        {canMarkFlexible && scheduledDate.trim() ? <>
+          <Muted>Can this task move to another day on your approval?</Muted>
+          <ChoiceRow options={[{ id: 'fixed', label: 'Keep it here' }, { id: 'flexible', label: 'Can move' }]} value={flexible} onChange={setFlexible} />
+        </> : null}
         {kind === 'bill' || kind === 'subscription' ? (
           <View style={uiStyles.stackSm}>
             <TextField value={amount} onChangeText={setAmount} placeholder="Amount · optional" keyboardType="decimal-pad" />

@@ -46,6 +46,7 @@ export default function RadarScreen() {
             </Pill>
             <CardTitle>{item.headline}</CardTitle>
             <Body muted>{item.summary}</Body>
+            {item.reasonCodes.some((code) => code.startsWith('subscription.')) ? <Pill>AI finding</Pill> : null}
             {accessToken ? <ReportThis what="item" send={(reason) => reportContent({ kind: 'radar_item', ref: item.id, reason }, accessToken)} /> : null}
             <Button
               label="Why APM saw this"

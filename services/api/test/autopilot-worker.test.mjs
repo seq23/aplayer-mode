@@ -46,7 +46,7 @@ function mockFetch(handler) {
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const headers = new Headers(init.headers);
-    const call = { url: String(url).replace(baseEnv.SUPABASE_URL, ''), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : undefined, apikey: headers.get('apikey'), authorization: headers.get('authorization') };
+    const call = { url: String(url).replace(baseEnv.SUPABASE_URL, ''), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : undefined, apikey: headers.get('apikey'), authorization: headers.get('authorization'), ifMatch: headers.get('if-match') };
     calls.push(call);
     const { status = 200, json } = handler(call);
     return new Response(status === 204 ? null : JSON.stringify(json), { status, headers: { 'content-type': 'application/json' } });
@@ -312,7 +312,8 @@ test('email actions with control characters in To/Subject are refused before any
 
 async function sealedConnection(kind) {
   const sealed = await cryptoMod.encryptConnectorCredential(liveEnv, { accessToken: 'provider-token', refreshToken: 'r', expiresAt: Date.now() + 3_600_000 });
-  return [{ id: CONN, provider: 'google', kind, encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv }];
+  // Mail is Outlook only; calendars stay Google here.
+  return [{ id: CONN, provider: kind === 'email' ? 'microsoft' : 'google', kind, encrypted_credentials: sealed.ciphertext, credential_iv: sealed.iv }];
 }
 
 const classState = (actionClass, domain, connectorKind) => ({
@@ -345,30 +346,29 @@ async function runClass({ actionClass, domain, connectorKind, proposal, composed
   return { result, calls: mock.calls };
 }
 
-const decodeRaw = (raw) => Buffer.from(raw.replaceAll('-', '+').replaceAll('_', '/'), 'base64').toString('utf8');
-
-test('email.send sends exactly the database-composed message, never the raw proposal', async () => {
+test('email.send sends exactly the database-composed message from Outlook, never the raw proposal', async () => {
   const proposal = { connectionId: CONN, kind: 'template', to: 'coach@club.example.com', templateId: 'birthday' };
   const composed = { to: 'coach@club.example.com', subject: 'Happy birthday!', body: 'Wishing you a wonderful year.', kind: 'template' };
   const { result, calls } = await runClass({
     actionClass: 'email.send', domain: 'email', connectorKind: 'email', proposal, composed,
-    provider: () => ({ json: { id: 'gmail-sent-1' } }),
+    provider: () => ({ status: 202, json: {} }),
   });
-  const send = calls.find((c) => c.url.startsWith('https://gmail.googleapis.com/'));
-  assert.equal(send.url, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send');
-  const mime = decodeRaw(send.body.raw);
-  assert.match(mime, /^To: coach@club\.example\.com\r\nSubject: Happy birthday!\r\n/);
-  assert.match(mime, /Wishing you a wonderful year\.$/);
+  const send = calls.find((c) => c.url.startsWith('https://'));
+  assert.equal(send.url, 'https://graph.microsoft.com/v1.0/me/sendMail');
+  assert.deepEqual(send.body.message.toRecipients, [{ emailAddress: { address: 'coach@club.example.com' } }]);
+  assert.equal(send.body.message.subject, 'Happy birthday!');
+  assert.equal(send.body.message.body.content, 'Wishing you a wonderful year.');
+  assert.equal(calls.some((c) => c.url.includes('gmail.googleapis.com')), false);
   assert.equal(result.execution.status, 'verified');
 });
 
 test('appointment.book and subscription.cancel send fixed text from the user mailbox; a stop never reaches a provider', async () => {
   for (const [actionClass, domain] of [['appointment.book', 'appointment'], ['subscription.cancel', 'subscription']]) {
     const composed = { to: 'desk@clinic.example.com', subject: `Request: ${actionClass}`, body: 'Fixed text.' };
-    const { calls } = await runClass({ actionClass, domain, connectorKind: 'email', proposal: { connectionId: CONN }, composed, provider: () => ({ json: { id: 'm-1' } }) });
+    const { calls } = await runClass({ actionClass, domain, connectorKind: 'email', proposal: { connectionId: CONN }, composed, provider: () => ({ status: 202, json: {} }) });
     const send = calls.find((c) => c.url.startsWith('https://'));
-    assert.equal(send.url, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', actionClass);
-    assert.match(decodeRaw(send.body.raw), /^To: desk@clinic\.example\.com\r\n/);
+    assert.equal(send.url, 'https://graph.microsoft.com/v1.0/me/sendMail', actionClass);
+    assert.deepEqual(send.body.message.toRecipients, [{ emailAddress: { address: 'desk@clinic.example.com' } }]);
   }
 
   const mock = mockFetch((call) => (call.url === '/rest/v1/rpc/apm_autopilot_claim'
@@ -398,17 +398,29 @@ test('calendar.reschedule moves only the database-resolved event, notifying atte
   assert.deepEqual(patch.body, { start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } });
 
   const connection = await sealedConnection('calendar');
-  const target = { executionId: 'exec-1', domain: 'calendar', connectorKind: 'calendar', undoMethod: 'restore_time', externalRef: 'ev-plain', connectionId: CONN, originalStartsAt: composed.originalStartsAt, originalEndsAt: composed.originalEndsAt };
-  const undo = mockFetch((call) => {
+  const target = { executionId: 'exec-1', domain: 'calendar', connectorKind: 'calendar', undoMethod: 'restore_time', externalRef: 'ev-plain', connectionId: CONN,
+    originalStartsAt: composed.originalStartsAt, originalEndsAt: composed.originalEndsAt, movedStartsAt: proposal.startsAt, movedEndsAt: proposal.endsAt };
+  const undoWith = (live) => mockFetch((call) => {
     if (call.url === '/rest/v1/rpc/apm_autopilot_undo_target') return { json: target };
     if (call.url.startsWith('/rest/v1/integration_connections')) return { json: connection };
+    if (call.url.startsWith('https://') && call.method === 'GET') return { json: live };
     if (call.url.startsWith('https://')) return { json: {} };
     if (call.url === '/rest/v1/rpc/apm_service_autopilot_record_undo') return { json: executionRow({ status: 'reverted' }) };
     return { status: 500, json: {} };
   });
+  // She moved it herself since: Undo refuses and writes nothing.
+  const changed = undoWith({ etag: '"e2"', start: { dateTime: '2099-01-06T09:00:00Z' }, end: { dateTime: '2099-01-06T10:00:00Z' } });
+  try {
+    await assert.rejects(repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1' }), /autopilot_undo_event_changed/);
+  } finally { changed.restore(); }
+  assert.equal(changed.calls.filter((c) => c.url.startsWith('https://') && c.method !== 'GET').length, 0);
+  assert.equal(changed.calls.some((c) => c.url.includes('record_undo')), false);
+  // Still where Autopilot put it: restored under that read's ETag.
+  const undo = undoWith({ etag: '"e1"', start: { dateTime: proposal.startsAt }, end: { dateTime: proposal.endsAt } });
   try { await repo.undoStandingExecution({ env: liveEnv, accessToken: 'jwt', userId: USER, executionId: 'exec-1' }); } finally { undo.restore(); }
-  const back = undo.calls.find((c) => c.url.startsWith('https://'));
+  const back = undo.calls.find((c) => c.url.startsWith('https://') && c.method === 'PATCH');
   assert.deepEqual(back.body, { start: { dateTime: composed.originalStartsAt }, end: { dateTime: composed.originalEndsAt } });
+  assert.equal(back.ifMatch, '"e1"');
 });
 
 test('calendar.decline answers as the invited user with the rule note; undo re-accepts', async () => {
@@ -451,11 +463,12 @@ test('write scopes are a separate consent: read is the default, act adds only th
     await build({ entryPoints: { oauth: join(srcDir, 'connectors/oauth.ts') }, bundle: true, format: 'esm', platform: 'neutral', outdir: outOauth, logLevel: 'silent' });
     const { oauthScopes } = await import(pathToFileURL(join(outOauth, 'oauth.js')).href);
     const writes = /calendar\.events|gmail\.(send|compose)|ReadWrite|Mail\.Send/;
-    for (const provider of ['google', 'microsoft']) for (const kind of ['calendar', 'email']) {
+    for (const [provider, kind] of [['google', 'calendar'], ['microsoft', 'calendar'], ['microsoft', 'email']]) {
       assert.equal(oauthScopes(provider, kind).some((scope) => writes.test(scope)), false, `${provider}:${kind} read consent never carries a write scope`);
       assert.equal(oauthScopes(provider, kind, 'act').some((scope) => writes.test(scope)), true, `${provider}:${kind} act consent adds the write scope`);
     }
-    assert.deepEqual(oauthScopes('google', 'email', 'act').filter((scope) => writes.test(scope)), ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send']);
+    assert.throws(() => oauthScopes('google', 'email'), /outlook_mail_required/);
+    assert.throws(() => oauthScopes('google', 'email', 'act'), /outlook_mail_required/);
   } finally { await rm(outOauth, { recursive: true, force: true }); }
   const index = await readFile(join(srcDir, 'index.ts'), 'utf8');
   assert.match(index, /access: z\.enum\(\['read','act'\]\)\.default\('read'\)/);

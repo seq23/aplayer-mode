@@ -5,10 +5,11 @@ export interface ApiEnv {
   SUPABASE_SECRET_KEY?: string;
   AUTH_DEV_BYPASS_USER_ID?: string;
   OPENROUTER_API_KEY?: string;
+  /** App-wide daily call ceiling for the two Suite mail jobs (aiGateway.ts SUITE_MAIL_ROUTE). Unset = named stop. */
+  SUITE_MAIL_DAILY_CEILING?: string;
   ALLOWED_ORIGIN?: string;
   APP_PUBLIC_URL?: string;
   CONNECTOR_CREDENTIAL_KEY?: string;
-  OAUTH_STATE_SECRET?: string;
   GOOGLE_OAUTH_CLIENT_ID?: string;
   GOOGLE_OAUTH_CLIENT_SECRET?: string;
   GOOGLE_OAUTH_REDIRECT_URI?: string;
@@ -20,6 +21,7 @@ export interface ApiEnv {
   GLOBAL_ACTION_EXECUTION?: string;
   ACTION_CALENDAR_EXECUTION?: string;
   ACTION_EMAIL_EXECUTION?: string;
+  ACTION_LIFE_GRAPH_EXECUTION?: string;
   /** Phase C kill switch for standing (level-5) execution. Off unless exactly 'true'. */
   AUTOPILOT_EXECUTION?: string;
   /**
@@ -79,6 +81,7 @@ export function actionsGloballyEnabled(env: ApiEnv): boolean {
 
 export function actionDomainEnabled(env: ApiEnv, domain: string): boolean {
   if (domain === 'calendar') return env.ACTION_CALENDAR_EXECUTION === 'true';
+  if (domain === 'life_graph') return env.ACTION_LIFE_GRAPH_EXECUTION === 'true';
   if (domain === 'email') return env.ACTION_EMAIL_EXECUTION === 'true';
   return false;
 }

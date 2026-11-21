@@ -11,7 +11,41 @@ import type { DataClass, RetentionClass } from '@apm/privacy';
 import type { ApiEnv } from './env';
 import { requireOpenRouterKey } from './env';
 import { supabaseRest } from './db';
-import { claimPaidCall } from './paidCalls';
+import { claimPaidCall, usageCount, utcDayStart } from './paidCalls';
+
+/**
+ * Owner-approved route for the two Suite mail jobs (her call, 21 Nov 2026): Outlook reply
+ * drafts and subscription findings read private mail, so they may use ONLY this already
+ * approved zero-retention, no-training route (about $0.05 per 1K calls), never a free one.
+ * Two ceilings stop with a named stop before any call: a per-user daily cap for these jobs
+ * and an app-wide daily ceiling from SUITE_MAIL_DAILY_CEILING. Nothing falls back to another
+ * route.
+ */
+export const SUITE_MAIL_ROUTE = {
+  routeId: 'or_mistral_small_3_2_24b_deepinfra',
+  tasks: ['suite_reply_draft', 'suite_subscription_finding'],
+  perUserPerDay: 20,
+} as const;
+
+export class SuiteMailStop extends Error {}
+
+async function claimSuiteMailCall(env: ApiEnv, userId: string, taskType: string, now = new Date()) {
+  if (!(SUITE_MAIL_ROUTE.tasks as readonly string[]).includes(taskType)) throw new SuiteMailStop('SUITE_MAIL_TASK_NOT_APPROVED');
+  const ceiling = Number(env.SUITE_MAIL_DAILY_CEILING);
+  if (!Number.isInteger(ceiling) || ceiling <= 0) throw new SuiteMailStop('SUITE_MAIL_CEILING_UNSET');
+  const since = utcDayStart(now);
+  let mine: number; let all: number;
+  try {
+    [mine, all] = await Promise.all([
+      usageCount(env, since, userId, SUITE_MAIL_ROUTE.tasks),
+      usageCount(env, since, undefined, SUITE_MAIL_ROUTE.tasks),
+    ]);
+  } catch {
+    throw new SuiteMailStop('SUITE_MAIL_LIMIT_UNREADABLE');
+  }
+  if (all >= ceiling) throw new SuiteMailStop('SUITE_MAIL_DAILY_CEILING_REACHED');
+  if (mine >= SUITE_MAIL_ROUTE.perUserPerDay) throw new SuiteMailStop('SUITE_MAIL_USER_DAILY_CAP');
+}
 
 function mapRetention(value: string): RetentionClass {
   if (value === 'zero') return 'zero';
@@ -77,10 +111,18 @@ export async function runUserInference<T>(input: {
   accessToken: string;
   userId: string;
   task: InferenceTask;
+  /** The Suite mail jobs: only SUITE_MAIL_ROUTE, under its own two ceilings. */
+  suiteMail?: boolean;
 }): Promise<T> {
+  if (input.suiteMail) await claimSuiteMailCall(input.env, input.userId, input.task.taskType);
   // Per-user and global daily ceilings before anything billed is called (src/paidCalls.ts).
   await claimPaidCall(input.env, input.userId);
-  const routes = await modelRoutesForRuntime(input.env, input.accessToken);
+  const all = await modelRoutesForRuntime(input.env, input.accessToken);
+  const routes = input.suiteMail
+    ? all.filter((route) => route.routeId === SUITE_MAIL_ROUTE.routeId && route.status === 'approved'
+      && route.retention === 'zero' && !route.trainingAllowed)
+    : all;
+  if (input.suiteMail && !routes.length) throw new SuiteMailStop('SUITE_MAIL_ROUTE_NOT_APPROVED');
   const started = Date.now();
   let result: Awaited<ReturnType<typeof runOpenRouterInference<T>>>;
   try {
