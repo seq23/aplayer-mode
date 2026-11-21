@@ -167,7 +167,7 @@ const subscriptionAddress = z.email().max(254);
 async function* subscriptions(context: ProducerContext): ReturnType<Producer['propose']> {
   const accounts = context.graph.connections.filter((item) => item.kind === 'email' && item.provider === 'microsoft'
     && item.status === 'connected' && !item.pausedAt && item.scopes.some((scope) => ['mail.read', 'mail.readwrite'].includes(scope.toLowerCase())));
-  if (!accounts.length) return;
+  if (!accounts.length) return 'SUBSCRIPTION_OUTLOOK_MAIL_REQUIRED';
   const canPrepare = authorizeAction({ ...context, domain: 'email', requestedLevel: 3,
     permission: suitePermission(context.graph, 'subscription_cancel'), entitlement: context.graph.entitlement }).allowed
     && actionsGloballyEnabled(context.env) && actionDomainEnabled(context.env, 'email');

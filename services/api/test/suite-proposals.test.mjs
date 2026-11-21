@@ -219,11 +219,11 @@ test('Roundtable, lapsed plans, disabled permissions, and missing write-scoped c
   assert.ok(calls.every((call) => call.method === 'GET'), 'read-only subscription discovery cannot prepare or send an action');
   calls.length = 0;
   assert.deepEqual(await prepareSuiteProposals(env, graph({ connections: [] }), now), {
-    prepared: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
+    prepared: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'SUBSCRIPTION_OUTLOOK_MAIL_REQUIRED', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
   });
   const googleMail = connection(emailId, 'email', 'google', 'https://www.googleapis.com/auth/gmail.send');
   assert.deepEqual(await prepareSuiteProposals(env, graph({ connections: [googleMail] }), now), {
-    prepared: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
+    prepared: 0, stops: ['EMAIL_CONNECTOR_MISSING_OR_READ_ONLY', 'SUBSCRIPTION_OUTLOOK_MAIL_REQUIRED', 'CALENDAR_CONNECTOR_MISSING_OR_READ_ONLY'],
   });
   assert.equal(calls.length, 0);
   await assert.rejects(async () => approveSuiteProposal(await find('reply'), graph({ entitlement: { ...entitlement, plan: 'chief_of_staff' } }), input, now), /not_authorized/);
@@ -468,7 +468,7 @@ test('production execution switches prevent unavailable action offers and a leve
   const production = JSON.parse(source.replace(/^\s*\/\/.*$/gm, '')).env.production.vars;
   const off = { ...env, GLOBAL_ACTION_EXECUTION: 'false' };
   for (const settings of [production, off, { ...env, ACTION_EMAIL_EXECUTION: 'false', ACTION_CALENDAR_EXECUTION: 'false' }]) {
-    const result = await prepareSuiteProposals(settings, graph({ connections: [] }), now);
+    const result = await prepareSuiteProposals(settings, graph(), now);
     assert.equal(result.prepared, 0);
     assert.ok(result.stops.includes('ACTION_EXECUTION_DISABLED:email'));
     assert.ok(result.stops.includes('ACTION_EXECUTION_DISABLED:calendar'));
@@ -530,6 +530,12 @@ test('Outlook notices create Radar findings and approval sends only the supporte
   assert.equal(writes().length, 1);
   assert.deepEqual(writes()[0].body.message.toRecipients, [{ emailAddress: { address: 'support@example.com' } }]);
   assert.match(writes()[0].body.message.body.content, /cancel my subscription/);
+  mailbox.push(notice('second-renewal', 'Library membership', 'Your monthly membership has increased. Email this address to cancel.'));
+  modelFindings.findings.push({ source: 2, title: 'Library membership', finding: 'price_rise', emailCancellation: true });
+  assert.equal((await prepareSuiteProposals(env, { ...current, actions: [action] }, now)).prepared, 1);
+  const [rejected] = (await h.admin("select * from public.actions where payload->>'messageId'='second-renewal'")).rows;
+  await rpc('apm_service_reject_suite_proposal', [userId, rejected.id]);
+  await assert.rejects(approveSuiteProposal(mapAction(rejected), current, input, now));
   await assert.rejects(approveSuiteProposal(action, current, input, now));
   assert.equal(writes().length, 1);
 });
