@@ -65,6 +65,7 @@ export const goalCalendar: Producer['propose'] = async function* ({ graph, now, 
     payload: { ...slot, expiresAt: slot.startsAt, title: step.title, detail: step.output, planId: step.planId,
       goalId: step.goalId, actionKey: step.actionKey, day: step.day, timezone: graph.identity.timezone || 'UTC',
       connectionId: account.id, provider: account.provider, account: account.label ?? account.accountLabel ?? account.provider },
+    standing: { connectionId: account.id, title: step.title, startsAt: slot.startsAt, endsAt: slot.endsAt },
   };
 };
 

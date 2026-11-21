@@ -850,3 +850,46 @@ test('Today finds the execution behind an Autopilot move so Undo can reach it, f
   const target = (await h.as(apUser, 'select public.apm_autopilot_undo_target($1) as r', [executionId])).rows[0].r;
   assert.ok(target.movedStartsAt && target.movedEndsAt && target.originalStartsAt, 'Undo knows where Autopilot left it');
 });
+
+test('Autopilot moves a flexible block off a clash on its own, protecting the other event', async () => {
+  await resetAutopilot();
+  const partner = apEvent(553, 'Dentist', laterDay.startsAt, at(11, 0, 2), { organizer: { self: false } });
+  currentEvents = [...apEvents, partner];
+  const result = await prepareSuiteProposals(apEnv, apGraph({ personalOS: { activeMode: 'standard' }, calendarEvents: [...apEvents, partner] }), clearNow);
+  assert.equal(result.autopilot, 1, JSON.stringify(result));
+  assert.equal(result.prepared, 0);
+  const [patch] = apPatches();
+  assert.equal(apPatches().length, 1);
+  assert.ok(patch.url.includes(laterDay.id) && !patch.url.includes(partner.id));
+  assert.ok(Date.parse(patch.body.start.dateTime) >= Date.parse(partner.endsAt), 'after the clash, not onto it');
+});
+
+test('Autopilot books the goal step on her calendar inside her rule; without the rule it asks', async () => {
+  const state = await makeGoal(-8, 560, 'Learn the cello part');
+  await h.admin("update public.subscription_entitlements set plan = 'autopilot' where user_id = $1", [userId]);
+  await h.admin(`insert into public.permissions (user_id,domain,action_type,autonomy_level,enabled) values ($1,'calendar','calendar.create',5,true)
+    on conflict (user_id, domain, action_type) do update set autonomy_level = 5, enabled = true`, [userId]);
+  await h.admin(`update public.autopilot_action_classes set activation_status = 'active', evidence_ref = 'test-receipt', activated_at = now() where class_key = 'calendar.create'`);
+  const autopilotState = { ...state, entitlement: { ...entitlement, plan: 'autopilot' } };
+  const bookEnv = { ...env, AUTOPILOT_EXECUTION: 'true', AUTOPILOT_ENABLED_CLASSES: 'calendar.create' };
+  try {
+    const asked = await prepareSuiteProposals(bookEnv, autopilotState, phaseTime, undefined, true);
+    assert.equal(asked.autopilot, 0, 'no rule yet: she is asked');
+    assert.equal(asked.prepared, 1);
+    await h.admin("delete from public.actions where user_id=$1 and payload->>'suiteProposal'='goal_calendar'", [userId]);
+    await h.as(userId, 'select public.apm_autopilot_grant_rule($1, $2::jsonb, $3::timestamptz, $4::uuid)', ['calendar.create', JSON.stringify({
+      timezone: 'UTC', weekdays: [1, 2, 3, 4, 5, 6, 7], windowStart: '06:00', windowEnd: '20:00', maxDurationMinutes: 240, maxPerDay: 3, horizonDays: 14,
+      collision: 'never_overlap_busy' }), new Date(Date.now() + 30 * 86_400_000).toISOString(), calendarId]);
+    calls = [];
+    const booked = await prepareSuiteProposals(bookEnv, autopilotState, phaseTime, undefined, true);
+    assert.equal(booked.autopilot, 1, JSON.stringify(booked));
+    assert.equal(booked.prepared, 0);
+    const created = writes().filter((call) => call.method === 'POST' && call.url.includes('/calendars/primary/events'));
+    assert.equal(created.length, 1);
+    assert.equal(created[0].body.summary, (await h.admin("select payload->'composed'->>'title' as t from public.actions where user_id=$1 and idempotency_key like 'autopilot:suite:goal_calendar:%'", [userId])).rows[0].t);
+  } finally {
+    await h.admin("update public.subscription_entitlements set plan = 'life_os' where user_id = $1", [userId]);
+    await h.admin("update public.autopilot_rules set status = 'revoked', revoked_at = now() where user_id = $1", [userId]);
+    await h.admin("delete from public.permissions where user_id = $1 and action_type = 'calendar.create'", [userId]);
+  }
+});

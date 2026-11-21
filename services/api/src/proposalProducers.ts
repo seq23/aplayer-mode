@@ -151,7 +151,8 @@ async function* calendarFixes(context: ProducerContext): ReturnType<Producer['pr
         && Date.parse(item.endsAt) > Date.parse(move.originalStartsAt))
         .map((item) => ({ connectionId: item.connectionId, externalEventId: item.externalEventId, sourceVersion: item.sourceVersion }));
       const other = pair.find((item) => item.id !== event.id);
-      yield { key, reason: overload ? 'Make room on a crowded day' : 'Resolve a calendar clash', payload: { ...move, originalConflicts, clash: overload ? conflict.headline : other ? `Overlaps ${other.title}` : conflict.headline, provider: account.provider, account: account.label ?? account.accountLabel ?? account.provider } };
+      yield { key, reason: overload ? 'Make room on a crowded day' : 'Resolve a calendar clash', payload: { ...move, originalConflicts, clash: overload ? conflict.headline : other ? `Overlaps ${other.title}` : conflict.headline, provider: account.provider, account: account.label ?? account.accountLabel ?? account.provider },
+        standing: { eventId: move.eventId, startsAt: move.startsAt, endsAt: move.endsAt } };
       return;
     }
   }
@@ -314,10 +315,10 @@ export const proposalProducers: readonly Producer[] = [
   { kind: 'hard_day', domain: 'life_graph', actionType: 'life_admin.defer', permissionType: 'plan_logistics', propose: deferAdmin('hard_day') },
   { kind: 'missed_day', domain: 'life_graph', actionType: 'life_admin.defer', permissionType: 'plan_logistics', propose: deferAdmin('missed_day') },
   { kind: 'goal_checklist', domain: 'life_graph', actionType: 'goal.checklist', permissionType: 'plan_logistics', propose: goalChecklist },
-  { kind: 'goal_calendar', domain: 'calendar', actionType: 'calendar.create', permissionType: 'event_write', propose: goalCalendar },
+  { kind: 'goal_calendar', domain: 'calendar', actionType: 'calendar.create', permissionType: 'event_write', standingClass: 'calendar.create', propose: goalCalendar },
   { kind: 'reply', domain: 'email', actionType: 'email.send', permissionType: 'send', propose: replies },
   { kind: 'subscription_cancel', domain: 'email', actionType: 'subscription.cancel', permissionType: 'send', propose: subscriptions },
-  { kind: 'calendar_fix', domain: 'calendar', actionType: 'calendar.reschedule', permissionType: 'event_write', propose: calendarFixes },
+  { kind: 'calendar_fix', domain: 'calendar', actionType: 'calendar.reschedule', permissionType: 'event_write', standingClass: 'calendar.reschedule', propose: calendarFixes },
   { kind: 'clear_day', domain: 'calendar', actionType: 'calendar.reschedule', permissionType: 'event_write', standingClass: 'calendar.reschedule', propose: clearDay },
 ];
 
