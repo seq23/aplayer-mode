@@ -6,12 +6,15 @@
 set -euo pipefail
 apk="$1"; out="$2"; flows="$(dirname "$0")/../apps/mobile/store/android-capture"
 mkdir -p "$out"
-trap 'rm -f "$out"/*.json' EXIT   # screen text is read here, never uploaded
+signed_in=0
+# Screen text is read here, never uploaded; on a failure after sign-in, the screen it stopped on is kept.
+trap 'rc=$?; [ "$rc" != 0 ] && [ "$signed_in" = 1 ] && adb exec-out screencap -p > "$out/failed-here.png"; rm -f "$out"/*.json' EXIT
 [ -n "${EMAIL:-}" ] && [ -n "${CODE:-}" ] || { echo "NAMED STOP [APM_REVIEW_SECRETS_MISSING] set APM_REVIEW_EMAIL and APM_REVIEW_CODE"; exit 1; }
 adb wait-for-device
 adb shell wm size 1170x2532 && adb shell wm density 480   # 1170 px / 3 = 390 dp
 adb install -r "$apk"
 maestro test -e EMAIL="$EMAIL" -e CODE="$CODE" "$flows/sign-in.yaml"
+signed_in=1
 adb shell screenrecord --time-limit 170 /sdcard/paywall.mp4 & rec=$!
 for mode in no yes; do
   adb shell cmd uimode night "$mode"
