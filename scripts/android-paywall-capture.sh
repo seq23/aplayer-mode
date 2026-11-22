@@ -16,7 +16,7 @@ adb shell wm size 1170x2532 && adb shell wm density 480   # 3 px per dp: 960 px 
 adb install -r "$apk"
 maestro test -e EMAIL="$EMAIL" -e CODE="$CODE" "$flows/sign-in.yaml"
 signed_in=1
-adb shell screenrecord --time-limit 175 /sdcard/paywall.mp4 & rec=$!
+adb shell screenrecord --time-limit 180 /sdcard/paywall.mp4 & rec=$!
 flows="$(cd "$flows" && pwd)"
 shots=()
 for dp in 320 390; do
@@ -30,13 +30,16 @@ for dp in 320 390; do
     maestro test "$flows/store-card.yaml"
     adb exec-out screencap -p > "$out/$name-store.png"
     maestro hierarchy >> "$out/$name.json"
+    maestro test "$flows/buy-state.yaml"
+    adb exec-out screencap -p > "$out/$name-buy.png"
+    maestro hierarchy >> "$out/$name.json"
     shots+=("$name")
   done
 done
 kill -INT "$rec" 2>/dev/null || true; sleep 3; adb pull /sdcard/paywall.mp4 "$out/paywall.mp4" || true
 states=()
 for name in "${shots[@]}"; do
-  for f in "$out/$name.png" "$out/$name-store.png"; do [ -s "$f" ] || { echo "capture missing: $f"; exit 1; }; done
+  for f in "$out/$name.png" "$out/$name-store.png" "$out/$name-buy.png"; do [ -s "$f" ] || { echo "capture missing: $f"; exit 1; }; done
   h="$out/$name.json"
   grep -q 'Executive Roundtable' "$h" || { echo "$name: tier cards never rendered"; exit 1; }
   if grep -qiE 'pay by card|Plans are paid by card' "$h"; then echo "$name: store build shows card checkout"; exit 1; fi

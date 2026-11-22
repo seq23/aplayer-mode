@@ -1,0 +1,9 @@
+# Scrolls down to the first tier's buy button and the line under it, so the capture can read whether
+# buying is live (Play prices) or blocked (outage). The line is absent when buying is live: optional.
+appId: com.aplayermode.app
+---
+- scrollUntilVisible:
+    element: ".*Not available right now.*"
+    direction: DOWN
+    timeout: 15000
+    optional: true
