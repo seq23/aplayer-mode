@@ -123,7 +123,7 @@ const at = (hour: number, minute = 0) => { const d = new Date(); d.setHours(hour
 
 /** A few clearly-labelled sample items so Radar, Connections and Life areas are not empty rooms. */
 function sampleSurroundings(graph: LifeGraphSnapshot): LifeGraphSnapshot {
-  const connection = { id: id(), userId: USER, provider: 'google' as const, kind: 'calendar' as const, accountLabel: 'sample@example.com', label: 'Sample calendar', isPrimary: true, status: 'connected' as const, scopes: ['calendar.readonly'], lastSyncAt: stamp() };
+  const connection = { id: id(), userId: USER, provider: 'google' as const, kind: 'calendar' as const, accountLabel: 'sample@example.com', label: 'Sample calendar', isPrimary: true, status: 'connected' as const, scopes: ['calendar.events.readonly'], lastSyncAt: stamp() };
   const person = { id: id(), userId: USER, name: 'Jordan (sample)', relationship: 'Sister', provenance: stated() };
   const goalId = graph.goals[0]?.id;
   const blockId = id();

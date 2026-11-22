@@ -29,7 +29,7 @@ interface ConnectionSecretRow {
 export function oauthScopes(provider: 'google' | 'microsoft', kind: IntegrationKind, access: 'read' | 'act' = 'read'): string[] {
   if (provider === 'google') {
     if (kind === 'email') throw new Error('outlook_mail_required');
-    const base = ['openid', 'email', 'https://www.googleapis.com/auth/calendar.readonly'];
+    const base = ['openid', 'email', 'https://www.googleapis.com/auth/calendar.events.readonly'];
     return access === 'act' ? [...base, 'https://www.googleapis.com/auth/calendar.events'] : base;
   }
   const base = kind === 'calendar'
