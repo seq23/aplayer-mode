@@ -82,7 +82,7 @@ test('H2/H4: the paywall puts the buy buttons first, folds the 13 grid rows, and
   assert.match(paywall, /\{!isCurrent && availability\.available \? \(/, 'no wall of dead buy buttons where this build cannot buy');
   assert.match(paywall, /isCurrent \? <Pill tone="solid">Current<\/Pill> : planKey === recommended \? <Pill tone="solid">/, 'the plan card pills are solid: a soft pill on the accent card was invisible (successSoft = accentSoft)');
   assert.doesNotMatch(await src('app/(tabs)/goals.tsx'), /<Pill tone="success">Main goal/, 'the main-goal pill is visible on its accent card');
-  assert.match(paywall, /disabledReason=\{busy \? undefined : buyBlockedReason\(pkg\)\}/, 'a disabled buy button says why');
+  assert.match(paywall, /disabledReason=\{busy \? undefined : buyBlockedReason\(\{ available: availability\.available, isAnonymous, legalReady: Boolean\(privacyUrl && termsUrl\), planLoadFailed: Boolean\(error\), store: storeLoad, hasPackage: Boolean\(pkg\) \}\)\}/, 'a disabled buy button says why (every reason: account, plans, store outage, loading, missing package; catalog.buyBlockedReason)');
   // One highlighted buy button per build: the store button (store builds) and the card button (web,
   // sideload) sit behind mutually exclusive guards, so a screen shows exactly one of them.
   assert.equal((paywall.match(/variant=\{planKey === recommended \? 'primary' : 'secondary'\}/g) ?? []).length, 2, 'one highlighted store button + one highlighted card button');
