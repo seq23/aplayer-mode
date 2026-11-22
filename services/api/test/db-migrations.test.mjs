@@ -4,7 +4,9 @@
 // stop-on-failure case, against a fake Management API.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { migrationFiles, pendingMigrations, syncMigrations, Refusal } from '../../../scripts/db-migrations.mjs';
@@ -84,4 +86,23 @@ test('both deploy paths apply migrations after the tests and before wrangler dep
   const wf = readFileSync(join(root, '.github/workflows/deploy-cloudflare.yml'), 'utf8');
   const step = wf.indexOf('run: node scripts/db-migrations.mjs');
   assert.ok(step > wf.indexOf('npm run test') && step < wf.indexOf('npx wrangler deploy'));
+});
+
+test('a failing typecheck or test stops the deploy before any migration or wrangler runs', () => {
+  for (const failing of ['typecheck', 'test']) {
+    const bin = mkdtempSync(join(tmpdir(), 'apm-deploy-'));
+    const marker = join(bin, 'ran');
+    writeFileSync(join(bin, 'npm'), `#!/bin/sh\n[ "$2" = "${failing}" ] && exit 1\nexit 0\n`);
+    for (const tool of ['node', 'npx']) writeFileSync(join(bin, tool), `#!/bin/sh\necho ${tool} >> "${marker}"\n`);
+    writeFileSync(join(bin, 'git'), '#!/bin/sh\necho 0000000\n'); // a clean tree, so the run reaches the build steps
+    for (const tool of ['npm', 'node', 'npx', 'git']) chmodSync(join(bin, tool), 0o755);
+    const run = spawnSync('bash', [join(root, 'scripts/deploy-api-production.sh')], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, encoding: 'utf8' });
+    assert.notEqual(run.status, 0, `${failing} failure stops the deploy`);
+    assert.ok(!existsSync(marker), `${failing} failure: neither db-migrations nor wrangler ran`);
+  }
+});
+
+test('a new file is never matched by an old unnumbered ledger name', () => {
+  const ledger = [...ledgerThrough(last), 'intake_drafts'];
+  assert.deepEqual(pendingMigrations([...files, '9999_intake_drafts'], ledger), ['9999_intake_drafts']);
 });

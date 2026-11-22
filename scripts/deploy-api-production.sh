@@ -16,7 +16,9 @@ SECRETS_DIR=""
 [ "${1:-}" = "--secrets-dir" ] && SECRETS_DIR="${2:?--secrets-dir needs a path}"
 SHA=$(git rev-parse HEAD)
 git diff --quiet HEAD -- services packages || { echo "refusing: uncommitted changes under services/ or packages/ (the health SHA would lie)"; exit 2; }
-npm run typecheck >/dev/null && npm run test >/dev/null
+# `a && b` does not stop under set -e when `a` fails, so each step exits on its own failure.
+npm run typecheck >/dev/null || exit 2
+npm run test >/dev/null || exit 2
 # Migrations next (after the tests, before wrangler): a Worker deployed before its migration
 # breaks the routes that need it (the 0107 outage, 21 Nov 2026). Applies every repo migration not yet in the Supabase ledger, in order, and
 # refuses (exit 2) on any doubt; see the header of scripts/db-migrations.mjs.

@@ -48,8 +48,10 @@ export function pendingMigrations(files, ledgerNames) {
     throw new Refusal('the migration ledger came back empty; refusing rather than re-running every migration');
   }
   const ledger = new Set(ledgerNames);
-  const applied = (stem) => stem in RECORDED_ELSEWHERE
-    || ledger.has(stem) || ledger.has(stem.replace(/^\d+_/, ''));
+  // Up to 0092 the ledger named migrations without their number; from then on, by file stem only,
+  // so a new file can never be matched by an old unnumbered name.
+  const applied = (stem) => stem in RECORDED_ELSEWHERE || ledger.has(stem)
+    || (Number(stem.slice(0, 4)) <= 92 && ledger.has(stem.replace(/^\d+_/, '')));
   const lastApplied = files.reduce((last, stem, i) => (applied(stem) ? i : last), -1);
   if (lastApplied === -1) throw new Refusal('no repo migration is in the ledger; wrong project?');
   const pending = files.filter((stem) => !applied(stem));
