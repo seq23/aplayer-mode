@@ -2,8 +2,9 @@ name: iOS store build
 # Free App Store build on a GitHub-hosted Mac (public repo = free minutes), for months when the
 # Expo free plan's iOS cloud builds are used up. Signing credentials stay on EAS; EXPO_TOKEN lets
 # the local build fetch them and take the next remote build number.
-# Output: app.ipa as a 3-day artifact. Uploading it to TestFlight is a separate step
-# (eas submit --path app.ipa, RUNBOOK → iOS build); nothing here talks to App Store Connect.
+# Output: the .ipa goes straight to App Store Connect (TestFlight) with eas submit and is never kept
+# as an artifact (the repo is public); scripts/asc-build-check.mjs proves the build arrived.
+# Nothing here submits for App Review.
 on:
   workflow_dispatch:
 permissions:
@@ -14,18 +15,25 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
-      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      # One exact eas-cli for build and submit (the version the 21 Nov 2026 iOS builds ran).
+      EAS_CLI: eas-cli@27.11.0
       # No committed lockfile (npm install, as in ci.yml); eas-cli refuses without one unless told.
       EAS_BUILD_SKIP_LOCKFILE_CHECK: '1'
       EXPO_NO_CAPABILITY_SYNC: '1'
+      BUNDLE_ID: com.aplayermode.app
     steps:
-      - name: Named stop when EXPO_TOKEN is missing
-        if: env.EXPO_TOKEN == ''
-        run: echo "NAMED STOP [EXPO_TOKEN_MISSING] set the EXPO_TOKEN repo secret" && exit 1
+      - name: Named stop when a secret is missing
+        env:
+          HAS_EXPO_TOKEN: ${{ secrets.EXPO_TOKEN != '' }}
+          HAS_ASC_KEY: ${{ secrets.ASC_API_KEY_P8 != '' && secrets.ASC_API_KEY_ID != '' && secrets.ASC_API_ISSUER_ID != '' }}
+        run: |
+          [ "$HAS_EXPO_TOKEN" = "true" ] || { echo "NAMED STOP [EXPO_TOKEN_MISSING] set the EXPO_TOKEN repo secret"; exit 1; }
+          [ "$HAS_ASC_KEY" = "true" ] || { echo "NAMED STOP [ASC_KEY_MISSING] set ASC_API_KEY_P8, ASC_API_KEY_ID, ASC_API_ISSUER_ID from the vault"; exit 1; }
+          echo "IPA=$RUNNER_TEMP/app.ipa" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - name: Use the newest Xcode on the runner
         run: |
@@ -36,12 +44,46 @@ jobs:
         with:
           node-version: 22.13.0
       - run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Prove the App Store Connect check on fixtures
+        run: node scripts/asc-build-check.mjs --self-check
       - name: Build the store .ipa
         working-directory: apps/mobile
-        run: npx -y eas-cli@latest build --platform ios --profile production --local --non-interactive --output "$GITHUB_WORKSPACE/app.ipa"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: app-ipa
-          path: app.ipa
-          if-no-files-found: error
-          retention-days: 3
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: npx -y "$EAS_CLI" build --platform ios --profile production --local --non-interactive --output "$IPA"
+      - name: Read bundle id, version and build number
+        id: ipa
+        run: |
+          unzip -q -o "$IPA" 'Payload/*.app/Info.plist' -d "$RUNNER_TEMP/ipa"
+          plist=$(ls "$RUNNER_TEMP"/ipa/Payload/*.app/Info.plist)
+          id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
+          build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")
+          echo "bundle $id version $version build $build"
+          [ "$id" = "$BUNDLE_ID" ] || { echo "IPA bundle id is $id, expected $BUNDLE_ID"; exit 1; }
+          [[ "$build" =~ ^[0-9]+$ ]] || { echo "IPA has no numeric build number"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+      - name: Upload to App Store Connect (TestFlight)
+        # eas submit refuses an App Store Connect key from environment variables when
+        # non-interactive, so the key goes into this runner's eas.json for this run only (RUNBOOK).
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+        run: |
+          (umask 077; printenv ASC_API_KEY_P8 > "$RUNNER_TEMP/asc.p8")
+          node -e '
+            const fs = require("fs"); const e = JSON.parse(fs.readFileSync("eas.json", "utf8"));
+            Object.assign(e.submit.production.ios, { ascApiKeyPath: process.env.RUNNER_TEMP + "/asc.p8", ascApiKeyId: process.env.ASC_API_KEY_ID, ascApiKeyIssuerId: process.env.ASC_API_ISSUER_ID });
+            fs.writeFileSync("eas.json", JSON.stringify(e, null, 2));'
+          npx -y "$EAS_CLI" submit --platform ios --profile production --path "$IPA" --non-interactive --wait
+      - name: Prove the build is in App Store Connect
+        run: node scripts/asc-build-check.mjs apps/mobile/eas.json "${{ steps.ipa.outputs.version }}" "${{ steps.ipa.outputs.build }}"
+      - name: Delete the App Store Connect key and the .ipa
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/asc.p8" "$IPA" "$RUNNER_TEMP/ipa"
+          git checkout -- apps/mobile/eas.json 2>/dev/null || true

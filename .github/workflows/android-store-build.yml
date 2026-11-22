@@ -20,18 +20,23 @@ jobs:
     env:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
-      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-      HAS_PLAY_KEY: ${{ secrets.GOOGLE_PLAY_UPLOAD_SA_JSON != '' }}
+      # One exact eas-cli for build and submit (the version the 21 Nov 2026 iOS store builds ran).
+      EAS_CLI: eas-cli@27.11.0
       # No committed lockfile (npm install, as in ci.yml); eas-cli refuses without one unless told.
       EAS_BUILD_SKIP_LOCKFILE_CHECK: '1'
       PACKAGE: com.aplayermode.app
       # The EAS upload keystore's certificate (eas credentials, 19 Nov 2026). A different signer
       # means a new key, which Play would refuse for every later update: fail before uploading.
       UPLOAD_CERT_SHA1: 94:24:23:C9:F9:70:E4:CD:B4:9D:A9:FD:83:CA:1D:92:29:02:98:06
+      BUNDLETOOL_URL: https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
+      BUNDLETOOL_SHA256: 2d4ad908faea64047c1cc9cb747e6aa667c6ab192e09607bd16b67246a8cd6ae
     steps:
       - name: Named stop when a secret is missing
+        env:
+          HAS_EXPO_TOKEN: ${{ secrets.EXPO_TOKEN != '' }}
+          HAS_PLAY_KEY: ${{ secrets.GOOGLE_PLAY_UPLOAD_SA_JSON != '' }}
         run: |
-          [ -n "$EXPO_TOKEN" ] || { echo "NAMED STOP [EXPO_TOKEN_MISSING] set the EXPO_TOKEN repo secret"; exit 1; }
+          [ "$HAS_EXPO_TOKEN" = "true" ] || { echo "NAMED STOP [EXPO_TOKEN_MISSING] set the EXPO_TOKEN repo secret"; exit 1; }
           [ "$HAS_PLAY_KEY" = "true" ] || { echo "NAMED STOP [GOOGLE_PLAY_UPLOAD_SA_JSON_MISSING] set the repo secret from the vault"; exit 1; }
           echo "AAB=$RUNNER_TEMP/app.aab" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
@@ -51,11 +56,14 @@ jobs:
         # The eas-build-pre-install hook (apps/mobile/scripts/store-build-gate.mjs) refuses a build
         # without the goog_ RevenueCat key before anything is installed.
         working-directory: apps/mobile
-        run: npx -y eas-cli@latest build --platform android --profile production --local --non-interactive --output "$AAB"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: npx -y "$EAS_CLI" build --platform android --profile production --local --non-interactive --output "$AAB"
       - name: Check package, versionCode and signer
         id: aab
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
+          curl -fsSL -o "$RUNNER_TEMP/bundletool.jar" "$BUNDLETOOL_URL"
+          echo "$BUNDLETOOL_SHA256  $RUNNER_TEMP/bundletool.jar" | sha256sum -c -
           pkg=$(java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle "$AAB" --xpath /manifest/@package)
           code=$(java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle "$AAB" --xpath /manifest/@android:versionCode)
           sha1=$(keytool -printcert -jarfile "$AAB" | sed -n 's/^[[:space:]]*SHA1: //p' | head -1)
@@ -67,14 +75,13 @@ jobs:
       - name: Upload to the internal track as a draft
         working-directory: apps/mobile
         env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           GOOGLE_PLAY_UPLOAD_SA_JSON: ${{ secrets.GOOGLE_PLAY_UPLOAD_SA_JSON }}
         run: |
           (umask 077; printenv GOOGLE_PLAY_UPLOAD_SA_JSON > play-sa.json)
-          npx -y eas-cli@latest submit --platform android --profile production --path "$AAB" --non-interactive --wait
-      - name: Prove the draft is on internal and nothing else moved
-        env:
-          GOOGLE_PLAY_UPLOAD_SA_JSON: ${{ secrets.GOOGLE_PLAY_UPLOAD_SA_JSON }}
-        run: node scripts/play-internal-check.mjs "$PACKAGE" "${{ steps.aab.outputs.version_code }}"
+          npx -y "$EAS_CLI" submit --platform android --profile production --path "$AAB" --non-interactive --wait
+      - name: Prove this build is a draft on internal and on no other track
+        run: node scripts/play-internal-check.mjs --key-file apps/mobile/play-sa.json "$PACKAGE" "${{ steps.aab.outputs.version_code }}"
       - name: Delete the upload key and the bundle
         if: always()
         run: rm -f apps/mobile/play-sa.json "$AAB" "$RUNNER_TEMP/bundletool.jar"
