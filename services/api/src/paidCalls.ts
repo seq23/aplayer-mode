@@ -1,5 +1,6 @@
 import type { ApiEnv } from './env';
 import { requireSupabaseConfig } from './env';
+import { PAID_AI_DAILY_LIMIT } from '@apm/policy';
 
 /**
  * The one guard in front of every billed model call (OpenRouter on the product's key).
@@ -19,7 +20,7 @@ import { requireSupabaseConfig } from './env';
  *        after Apple's 30%          $6.99  (worst store cut until the Small Business Program)
  *        minus the $1 net floor     $5.99  most AI may cost per subscriber per month
  *        backstop                   $5.00  ($1.99 net at worst, leaving room for list-price drift)
- *      The disclosed limit is the daily one (2), the words in DAILY_AI_LIMIT_LINE.
+ *      The disclosed limit is the daily one (2), in the words of DAILY_AI_LIMIT_LINE (@apm/policy).
  *
  * 2, 3 and 4 run inside runUserInference (aiGateway.ts) before the provider is called, so no
  * caller can skip them. They fail closed: a count that cannot be read refuses the call. Every
@@ -28,13 +29,11 @@ import { requireSupabaseConfig } from './env';
  */
 export const PAID_CALL_LIMITS = {
   perUserPerMinute: 20,
-  perUserPerDay: 300,
+  perUserPerDay: PAID_AI_DAILY_LIMIT,
   globalPerDay: 20_000,
   perUserMonthlyMicroUsd: 5_000_000,
 } as const;
 
-/** The one sentence that discloses the daily limit (paywall, store listings and Terms quote it exactly). */
-export const DAILY_AI_LIMIT_LINE = `Fair use: up to ${PAID_CALL_LIMITS.perUserPerDay} AI requests a day per member.`;
 
 export type PaidCallRefusal = 'rate_limited' | 'user_daily_limit' | 'global_daily_limit' | 'user_monthly_backstop' | 'limit_unreadable';
 

@@ -136,3 +136,17 @@ test('the monthly backstop keeps every subscriber at least $1 net after Apple\'s
     assert.ok(net >= 1, `at the backstop a $${lowestMonthlyUsd} subscriber nets $${net.toFixed(2)} after Apple and AI`);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('private mail (Suite reply drafts, subscription findings) only ever uses its one ZDR route: never DeepSeek, a free or a training route', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'apm-gw-'));
+  try {
+    await build({ entryPoints: { gw: join(srcDir, 'aiGateway.ts') }, bundle: true, format: 'esm', platform: 'neutral', outdir: dir, logLevel: 'silent' });
+    const { routesForTask, SUITE_MAIL_ROUTE } = await import(pathToFileURL(join(dir, 'gw.js')).href);
+    const r = (routeId, over = {}) => ({ routeId, status: 'approved', retention: 'zero', trainingAllowed: false, ...over });
+    const all = [r('or_deepseek_v4_1_flash_deepinfra'), r('free', { trainingAllowed: true }), r(SUITE_MAIL_ROUTE.routeId)];
+    assert.deepEqual(routesForTask(all, true).map((x) => x.routeId), [SUITE_MAIL_ROUTE.routeId]);
+    assert.deepEqual(routesForTask([r(SUITE_MAIL_ROUTE.routeId, { trainingAllowed: true })], true), [], 'not even its own route once it allows training');
+    assert.deepEqual(routesForTask([r(SUITE_MAIL_ROUTE.routeId, { retention: 'limited' })], true), [], 'or keeps data');
+    assert.equal(routesForTask(all, false).length, 3, 'other tasks see every route; the privacy check in @apm/ai picks among them');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

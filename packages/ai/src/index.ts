@@ -35,6 +35,8 @@ export interface ModelRoute {
   latencyScore: number;
   lastPolicyReviewedAt: string;
   lastEvalRunAt?: string;
+  /** Send `reasoning: { enabled: false }` (a thinking model that otherwise spends the budget and sends no content). */
+  reasoningDisabled?: boolean;
 }
 
 export interface RouteRequest {
@@ -73,6 +75,12 @@ export function isRouteEligible(route: ModelRoute, request: RouteRequest): boole
 
 /** Locked order after privacy/capability eligibility: reliability → quality → cost → latency. */
 export function selectModelRoute(routes: ModelRoute[], request: RouteRequest): RouteSelection | null {
+  const route = rankModelRoutes(routes, request)[0];
+  return route ? { route, reason: 'selected' } : null;
+}
+
+/** Every eligible route, best first (the first is the one used; the rest are its fallbacks in order). */
+export function rankModelRoutes(routes: ModelRoute[], request: RouteRequest): ModelRoute[] {
   const eligible = routes.filter((route) => isRouteEligible(route, request));
   eligible.sort((a, b) => {
     if (b.reliabilityScore !== a.reliabilityScore) return b.reliabilityScore - a.reliabilityScore;
@@ -80,8 +88,7 @@ export function selectModelRoute(routes: ModelRoute[], request: RouteRequest): R
     if (costRank[a.costClass] !== costRank[b.costClass]) return costRank[a.costClass] - costRank[b.costClass];
     return b.latencyScore - a.latencyScore;
   });
-  const route = eligible[0];
-  return route ? { route, reason: 'selected' } : null;
+  return eligible;
 }
 
 export function isGenericFreeRouterAllowed(dataClass: DataClass): boolean {
@@ -139,6 +146,8 @@ export interface InferenceResult<T = unknown> {
   usage: InferenceUsage;
   latencyMs: number;
   responseModel?: string;
+  /** How many better-ranked routes failed before this one answered. */
+  fallbackCount: number;
 }
 
 export class NoEligibleModelRouteError extends Error {
@@ -184,14 +193,27 @@ export async function runOpenRouterInference<T = unknown>(input: {
   // route not vetted for highly sensitive data can never receive it (fails closed).
   const dataClass = effectiveDataClass(task.dataClass, [JSON.stringify(task.context)]);
 
-  const selection = selectModelRoute(input.routes, {
+  const ranked = rankModelRoutes(input.routes, {
     dataClass,
     requiredCapabilities: task.requiredCapabilities,
     minimumQualityScore: task.minimumQualityScore,
   });
-  if (!selection) throw new NoEligibleModelRouteError(dataClass, task.taskType);
+  if (!ranked.length) throw new NoEligibleModelRouteError(dataClass, task.taskType);
+  // The best route first; a route that fails (HTTP error, network, no content, bad JSON or shape)
+  // hands over to the next eligible one. Every route tried passed the same privacy check above.
+  let lastError: unknown;
+  for (const [fallbackCount, route] of ranked.entries()) {
+    try {
+      return { ...(await callRoute<T>(route, task, input)), dataClass, redactions, fallbackCount };
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
 
-  const route = selection.route;
+async function callRoute<T>(route: ModelRoute, task: InferenceTask, input: { apiKey: string; appName?: string; appUrl?: string; signal?: AbortSignal }) {
   const provider = buildOpenRouterProviderPolicy(route);
   const body: Record<string, unknown> = {
     model: route.modelId,
@@ -208,6 +230,7 @@ export async function runOpenRouterInference<T = unknown>(input: {
     // Cost instrumentation: OpenRouter reports the call's charge in usage.cost.
     usage: { include: true },
   };
+  if (route.reasoningDisabled) body.reasoning = { enabled: false };
 
   if (task.jsonSchema) {
     body.response_format = {
@@ -255,8 +278,6 @@ export async function runOpenRouterInference<T = unknown>(input: {
 
   return {
     route,
-    dataClass,
-    redactions,
     value: value as T,
     latencyMs,
     responseModel: parsed.model,
