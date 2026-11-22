@@ -48,7 +48,15 @@ jobs:
         run: npx expo prebuild --platform ios --no-install > ../../prebuild.log 2>&1 || { tail -40 ../../prebuild.log; exit 1; }
       - name: Install pods
         working-directory: apps/mobile/ios
-        run: pod install --repo-update > ../../../pods.log 2>&1 || { tail -60 ../../../pods.log; exit 1; }
+        # CocoaPods git-clones some pods (RevenueCat's PurchasesHybridCommon) from github.com. Anonymous
+        # clones from the macOS runners were refused ("could not read Username", main, 21 Nov 2026), so
+        # clones go through this run's read-only token, and git never waits on a login prompt.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          pod install --repo-update > ../../../pods.log 2>&1 || { tail -60 ../../../pods.log; exit 1; }
       - name: Build for the simulator
         working-directory: apps/mobile
         # Ad-hoc signed ("sign to run locally", no Apple account).
