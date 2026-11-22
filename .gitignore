@@ -24,3 +24,7 @@ yarn-error.log*
 apps/mobile/android/
 apps/mobile/ios/
 dist-android/
+
+# Google Play upload key (written by android-store-build.yml at run time, deleted after) and build output
+apps/mobile/play-sa.json
+*.aab
