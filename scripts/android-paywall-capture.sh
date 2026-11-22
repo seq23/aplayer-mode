@@ -12,7 +12,7 @@ signed_in=0
 trap 'rc=$?; [ "$rc" != 0 ] && [ "$signed_in" = 1 ] && adb exec-out screencap -p > "$out/failed-here.png"; rm -f "$out"/*.json' EXIT
 [ -n "${EMAIL:-}" ] && [ -n "${CODE:-}" ] || { echo "NAMED STOP [APM_REVIEW_SECRETS_MISSING] set APM_REVIEW_EMAIL and APM_REVIEW_CODE"; exit 1; }
 adb wait-for-device
-adb shell wm density 480   # 3 px per dp: 960 px = 320 dp, 1170 px = 390 dp
+adb shell wm size 1170x2532 && adb shell wm density 480   # 3 px per dp: 960 px = 320 dp, 1170 px = 390 dp (sign-in at 390)
 adb install -r "$apk"
 maestro test -e EMAIL="$EMAIL" -e CODE="$CODE" "$flows/sign-in.yaml"
 signed_in=1
