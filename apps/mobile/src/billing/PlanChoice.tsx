@@ -6,7 +6,7 @@ import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Figure, Heading, 
 import { fetchBillingOffering, fetchProductPlan, fetchWebBillingPortal, reconcileBilling, type BillingOfferingResponse, type ProductPlanResponse } from '../api/apmApi';
 import { useSession } from '../state/session';
 import { hasDailyLoopAccess } from './access';
-import { APPLE_STANDARD_EULA_URL, PAID_PLANS, STORE_LABELS, storeManageUrl, subscriptionDisclosure, tierOffers, type StorePrice } from './catalog';
+import { APPLE_STANDARD_EULA_URL, PAID_PLANS, STORE_LABELS, buyBlockedReason, loadStoreOffering, storeManageUrl, storeUnavailableCopy, subscriptionDisclosure, tierOffers, type StoreLoad, type StorePrice } from './catalog';
 import { UNAVAILABLE_COPY, appDistribution, billingAvailability, buyPackage, identifyBillingUser, legalUrls, loadOffering, managementUrl, restoreStorePurchases } from './purchases';
 // iOS resolves this to webCheckout.ios.ts (no card checkout in an iPhone build; App Store 3.1.1).
 import { WEB_CHECKOUT_COPY, webCheckoutFor } from './webCheckout';
@@ -43,6 +43,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   const [product, setProduct] = useState<ProductPlanResponse>();
   const [serverOffering, setServerOffering] = useState<BillingOfferingResponse>();
   const [storeOffering, setStoreOffering] = useState<PurchasesOffering>();
+  /** The store side alone (RevenueCat + Play / App Store): an outage there is "unavailable", never an endless "Getting prices". */
+  const [storeLoad, setStoreLoad] = useState<StoreLoad>('loading');
   const [period, setPeriod] = useState<BillingPeriod>('monthly');
   const [busy, setBusy] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -75,10 +77,12 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
         setServerOffering(offering);
         if (plan.billing?.period) setPeriod(plan.billing.period);
         if (availability.available && user?.id && !isAnonymous) {
-          await identifyBillingUser(user.id);
+          if (active) { setStoreLoad('loading'); setStoreOffering(undefined); }
           // Show ONLY the offering the server named (Founding 100 is decided server-side).
-          const storeSide = await loadOffering(offering.offeringId);
-          if (active) setStoreOffering(storeSide);
+          const storeSide = await loadStoreOffering(async () => { await identifyBillingUser(user.id); return loadOffering(offering.offeringId); });
+          if (!active) return;
+          setStoreOffering(storeSide.state === 'ready' ? storeSide.offering : undefined);
+          setStoreLoad(storeSide.state);
         }
       })
       .catch((cause: unknown) => { if (active) setError(plainError(cause, 'Plans did not load. Check your connection and try again.')); });
@@ -215,17 +219,6 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
     await openExternal({ kind: 'web', url: target });
   };
 
-  /** Why a buy button is disabled, in words (never a silent grey button; docs/36 H5). */
-  const buyBlockedReason = (pkg: PurchasesPackage | undefined): string | undefined => {
-    if (!availability.available) return undefined; // the unavailable card above says why
-    if (isAnonymous) return 'Save your account above first. Then you can subscribe.';
-    if (!privacyUrl || !termsUrl) return undefined; // the configuration card above says why
-    if (error) return 'Plans did not load. Tap Try again above.';
-    if (!storeOffering) return 'Getting prices from the store…';
-    if (!pkg) return 'This plan is not in the store yet. Pick another or decide later.';
-    return undefined;
-  };
-
   const disclosureOffer = offers.find((item) => item.plan === (PLAN_RANK[currentPlan]! >= 1 ? currentPlan : 'chief_of_staff')) ?? offers[0]!;
 
   return (
@@ -249,6 +242,8 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       ) : null}
       {cardCheckout.kind === 'not_configured' ? <Card tone="muted"><Body>{WEB_CHECKOUT_COPY.notConfigured}</Body></Card> : null}
       {storeSubscriberHere && billing && billing.store !== 'web' ? <Card tone="muted"><Body>{`Your plan is billed through ${STORE_LABELS[billing.store].settings}. Change or cancel it there; it works here on the same account.`}</Body></Card> : null}
+      {/* The store did not answer (RevenueCat or Play / App Store down, Billing unavailable): say so; nothing is bought or granted. */}
+      {availability.available && !isAnonymous && storeLoad === 'unavailable' ? <Card tone="warning"><Body>{storeUnavailableCopy(availability.store)}</Body><Button label="Try again" variant="secondary" onPress={() => setReloadKey((n) => n + 1)} /></Card> : null}
       {(availability.available || cardCheckout.kind === 'ready') && isAnonymous ? (
         <Card tone="warning">
           <AccountPanel title="Save your account first" sub="A subscription belongs to an account, so it is never tied to one phone. One tap, no password." onDone={() => setReloadKey((n) => n + 1)} />
@@ -274,7 +269,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
             {/* No wall of dead buttons where this build cannot buy: the card above says where to. */}
             {!isCurrent && availability.available ? (
               <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName}`} accessibilityLabel={`${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'primary' : 'secondary'} busy={busy === planKey}
-                disabled={!purchasesEnabled || !pkg || Boolean(busy)} disabledReason={busy ? undefined : buyBlockedReason(pkg)} onPress={() => purchase(planKey)} />
+                disabled={!purchasesEnabled || !pkg || Boolean(busy)} disabledReason={busy ? undefined : buyBlockedReason({ available: availability.available, isAnonymous, legalReady: Boolean(privacyUrl && termsUrl), planLoadFailed: Boolean(error), store: storeLoad, hasPackage: Boolean(pkg) })} onPress={() => purchase(planKey)} />
             ) : null}
             {/* Card checkout (web app + sideload APK only). Not configured yet: the calm card above, never a dead button. */}
             {!isCurrent && cardCheckout.kind === 'ready' && !storeSubscriberHere ? (webSubscriber

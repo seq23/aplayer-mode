@@ -1,0 +1,10 @@
+# Opens the paywall (Settings > Plan) by deep link and waits for the store's answer.
+appId: com.aplayermode.app
+---
+- openLink: aplayermode://settings/plan
+- extendedWaitUntil:
+    visible: "Restore purchases"
+    timeout: 60000
+# The store side settles (prices, or the outage card) within STORE_ANSWER_MS (15 s).
+- waitForAnimationToEnd:
+    timeout: 20000

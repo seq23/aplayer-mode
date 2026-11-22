@@ -82,6 +82,54 @@ export function tierOffers(period: BillingPeriod, founding: boolean, storePrices
   });
 }
 
+/** How long the paywall waits for the store (RevenueCat, then Google Play / the App Store) before it says plans are unavailable. */
+export const STORE_ANSWER_MS = 15_000;
+
+export type StoreOfferingState<O> = { state: 'ready'; offering: O } | { state: 'unavailable' };
+
+/**
+ * The store side of the paywall, as one answer. A store that throws, never answers, has no such
+ * offering or returns it with no packages (Play Billing unavailable, RevenueCat down) is
+ * `unavailable`: the paywall says so and buys nothing. It never grants anything either way; only
+ * the server's entitlement row (GET /v1/product/plan) does.
+ */
+export async function loadStoreOffering<O extends { availablePackages: readonly unknown[] }>(
+  load: () => Promise<O | undefined>, timeoutMs = STORE_ANSWER_MS,
+): Promise<StoreOfferingState<O>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), timeoutMs); });
+    const offering = await Promise.race([load(), timeout]);
+    return offering && offering.availablePackages.length > 0 ? { state: 'ready', offering } : { state: 'unavailable' };
+  } catch {
+    return { state: 'unavailable' };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** What the paywall says when the store did not answer: who did not answer, that nothing was charged, what to do. */
+export function storeUnavailableCopy(store: StoreChannel): string {
+  const who = store === 'google_play' ? 'Google Play' : 'The App Store';
+  return `${who} is not answering right now, so plans cannot be bought yet. Nothing was charged and your setup is saved. Try again in a moment.`;
+}
+
+export type StoreLoad = 'loading' | 'ready' | 'unavailable';
+
+/** Why a store buy button is disabled, in words (never a silent grey button; docs/36 H5). */
+export function buyBlockedReason(input: {
+  available: boolean; isAnonymous: boolean; legalReady: boolean; planLoadFailed: boolean; store: StoreLoad; hasPackage: boolean;
+}): string | undefined {
+  if (!input.available) return undefined; // the unavailable card above says why
+  if (input.isAnonymous) return 'Save your account above first. Then you can subscribe.';
+  if (!input.legalReady) return undefined; // the configuration card above says why
+  if (input.planLoadFailed) return 'Plans did not load. Tap Try again above.';
+  if (input.store === 'unavailable') return 'Not available right now. Tap Try again above.';
+  if (input.store === 'loading') return 'Getting prices from the store…';
+  if (!input.hasPackage) return 'This plan is not in the store yet. Pick another or decide later.';
+  return undefined;
+}
+
 /**
  * The trust line (paywall and Settings): what APM never does, in four plain lines. Each line
  * is a rule the code enforces, so it may only change with that code:

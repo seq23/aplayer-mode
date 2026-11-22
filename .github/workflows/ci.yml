@@ -39,6 +39,9 @@ jobs:
       - name: Weekly outcome report self-check (reporter and its self-closing issues)
         run: npm run validate:outcomes
 
+      - name: Play store checks prove their verdicts on fixtures (track placement, plans vs policy)
+        run: node scripts/play-internal-check.mjs --self-check && node scripts/play-billing-check.mjs --self-check
+
       - name: Bundle the app (Metro must resolve workspace sources)
         run: npx expo export --platform web --output-dir "$RUNNER_TEMP/web-export"
         working-directory: apps/mobile

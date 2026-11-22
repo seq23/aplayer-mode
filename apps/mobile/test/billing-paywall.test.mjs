@@ -126,3 +126,28 @@ test('the app never reports a purchase to the API or decides Founding eligibilit
   assert.match(purchases, /appUserID: userId/, 'RevenueCat app user id = Supabase user id');
   assert.match(purchases, /Purchases\.logOut\(\)/, 'forgotten on sign-out');
 });
+
+// Outage (brief: "RevenueCat or Play unreachable -> plans shown unavailable, never free unlock, never crash").
+test('a store that throws, hangs, has no such offering or no packages is "unavailable", never ready', async () => {
+  const ready = { availablePackages: [{ identifier: 'cos_monthly' }] };
+  assert.deepEqual(await catalog.loadStoreOffering(async () => ready, 50), { state: 'ready', offering: ready });
+  assert.deepEqual(await catalog.loadStoreOffering(async () => { throw new Error('BILLING_UNAVAILABLE'); }, 50), { state: 'unavailable' }, 'Play Billing / RevenueCat error');
+  assert.deepEqual(await catalog.loadStoreOffering(() => new Promise(() => {}), 50), { state: 'unavailable' }, 'a store that never answers times out');
+  assert.deepEqual(await catalog.loadStoreOffering(async () => undefined, 50), { state: 'unavailable' }, 'offering missing in RevenueCat');
+  assert.deepEqual(await catalog.loadStoreOffering(async () => ({ availablePackages: [] }), 50), { state: 'unavailable' }, 'no products came back from Play');
+  assert.equal(catalog.STORE_ANSWER_MS, 15_000);
+});
+
+test('when the store is unavailable the buy buttons say so and the paywall shows the outage card with Try again', async () => {
+  const base = { available: true, isAnonymous: false, legalReady: true, planLoadFailed: false, hasPackage: true };
+  assert.equal(catalog.buyBlockedReason({ ...base, store: 'unavailable', hasPackage: false }), 'Not available right now. Tap Try again above.');
+  assert.equal(catalog.buyBlockedReason({ ...base, store: 'loading', hasPackage: false }), 'Getting prices from the store…');
+  assert.equal(catalog.buyBlockedReason({ ...base, store: 'ready' }), undefined);
+  assert.equal(catalog.buyBlockedReason({ ...base, store: 'ready', hasPackage: false }), 'This plan is not in the store yet. Pick another or decide later.');
+  assert.match(catalog.storeUnavailableCopy('google_play'), /^Google Play is not answering right now.*Nothing was charged/);
+  const paywall = await readFile(join(appDir, 'src/billing/PlanChoice.tsx'), 'utf8');
+  assert.match(paywall, /loadStoreOffering\(async \(\) => \{ await identifyBillingUser\(user\.id\); return loadOffering\(offering\.offeringId\); \}\)/, 'identify + load go through the timeout/empty guard together');
+  assert.match(paywall, /storeLoad === 'unavailable' \? <Card tone="warning"><Body>\{storeUnavailableCopy\(availability\.store\)\}<\/Body><Button label="Try again"/, 'the outage card renders with a retry');
+  assert.match(paywall, /store: storeLoad/, 'buy buttons get the store state');
+  assert.match(paywall, /Boolean\(storeOffering\)/, 'buying stays disabled without a ready offering');
+});

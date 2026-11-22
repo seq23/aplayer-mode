@@ -1,0 +1,25 @@
+# Signs the App Review account in on the store build (fixed code; services/api/src/reviewLogin.ts).
+# Run by scripts/android-paywall-capture.sh; EMAIL and CODE come from repo secrets, never the repo.
+appId: com.aplayermode.app
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "I already have an account"
+    timeout: 60000
+- tapOn: "I already have an account"
+- tapOn: "Email me a 6-digit code"
+- tapOn: "Email address"
+- inputText: ${EMAIL}
+- hideKeyboard
+- tapOn: "Email me a 6-digit code"
+- extendedWaitUntil:
+    visible: "6-digit code"
+    timeout: 30000
+- tapOn: "6-digit code"
+- inputText: ${CODE}
+- hideKeyboard
+- tapOn: "Verify and continue"
+- extendedWaitUntil:
+    notVisible: "Verify and continue"
+    timeout: 60000
