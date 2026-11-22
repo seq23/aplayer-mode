@@ -11,7 +11,8 @@
     "preview:web": "expo export --platform web --output-dir dist --clear",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.mjs",
-    "lint:design": "node scripts/design-lint.mjs"
+    "lint:design": "node scripts/design-lint.mjs",
+    "eas-build-pre-install": "node scripts/store-build-gate.mjs"
   },
   "dependencies": {
     "@apm/domain": "0.1.0",
