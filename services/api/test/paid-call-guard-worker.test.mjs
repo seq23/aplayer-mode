@@ -32,8 +32,8 @@ const routeRow = { route_id: 'r', model_id: 'v/m', provider_id: 'V', status: 'ap
   data_classes_allowed: ['private_life'], training_allowed: false, retention: 'zero', approved_for_highly_sensitive: false, quality_score: 90, reliability_score: 90, latency_score: 90,
   last_policy_reviewed_at: '2026-10-06T00:00:00Z', last_eval_run_at: null };
 
-function harness({ mine = 0, all = 0, countStatus = 206 } = {}) {
-  const calls = { openrouter: 0, counts: [] };
+function harness({ mine = 0, all = 0, countStatus = 206, monthCost = 0, costStatus = 200 } = {}) {
+  const calls = { openrouter: 0, counts: [], costs: [] };
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url); const method = init.method ?? 'GET'; const headers = new Headers(init.headers);
@@ -41,6 +41,12 @@ function harness({ mine = 0, all = 0, countStatus = 206 } = {}) {
     if (href.endsWith('/auth/v1/user')) return headers.get('authorization') === 'Bearer user-jwt' ? json({ id: USER }) : json({ message: 'bad jwt' }, 401);
     if (href.includes('/rest/v1/rpc/apm_my_consents')) return json({ ageConfirmedAt: '2026-10-08T00:00:00Z', healthData: null });
     if (href.includes('/rest/v1/model_routes')) return json([routeRow]);
+    if (href.includes('/rest/v1/rpc/apm_ai_cost_microusd_since')) {
+      assert.equal(headers.get('apikey'), env.SUPABASE_SECRET_KEY, 'the month is summed with the service key');
+      const args = JSON.parse(init.body);
+      calls.costs.push(args);
+      return costStatus === 200 ? json(monthCost) : json({ message: 'down' }, costStatus);
+    }
     if (href.includes('/rest/v1/ai_usage_events') && method === 'HEAD') {
       assert.equal(headers.get('apikey'), env.SUPABASE_SECRET_KEY, 'the ceiling is counted with the service key, across every user');
       const perUser = href.includes('user_id=eq.');
@@ -80,14 +86,19 @@ test('paid routes: no session → 401, over the burst limit → 429, a real user
     assert.equal((await ok.json()).source, 'model');
     assert.equal(h.calls.openrouter, 1);
     assert.deepEqual(h.calls.counts.sort(), ['global', 'user'], 'both daily ceilings were read before the call');
+    assert.equal(h.calls.costs.length, 1, 'the monthly backstop was read before the call');
+    assert.equal(h.calls.costs[0].p_user_id, USER, 'for the signed-in user only (never a client-sent id)');
+    assert.match(h.calls.costs[0].p_since, /^\d{4}-\d{2}-01T00:00:00\.000Z$/, 'from the 1st of the month, UTC');
   } finally { h.restore(); }
 });
 
-test('daily ceilings: per user, global, and an unreadable count each stop the provider call; the user keeps the deterministic answer', async () => {
+test('daily ceilings and the monthly backstop: per user, global, the month\'s cost, and an unreadable count or sum each stop the provider call; the user keeps the deterministic answer', async () => {
   for (const [name, opts] of [
     ['per-user', { mine: limits.perUserPerDay }],
     ['global', { all: limits.globalPerDay }],
     ['unreadable', { countStatus: 500 }],
+    ['monthly backstop', { monthCost: limits.perUserMonthlyMicroUsd }],
+    ['monthly cost unreadable', { costStatus: 503 }],
   ]) {
     const h = harness(opts);
     try {
@@ -97,7 +108,7 @@ test('daily ceilings: per user, global, and an unreadable count each stop the pr
       assert.equal(h.calls.openrouter, 0, `${name}: no billed call`);
     } finally { h.restore(); }
   }
-  const h = harness({ mine: limits.perUserPerDay - 1, all: limits.globalPerDay - 1 });
+  const h = harness({ mine: limits.perUserPerDay - 1, all: limits.globalPerDay - 1, monthCost: limits.perUserMonthlyMicroUsd - 1 });
   try { assert.equal((await (await synth(auth)).json()).source, 'model', 'one under both ceilings still runs'); assert.equal(h.calls.openrouter, 1); }
   finally { h.restore(); }
 });
@@ -111,4 +122,17 @@ test('unauthenticated secret/quota routes are limited per IP: review sign-in and
     const claim = await entry.fetch(new Request('https://api.example.com/v1/billing/precheckout/claim', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.7' }, body: JSON.stringify({ checkoutId: '22222222-2222-4222-8222-222222222222', email: 'a@b.co' }) }), limited);
     assert.equal(claim.status, 429);
   } finally { h.restore(); }
+});
+
+test('the monthly backstop keeps every subscriber at least $1 net after Apple\'s 30% on the lowest price anyone pays', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'apm-prices-'));
+  try {
+    await build({ entryPoints: { policy: fileURLToPath(new URL('../../../packages/policy/src/index.ts', import.meta.url)) }, bundle: true, format: 'esm', platform: 'neutral', outdir: dir, logLevel: 'silent' });
+    const { PLAN_PRICES, CHIEF_OF_STAFF_INTRO_OFFERS } = await import(pathToFileURL(join(dir, 'policy.js')).href);
+    const cents = [...Object.values(PLAN_PRICES).flatMap((p) => [p.monthlyUsdCents, p.annualUsdCents / 12]),
+      CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents, CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents];
+    const lowestMonthlyUsd = Math.min(...cents) / 100;
+    const net = lowestMonthlyUsd * 0.7 - limits.perUserMonthlyMicroUsd / 1e6;
+    assert.ok(net >= 1, `at the backstop a $${lowestMonthlyUsd} subscriber nets $${net.toFixed(2)} after Apple and AI`);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
