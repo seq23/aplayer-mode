@@ -14,6 +14,8 @@ import { router } from 'expo-router';
 import { useSession } from '../../../src/state/session';
 import { plainError } from '../../../src/api/errors';
 
+const NO_ACCOUNT_YET = 'Nothing is set up on this device yet, so there is no data to export or delete. Start APM or sign in first.';
+
 export default function ExportDeleteScreen() {
   const { accessToken, signOut } = useSession();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -22,7 +24,9 @@ export default function ExportDeleteScreen() {
   const [error, setError] = useState<string>();
 
   const runExport = async () => {
-    if (!accessToken || busy) return;
+    if (busy) return;
+    // No session yet (nothing set up on this device): say so, never a tap that does nothing (tap-through, 22 Nov 2026).
+    if (!accessToken) { setMessage(undefined); setError(NO_ACCOUNT_YET); return; }
     setBusy('export'); setError(undefined); setMessage(undefined);
     try {
       const result = await exportMyData(accessToken);
@@ -33,7 +37,8 @@ export default function ExportDeleteScreen() {
   };
 
   const queueDeletion = async () => {
-    if (!accessToken || busy) return;
+    if (busy) return;
+    if (!accessToken) { setMessage(undefined); setError(NO_ACCOUNT_YET); return; }
     setBusy('delete'); setError(undefined); setMessage(undefined);
     try {
       await requestDeletion(accessToken);
