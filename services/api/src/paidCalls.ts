@@ -84,6 +84,9 @@ export function utcMonthStart(now: Date): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
 }
 
+/** 0107's database function; scripts/deploy-api-production.sh refuses to deploy while it is missing. */
+const COST_SUM_RPC = 'apm_ai_cost_microusd_since';
+
 /** One user's billed model cost (micro-USD) since `since`, summed in the database (0107). */
 export async function costSince(env: ApiEnv, userId: string, since: string): Promise<number> {
   const { url } = requireSupabaseConfig(env);
@@ -91,7 +94,7 @@ export async function costSince(env: ApiEnv, userId: string, since: string): Pro
   if (!secret) throw new Error('no service credential');
   const headers = new Headers({ apikey: secret, 'content-type': 'application/json' });
   if (secret.split('.').length === 3) headers.set('authorization', `Bearer ${secret}`);
-  const response = await fetch(`${url}/rest/v1/rpc/apm_ai_cost_microusd_since`, {
+  const response = await fetch(`${url}/rest/v1/rpc/${COST_SUM_RPC}`, {
     method: 'POST', headers, body: JSON.stringify({ p_user_id: userId, p_since: since }),
   });
   if (!response.ok) throw new Error(`cost sum failed ${response.status}`);
