@@ -1,0 +1,9 @@
+# Scrolls up to the store-status card shown above the tiers when Google Play did not answer
+# (absent when prices loaded, so it is optional).
+appId: com.aplayermode.app
+---
+- scrollUntilVisible:
+    element: ".*is not answering right now.*"
+    direction: UP
+    timeout: 15000
+    optional: true

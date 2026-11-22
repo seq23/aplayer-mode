@@ -20,9 +20,11 @@ flows="$(cd "$flows" && pwd)"
 for mode in no yes; do
   adb shell cmd uimode night "$mode"
   name=$([ "$mode" = no ] && echo light || echo dark)
-  (cd "$out" && maestro test -e MODE="$name" "$flows/paywall.yaml")
-  mv "$flows"/paywall-390-*.png "$out"/ 2>/dev/null || true   # Maestro versions differ on where takeScreenshot writes
+  maestro test "$flows/paywall.yaml"
+  adb exec-out screencap -p > "$out/paywall-390-$name.png"
   maestro hierarchy > "$out/paywall-390-$name.json"   # read below, never uploaded (it holds screen text)
+  maestro test "$flows/store-card.yaml"
+  adb exec-out screencap -p > "$out/paywall-390-$name-store.png"
 done
 kill -INT "$rec" 2>/dev/null || true; sleep 3; adb pull /sdcard/paywall.mp4 "$out/paywall.mp4" || true
 for f in "$out"/paywall-390-light.png "$out"/paywall-390-dark.png; do [ -s "$f" ] || { echo "capture missing: $f"; exit 1; }; done
