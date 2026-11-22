@@ -65,6 +65,12 @@ export const COACHING_CANDIDATE_ROUTES = Object.freeze([
     routeId: 'or_gemma_4_31b_it_deepinfra', modelId: 'google/gemma-4-31b-it', providerId: 'DeepInfra', costClass: 'low',
     responseFormat: 'json_schema', minIntervalMs: 500, pricePerMTok: { input: 0.09, output: 0.34 },
   },
+  {
+    // Peace Be Still's paid model (seq23/peace-be-still #89, 21 Nov 2026) on its first US host, ZDR. Never
+    // DeepSeek's own API. Thinking off: with reasoning on it spent the whole token budget and sent no content.
+    routeId: 'or_deepseek_v4_1_flash_deepinfra', modelId: 'deepseek/deepseek-v4.1-flash', providerId: 'DeepInfra', costClass: 'low',
+    responseFormat: 'json_schema', reasoning: { enabled: false }, minIntervalMs: 500, pricePerMTok: { input: 0.45, output: 1.8 },
+  },
 ]);
 
 /**
