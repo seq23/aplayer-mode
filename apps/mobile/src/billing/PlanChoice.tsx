@@ -306,7 +306,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
         <TierGrid title={TIER_GRID_WHO.title} note={TIER_GRID_WHO.note} columns={TIER_GRID_WHO.columns} rows={TIER_GRID_WHO.rows} highlight={PAID_PLANS.indexOf(recommended)} />
         <TierGrid title={TIER_GRID_WHAT.title} columns={TIER_GRID_WHAT.columns} rows={TIER_GRID_WHAT.rows} highlight={PAID_PLANS.indexOf(recommended)} />
       </Disclosure>
-      <Body muted>{`${PLAN_SCREEN.annualLine} ${PLAN_SCREEN.autonomyLine}`}</Body>
+      <Body muted>{`${PLAN_SCREEN.annualLine} ${PLAN_SCREEN.autonomyLine} ${PLAN_SCREEN.limitLine}`}</Body>
 
       <Card tone="muted">
         {/* On web there is no store to restore from: no dead Restore button, only the way to manage. */}

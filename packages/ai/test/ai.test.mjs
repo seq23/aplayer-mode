@@ -96,3 +96,49 @@ test('structured output must match its schema; valid JSON in the wrong shape is 
   assert.deepEqual(ai.validateJsonSchema({ a: 1 }, { type: 'object', properties: { a: { type: 'integer' } }, required: ['a'], additionalProperties: false }), []);
   assert.deepEqual(ai.validateJsonSchema({ a: 1.5 }, { type: 'object', properties: { a: { type: 'integer' } } }), ['$.a: expected integer']);
 });
+
+test('fallback: a failing first route hands over to the next ELIGIBLE route only; private text never reaches a free, training or non-ZDR route', async () => {
+  const good = JSON.stringify({ signals: [{ type: 'deadline', confidence: 0.9, dueAt: null }] });
+  const calls = [];
+  const original = globalThis.fetch;
+  // The first-ranked route (deepseek) is down; every other model answers.
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body); calls.push(body);
+    if (body.model === 'deepseek/deepseek-v4.1-flash') return new Response('{"error":{"message":"down"}}', { status: 503 });
+    return new Response(JSON.stringify({ model: body.model, choices: [{ message: { content: good } }], usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0.00001 } }), { status: 200 });
+  };
+  try {
+    const routes = [
+      route({ routeId: 'free', modelId: 'vendor/free-model:free', costClass: 'zero', trainingAllowed: true, reliabilityScore: 100, qualityScore: 100, latencyScore: 100 }),
+      route({ routeId: 'kept', modelId: 'vendor/kept-model', retention: 'limited', reliabilityScore: 100, qualityScore: 100, latencyScore: 100 }),
+      route({ routeId: 'deepseek', modelId: 'deepseek/deepseek-v4.1-flash', providerId: 'DeepInfra', reliabilityScore: 100, qualityScore: 100, latencyScore: 96, reasoningDisabled: true }),
+      route({ routeId: 'mistral', modelId: 'mistralai/mistral-small-3.2-24b-instruct', providerId: 'DeepInfra', reliabilityScore: 100, qualityScore: 100, latencyScore: 95 }),
+    ];
+    const result = await ai.runOpenRouterInference({ apiKey: 'k', routes, task: task() });
+    assert.deepEqual(calls.map((c) => c.model), ['deepseek/deepseek-v4.1-flash', 'mistralai/mistral-small-3.2-24b-instruct'], 'deepseek first, then the current model; the free and retaining routes are never called');
+    assert.equal(result.route.routeId, 'mistral');
+    assert.equal(result.fallbackCount, 1);
+    for (const c of calls) assert.deepEqual({ zdr: c.provider.zdr, dc: c.provider.data_collection, fb: c.provider.allow_fallbacks }, { zdr: true, dc: 'deny', fb: false });
+    assert.deepEqual(calls[0].reasoning, { enabled: false }, 'thinking off on the route that asks for it');
+    assert.equal(calls[1].reasoning, undefined, 'and never sent to a route that did not ask');
+    // Every eligible route down: the caller gets the error (and keeps its deterministic path).
+    calls.length = 0;
+    await assert.rejects(ai.runOpenRouterInference({ apiKey: 'k', routes: routes.filter((r) => r.routeId !== 'mistral'), task: task() }), /503/);
+    assert.deepEqual(calls.map((c) => c.model), ['deepseek/deepseek-v4.1-flash'], 'no ineligible route is tried when the eligible ones fail');
+  } finally { globalThis.fetch = original; }
+});
+
+test('a billed route that fails still counts: the spend of every failed attempt rides on the result, or on the final error', async () => {
+  const original = globalThis.fetch;
+  const routes = [route({ routeId: 'a', modelId: 'vendor/a', latencyScore: 99 }), route({ routeId: 'b', modelId: 'vendor/b', latencyScore: 90 })];
+  const answer = (content, cost) => new Response(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: 1, completion_tokens: 1, cost } }), { status: 200 });
+  const good = JSON.stringify({ signals: [{ type: 'deadline', confidence: 0.9, dueAt: null }] });
+  try {
+    globalThis.fetch = async (url, init) => (JSON.parse(init.body).model === 'vendor/a' ? answer('not json', 0.002) : answer(good, 0.001));
+    const result = await ai.runOpenRouterInference({ apiKey: 'k', routes, task: task() });
+    assert.equal(result.route.routeId, 'b');
+    assert.ok(Math.abs(result.usage.costUsd - 0.003) < 1e-12, 'the bad answer from a is billed too');
+    globalThis.fetch = async () => answer('{"signals":"wrong shape"}', 0.002);
+    await assert.rejects(ai.runOpenRouterInference({ apiKey: 'k', routes, task: task() }), (error) => Math.abs(error.costUsd - 0.004) < 1e-12);
+  } finally { globalThis.fetch = original; }
+});

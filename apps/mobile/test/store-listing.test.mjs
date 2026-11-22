@@ -81,3 +81,26 @@ test('the store listings promise the same setup time the app computes from its q
     assert.deepEqual([...new Set(claims)], [QUICK_SETUP_MINUTES], `${name}: about ${QUICK_SETUP_MINUTES} minutes, like the app`);
   }
 });
+
+// App Review check 13 (every promise matches what is built): the daily AI limit the server enforces
+// (PAID_AI_DAILY_LIMIT, services/api/src/paidCalls.ts) is disclosed in ONE sentence, and the paywall,
+// both store listings and the Terms carry exactly that sentence.
+test('the daily AI limit is disclosed in the same words on the paywall, both listings and the Terms, at the enforced number', async () => {
+  const policy = await readFile(new URL('../../../packages/policy/src/index.ts', import.meta.url), 'utf8');
+  const limit = Number(policy.match(/export const PAID_AI_DAILY_LIMIT = (\d+);/)?.[1]);
+  assert.ok(limit > 0, 'read the enforced limit');
+  const template = policy.match(/export const DAILY_AI_LIMIT_LINE = `([^`]+)`;/)?.[1];
+  assert.ok(template, 'read the disclosure sentence');
+  const line = template.replace('${PAID_AI_DAILY_LIMIT}', String(limit));
+  assert.match(line, new RegExp(`up to ${limit} AI requests a day`));
+  const paid = await readFile(new URL('../../../services/api/src/paidCalls.ts', import.meta.url), 'utf8');
+  assert.match(paid, /perUserPerDay: PAID_AI_DAILY_LIMIT,/, 'the server enforces the disclosed number');
+  assert.ok(listing.description.includes(line), 'App Store description');
+  assert.ok(play.fullDescription.includes(line), 'Google Play full description');
+  const terms = await readFile(new URL('../public/terms/index.html', import.meta.url), 'utf8');
+  assert.ok(terms.includes(line), 'Terms');
+  const sell = await readFile(new URL('../src/content/sell.ts', import.meta.url), 'utf8');
+  const paywall = await readFile(new URL('../src/billing/PlanChoice.tsx', import.meta.url), 'utf8');
+  assert.match(sell, /limitLine: DAILY_AI_LIMIT_LINE,/, 'the paywall copy uses the sentence itself');
+  assert.match(paywall, /PLAN_SCREEN\.limitLine/, 'and the plan screen shows it');
+});

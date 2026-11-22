@@ -35,7 +35,7 @@ test('store and web builds point at the same API and the hosted Terms and Privac
 });
 
 test('the legal pages are real, dated, and name the entity and contact', async () => {
-  const dated = { 'public/terms/index.html': '2026-11-13', 'public/privacy/index.html': '2026-11-21', 'public/privacy/consumer-health/index.html': '2026-10-08' };
+  const dated = { 'public/terms/index.html': '2026-11-21', 'public/privacy/index.html': '2026-11-21', 'public/privacy/consumer-health/index.html': '2026-10-08' };
   for (const [page, date] of Object.entries(dated)) {
     const html = await read(page);
     assert.match(html, new RegExp(`Last updated ${date}`));

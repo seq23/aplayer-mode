@@ -5,7 +5,7 @@
 // display-name map, so this copy can never drift from what is sold.
 // Pure TS (no React Native imports) so apps/mobile/test can pin it in Node.
 import { TRACK_DISPLAY_NAMES, type ActiveTrackKey } from '@apm/domain';
-import { CHIEF_OF_STAFF_INTRO_OFFERS, PLAN_PRICES, formatUsdCents, type PaidPlan } from '@apm/policy';
+import { CHIEF_OF_STAFF_INTRO_OFFERS, DAILY_AI_LIMIT_LINE, PLAN_PRICES, formatUsdCents, type PaidPlan } from '@apm/policy';
 import { GAMES, questionPath, setupMinutes } from '@apm/planning';
 
 /**
@@ -279,6 +279,7 @@ export const PLAN_SCREEN = {
   annualLine: 'Annual = 2 months free.',
   autonomyLine: 'Buying a tier never grants autonomy: you switch on each permission yourself, and you can revoke it.',
   betaLine: 'Closed beta: the prices are shown, nothing is charged.',
+  limitLine: DAILY_AI_LIMIT_LINE,
 } as const;
 
 /** Recommended tier: most parents start with Executive Suite; everyone else with Executive Roundtable. */

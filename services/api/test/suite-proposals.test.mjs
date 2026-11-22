@@ -120,6 +120,7 @@ test.beforeEach((t) => {
     const method = options.method ?? 'GET';
     calls.push({ url: url.href, method, body, headers: new Headers(options.headers) });
     if (url.origin === env.SUPABASE_URL) {
+      if (url.pathname === '/rest/v1/rpc/apm_ai_cost_microusd_since') return new Response('0', { status: 200, headers: { 'content-type': 'application/json' } });
       if (url.pathname === '/rest/v1/ai_usage_events') {
         const count = method === 'HEAD' && url.searchParams.has('user_id') ? usageMine : method === 'HEAD' ? usageTotal : 0;
         return new Response(null, { status: method === 'HEAD' ? 206 : 204, headers: { 'content-range': `0-0/${count}` } });

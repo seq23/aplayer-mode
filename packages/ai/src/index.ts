@@ -35,6 +35,8 @@ export interface ModelRoute {
   latencyScore: number;
   lastPolicyReviewedAt: string;
   lastEvalRunAt?: string;
+  /** Send `reasoning: { enabled: false }` (a thinking model that otherwise spends the budget and sends no content). */
+  reasoningDisabled?: boolean;
 }
 
 export interface RouteRequest {
@@ -73,6 +75,12 @@ export function isRouteEligible(route: ModelRoute, request: RouteRequest): boole
 
 /** Locked order after privacy/capability eligibility: reliability → quality → cost → latency. */
 export function selectModelRoute(routes: ModelRoute[], request: RouteRequest): RouteSelection | null {
+  const route = rankModelRoutes(routes, request)[0];
+  return route ? { route, reason: 'selected' } : null;
+}
+
+/** Every eligible route, best first (the first is the one used; the rest are its fallbacks in order). */
+export function rankModelRoutes(routes: ModelRoute[], request: RouteRequest): ModelRoute[] {
   const eligible = routes.filter((route) => isRouteEligible(route, request));
   eligible.sort((a, b) => {
     if (b.reliabilityScore !== a.reliabilityScore) return b.reliabilityScore - a.reliabilityScore;
@@ -80,8 +88,7 @@ export function selectModelRoute(routes: ModelRoute[], request: RouteRequest): R
     if (costRank[a.costClass] !== costRank[b.costClass]) return costRank[a.costClass] - costRank[b.costClass];
     return b.latencyScore - a.latencyScore;
   });
-  const route = eligible[0];
-  return route ? { route, reason: 'selected' } : null;
+  return eligible;
 }
 
 export function isGenericFreeRouterAllowed(dataClass: DataClass): boolean {
@@ -139,6 +146,8 @@ export interface InferenceResult<T = unknown> {
   usage: InferenceUsage;
   latencyMs: number;
   responseModel?: string;
+  /** How many better-ranked routes failed before this one answered. */
+  fallbackCount: number;
 }
 
 export class NoEligibleModelRouteError extends Error {
@@ -149,6 +158,8 @@ export class NoEligibleModelRouteError extends Error {
 }
 
 export class InferenceResponseError extends Error {
+  /** What the call(s) that ended in this error were billed (OpenRouter usage.cost), when known. */
+  costUsd?: number;
   constructor(message: string, public readonly status?: number) {
     super(message);
     this.name = 'InferenceResponseError';
@@ -184,14 +195,38 @@ export async function runOpenRouterInference<T = unknown>(input: {
   // route not vetted for highly sensitive data can never receive it (fails closed).
   const dataClass = effectiveDataClass(task.dataClass, [JSON.stringify(task.context)]);
 
-  const selection = selectModelRoute(input.routes, {
+  const ranked = rankModelRoutes(input.routes, {
     dataClass,
     requiredCapabilities: task.requiredCapabilities,
     minimumQualityScore: task.minimumQualityScore,
   });
-  if (!selection) throw new NoEligibleModelRouteError(dataClass, task.taskType);
+  if (!ranked.length) throw new NoEligibleModelRouteError(dataClass, task.taskType);
+  // The best route first; a route that fails (HTTP error, network, no content, bad JSON or shape)
+  // hands over to the next eligible one. Every route tried passed the same privacy check above.
+  // A route that was billed and then failed (bad JSON, wrong shape) still cost money: the result and
+  // the final error carry the whole spend, so the monthly backstop never reads low.
+  let lastError: unknown;
+  let failedSpendUsd = 0;
+  for (const [fallbackCount, route] of ranked.entries()) {
+    try {
+      const result = await callRoute<T>(route, task, input);
+      const costUsd = (result.usage.costUsd ?? 0) + failedSpendUsd;
+      return { ...result, usage: { ...result.usage, ...(costUsd > 0 ? { costUsd } : {}) }, dataClass, redactions, fallbackCount };
+    } catch (error) {
+      if (error instanceof InferenceResponseError && typeof error.costUsd === 'number') failedSpendUsd += error.costUsd;
+      lastError = error;
+      if (input.signal?.aborted) break;
+    }
+  }
+  if (failedSpendUsd > 0) {
+    const final = lastError instanceof InferenceResponseError ? lastError : new InferenceResponseError(lastError instanceof Error ? lastError.message : String(lastError));
+    final.costUsd = failedSpendUsd;
+    throw final;
+  }
+  throw lastError;
+}
 
-  const route = selection.route;
+async function callRoute<T>(route: ModelRoute, task: InferenceTask, input: { apiKey: string; appName?: string; appUrl?: string; signal?: AbortSignal }) {
   const provider = buildOpenRouterProviderPolicy(route);
   const body: Record<string, unknown> = {
     model: route.modelId,
@@ -208,6 +243,7 @@ export async function runOpenRouterInference<T = unknown>(input: {
     // Cost instrumentation: OpenRouter reports the call's charge in usage.cost.
     usage: { include: true },
   };
+  if (route.reasoningDisabled) body.reasoning = { enabled: false };
 
   if (task.jsonSchema) {
     body.response_format = {
@@ -240,23 +276,24 @@ export async function runOpenRouterInference<T = unknown>(input: {
   }
 
   const parsed = (await response.json()) as OpenRouterResponse;
-  const raw = extractText(parsed);
+  const billed = typeof parsed.usage?.cost === 'number' && Number.isFinite(parsed.usage.cost) && parsed.usage.cost > 0 ? parsed.usage.cost : 0;
+  const refuse = (message: string) => Object.assign(new InferenceResponseError(message), { costUsd: billed });
+  let raw: string;
+  try { raw = extractText(parsed); } catch { throw refuse('OpenRouter returned no message content'); }
   let value: unknown = raw;
   if (task.jsonSchema) {
     try {
       value = JSON.parse(raw);
     } catch {
-      throw new InferenceResponseError('Structured inference returned invalid JSON');
+      throw refuse('Structured inference returned invalid JSON');
     }
     // An LLM response does not own truth: valid JSON in the wrong shape is refused.
     const problems = validateJsonSchema(value, task.jsonSchema.schema);
-    if (problems.length) throw new InferenceResponseError(`schema_mismatch: ${problems.slice(0, 3).join('; ')}`);
+    if (problems.length) throw refuse(`schema_mismatch: ${problems.slice(0, 3).join('; ')}`);
   }
 
   return {
     route,
-    dataClass,
-    redactions,
     value: value as T,
     latencyMs,
     responseModel: parsed.model,

@@ -1,4 +1,5 @@
 import {
+  InferenceResponseError,
   NoEligibleModelRouteError,
   runOpenRouterInference,
   selectModelRoute,
@@ -47,6 +48,14 @@ async function claimSuiteMailCall(env: ApiEnv, userId: string, taskType: string,
   if (mine >= SUITE_MAIL_ROUTE.perUserPerDay) throw new SuiteMailStop('SUITE_MAIL_USER_DAILY_CAP');
 }
 
+/** The routes a call may use: private mail only ever its one approved ZDR, no-training route (no fallback). */
+export function routesForTask(all: ModelRoute[], suiteMail: boolean): ModelRoute[] {
+  return suiteMail
+    ? all.filter((route) => route.routeId === SUITE_MAIL_ROUTE.routeId && route.status === 'approved'
+      && route.retention === 'zero' && !route.trainingAllowed)
+    : all;
+}
+
 function mapRetention(value: string): RetentionClass {
   if (value === 'zero') return 'zero';
   if (value === 'limited') return 'limited';
@@ -69,13 +78,14 @@ interface ModelRouteRow {
   latency_score: number;
   last_policy_reviewed_at: string;
   last_eval_run_at: string | null;
+  reasoning_disabled: boolean | null;
 }
 
 async function modelRoutesForRuntime(env: ApiEnv, accessToken: string): Promise<ModelRoute[]> {
   const rows = await supabaseRest<ModelRouteRow[]>(
     env,
     accessToken,
-    '/rest/v1/model_routes?select=route_id,model_id,provider_id,status,cost_class,capabilities,data_classes_allowed,training_allowed,retention,approved_for_highly_sensitive,quality_score,reliability_score,latency_score,last_policy_reviewed_at,last_eval_run_at&order=cost_class.asc,route_id.asc',
+    '/rest/v1/model_routes?select=route_id,model_id,provider_id,status,cost_class,capabilities,data_classes_allowed,training_allowed,retention,approved_for_highly_sensitive,quality_score,reliability_score,latency_score,last_policy_reviewed_at,last_eval_run_at,reasoning_disabled&order=cost_class.asc,route_id.asc',
   );
   return rows.map((row) => ({
     routeId: row.route_id,
@@ -93,6 +103,7 @@ async function modelRoutesForRuntime(env: ApiEnv, accessToken: string): Promise<
     latencyScore: row.latency_score,
     lastPolicyReviewedAt: row.last_policy_reviewed_at,
     lastEvalRunAt: row.last_eval_run_at ?? undefined,
+    reasoningDisabled: row.reasoning_disabled === true,
   }));
 }
 
@@ -117,11 +128,7 @@ export async function runUserInference<T>(input: {
   if (input.suiteMail) await claimSuiteMailCall(input.env, input.userId, input.task.taskType);
   // Per-user and global daily ceilings before anything billed is called (src/paidCalls.ts).
   await claimPaidCall(input.env, input.userId);
-  const all = await modelRoutesForRuntime(input.env, input.accessToken);
-  const routes = input.suiteMail
-    ? all.filter((route) => route.routeId === SUITE_MAIL_ROUTE.routeId && route.status === 'approved'
-      && route.retention === 'zero' && !route.trainingAllowed)
-    : all;
+  const routes = routesForTask(await modelRoutesForRuntime(input.env, input.accessToken), input.suiteMail === true);
   if (input.suiteMail && !routes.length) throw new SuiteMailStop('SUITE_MAIL_ROUTE_NOT_APPROVED');
   const started = Date.now();
   let result: Awaited<ReturnType<typeof runOpenRouterInference<T>>>;
@@ -144,7 +151,8 @@ export async function runUserInference<T>(input: {
         data_class: error instanceof NoEligibleModelRouteError ? error.dataClass : input.task.dataClass,
         success: false,
         latency_ms: Date.now() - started,
-        cost_microusd: 0,
+        // A billed call that failed still counts toward the monthly backstop.
+        cost_microusd: costMicroUsd(error instanceof InferenceResponseError ? error.costUsd : undefined),
         fallback_count: 0,
         error_code: error instanceof Error ? error.name : 'unknown_error',
       }]),
@@ -166,7 +174,7 @@ export async function runUserInference<T>(input: {
         output_tokens: result.usage.outputTokens ?? null,
         latency_ms: result.latencyMs,
         cost_microusd: costMicroUsd(result.usage.costUsd),
-        fallback_count: 0,
+        fallback_count: result.fallbackCount,
       }]),
     });
   } catch (error) {

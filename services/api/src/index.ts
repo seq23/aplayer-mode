@@ -50,7 +50,7 @@ import { clearDeviceCalendar, syncCloudCalendar, syncDeviceCalendar } from './co
 import { syncEmailSignals } from './connectors/email';
 import { closeCoachingSession, coach } from './coaching';
 import { reviewLogin } from './reviewLogin';
-import { limiterAllows, PaidCallRefused, paidRouteAllowed } from './paidCalls';
+import { limiterAllows, PaidCallRefused, paidRefusal, paidRouteAllowed } from './paidCalls';
 import { LAUNCH_UPDATES_ORIGINS, launchUpdatesSignup } from './launchUpdates';
 import { COACH_CHOICES } from './coach/machine';
 import { applyModeToPlan, modeView, reconcileModeState, transitionMode, type ModeEvent, type ModeRequest, type ModeState } from './coach/modes';
@@ -1615,7 +1615,7 @@ app.post('/v1/email/connections/:id/sync', async (c) => {
   let result: Awaited<ReturnType<typeof syncEmailSignals>>;
   try { result = await syncEmailSignals({ env: c.env, accessToken: user.accessToken, userId: user.id, connectionId: c.req.param('id'), maxMessages: parsed.data.maxMessages }); }
   catch (error) {
-    if (error instanceof PaidCallRefused) return c.json({ ...PAID_RATE_LIMITED, reason: error.reason }, 429);
+    if (error instanceof PaidCallRefused) return c.json(paidRefusal(error.reason), 429);
     return connectionFailure(c, error);
   }
   await recordAnalyticsEvent(c.env, user.accessToken, user.id, 'email_synced', { provider: result.provider, messagesProcessed: result.messagesProcessed, signalsStored: result.signalsStored });

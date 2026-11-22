@@ -53,6 +53,7 @@ test('email sync: bad answers and sensitive messages are skipped, secrets redact
       const body = JSON.parse(init.body); calls.openrouter.push(body.messages[1].content);
       return json({ choices: [{ message: { content: answers.shift() } }], usage: { prompt_tokens: 5, completion_tokens: 5, cost: 0.0002 } });
     }
+    if (href.includes('/rest/v1/rpc/apm_ai_cost_microusd_since')) return new Response('0', { status: 200, headers: { 'content-type': 'application/json' } }); // this month's AI cost: none yet
     if (href.includes('/rest/v1/ai_usage_events') && method === 'HEAD') return new Response(null, { status: 206, headers: { 'content-range': '0-0/0' } });
     if (href.includes('/rest/v1/ai_usage_events')) { calls.usage.push(JSON.parse(init.body)[0]); return new Response(null, { status: 201 }); }
     if (href.includes('/rest/v1/message_signals') && method === 'POST') return json([{ id: 'sig1' }]);
@@ -86,6 +87,7 @@ test('a failed usage write never throws away a successful inference', async () =
   let usageWrites = 0;
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
+    if (href.includes('/rest/v1/rpc/apm_ai_cost_microusd_since')) return new Response('0', { status: 200, headers: { 'content-type': 'application/json' } });
     if (href.includes('/rest/v1/ai_usage_events') && init.method === 'HEAD') return new Response(null, { status: 206, headers: { 'content-range': '0-0/0' } });
     if (href.includes('/rest/v1/model_routes')) return new Response(JSON.stringify([routeRow]), { status: 200 });
     if (href.startsWith('https://openrouter.ai/')) return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }], usage: { cost: 0.001 } }), { status: 200 });
