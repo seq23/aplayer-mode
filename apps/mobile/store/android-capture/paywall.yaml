@@ -3,6 +3,12 @@
 appId: com.aplayermode.app
 ---
 - openLink: aplayermode://settings/plan
+# Re-opening the screen that is already open keeps its scroll position: go back to the top first.
+- scrollUntilVisible:
+    element: "How much should APM carry?"
+    direction: UP
+    timeout: 30000
+    optional: true
 # The review account is on a plan, so its status card comes first; the tier cards sit below it.
 - scrollUntilVisible:
     element: "Executive Roundtable"
