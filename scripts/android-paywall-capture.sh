@@ -16,14 +16,13 @@ adb install -r "$apk"
 maestro test -e EMAIL="$EMAIL" -e CODE="$CODE" "$flows/sign-in.yaml"
 signed_in=1
 adb shell screenrecord --time-limit 170 /sdcard/paywall.mp4 & rec=$!
+flows="$(cd "$flows" && pwd)"
 for mode in no yes; do
   adb shell cmd uimode night "$mode"
-  maestro test "$flows/paywall.yaml"
   name=$([ "$mode" = no ] && echo light || echo dark)
-  adb exec-out screencap -p > "$out/paywall-390-$name.png"
+  (cd "$out" && maestro test -e MODE="$name" "$flows/paywall.yaml")
+  mv "$flows"/paywall-390-*.png "$out"/ 2>/dev/null || true   # Maestro versions differ on where takeScreenshot writes
   maestro hierarchy > "$out/paywall-390-$name.json"   # read below, never uploaded (it holds screen text)
-  adb shell input swipe 585 2000 585 600 800; sleep 2
-  adb exec-out screencap -p > "$out/paywall-390-$name-lower.png"
 done
 kill -INT "$rec" 2>/dev/null || true; sleep 3; adb pull /sdcard/paywall.mp4 "$out/paywall.mp4" || true
 for f in "$out"/paywall-390-light.png "$out"/paywall-390-dark.png; do [ -s "$f" ] || { echo "capture missing: $f"; exit 1; }; done

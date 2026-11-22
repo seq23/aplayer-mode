@@ -1,17 +1,23 @@
-# Opens the paywall (Settings > Plan) by deep link, scrolls to the tier cards and waits for the store's answer.
+# Opens the paywall (Settings > Plan) by deep link, scrolls to the tier cards, waits for the store's
+# answer and screenshots the tier cards and the store-status card. MODE = light | dark.
 appId: com.aplayermode.app
 ---
 - openLink: aplayermode://settings/plan
-- extendedWaitUntil:
-    visible: "How much should APM carry?"
-    timeout: 60000
 # The review account is on a plan, so its status card comes first; the tier cards sit below it.
 - scrollUntilVisible:
     element: "Executive Roundtable"
     direction: DOWN
-    timeout: 30000
+    timeout: 60000
     centerElement: true
 # The store side settles (Play prices, or the outage card) within STORE_ANSWER_MS (15 s): never stuck loading.
 - extendedWaitUntil:
     notVisible: "Getting prices from the store…"
     timeout: 30000
+- takeScreenshot: paywall-390-${MODE}
+# The store-status card above the tiers when Google Play did not answer (absent when prices loaded).
+- scrollUntilVisible:
+    element: ".*is not answering right now.*"
+    direction: UP
+    timeout: 15000
+    optional: true
+- takeScreenshot: paywall-390-${MODE}-store
