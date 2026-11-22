@@ -104,7 +104,7 @@ export const PLAN_PRICES: Readonly<Record<PaidPlan, PlanPrice>> = {
 /** Billed AI calls per member per day (src/paidCalls.ts enforces it); the disclosed limit. */
 export const PAID_AI_DAILY_LIMIT = 300;
 /** The ONE sentence that discloses it: the paywall, both store listings and the Terms quote it exactly. */
-export const DAILY_AI_LIMIT_LINE = `Fair use: up to ${PAID_AI_DAILY_LIMIT} AI requests a day per member. After that, coaching and planning keep working without AI until the next day.`;
+export const DAILY_AI_LIMIT_LINE = `Fair use: up to ${PAID_AI_DAILY_LIMIT} AI requests a day per member. After that, coaching and planning keep working without AI, and inbox scanning starts again the next day.`;
 
 export const CHIEF_OF_STAFF_INTRO_OFFERS = {
   /** First 100 subscribers: the intro price for as long as they stay continuously subscribed. */

@@ -44,6 +44,13 @@ export class PaidCallRefused extends Error {
   }
 }
 
+/** What a refused billed call tells the person (HTTP 429 body): true about when it works again. The daily limit is disclosed; the backstop is not named. */
+export function paidRefusal(reason: PaidCallRefusal) {
+  if (reason === 'user_daily_limit') return { error: 'daily_ai_limit', message: "You've used today's AI requests. Inbox scanning starts again tomorrow.", reason };
+  if (reason === 'user_monthly_backstop' || reason === 'global_daily_limit') return { error: 'ai_paused', message: 'Inbox scanning is paused for now and starts again on its own. Your plan and coaching keep working.', reason };
+  return { error: 'rate_limited', message: 'Too many requests. Wait a minute and try again.', reason };
+}
+
 const localHits = new Map<string, number[]>();
 const WINDOW_MS = 60_000;
 

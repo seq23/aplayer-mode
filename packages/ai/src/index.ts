@@ -158,6 +158,8 @@ export class NoEligibleModelRouteError extends Error {
 }
 
 export class InferenceResponseError extends Error {
+  /** What the call(s) that ended in this error were billed (OpenRouter usage.cost), when known. */
+  costUsd?: number;
   constructor(message: string, public readonly status?: number) {
     super(message);
     this.name = 'InferenceResponseError';
@@ -201,14 +203,25 @@ export async function runOpenRouterInference<T = unknown>(input: {
   if (!ranked.length) throw new NoEligibleModelRouteError(dataClass, task.taskType);
   // The best route first; a route that fails (HTTP error, network, no content, bad JSON or shape)
   // hands over to the next eligible one. Every route tried passed the same privacy check above.
+  // A route that was billed and then failed (bad JSON, wrong shape) still cost money: the result and
+  // the final error carry the whole spend, so the monthly backstop never reads low.
   let lastError: unknown;
+  let failedSpendUsd = 0;
   for (const [fallbackCount, route] of ranked.entries()) {
     try {
-      return { ...(await callRoute<T>(route, task, input)), dataClass, redactions, fallbackCount };
+      const result = await callRoute<T>(route, task, input);
+      const costUsd = (result.usage.costUsd ?? 0) + failedSpendUsd;
+      return { ...result, usage: { ...result.usage, ...(costUsd > 0 ? { costUsd } : {}) }, dataClass, redactions, fallbackCount };
     } catch (error) {
-      if (input.signal?.aborted) throw error;
+      if (error instanceof InferenceResponseError && typeof error.costUsd === 'number') failedSpendUsd += error.costUsd;
       lastError = error;
+      if (input.signal?.aborted) break;
     }
+  }
+  if (failedSpendUsd > 0) {
+    const final = lastError instanceof InferenceResponseError ? lastError : new InferenceResponseError(lastError instanceof Error ? lastError.message : String(lastError));
+    final.costUsd = failedSpendUsd;
+    throw final;
   }
   throw lastError;
 }
@@ -263,17 +276,20 @@ async function callRoute<T>(route: ModelRoute, task: InferenceTask, input: { api
   }
 
   const parsed = (await response.json()) as OpenRouterResponse;
-  const raw = extractText(parsed);
+  const billed = typeof parsed.usage?.cost === 'number' && Number.isFinite(parsed.usage.cost) && parsed.usage.cost > 0 ? parsed.usage.cost : 0;
+  const refuse = (message: string) => Object.assign(new InferenceResponseError(message), { costUsd: billed });
+  let raw: string;
+  try { raw = extractText(parsed); } catch { throw refuse('OpenRouter returned no message content'); }
   let value: unknown = raw;
   if (task.jsonSchema) {
     try {
       value = JSON.parse(raw);
     } catch {
-      throw new InferenceResponseError('Structured inference returned invalid JSON');
+      throw refuse('Structured inference returned invalid JSON');
     }
     // An LLM response does not own truth: valid JSON in the wrong shape is refused.
     const problems = validateJsonSchema(value, task.jsonSchema.schema);
-    if (problems.length) throw new InferenceResponseError(`schema_mismatch: ${problems.slice(0, 3).join('; ')}`);
+    if (problems.length) throw refuse(`schema_mismatch: ${problems.slice(0, 3).join('; ')}`);
   }
 
   return {

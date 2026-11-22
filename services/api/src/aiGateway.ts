@@ -1,4 +1,5 @@
 import {
+  InferenceResponseError,
   NoEligibleModelRouteError,
   runOpenRouterInference,
   selectModelRoute,
@@ -150,7 +151,8 @@ export async function runUserInference<T>(input: {
         data_class: error instanceof NoEligibleModelRouteError ? error.dataClass : input.task.dataClass,
         success: false,
         latency_ms: Date.now() - started,
-        cost_microusd: 0,
+        // A billed call that failed still counts toward the monthly backstop.
+        cost_microusd: costMicroUsd(error instanceof InferenceResponseError ? error.costUsd : undefined),
         fallback_count: 0,
         error_code: error instanceof Error ? error.name : 'unknown_error',
       }]),

@@ -9,7 +9,9 @@ stable
 security definer
 set search_path = public
 as $$
-  select coalesce(sum(cost_microusd), 0)::bigint
+  -- greatest(): a signed-in client may insert its own usage rows, so a negative cost it writes
+  -- can never lower its own month (abuse case, review of #98).
+  select coalesce(sum(greatest(cost_microusd, 0)), 0)::bigint
     from public.ai_usage_events
    where user_id = p_user_id
      and created_at >= p_since;

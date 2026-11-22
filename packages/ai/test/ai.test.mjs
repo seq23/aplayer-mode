@@ -127,3 +127,18 @@ test('fallback: a failing first route hands over to the next ELIGIBLE route only
     assert.deepEqual(calls.map((c) => c.model), ['deepseek/deepseek-v4.1-flash'], 'no ineligible route is tried when the eligible ones fail');
   } finally { globalThis.fetch = original; }
 });
+
+test('a billed route that fails still counts: the spend of every failed attempt rides on the result, or on the final error', async () => {
+  const original = globalThis.fetch;
+  const routes = [route({ routeId: 'a', modelId: 'vendor/a', latencyScore: 99 }), route({ routeId: 'b', modelId: 'vendor/b', latencyScore: 90 })];
+  const answer = (content, cost) => new Response(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: 1, completion_tokens: 1, cost } }), { status: 200 });
+  const good = JSON.stringify({ signals: [{ type: 'deadline', confidence: 0.9, dueAt: null }] });
+  try {
+    globalThis.fetch = async (url, init) => (JSON.parse(init.body).model === 'vendor/a' ? answer('not json', 0.002) : answer(good, 0.001));
+    const result = await ai.runOpenRouterInference({ apiKey: 'k', routes, task: task() });
+    assert.equal(result.route.routeId, 'b');
+    assert.ok(Math.abs(result.usage.costUsd - 0.003) < 1e-12, 'the bad answer from a is billed too');
+    globalThis.fetch = async () => answer('{"signals":"wrong shape"}', 0.002);
+    await assert.rejects(ai.runOpenRouterInference({ apiKey: 'k', routes, task: task() }), (error) => Math.abs(error.costUsd - 0.004) < 1e-12);
+  } finally { globalThis.fetch = original; }
+});

@@ -150,3 +150,18 @@ test('private mail (Suite reply drafts, subscription findings) only ever uses it
     assert.equal(routesForTask(all, false).length, 3, 'other tasks see every route; the privacy check in @apm/ai picks among them');
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('a refused billed call says truthfully when it works again; the backstop is never named', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'apm-refusal-'));
+  try {
+    await build({ entryPoints: { p: join(srcDir, 'paidCalls.ts') }, bundle: true, format: 'esm', platform: 'neutral', outdir: dir, logLevel: 'silent' });
+    const { paidRefusal } = await import(pathToFileURL(join(dir, 'p.js')).href);
+    assert.match(paidRefusal('user_daily_limit').message, /tomorrow/);
+    assert.doesNotMatch(paidRefusal('user_daily_limit').message, /minute/, 'never "wait a minute" at the daily limit');
+    for (const reason of ['user_monthly_backstop', 'global_daily_limit']) {
+      const { message } = paidRefusal(reason);
+      assert.doesNotMatch(message, /minute|month|backstop|limit/i, `${reason}: no false wait, and the hidden backstop is not named`);
+    }
+    assert.match(paidRefusal('rate_limited').message, /minute/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
