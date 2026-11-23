@@ -33,7 +33,8 @@ test('#1/#14: the setup length promised is the real one, everywhere it is said',
   assert.ok(store.description.includes(`about ${minutes} minutes`), 'the store listing says the same length');
   assert.doesNotMatch(store.description, /3 minutes/);
   const welcome = await src('app/welcome.tsx');
-  assert.match(welcome, /CTA_LABEL[^\n]*\n\s*<Muted align="center">\{START_PRICE_SHORT\}<\/Muted>/, 'the price sits right under Start');
+  assert.match(welcome, /CTA_LABEL[^\n]*\n\s*<Muted align="center">\{price\.short\}<\/Muted>/, 'the price sits right under Start');
+  assert.match(welcome, /const price = welcomePrice\(distribution\);/, 'the price lines follow this build (a store build names no fixed figure)');
 });
 
 test('#5/#20: steppers start unset; times wrap around midnight; a typed weight saves only in range', () => {

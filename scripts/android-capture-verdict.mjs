@@ -9,6 +9,8 @@
 //                to logcat ("[apm-billing] store plans unavailable: fault=… code=…").
 // Anything else fails (Rule 0): a blank screen, still loading, card checkout, a not-configured build,
 // "This plan is not in the store yet", "Plans did not load", a screen with no buy button at all.
+// The signed-out welcome page ("welcome-*" screens) passes only when it rendered top to bottom, shows
+// the intro-offer line and names no fixed price (a store build's price is Play's, on the plans screen).
 // usage: node scripts/android-capture-verdict.mjs <out-dir> <screen-name>...   (reads <out>/<name>-*.json, <out>/billing-log.txt)
 //        node scripts/android-capture-verdict.mjs --self-check                 (fixtures; no device)
 import { readdir, readFile } from 'node:fs/promises';
@@ -18,6 +20,7 @@ import { pathToFileURL } from 'node:url';
 const BUY = /^(Subscribe to|Upgrade to|Switch to) /;
 const PRICE = /\S\/(month|year)$/;
 const OUTAGE = 'Nothing was charged and your setup is saved';
+const FIXED_PRICE = /[$€£¥₹]\s?\d|\d\s?[€£¥₹]|\d[.,]\d\d\s*\/\s*(month|year|mo)\b|\bUSD\b/i;
 const FAILS = [
   [/pay by card|Plans are paid by card/i, 'store build shows card checkout'],
   [/Getting prices from the store/, 'still loading store prices'],
@@ -71,6 +74,19 @@ export function screenVerdict(all, log) {
   return { state: 'play-prices' };
 }
 
+/** { state } or { problem } for one welcome-page screen (store build, signed out). */
+export function welcomeVerdict(all) {
+  const strings = all.flatMap((n) => [n.text, n.desc]).filter(Boolean);
+  const has = (re) => strings.some((s) => (typeof re === 'string' ? s.includes(re) : re.test(s)));
+  if (!has('I already have an account')) return { problem: 'the welcome page never rendered' };
+  const priced = strings.find((s) => FIXED_PRICE.test(s));
+  if (priced) return { problem: `a fixed price on the store welcome page: "${priced.slice(0, 80)}"` };
+  if (!has(/\d+-month intro offer · see plans/)) return { problem: 'no intro-offer line by the plans teaser' };
+  if (!has(/price shows on the plans screen/)) return { problem: 'no line saying where the price is' };
+  if (!has('You pick a plan after setup')) return { problem: 'the full terms by the last Start were never seen' };
+  return { state: 'no-fixed-price' };
+}
+
 async function readScreen(out, name) {
   const files = (await readdir(out)).filter((f) => f.startsWith(`${name}-`) && f.endsWith('.json')).sort();
   if (!files.length) return undefined;
@@ -87,6 +103,14 @@ function fixture({ outage = false, buttons = [true], price = '$24.99/month', blo
   for (const on of buttons) children.push({ attributes: { text: '', accessibilityText: 'Subscribe to Executive Roundtable' }, enabled: on, children: [leaf('Subscribe to Executive Roundtable')] });
   if (blockedLine) children.push(leaf('Not available right now. Tap Try again above.'));
   for (const t of extra) children.push(leaf(t));
+  return nodes({ attributes: {}, enabled: true, children });
+}
+
+function welcomeFixture({ offer = '3-month intro offer · see plans', short = 'Subscription with a 3-month intro offer; your price shows on the plans screen. No free trial. Cancel any time.', end = true, extra = [] } = {}) {
+  const leaf = (text) => ({ attributes: { text, accessibilityText: '' }, enabled: true, children: [] });
+  const children = [leaf('Start: reduce my load'), leaf('I already have an account'), leaf('Three levels of help')];
+  for (const t of [offer, short, ...extra]) if (t) children.push(leaf(t));
+  if (end) children.push(leaf('A subscription, no free trial. Your exact price, in your currency, shows on the plans screen before you confirm. Cancel any time. You pick a plan after setup.'));
   return nodes({ attributes: {}, enabled: true, children });
 }
 
@@ -111,6 +135,13 @@ async function selfCheck() {
     [!ok(screenVerdict(fixture({ ...outage, buttons: [] }), log)), 'an outage with no buy button seen fails'],
     [!ok(screenVerdict(fixture(outage), '')), 'an outage with no logged cause fails'],
     [!ok(screenVerdict(nodes({}), log)), 'an empty screen fails'],
+    [welcomeVerdict(welcomeFixture()).state === 'no-fixed-price', 'the store welcome page with the intro-offer line and no price passes'],
+    [!ok(welcomeVerdict(welcomeFixture({ offer: 'Introductory offer: start at $9.99/month' }))), 'the card build\'s USD pill on a store build fails'],
+    [!ok(welcomeVerdict(welcomeFixture({ short: 'Subscription: $9.99/month to start, then $24.99/month after 3 months.' }))), 'a USD line under Start fails'],
+    [!ok(welcomeVerdict(welcomeFixture({ extra: ['9,99 €/month'] }))), 'a fixed price in another currency fails'],
+    [!ok(welcomeVerdict(welcomeFixture({ offer: null }))), 'no intro-offer line fails'],
+    [!ok(welcomeVerdict(welcomeFixture({ end: false }))), 'the full terms never seen fails'],
+    [!ok(welcomeVerdict(nodes({}))), 'an empty welcome screen fails'],
   ];
   const bad = cases.filter(([pass]) => !pass).map(([, name]) => name);
   if (bad.length) { console.error(`android-capture-verdict self-check FAILED: ${bad.join('; ')}`); process.exit(1); }
@@ -126,7 +157,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     const states = [];
     for (const name of names) {
       const all = await readScreen(out, name);
-      const v = all ? screenVerdict(all, log) : { problem: 'no screen hierarchy was dumped' };
+      const v = !all ? { problem: 'no screen hierarchy was dumped' } : name.startsWith('welcome-') ? welcomeVerdict(all) : screenVerdict(all, log);
       if (v.problem) {
         // Shape only (never screen text), so a Maestro format change is diagnosable from the log.
         const keys = new Set(); const walk = (n) => { if (n && typeof n === 'object') { for (const k of Object.keys(n.attributes ?? {})) keys.add(k); (n.children ?? []).forEach(walk); } };

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# The paywall on the REAL store build, on an Android emulator (android-store-build.yml, capture job):
-# signs the App Review account in, opens Settings > Plan at 320 and 390 dp wide, light then dark, and records it.
+# The welcome page and the paywall on the REAL store build, on an Android emulator (android-store-build.yml,
+# capture job): the signed-out welcome page, then the App Review account signed in and Settings > Plan,
+# each at 320 and 390 dp wide, light then dark; the paywall is recorded.
+# The welcome page passes only with no fixed price on it (a store build's price is Play's, on the plans screen).
 # Fails (Rule 0) unless every screenshot exists and scripts/android-capture-verdict.mjs passes each screen:
 # Play prices with an enabled buy button, or the outage card with every buy button disabled and the
 # cause the app logged (kept as billing-log.txt). No card checkout, no "not configured", no missing plan.
@@ -18,10 +20,26 @@ adb shell wm size 1170x2532 && adb shell wm density 480   # 3 px per dp: 960 px 
 adb install -r "$apk"
 # The app's own billing log (catalog.ts writes the store's error code) and RevenueCat's errors; only those lines are kept.
 adb logcat -c; adb logcat -v brief 'ReactNativeJS:W' 'Purchases:W' '*:S' > "$raw_log" & logcat_pid=$!
+flows="$(cd "$flows" && pwd)"
+welcome=()
+for dp in 320 390; do
+  adb shell wm size "$((dp * 3))x2532"
+  for mode in no yes; do
+    adb shell cmd uimode night "$mode"
+    name="welcome-$dp-$([ "$mode" = no ] && echo light || echo dark)"
+    maestro test "$flows/welcome.yaml"
+    adb exec-out screencap -p > "$out/$name.png"; maestro hierarchy > "$out/$name-1.json"
+    maestro test "$flows/welcome-offer.yaml"
+    adb exec-out screencap -p > "$out/$name-offer.png"; maestro hierarchy > "$out/$name-2.json"
+    maestro test "$flows/welcome-end.yaml"
+    adb exec-out screencap -p > "$out/$name-end.png"; maestro hierarchy > "$out/$name-3.json"
+    welcome+=("$name")
+  done
+done
+adb shell wm size 1170x2532; adb shell cmd uimode night no
 maestro test -e EMAIL="$EMAIL" -e CODE="$CODE" "$flows/sign-in.yaml"
 signed_in=1
 adb shell screenrecord --time-limit 180 /sdcard/paywall.mp4 & rec=$!
-flows="$(cd "$flows" && pwd)"
 shots=()
 for dp in 320 390; do
   adb shell wm size "$((dp * 3))x2532"
@@ -43,8 +61,11 @@ done
 kill -INT "$rec" 2>/dev/null || true; sleep 3; adb pull /sdcard/paywall.mp4 "$out/paywall.mp4" || true
 kill "$logcat_pid" 2>/dev/null || true; logcat_pid=""
 grep -E '\[apm-billing\]|PurchasesError|BILLING_UNAVAILABLE|BillingResponse' "$raw_log" > "$out/billing-log.txt" || true
+for name in "${welcome[@]}"; do
+  for f in "$out/$name.png" "$out/$name-offer.png" "$out/$name-end.png"; do [ -s "$f" ] || { echo "capture missing: $f"; exit 1; }; done
+done
 for name in "${shots[@]}"; do
   for f in "$out/$name.png" "$out/$name-store.png" "$out/$name-buy.png"; do [ -s "$f" ] || { echo "capture missing: $f"; exit 1; }; done
 done
-states="$(node "$(dirname "$0")/android-capture-verdict.mjs" "$out" "${shots[@]}")"
-echo "OUTPUT android-paywall-capture: ${#shots[@]} screens (320+390 dp, light+dark); store side: $states"
+states="$(node "$(dirname "$0")/android-capture-verdict.mjs" "$out" "${welcome[@]}" "${shots[@]}")"
+echo "OUTPUT android-paywall-capture: ${#welcome[@]} welcome + ${#shots[@]} paywall screens (320+390 dp, light+dark); $states"

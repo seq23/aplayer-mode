@@ -109,7 +109,8 @@ export function tierOffers(period: BillingPeriod, founding: boolean, prices: Pri
     const unit = period === 'annual' ? 'year' : 'month';
     const priceLabel = store?.priceString ? `${store.priceString}/${unit}` : undefined;
     let note: string | undefined;
-    if (isFounding) note = 'Founding 100: this price stays for as long as you stay continuously subscribed.';
+    // "this price" only beside a price: while the store is unknown there is none to point at.
+    if (isFounding) note = priceLabel ? 'Founding 100: this price stays for as long as you stay continuously subscribed.' : undefined;
     else if (plan === 'chief_of_staff' && period === 'monthly') {
       // Only when the store offers the intro to THIS buyer (an ineligible buyer pays the list price).
       if (store?.introPriceString && store.priceString) note = `New subscribers: ${store.introPriceString}/month for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${store.priceString}/month.`;
