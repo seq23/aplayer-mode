@@ -1,8 +1,10 @@
-# Scrolls to the plans teaser and its offer pill.
+# Scrolls to the plans teaser's offer pill. The pill itself is the target, not the "Three levels of help"
+# heading: the sticky footer (Start, its price line, the sign-in link) covers the bottom third of the
+# screen, so centring on the heading left the pill under it at 320 dp (capture run 45090334985).
 appId: com.aplayermode.app
 ---
 - scrollUntilVisible:
-    element: "Three levels of help"
+    element: ".*intro offer · see plans"
     direction: DOWN
     timeout: 60000
     centerElement: true
