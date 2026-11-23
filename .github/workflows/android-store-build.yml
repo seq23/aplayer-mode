@@ -63,7 +63,7 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost && df -h / | tail -1
       - run: npm install --legacy-peer-deps --no-audit --no-fund
       - name: Prove the track and billing checks on fixtures
-        run: node scripts/play-internal-check.mjs --self-check && node scripts/play-billing-check.mjs --self-check
+        run: node scripts/play-internal-check.mjs --self-check && node scripts/play-billing-check.mjs --self-check && node scripts/lib/play-auth.mjs --self-check && node scripts/android-capture-verdict.mjs --self-check
       - name: Every paid plan is sellable on Play and in RevenueCat as the policy says
         # Before minutes go on a build: a plan the paywall shows but Play or RevenueCat lacks (or prices
         # differently) would be a broken promise in Google's review. Read-only.

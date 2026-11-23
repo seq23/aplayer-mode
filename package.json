@@ -27,5 +27,8 @@
   },
   "engines": {
     "node": ">=22.13.0"
+  },
+  "devDependencies": {
+    "google-auth-library": "11.3.3"
   }
 }

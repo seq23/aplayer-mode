@@ -1,6 +1,7 @@
 // Pure paywall logic (no React Native imports, so apps/mobile/test can run it in Node).
-// Prices and package ids come from packages/policy (ADR-0004, ADR-0005); the store's
-// own localized price string wins when the store has returned one.
+// Package ids come from packages/policy (ADR-0004, ADR-0005). Prices: a store build shows only the
+// store's own price strings (none until it answers); card checkout shows the policy USD prices.
+import { errorDiagnostic } from '../api/errors';
 import {
   CHIEF_OF_STAFF_INTRO_OFFERS,
   PLAN_PRICES,
@@ -34,16 +35,52 @@ export function packageIdFor(plan: PaidPlan, period: BillingPeriod): string {
   return REVENUECAT_CONFIG.packages[plan][period];
 }
 
-export function listPriceLabel(plan: PaidPlan, period: BillingPeriod): string {
-  const price = PLAN_PRICES[plan];
-  return period === 'annual' ? `${formatUsdCents(price.annualUsdCents)}/year` : `${formatUsdCents(price.monthlyUsdCents)}/month`;
-}
-
 export interface StorePrice {
   /** The store's localized price, e.g. "$24.99" or "24,99 €". */
   priceString?: string;
   /** The store's localized intro price, when the store offers one to this user. */
   introPriceString?: string;
+}
+
+/**
+ * Every price the paywall shows, by package id. `shown` is the offering on screen (the founding
+ * offering's cos_monthly is the founding price); `standard` is the default offering (the regular
+ * price the banner, the grid and the annual note compare against).
+ *   * A store build shows ONLY what Google Play / the App Store returned: the price that store
+ *     will charge, in the buyer's currency. Until it answers there is no price at all.
+ *   * Card checkout (web, sideload APK) charges the ADR-0004 USD prices, so it shows those.
+ */
+export interface Prices {
+  shown: Partial<Record<string, StorePrice>>;
+  standard: Partial<Record<string, StorePrice>>;
+}
+
+export const NO_PRICES: Prices = { shown: {}, standard: {} };
+
+/** Card checkout's prices (RevenueCat Web Billing, USD): exactly packages/policy. */
+export function cardPrices(founding: boolean): Prices {
+  const standard: Record<string, StorePrice> = {};
+  for (const plan of PAID_PLANS) {
+    standard[packageIdFor(plan, 'monthly')] = { priceString: formatUsdCents(PLAN_PRICES[plan].monthlyUsdCents) };
+    standard[packageIdFor(plan, 'annual')] = { priceString: formatUsdCents(PLAN_PRICES[plan].annualUsdCents) };
+  }
+  const cos = packageIdFor('chief_of_staff', 'monthly');
+  standard[cos] = { ...standard[cos], introPriceString: formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents) };
+  const shown = founding ? { ...standard, [cos]: { priceString: formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents) } } : standard;
+  return { shown, standard };
+}
+
+/** The shape of a store package this file reads (react-native-purchases PurchasesPackage). */
+export interface StorePackageLike { identifier: string; product: { priceString?: string; introPrice?: { priceString?: string } | null } }
+
+/** A store build's prices: only the strings the store returned for each package. */
+export function storePrices(offer?: { availablePackages: readonly StorePackageLike[]; standardPackages?: readonly StorePackageLike[] }): Prices {
+  const read = (packages: readonly StorePackageLike[] = []) => {
+    const out: Record<string, StorePrice> = {};
+    for (const pkg of packages) out[pkg.identifier] = { priceString: pkg.product.priceString || undefined, introPriceString: pkg.product.introPrice?.priceString || undefined };
+    return out;
+  };
+  return { shown: read(offer?.availablePackages), standard: read(offer?.standardPackages) };
 }
 
 export interface TierOffer {
@@ -52,8 +89,8 @@ export interface TierOffer {
   displayName: string;
   tagline: string;
   packageId: string;
-  /** e.g. "$24.99/month" (store price when known). */
-  priceLabel: string;
+  /** e.g. "$24.99/month"; absent while the store has not given a price (nothing is shown then). */
+  priceLabel?: string;
   /** Annual saving line, or the Executive Roundtable monthly intro line. */
   note?: string;
   founding: boolean;
@@ -61,23 +98,25 @@ export interface TierOffer {
 
 /**
  * The three tier cards for the chosen period. `founding` is the server's decision
- * (GET /v1/billing/offering); the app never infers it.
+ * (GET /v1/billing/offering); the app never infers it. Every figure comes from `prices`.
  */
-export function tierOffers(period: BillingPeriod, founding: boolean, storePrices: Partial<Record<string, StorePrice>> = {}): TierOffer[] {
+export function tierOffers(period: BillingPeriod, founding: boolean, prices: Prices): TierOffer[] {
   return PAID_PLANS.map((plan) => {
     const price = PLAN_PRICES[plan];
     const packageId = packageIdFor(plan, period);
-    const store = storePrices[packageId];
+    const store = prices.shown[packageId];
     const isFounding = founding && plan === 'chief_of_staff' && period === 'monthly';
     const unit = period === 'annual' ? 'year' : 'month';
-    const fallback = isFounding ? formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents) : period === 'annual' ? formatUsdCents(price.annualUsdCents) : formatUsdCents(price.monthlyUsdCents);
-    const priceLabel = `${store?.priceString ?? fallback}/${unit}`;
+    const priceLabel = store?.priceString ? `${store.priceString}/${unit}` : undefined;
     let note: string | undefined;
     if (isFounding) note = 'Founding 100: this price stays for as long as you stay continuously subscribed.';
     else if (plan === 'chief_of_staff' && period === 'monthly') {
-      const intro = store?.introPriceString ?? formatUsdCents(CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents);
-      note = `New subscribers: ${intro}/month for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${store?.priceString ?? formatUsdCents(price.monthlyUsdCents)}/month.`;
-    } else if (period === 'annual') note = `2 months free versus ${formatUsdCents(price.monthlyUsdCents)}/month.`;
+      // Only when the store offers the intro to THIS buyer (an ineligible buyer pays the list price).
+      if (store?.introPriceString && store.priceString) note = `New subscribers: ${store.introPriceString}/month for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${store.priceString}/month.`;
+    } else if (period === 'annual') {
+      const perMonth = prices.standard[packageIdFor(plan, 'monthly')]?.priceString;
+      if (perMonth) note = `2 months free versus ${perMonth}/month.`;
+    }
     return { plan, period, displayName: price.displayName, tagline: price.tagline, packageId, priceLabel, note, founding: isFounding };
   });
 }
@@ -85,33 +124,80 @@ export function tierOffers(period: BillingPeriod, founding: boolean, storePrices
 /** How long the paywall waits for the store (RevenueCat, then Google Play / the App Store) before it says plans are unavailable. */
 export const STORE_ANSWER_MS = 15_000;
 
-export type StoreOfferingState<O> = { state: 'ready'; offering: O } | { state: 'unavailable' };
+/**
+ * Why the store side did not load, from the RevenueCat error code (PURCHASES_ERROR_CODE) so the
+ * paywall tells the buyer the true cause and what fixes it:
+ *   not_allowed  "3" PURCHASE_NOT_ALLOWED: Google Play billing unavailable on this phone (no Google
+ *                account signed in to Play), or purchases switched off on the iPhone (Screen Time).
+ *   network      "10" NETWORK, "35" OFFLINE_CONNECTION: the phone cannot reach the store.
+ *   store        "2" STORE_PROBLEM, "12"/"16" backend, "32" product request timed out.
+ *   not_set_up   "23" CONFIGURATION, "11" INVALID_CREDENTIALS, "5" product not available, or the
+ *                offering came back missing / with no packages: nothing in this build can be bought.
+ *   timeout      no answer within STORE_ANSWER_MS.
+ *   unknown      any other code, or none.
+ */
+export type StoreFault = 'not_allowed' | 'network' | 'store' | 'not_set_up' | 'timeout' | 'unknown';
+
+const FAULT_BY_CODE: Readonly<Record<string, StoreFault>> = {
+  '3': 'not_allowed', '10': 'network', '35': 'network', '2': 'store', '12': 'store', '16': 'store', '32': 'store', '23': 'not_set_up', '11': 'not_set_up', '5': 'not_set_up',
+};
+
+export function storeFaultFor(code: string | undefined): StoreFault {
+  return (code !== undefined && FAULT_BY_CODE[code]) || 'unknown';
+}
+
+export type StoreOfferingState<O> = { state: 'ready'; offering: O } | { state: 'unavailable'; fault: StoreFault; code?: string };
 
 /**
  * The store side of the paywall, as one answer. A store that throws, never answers, has no such
  * offering or returns it with no packages (Play Billing unavailable, RevenueCat down) is
- * `unavailable`: the paywall says so and buys nothing. It never grants anything either way; only
- * the server's entitlement row (GET /v1/product/plan) does.
+ * `unavailable`, with the cause: the paywall says so and buys nothing. Each cause is written to the
+ * device log (logcat tag ReactNativeJS) as "[apm-billing] store plans unavailable: ...". It never
+ * grants anything either way; only the server's entitlement row (GET /v1/product/plan) does.
  */
 export async function loadStoreOffering<O extends { availablePackages: readonly unknown[] }>(
-  load: () => Promise<O | undefined>, timeoutMs = STORE_ANSWER_MS,
+  load: () => Promise<O | undefined>, timeoutMs = STORE_ANSWER_MS, log: (line: string) => void = (line) => console.warn(line),
 ): Promise<StoreOfferingState<O>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const unavailable = (fault: StoreFault, code?: string, detail?: string): StoreOfferingState<O> => {
+    log(`[apm-billing] store plans unavailable: fault=${fault} code=${code ?? 'none'}${detail ? ` ${detail}` : ''}`);
+    return code === undefined ? { state: 'unavailable', fault } : { state: 'unavailable', fault, code };
+  };
   try {
-    const timeout = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), timeoutMs); });
+    const timedOut = Symbol('timeout');
+    const timeout = new Promise<typeof timedOut>((resolve) => { timer = setTimeout(() => resolve(timedOut), timeoutMs); });
     const offering = await Promise.race([load(), timeout]);
-    return offering && offering.availablePackages.length > 0 ? { state: 'ready', offering } : { state: 'unavailable' };
-  } catch {
-    return { state: 'unavailable' };
+    if (offering === timedOut) return unavailable('timeout', undefined, `no answer in ${timeoutMs} ms`);
+    if (!offering) return unavailable('not_set_up', undefined, 'offering missing');
+    if (offering.availablePackages.length === 0) return unavailable('not_set_up', undefined, 'offering has no packages');
+    return { state: 'ready', offering };
+  } catch (cause) {
+    const { code, detail } = errorDiagnostic(cause);
+    return unavailable(storeFaultFor(code), code, detail);
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
 
-/** What the paywall says when the store did not answer: who did not answer, that nothing was charged, what to do. */
-export function storeUnavailableCopy(store: StoreChannel): string {
+/** What the paywall says when the store side did not load: the true cause, that nothing was charged, and what fixes it. */
+export function storeUnavailableCopy(store: StoreChannel, fault: StoreFault, code?: string): string {
   const who = store === 'google_play' ? 'Google Play' : 'The App Store';
-  return `${who} is not answering right now, so plans cannot be bought yet. Nothing was charged and your setup is saved. Try again in a moment.`;
+  const safe = 'Nothing was charged and your setup is saved.';
+  switch (fault) {
+    case 'not_allowed':
+      return store === 'google_play'
+        ? `Google Play can't take payments on this phone yet. Open the Play Store app and sign in with your Google account, then tap Try again. ${safe}`
+        : `This iPhone doesn't allow in-app purchases. Allow them in Settings > Screen Time > Content & Privacy Restrictions, then tap Try again. ${safe}`;
+    case 'network':
+      return `This phone can't reach ${who === 'The App Store' ? 'the App Store' : who} right now. Check your internet connection, then tap Try again. ${safe}`;
+    case 'not_set_up':
+      return `Plans can't be bought in this version of the app yet. ${safe}`;
+    case 'store':
+    case 'timeout':
+      return `${who} is not answering right now, so plans cannot be bought yet. ${safe} Try again in a moment.`;
+    default:
+      return `${who} could not load the plans${code ? ` (error ${code})` : ''}. ${safe} Try again in a moment.`;
+  }
 }
 
 export type StoreLoad = 'loading' | 'ready' | 'unavailable';
@@ -169,7 +255,9 @@ export function subscriptionDisclosure(store: BillingChannel, offer: TierOffer):
   const unit = offer.period === 'annual' ? 'year' : 'month';
   const labels = STORE_LABELS[store];
   const lines = [
-    `${offer.displayName} (${offer.period === 'annual' ? 'annual' : 'monthly'}) is an auto-renewing subscription at ${offer.priceLabel}.`,
+    offer.priceLabel
+      ? `${offer.displayName} (${offer.period === 'annual' ? 'annual' : 'monthly'}) is an auto-renewing subscription at ${offer.priceLabel}.`
+      : `${offer.displayName} (${offer.period === 'annual' ? 'annual' : 'monthly'}) is an auto-renewing subscription; ${store === 'app_store' ? 'the App Store' : store === 'google_play' ? 'Google Play' : 'checkout'} shows its price before you confirm.`,
     `Payment is charged to your ${labels.account} when you confirm the purchase.`,
     store === 'web'
       ? `It renews automatically every ${unit} at the then-current price until you cancel; each renewal is charged to the same card at the start of the new period.`

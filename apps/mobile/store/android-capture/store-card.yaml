@@ -1,9 +1,10 @@
-# Scrolls up to the store-status card shown above the tiers when Google Play did not answer
-# (absent when prices loaded, so it is optional).
+# Scrolls up to the store-status card shown above the tiers when the store side did not load, and
+# centres it so its whole message is in the screenshot (absent when Play prices loaded: optional).
 appId: com.aplayermode.app
 ---
 - scrollUntilVisible:
-    element: ".*is not answering right now.*"
+    element: ".*Nothing was charged and your setup is saved.*"
     direction: UP
+    centerElement: true
     timeout: 15000
     optional: true

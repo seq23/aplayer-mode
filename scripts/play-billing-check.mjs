@@ -6,11 +6,11 @@
 // never writes. Any read that fails is a NAMED STOP (exit 1), never a pass.
 // usage: node scripts/play-billing-check.mjs --key-file <play-sa.json> [package]   (REVENUECAT_V2_SECRET_KEY in env)
 //        node scripts/play-billing-check.mjs --self-check                          (fixtures; no network)
-import crypto from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { playAccessToken } from './lib/play-auth.mjs';
 
 const RC_PROJECT = 'proj2c0586cf';
 const PLAY_API = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications';
@@ -86,18 +86,8 @@ export function billingProblems(policy, play, rc, pkg = 'com.aplayermode.app') {
   return problems;
 }
 
-async function playToken(sa, fetch) {
-  const now = Math.floor(Date.now() / 1000);
-  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/androidpublisher', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 600 })}`;
-  const assertion = `${unsigned}.${crypto.sign('RSA-SHA256', Buffer.from(unsigned), sa.private_key).toString('base64url')}`;
-  const res = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }) });
-  if (!res.ok) throw new Error(`NAMED STOP [PLAY_AUTH_FAILED] token request answered ${res.status}`);
-  return (await res.json()).access_token;
-}
-
-export async function readPlay(pkg, sa, fetch = globalThis.fetch) {
-  const headers = { authorization: `Bearer ${await playToken(sa, fetch)}` };
+export async function readPlay(pkg, token, fetch = globalThis.fetch) {
+  const headers = { authorization: `Bearer ${token}` };
   const res = await fetch(`${PLAY_API}/${pkg}/subscriptions`, { headers });
   if (!res.ok) throw new Error(`NAMED STOP [PLAY_SUBSCRIPTIONS_REFUSED] subscriptions.list answered ${res.status}`);
   const subscriptions = (await res.json()).subscriptions ?? [];
@@ -176,8 +166,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     const [flag, keyFile, pkg = 'com.aplayermode.app'] = process.argv.slice(2);
     if (flag !== '--key-file' || !keyFile) { console.error('usage: play-billing-check.mjs --key-file <sa.json> [package]'); process.exit(2); }
     try {
-      const sa = JSON.parse(await readFile(keyFile, 'utf8').catch(() => { throw new Error(`NAMED STOP [PLAY_KEY_FILE_MISSING] ${keyFile} not readable`); }));
-      const [policy, play, rc] = await Promise.all([loadPolicy(), readPlay(pkg, sa), readRevenueCat(process.env.REVENUECAT_V2_SECRET_KEY)]);
+      const [policy, play, rc] = await Promise.all([loadPolicy(), playAccessToken(keyFile).then((token) => readPlay(pkg, token)), readRevenueCat(process.env.REVENUECAT_V2_SECRET_KEY)]);
       const problems = billingProblems(policy, play, rc, pkg);
       if (problems.length) { console.error(`play-billing-check FAILED for ${pkg}:\n  ✗ ${problems.join('\n  ✗ ')}`); process.exit(1); }
       const n = policy.BILLING_PRODUCTS.filter((p) => p.store === 'google_play').length;

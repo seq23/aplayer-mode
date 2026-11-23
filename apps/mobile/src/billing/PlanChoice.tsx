@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppState, View } from 'react-native';
-import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
+import type { PurchasesPackage } from 'react-native-purchases';
 import type { BillingPeriod, PaidPlan } from '@apm/policy';
 import { Body, Button, Card, CardTitle, ChoiceRow, Disclosure, Figure, Heading, KeyValue, Label, Pill, Row, SectionTitle, Small, Stack, Tile, Toast, uiStyles } from '../components/ui';
 import { fetchBillingOffering, fetchProductPlan, fetchWebBillingPortal, reconcileBilling, type BillingOfferingResponse, type ProductPlanResponse } from '../api/apmApi';
 import { useSession } from '../state/session';
 import { hasDailyLoopAccess } from './access';
-import { APPLE_STANDARD_EULA_URL, PAID_PLANS, STORE_LABELS, buyBlockedReason, loadStoreOffering, storeManageUrl, storeUnavailableCopy, subscriptionDisclosure, tierOffers, type StoreLoad, type StorePrice } from './catalog';
-import { UNAVAILABLE_COPY, appDistribution, billingAvailability, buyPackage, identifyBillingUser, legalUrls, loadOffering, managementUrl, restoreStorePurchases } from './purchases';
+import { APPLE_STANDARD_EULA_URL, PAID_PLANS, STORE_LABELS, buyBlockedReason, cardPrices, loadStoreOffering, storeManageUrl, storePrices, storeUnavailableCopy, subscriptionDisclosure, tierOffers, type StoreFault, type StoreLoad } from './catalog';
+import { UNAVAILABLE_COPY, appDistribution, billingAvailability, buyPackage, identifyBillingUser, legalUrls, loadOffering, managementUrl, restoreStorePurchases, type StoreOffering } from './purchases';
 // iOS resolves this to webCheckout.ios.ts (no card checkout in an iPhone build; App Store 3.1.1).
 import { WEB_CHECKOUT_COPY, webCheckoutFor } from './webCheckout';
-import { PLAN_SCREEN, TIER_GRID_WHAT, TIER_GRID_WHO, offerBanner, recommendedTier, type OfferBanner } from '../content/sell';
+import { PLAN_SCREEN, TIER_GRID_WHAT, offerBanner, recommendedTier, tierGridWho, type OfferBanner } from '../content/sell';
 import { openExternal } from '../links/external';
 import { plainError } from '../api/errors';
 import { AccountPanel } from '../components/intake/AccountPanel';
@@ -42,9 +42,10 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
   const { termsUrl, privacyUrl } = legalUrls(store, APPLE_STANDARD_EULA_URL);
   const [product, setProduct] = useState<ProductPlanResponse>();
   const [serverOffering, setServerOffering] = useState<BillingOfferingResponse>();
-  const [storeOffering, setStoreOffering] = useState<PurchasesOffering>();
+  const [storeOffering, setStoreOffering] = useState<StoreOffering>();
   /** The store side alone (RevenueCat + Play / App Store): an outage there is "unavailable", never an endless "Getting prices". */
   const [storeLoad, setStoreLoad] = useState<StoreLoad>('loading');
+  const [storeFault, setStoreFault] = useState<{ fault: StoreFault; code?: string }>({ fault: 'unknown' });
   const [period, setPeriod] = useState<BillingPeriod>('monthly');
   const [busy, setBusy] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -82,6 +83,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
           const storeSide = await loadStoreOffering(async () => { await identifyBillingUser(user.id); return loadOffering(offering.offeringId); });
           if (!active) return;
           setStoreOffering(storeSide.state === 'ready' ? storeSide.offering : undefined);
+          if (storeSide.state === 'unavailable') setStoreFault({ fault: storeSide.fault, code: storeSide.code });
           setStoreLoad(storeSide.state);
         }
       })
@@ -94,14 +96,12 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
     for (const pkg of storeOffering?.availablePackages ?? []) map[pkg.identifier] = pkg;
     return map;
   }, [storeOffering]);
-  const storePrices = useMemo(() => {
-    const prices: Record<string, StorePrice> = {};
-    for (const [id, pkg] of Object.entries(packagesById)) prices[id] = { priceString: pkg.product.priceString, introPriceString: pkg.product.introPrice?.priceString };
-    return prices;
-  }, [packagesById]);
   const founding = serverOffering?.founding === true || serverOffering?.offering === 'founding';
-  const offers = tierOffers(period, founding, storePrices);
-  const banner = offerBanner({ founding, spotsLeft: serverOffering?.spotsLeft ?? null });
+  // A store build shows only the store's own price strings (none until it answers); card checkout charges the policy USD prices.
+  const prices = useMemo(() => (distribution === 'store' ? storePrices(storeOffering) : cardPrices(founding)), [distribution, storeOffering, founding]);
+  const offers = tierOffers(period, founding, prices);
+  const banner = offerBanner({ founding, spotsLeft: serverOffering?.spotsLeft ?? null, prices });
+  const gridWho = tierGridWho(prices);
   // Card checkout (RevenueCat Web Billing): web app and sideload APK only; 'unavailable' in every store build.
   const cardCheckout = webCheckoutFor(distribution, founding);
   const cardPay = cardCheckout.kind !== 'unavailable';
@@ -226,7 +226,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       {error ? <Card tone="danger"><Body>{error}</Body><Button label="Try again" variant="secondary" onPress={() => { setError(undefined); setReloadKey((n) => n + 1); }} /></Card> : null}
       <Toast message={notice} />
 
-      <OfferBannerCard banner={banner} />
+      {banner ? <OfferBannerCard banner={banner} /> : null}
       <Testimonials />
 
       {/* The buy buttons come right after the offer (docs/36 H2): the 13 grid rows used to sit
@@ -243,7 +243,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       {cardCheckout.kind === 'not_configured' ? <Card tone="muted"><Body>{WEB_CHECKOUT_COPY.notConfigured}</Body></Card> : null}
       {storeSubscriberHere && billing && billing.store !== 'web' ? <Card tone="muted"><Body>{`Your plan is billed through ${STORE_LABELS[billing.store].settings}. Change or cancel it there; it works here on the same account.`}</Body></Card> : null}
       {/* The store did not answer (RevenueCat or Play / App Store down, Billing unavailable): say so; nothing is bought or granted. */}
-      {availability.available && !isAnonymous && storeLoad === 'unavailable' ? <Card tone="warning"><Body>{storeUnavailableCopy(availability.store)}</Body><Button label="Try again" variant="secondary" onPress={() => setReloadKey((n) => n + 1)} /></Card> : null}
+      {availability.available && !isAnonymous && storeLoad === 'unavailable' ? <Card tone="warning"><Body>{storeUnavailableCopy(availability.store, storeFault.fault, storeFault.code)}</Body><Button label="Try again" variant="secondary" onPress={() => setReloadKey((n) => n + 1)} /></Card> : null}
       {(availability.available || cardCheckout.kind === 'ready') && isAnonymous ? (
         <Card tone="warning">
           <AccountPanel title="Save your account first" sub="A subscription belongs to an account, so it is never tied to one phone. One tap, no password." onDone={() => setReloadKey((n) => n + 1)} />
@@ -264,17 +264,17 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
               {isCurrent ? <Pill tone="solid">Current</Pill> : planKey === recommended ? <Pill tone="solid">{games.includes('parent') ? 'Most parents start here' : 'Recommended'}</Pill> : <Pill>{offer.tagline}</Pill>}
             </Row>
             {card ? <Body>{card.promise}</Body> : null}
-            <KeyValue label="Price" value={offer.priceLabel} />
+            {offer.priceLabel ? <KeyValue label="Price" value={offer.priceLabel} /> : null}
             {offer.note ? <Body muted>{offer.note}</Body> : null}
             {/* No wall of dead buttons where this build cannot buy: the card above says where to. */}
             {!isCurrent && availability.available ? (
-              <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName}`} accessibilityLabel={`${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'primary' : 'secondary'} busy={busy === planKey}
+              <Button label={busy === planKey ? 'Opening the store…' : `${action} ${offer.displayName}`} accessibilityLabel={offer.priceLabel ? `${action} ${offer.displayName}, ${offer.priceLabel}` : undefined} variant={planKey === recommended ? 'primary' : 'secondary'} busy={busy === planKey}
                 disabled={!purchasesEnabled || !pkg || Boolean(busy)} disabledReason={busy ? undefined : buyBlockedReason({ available: availability.available, isAnonymous, legalReady: Boolean(privacyUrl && termsUrl), planLoadFailed: Boolean(error), store: storeLoad, hasPackage: Boolean(pkg) })} onPress={() => purchase(planKey)} />
             ) : null}
             {/* Card checkout (web app + sideload APK only). Not configured yet: the calm card above, never a dead button. */}
             {!isCurrent && cardCheckout.kind === 'ready' && !storeSubscriberHere ? (webSubscriber
               ? <Button label={`${action} ${offer.displayName} in Manage subscription`} variant="secondary" disabled={Boolean(busy)} onPress={() => void manage()} />
-              : <Button label={busy === 'card' ? WEB_CHECKOUT_COPY.confirming : `${WEB_CHECKOUT_COPY.button} · ${offer.displayName}`} accessibilityLabel={`${WEB_CHECKOUT_COPY.button}: ${action} ${offer.displayName}, ${offer.priceLabel}`} variant={planKey === recommended ? 'primary' : 'secondary'} busy={busy === 'card'}
+              : <Button label={busy === 'card' ? WEB_CHECKOUT_COPY.confirming : `${WEB_CHECKOUT_COPY.button} · ${offer.displayName}`} accessibilityLabel={`${WEB_CHECKOUT_COPY.button}: ${action} ${offer.displayName}${offer.priceLabel ? `, ${offer.priceLabel}` : ''}`} variant={planKey === recommended ? 'primary' : 'secondary'} busy={busy === 'card'}
                   disabled={!cardEnabled || Boolean(busy)} disabledReason={busy ? undefined : isAnonymous ? WEB_CHECKOUT_COPY.account : !serverOffering ? 'Getting plans…' : undefined} onPress={() => void payByCard(planKey)} />) : null}
           </Card>
         );
@@ -298,7 +298,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       ) : null}
 
       <Disclosure icon="columns" title={PLAN_SCREEN.compareTitle} summary={PLAN_SCREEN.compareSummary}>
-        <TierGrid title={TIER_GRID_WHO.title} note={TIER_GRID_WHO.note} columns={TIER_GRID_WHO.columns} rows={TIER_GRID_WHO.rows} highlight={PAID_PLANS.indexOf(recommended)} />
+        <TierGrid title={gridWho.title} note={gridWho.note} columns={gridWho.columns} rows={gridWho.rows} highlight={PAID_PLANS.indexOf(recommended)} />
         <TierGrid title={TIER_GRID_WHAT.title} columns={TIER_GRID_WHAT.columns} rows={TIER_GRID_WHAT.rows} highlight={PAID_PLANS.indexOf(recommended)} />
       </Disclosure>
       <Body muted>{`${PLAN_SCREEN.annualLine} ${PLAN_SCREEN.autonomyLine} ${PLAN_SCREEN.limitLine}`}</Body>

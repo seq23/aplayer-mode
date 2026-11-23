@@ -86,3 +86,14 @@ export function plainError(error: unknown, fallback: string): string {
   if (error instanceof Error && isHumanSentence(error.message) && !/\(\d{3}\)|EXPO_PUBLIC|configured/i.test(error.message)) return error.message;
   return fallback;
 }
+
+/**
+ * For the log only, never shown: the code a store SDK error carries (RevenueCat's PurchasesError:
+ * PURCHASES_ERROR_CODE as a string) and its own words, so a device log names the real cause.
+ */
+export function errorDiagnostic(error: unknown): { code?: string; detail: string } {
+  const err = (error ?? {}) as { code?: unknown; message?: unknown; underlyingErrorMessage?: unknown; userInfo?: { readableErrorCode?: unknown } };
+  const code = typeof err.code === 'string' || typeof err.code === 'number' ? String(err.code) : undefined;
+  const words = [err.userInfo?.readableErrorCode, err.message, err.underlyingErrorMessage].filter((w): w is string => typeof w === 'string' && w.length > 0);
+  return code === undefined ? { detail: words.join(' | ').slice(0, 300) } : { code, detail: words.join(' | ').slice(0, 300) };
+}
