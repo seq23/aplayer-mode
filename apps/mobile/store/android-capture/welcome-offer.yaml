@@ -1,10 +1,14 @@
 # Scrolls to the plans teaser's offer pill. The pill itself is the target, not the "Three levels of help"
 # heading: the sticky footer (Start, its price line, the sign-in link) covers the bottom third of the
 # screen, so centring on the heading left the pill under it at 320 dp (capture run 45090334985).
+# Timeout: the pill sits near the end of a long page, so this scroll is the slowest step in the capture.
+# Measured 47, 47, 55 and 61 s in run 45096041958 and 63 s (failed) in run 45100557711 against the old
+# 60 s limit; every other scroll takes 17 s or less. 150 s leaves room for a slow emulator while a page that never
+# shows the pill still fails inside the job's 40 minutes.
 appId: com.aplayermode.app
 ---
 - scrollUntilVisible:
     element: ".*intro offer · see plans"
     direction: DOWN
-    timeout: 60000
+    timeout: 150000
     centerElement: true
