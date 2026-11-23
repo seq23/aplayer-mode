@@ -8,6 +8,15 @@ name: Android store build
 # touches production, closed or open testing, or review; scripts/play-internal-check.mjs proves it.
 on:
   workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload to the internal track as a draft (false = build and capture only, e.g. from a PR branch)
+        type: boolean
+        default: true
+      capture_from_run:
+        description: Skip the build and capture the universal APK an earlier run of this workflow made (its run id; the APK is kept 1 day)
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -15,6 +24,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
+    if: inputs.capture_from_run == ''
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -35,7 +45,9 @@ jobs:
         env:
           HAS_EXPO_TOKEN: ${{ secrets.EXPO_TOKEN != '' }}
           HAS_PLAY_KEY: ${{ secrets.GOOGLE_PLAY_UPLOAD_SA_JSON != '' }}
+          HAS_RC_KEY: ${{ secrets.REVENUECAT_V2_SECRET_KEY != '' }}
         run: |
+          [ "$HAS_RC_KEY" = "true" ] || { echo "NAMED STOP [REVENUECAT_V2_SECRET_KEY_MISSING] set the repo secret from the vault"; exit 1; }
           [ "$HAS_EXPO_TOKEN" = "true" ] || { echo "NAMED STOP [EXPO_TOKEN_MISSING] set the EXPO_TOKEN repo secret"; exit 1; }
           [ "$HAS_PLAY_KEY" = "true" ] || { echo "NAMED STOP [GOOGLE_PLAY_UPLOAD_SA_JSON_MISSING] set the repo secret from the vault"; exit 1; }
           echo "AAB=$RUNNER_TEMP/app.aab" >> "$GITHUB_ENV"
@@ -50,8 +62,19 @@ jobs:
       - name: Free disk space for the Gradle build
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost && df -h / | tail -1
       - run: npm install --legacy-peer-deps --no-audit --no-fund
-      - name: Prove the track check on fixtures
-        run: node scripts/play-internal-check.mjs --self-check
+      - name: Prove the track and billing checks on fixtures
+        run: node scripts/play-internal-check.mjs --self-check && node scripts/play-billing-check.mjs --self-check && node scripts/lib/play-auth.mjs --self-check && node scripts/android-capture-verdict.mjs --self-check
+      - name: Every paid plan is sellable on Play and in RevenueCat as the policy says
+        # Before minutes go on a build: a plan the paywall shows but Play or RevenueCat lacks (or prices
+        # differently) would be a broken promise in Google's review. Read-only.
+        env:
+          GOOGLE_PLAY_UPLOAD_SA_JSON: ${{ secrets.GOOGLE_PLAY_UPLOAD_SA_JSON }}
+          REVENUECAT_V2_SECRET_KEY: ${{ secrets.REVENUECAT_V2_SECRET_KEY }}
+        run: |
+          key="$RUNNER_TEMP/play-billing-sa.json"
+          (umask 077; printenv GOOGLE_PLAY_UPLOAD_SA_JSON > "$key")
+          trap 'rm -f "$key"' EXIT
+          node scripts/play-billing-check.mjs --key-file "$key" "$PACKAGE"
       - name: Build the store .aab
         # The eas-build-pre-install hook (apps/mobile/scripts/store-build-gate.mjs) refuses a build
         # without the goog_ RevenueCat key before anything is installed.
@@ -72,7 +95,20 @@ jobs:
           [[ "$code" =~ ^[0-9]+$ ]] || { echo "AAB has no versionCode"; exit 1; }
           [ "$sha1" = "$UPLOAD_CERT_SHA1" ] || { echo "AAB is not signed with the EAS upload key ($UPLOAD_CERT_SHA1)"; exit 1; }
           echo "version_code=$code" >> "$GITHUB_OUTPUT"
+      - name: Universal APK of this exact bundle for the emulator capture
+        # Debug-signed by bundletool (the bundle is the Play upload; this APK never leaves the run but as a
+        # 1-day artifact for the capture job below).
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/capture.jks" -storepass capture -keypass capture -alias capture -keyalg RSA -dname CN=capture -validity 2 >/dev/null 2>&1
+          java -jar "$RUNNER_TEMP/bundletool.jar" build-apks --bundle "$AAB" --output "$RUNNER_TEMP/u.apks" --mode=universal --ks "$RUNNER_TEMP/capture.jks" --ks-pass pass:capture --ks-key-alias capture --key-pass pass:capture
+          unzip -o -q "$RUNNER_TEMP/u.apks" universal.apk -d "$RUNNER_TEMP/capture"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capture-apk
+          path: ${{ runner.temp }}/capture/universal.apk
+          retention-days: 1
       - name: Upload to the internal track as a draft
+        if: inputs.upload
         working-directory: apps/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -81,7 +117,51 @@ jobs:
           (umask 077; printenv GOOGLE_PLAY_UPLOAD_SA_JSON > play-sa.json)
           npx -y "$EAS_CLI" submit --platform android --profile production --path "$AAB" --non-interactive --wait
       - name: Prove this build is a draft on internal and on no other track
+        if: inputs.upload
         run: node scripts/play-internal-check.mjs --key-file apps/mobile/play-sa.json "$PACKAGE" "${{ steps.aab.outputs.version_code }}"
       - name: Delete the upload key and the bundle
         if: always()
-        run: rm -f apps/mobile/play-sa.json "$AAB" "$RUNNER_TEMP/bundletool.jar"
+        run: rm -rf apps/mobile/play-sa.json "$AAB" "$RUNNER_TEMP/bundletool.jar" "$RUNNER_TEMP/capture.jks" "$RUNNER_TEMP/u.apks"
+  capture:
+    # The paywall of THIS build on an Android emulator with Google Play (GitHub, never the Mac):
+    # 390 dp, light and dark, and a recording. scripts/android-paywall-capture.sh fails without them.
+    needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.capture_from_run != '')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: capture-apk
+          path: ${{ runner.temp }}/apk
+          run-id: ${{ inputs.capture_from_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - name: Paywall on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          EMAIL: ${{ secrets.APM_REVIEW_EMAIL }}
+          CODE: ${{ secrets.APM_REVIEW_CODE }}
+        with:
+          api-level: 34
+          target: playstore
+          arch: x86_64
+          disable-animations: true
+          script: bash scripts/android-paywall-capture.sh "${{ runner.temp }}/apk/universal.apk" "${{ runner.temp }}/capture"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paywall-capture
+          path: ${{ runner.temp }}/capture
+          retention-days: 14

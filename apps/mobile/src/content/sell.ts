@@ -7,6 +7,7 @@
 import { TRACK_DISPLAY_NAMES, type ActiveTrackKey } from '@apm/domain';
 import { CHIEF_OF_STAFF_INTRO_OFFERS, DAILY_AI_LIMIT_LINE, PLAN_PRICES, formatUsdCents, type PaidPlan } from '@apm/policy';
 import { GAMES, questionPath, setupMinutes } from '@apm/planning';
+import { packageIdFor, type Prices } from '../billing/catalog';
 
 /**
  * The real length of the quick setup, from the question bank (the longest single-game quick
@@ -173,8 +174,8 @@ export const WITHOUT_WITH = {
 // ---------------------------------------------------------------------------
 
 const PAID: readonly PaidPlan[] = ['chief_of_staff', 'life_os', 'autopilot'];
-export const monthly = (plan: PaidPlan) => formatUsdCents(PLAN_PRICES[plan].monthlyUsdCents);
-export const annual = (plan: PaidPlan) => formatUsdCents(PLAN_PRICES[plan].annualUsdCents);
+// The welcome page's pre-setup terms (before any store is asked). The plan screen's figures come
+// from `Prices` (catalog.ts): the store's own strings on a store build, never these.
 const introCents = CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents;
 const listCents = PLAN_PRICES.chief_of_staff.monthlyUsdCents;
 export const INTRO_PRICE = formatUsdCents(introCents);
@@ -216,45 +217,62 @@ export interface OfferBanner {
 
 /**
  * The introductory-offer banner. `founding` and `spotsLeft` come only from the server
- * (GET /v1/billing/offering); a missing count hides the scarcity line, never invents one.
+ * (GET /v1/billing/offering); a missing count hides the scarcity line, never invents one. Every
+ * figure comes from `prices` (catalog.ts): on a store build the store's own strings. A figure the
+ * store has not given means no banner at all, never a stand-in price.
  */
-export function offerBanner(input: { founding: boolean; spotsLeft?: number | null }): OfferBanner {
+export function offerBanner(input: { founding: boolean; spotsLeft?: number | null; prices: Prices }): OfferBanner | undefined {
   const spots = typeof input.spotsLeft === 'number' && Number.isInteger(input.spotsLeft) && input.spotsLeft >= 0 ? input.spotsLeft : undefined;
   const foundingOpen = input.founding && spots !== 0;
-  const now = `${INTRO_PRICE}/month`;
+  const cos = packageIdFor('chief_of_staff', 'monthly');
+  const list = input.prices.standard[cos]?.priceString;
+  const members = CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers;
+  const months = CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months;
   if (foundingOpen) {
+    const founding = input.prices.shown[cos]?.priceString;
+    if (!founding || !list) return undefined;
     return {
       kind: 'founding',
       ribbon: 'Introductory offer',
       headline: 'Founding Member price',
-      now,
-      regular: `Regular price after the first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members: ${LIST_PRICE}/month`,
-      explain: `For our first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members only. ${INTRO_PRICE}/month, locked while you stay subscribed.`,
-      ...(spots !== undefined ? { scarcity: `${spots} of ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} spots left` } : {}),
+      now: `${founding}/month`,
+      regular: `Regular price after the first ${members} members: ${list}/month`,
+      explain: `For our first ${members} members only. ${founding}/month, locked while you stay subscribed.`,
+      ...(spots !== undefined ? { scarcity: `${spots} of ${members} spots left` } : {}),
     };
   }
+  // The intro only when the store offers it to THIS buyer (an ineligible buyer is never promised it).
+  const intro = input.prices.standard[cos]?.introPriceString;
+  if (!intro || !list) return undefined;
   return {
     kind: 'introductory',
     ribbon: 'Introductory offer',
-    headline: `${INTRO_PRICE}/month for your first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}`,
-    now,
-    regular: `Regular price from month ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months + 1}: ${LIST_PRICE}/month`,
-    explain: `New members pay ${INTRO_PRICE}/month for the first ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}/month. Cancel any time in Settings → Plan.`,
+    headline: `${intro}/month for your first ${months} months, then ${list}`,
+    now: `${intro}/month`,
+    regular: `Regular price from month ${months + 1}: ${list}/month`,
+    explain: `New members pay ${intro}/month for the first ${months} months, then ${list}/month. Cancel any time in Settings → Plan.`,
   };
 }
 
-export const TIER_GRID_WHO = {
-  title: 'Who carries it',
-  note: 'Every level lifts load. Each one includes the one below.',
-  columns: PAID.map((plan) => PLAN_PRICES[plan].displayName),
-  rows: [
-    { label: 'You stop having to…', cells: ['decide', 'remember and prepare', 'do the routine work'] },
-    { label: 'It carries', cells: ['What to do, when, and what matters most', 'Everything else in your life, ready to approve', 'Calendar work done inside your rules'] },
-    { label: 'Left on you', cells: ['Doing the plan', 'Tapping Approve', 'Reading the done-list'] },
-    { label: 'Monthly', cells: PAID.map((plan) => monthly(plan)) },
-    { label: 'Annual (2 months free)', cells: PAID.map((plan) => annual(plan)) },
-  ],
-} as const;
+/** The "Who carries it" grid. Its price rows show only when every plan's price is known. */
+export function tierGridWho(prices: Prices) {
+  const row = (label: string, period: 'monthly' | 'annual') => {
+    const cells = PAID.map((plan) => prices.standard[packageIdFor(plan, period)]?.priceString);
+    return cells.every((cell): cell is string => Boolean(cell)) ? [{ label, cells }] : [];
+  };
+  return {
+    title: 'Who carries it',
+    note: 'Every level lifts load. Each one includes the one below.',
+    columns: PAID.map((plan) => PLAN_PRICES[plan].displayName),
+    rows: [
+      { label: 'You stop having to…', cells: ['decide', 'remember and prepare', 'do the routine work'] },
+      { label: 'It carries', cells: ['What to do, when, and what matters most', 'Everything else in your life, ready to approve', 'Calendar work done inside your rules'] },
+      { label: 'Left on you', cells: ['Doing the plan', 'Tapping Approve', 'Reading the done-list'] },
+      ...row('Monthly', 'monthly'),
+      ...row('Annual (2 months free)', 'annual'),
+    ],
+  };
+}
 
 export const TIER_GRID_WHAT = {
   title: 'What you no longer think about',
@@ -310,7 +328,7 @@ export function welcomeText(): string {
   return JSON.stringify([START_PRICE_SHORT, START_PRICE_LINE, WELCOME_LEGAL, HERO, HOW_IT_WORKS, CONTINUITY, FIVE_ROLES, PERSONAS, INSIDE, MODES, TRACKS, SITUATIONS, WITHOUT_WITH, WELCOME_TIERS_TEASER, PRIVACY_LINE, CTA_LABEL, WELCOME_SECTIONS]);
 }
 
-/** Every string the plan screen renders above the purchase options. */
-export function planScreenText(banner: OfferBanner): string {
-  return JSON.stringify([PLAN_SCREEN, TIER_GRID_WHO, TIER_GRID_WHAT, banner]);
+/** Every string the plan screen renders above the purchase options, for these prices. */
+export function planScreenText(prices: Prices, founding = false): string {
+  return JSON.stringify([PLAN_SCREEN, tierGridWho(prices), TIER_GRID_WHAT, offerBanner({ founding, prices })]);
 }

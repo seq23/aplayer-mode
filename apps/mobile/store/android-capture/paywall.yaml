@@ -1,0 +1,21 @@
+# Opens the paywall (Settings > Plan) by deep link, scrolls to the tier cards, waits for the store's
+# answer; the capture script screenshots after it.
+appId: com.aplayermode.app
+---
+- openLink: aplayermode://settings/plan
+# Re-opening the screen that is already open keeps its scroll position: go back to the top first.
+- scrollUntilVisible:
+    element: "How much should APM carry?"
+    direction: UP
+    timeout: 30000
+    optional: true
+# The review account is on a plan, so its status card comes first; the tier cards sit below it.
+- scrollUntilVisible:
+    element: "Executive Roundtable"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true
+# The store side settles (Play prices, or the outage card) within STORE_ANSWER_MS (15 s): never stuck loading.
+- extendedWaitUntil:
+    notVisible: "Getting prices from the store…"
+    timeout: 30000

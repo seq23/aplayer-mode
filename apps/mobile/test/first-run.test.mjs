@@ -11,13 +11,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
 const appDir = fileURLToPath(new URL('../', import.meta.url));
-let outDir; let sell; let policy; let domain;
+let outDir; let sell; let policy; let domain; let catalog;
 
 test.before(async () => {
   outDir = await mkdtemp(join(tmpdir(), 'apm-first-run-'));
   await build({
     entryPoints: {
       sell: join(appDir, 'src/content/sell.ts'),
+      catalog: join(appDir, 'src/billing/catalog.ts'),
       policy: fileURLToPath(new URL('../../../packages/policy/src/index.ts', import.meta.url)),
       domain: fileURLToPath(new URL('../../../packages/domain/src/index.ts', import.meta.url)),
     },
@@ -26,6 +27,7 @@ test.before(async () => {
   sell = await import(pathToFileURL(join(outDir, 'sell.js')).href);
   policy = await import(pathToFileURL(join(outDir, 'policy.js')).href);
   domain = await import(pathToFileURL(join(outDir, 'domain.js')).href);
+  catalog = await import(pathToFileURL(join(outDir, 'catalog.js')).href);
 });
 test.after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
 
@@ -34,7 +36,7 @@ const usd = (cents) => policy.formatUsdCents(cents);
 test('the welcome page states the starting price and its terms beside Start; the grids and the higher tiers live on the plan screen', () => {
   assert.equal(sell.WELCOME_TIERS_TEASER.line, 'Executive Roundtable plans and coaches you · Executive Suite acts when you tap yes · Autopilot handles it inside your rules');
   assert.equal(sell.WELCOME_TIERS_TEASER.line, ['chief_of_staff', 'life_os', 'autopilot'].map((p) => `${policy.PLAN_PRICES[p].displayName} ${policy.PLAN_PRICES[p].tagline}`).join(' · '), 'derived from PLAN_PRICES');
-  assert.deepEqual(sell.TIER_GRID_WHO.columns, ['Executive Roundtable', 'Executive Suite', 'Autopilot']);
+  assert.deepEqual(sell.tierGridWho(catalog.NO_PRICES).columns, ['Executive Roundtable', 'Executive Suite', 'Autopilot']);
   assert.equal(sell.WELCOME_TIERS_TEASER.offer, `Introductory offer: start at ${usd(policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents)}/month`);
   const welcome = sell.welcomeText();
   // Price up front (owner review 14 Nov 2026; Apple 3.1.2): the intro price, its length, the price after it, no free trial.
@@ -50,19 +52,19 @@ test('the welcome page states the starting price and its terms beside Start; the
   for (const plan of ['life_os', 'autopilot']) {
     assert.ok(!welcome.includes(usd(policy.PLAN_PRICES[plan].monthlyUsdCents)), `no ${plan} price on the welcome page`);
   }
-  assert.ok(!welcome.includes(sell.TIER_GRID_WHO.title) && !welcome.includes(sell.TIER_GRID_WHAT.title), 'no grids on the welcome page');
+  assert.ok(!welcome.includes(sell.tierGridWho(catalog.NO_PRICES).title) && !welcome.includes(sell.TIER_GRID_WHAT.title), 'no grids on the welcome page');
   assert.ok(!/Founding 100/.test(welcome), 'never the bare "Founding 100"');
   // Claims (spry brain, risk R-ADV-05, R-PRF-03): no unprovable statements about billionaires or
   // elite performers, no implied equivalence to hired people, no implied results; the page ends with the disclaimer.
   assert.doesNotMatch(welcome, /Billionaires do|Elite performers|people you would hire|already works|regulated the day|You stop /, 'no unprovable or outcome claim on the welcome page');
   assert.match(sell.WELCOME_LEGAL, /not guarantees/);
   assert.match(sell.WELCOME_LEGAL, /not medical, financial or mental-health advice/);
-  const plan = sell.planScreenText(sell.offerBanner({ founding: false }));
+  const plan = sell.planScreenText(catalog.cardPrices(false));
   for (const p of ['chief_of_staff', 'life_os', 'autopilot']) {
     assert.ok(plan.includes(usd(policy.PLAN_PRICES[p].monthlyUsdCents)), `${p} monthly`);
     assert.ok(plan.includes(usd(policy.PLAN_PRICES[p].annualUsdCents)), `${p} annual`);
   }
-  assert.equal(sell.TIER_GRID_WHO.rows.length, 5);
+  assert.equal(sell.tierGridWho(catalog.cardPrices(false)).rows.length, 5);
   assert.equal(sell.TIER_GRID_WHAT.rows.length, 8);
   assert.match(sell.PLAN_SCREEN.annualLine, /2 months free/);
   assert.match(sell.PLAN_SCREEN.autonomyLine, /never grants autonomy/);
@@ -73,7 +75,8 @@ test('the welcome page states the starting price and its terms beside Start; the
 test('the introductory offer reads as a promotion in both states; scarcity is the server number or nothing', () => {
   const intro = usd(policy.CHIEF_OF_STAFF_INTRO_OFFERS.founding100.monthlyUsdCents);
   const list = usd(policy.PLAN_PRICES.chief_of_staff.monthlyUsdCents);
-  const founding = sell.offerBanner({ founding: true, spotsLeft: 37 });
+  const card = catalog.cardPrices(true); const cardStd = catalog.cardPrices(false);
+  const founding = sell.offerBanner({ founding: true, spotsLeft: 37, prices: card });
   assert.equal(founding.kind, 'founding');
   assert.equal(founding.ribbon, 'Introductory offer');
   assert.equal(founding.headline, 'Founding Member price');
@@ -81,10 +84,10 @@ test('the introductory offer reads as a promotion in both states; scarcity is th
   assert.equal(founding.regular, `Regular price after the first 100 members: ${list}/month`);
   assert.equal(founding.explain, `For our first 100 members only. ${intro}/month, locked while you stay subscribed.`);
   assert.equal(founding.scarcity, '37 of 100 spots left');
-  const unknown = sell.offerBanner({ founding: true, spotsLeft: null });
+  const unknown = sell.offerBanner({ founding: true, spotsLeft: null, prices: card });
   assert.equal(unknown.kind, 'founding');
   assert.equal(unknown.scarcity, undefined, 'count unavailable → hidden, never invented');
-  for (const fallback of [sell.offerBanner({ founding: false, spotsLeft: 12 }), sell.offerBanner({ founding: true, spotsLeft: 0 })]) {
+  for (const fallback of [sell.offerBanner({ founding: false, spotsLeft: 12, prices: cardStd }), sell.offerBanner({ founding: true, spotsLeft: 0, prices: card })]) {
     assert.equal(fallback.kind, 'introductory');
     assert.equal(fallback.ribbon, 'Introductory offer');
     assert.equal(fallback.headline, `${intro}/month for your first 3 months, then ${list}`);
@@ -93,15 +96,39 @@ test('the introductory offer reads as a promotion in both states; scarcity is th
   }
   // 16 CFR 233.1: the standard price has not yet been the live price, so it is never shown as a struck
   // "former" price and there is no "Save N%" against it, in any state of the banner.
-  for (const banner of [founding, unknown, sell.offerBanner({ founding: false }), sell.offerBanner({ founding: true, spotsLeft: 0 })]) {
+  for (const banner of [founding, unknown, sell.offerBanner({ founding: false, prices: cardStd }), sell.offerBanner({ founding: true, spotsLeft: 0, prices: card })]) {
     assert.equal(banner.was, undefined);
     assert.equal(banner.saving, undefined);
     assert.doesNotMatch(JSON.stringify(banner), /save \d+%|instead of|was \$/i);
   }
   // docs/36 H4: the ribbon and the headline sit one above the other; the words are never said twice.
-  for (const banner of [founding, unknown, sell.offerBanner({ founding: false })]) {
+  for (const banner of [founding, unknown, sell.offerBanner({ founding: false, prices: cardStd })]) {
     assert.ok(!banner.headline.toLowerCase().includes(banner.ribbon.toLowerCase()), `"${banner.ribbon}" is not repeated in "${banner.headline}"`);
   }
+});
+
+test('on a store build the plan screen shows only Google Play\'s prices, and none at all while Play is unknown', () => {
+  const pkg = (identifier, priceString, intro) => ({ identifier, product: { priceString, introPrice: intro ? { priceString: intro } : null } });
+  const std = [pkg('cos_monthly', '£19.99', '£7.99'), pkg('lifeos_monthly', '£31.99'), pkg('autopilot_monthly', '£63.99'), pkg('cos_annual', '£199.99'), pkg('lifeos_annual', '£319.99'), pkg('autopilot_annual', '£639.99')];
+  const play = catalog.storePrices({ availablePackages: std, standardPackages: std });
+  const text = sell.planScreenText(play);
+  for (const price of ['£19.99', '£31.99', '£63.99', '£199.99', '£319.99', '£639.99', '£7.99']) assert.ok(text.includes(price), `${price} from Play`);
+  assert.doesNotMatch(text, /\$\d/, 'no US price beside Play\'s');
+  assert.equal(sell.offerBanner({ founding: false, prices: play }).headline, '£7.99/month for your first 3 months, then £19.99');
+  const foundingPlay = catalog.storePrices({ availablePackages: [pkg('cos_monthly', '£7.99'), ...std.slice(1)], standardPackages: std });
+  assert.equal(sell.offerBanner({ founding: true, spotsLeft: 5, prices: foundingPlay }).now, '£7.99/month');
+  // Play unknown (loading or outage): no price anywhere on the plan screen, no banner, the grid loses its price rows.
+  for (const unknown of [catalog.NO_PRICES, catalog.storePrices(undefined)]) {
+    for (const founding of [false, true]) {
+      const blank = sell.planScreenText(unknown, founding);
+      assert.doesNotMatch(blank, /\$\d|£\d|€\d|\d\.\d\d/, `founding=${founding}: no price while Play is unknown`);
+      assert.equal(sell.offerBanner({ founding, spotsLeft: 5, prices: unknown }), undefined);
+    }
+    assert.equal(sell.tierGridWho(unknown).rows.length, 3);
+  }
+  // One plan with no Play monthly price: that row goes rather than mix a known and an unknown price.
+  const gap = sell.tierGridWho(catalog.storePrices({ availablePackages: std.slice(1), standardPackages: std.slice(1) }));
+  assert.deepEqual(gap.rows.map((r) => r.label).slice(3), ['Annual (2 months free)']);
 });
 
 const read = (rel) => readFile(join(appDir, rel), 'utf8');

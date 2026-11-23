@@ -4,8 +4,8 @@
 // re-reads /v1/product/plan for that.
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import Purchases, { type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases';
-import type { StoreChannel } from '@apm/policy';
+import Purchases, { type PurchasesPackage } from 'react-native-purchases';
+import { REVENUECAT_CONFIG, type StoreChannel } from '@apm/policy';
 import { DISTRIBUTION_FLAG, resolveDistribution, type Distribution } from './distribution';
 import { PREVIEW, PREVIEW_COPY } from '../preview/flag';
 
@@ -71,9 +71,14 @@ export async function forgetBillingUser(): Promise<void> {
   try { await Purchases.logOut(); } catch { /* already anonymous or not configured */ }
 }
 
-export async function loadOffering(offeringId: string): Promise<PurchasesOffering | undefined> {
+/** The offering the server named, plus the default offering's packages (the regular prices the paywall compares against). */
+export interface StoreOffering { availablePackages: PurchasesPackage[]; standardPackages: PurchasesPackage[] }
+
+export async function loadOffering(offeringId: string): Promise<StoreOffering | undefined> {
   const offerings = await Purchases.getOfferings();
-  return offerings.all[offeringId] ?? undefined;
+  const offering = offerings.all[offeringId];
+  if (!offering) return undefined;
+  return { availablePackages: offering.availablePackages, standardPackages: offerings.all[REVENUECAT_CONFIG.defaultOffering]?.availablePackages ?? [] };
 }
 
 export type PurchaseOutcome = 'purchased' | 'cancelled';

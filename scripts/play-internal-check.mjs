@@ -6,9 +6,8 @@
 //   * is on no other track at all (production, open, closed incl. custom closed tracks, form factors).
 // usage: node scripts/play-internal-check.mjs --key-file <service-account.json> <package> <versionCode>
 //        node scripts/play-internal-check.mjs --self-check   (proves the verdict on fixtures; no network)
-import crypto from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { playAccessToken } from './lib/play-auth.mjs';
 
 /** Problems with a tracks list for one versionCode; empty = fine. */
 export function trackProblems(tracks, versionCode) {
@@ -29,19 +28,9 @@ export function trackProblems(tracks, versionCode) {
   return problems;
 }
 
-async function accessToken(sa, fetch = globalThis.fetch) {
-  const now = Math.floor(Date.now() / 1000);
-  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/androidpublisher', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 600 })}`;
-  const assertion = `${unsigned}.${crypto.sign('RSA-SHA256', Buffer.from(unsigned), sa.private_key).toString('base64url')}`;
-  const res = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }) });
-  if (!res.ok) throw new Error(`NAMED STOP [PLAY_AUTH_FAILED] token request answered ${res.status}`);
-  return (await res.json()).access_token;
-}
-
-export async function readTracks(pkg, sa, fetch = globalThis.fetch) {
+export async function readTracks(pkg, token, fetch = globalThis.fetch) {
   const base = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${pkg}/edits`;
-  const headers = { authorization: `Bearer ${await accessToken(sa, fetch)}`, 'content-type': 'application/json' };
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
   const edit = await fetch(base, { method: 'POST', headers, body: '{}' });
   if (!edit.ok) throw new Error(`NAMED STOP [PLAY_EDIT_REFUSED] opening an edit on ${pkg} answered ${edit.status}`);
   const { id } = await edit.json();
@@ -58,17 +47,14 @@ export async function readTracks(pkg, sa, fetch = globalThis.fetch) {
 
 async function selfCheck() {
   const draft = [{ track: 'internal', releases: [{ status: 'draft', versionCodes: ['3'] }] }, { track: 'production', releases: [{ status: 'completed', versionCodes: ['2'] }] }, { track: 'beta' }];
-  // A fake Play API: token ok, edit ok, then the given tracks answer; the DELETE always throws.
+  // A fake Play API: edit ok, then the given tracks answer; the DELETE always throws.
   const fakePlay = (tracksStatus) => async (url, init = {}) => {
-    if (String(url).includes('oauth2')) return new Response(JSON.stringify({ access_token: 't' }));
     if (init.method === 'DELETE') throw new Error('network down');
     if (init.method === 'POST') return new Response(JSON.stringify({ id: 'e1' }));
     return new Response(JSON.stringify({ tracks: draft }), { status: tracksStatus });
   };
-  const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-  const sa = { client_email: 'fixture@example.invalid', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) };
-  const refused = await readTracks('com.example', sa, fakePlay(500)).then(() => 'no error', (err) => err.message);
-  const readOk = await readTracks('com.example', sa, fakePlay(200)).then((t) => t.length, (err) => err.message);
+  const refused = await readTracks('com.example', 't', fakePlay(500)).then(() => 'no error', (err) => err.message);
+  const readOk = await readTracks('com.example', 't', fakePlay(200)).then((t) => t.length, (err) => err.message);
   const cases = [
     [trackProblems(draft, 3).length === 0, 'a draft internal release passes (another build on production is not this build)'],
     [trackProblems(draft, 4).length === 1, 'a missing versionCode fails'],
@@ -92,8 +78,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     const [flag, keyFile, pkg, versionCode] = process.argv.slice(2);
     if (flag !== '--key-file' || !keyFile || !pkg || !versionCode) { console.error('usage: play-internal-check.mjs --key-file <sa.json> <package> <versionCode>'); process.exit(2); }
     try {
-      const sa = JSON.parse(await readFile(keyFile, 'utf8').catch(() => { throw new Error(`NAMED STOP [PLAY_KEY_FILE_MISSING] ${keyFile} not readable`); }));
-      const tracks = await readTracks(pkg, sa);
+      const tracks = await readTracks(pkg, await playAccessToken(keyFile));
       const problems = trackProblems(tracks, versionCode);
       for (const t of tracks) console.log(`track ${t.track}: ${JSON.stringify((t.releases ?? []).map((r) => ({ status: r.status, versionCodes: r.versionCodes })))}`);
       if (problems.length) { console.error(`play-internal-check FAILED for ${pkg}:\n  ✗ ${problems.join('\n  ✗ ')}`); process.exit(1); }

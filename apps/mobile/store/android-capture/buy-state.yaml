@@ -1,0 +1,14 @@
+# Scrolls down to the first tier's buy button and the line under it, so the verdict can read whether
+# buying is live (Play prices: no line, button enabled) or blocked (outage: the line, button disabled).
+appId: com.aplayermode.app
+---
+- scrollUntilVisible:
+    element: ".*Not available right now.*"
+    direction: DOWN
+    timeout: 15000
+    optional: true
+- scrollUntilVisible:
+    element: "(Subscribe to|Upgrade to|Switch to) .*"
+    direction: DOWN
+    timeout: 15000
+    optional: true
