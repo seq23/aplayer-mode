@@ -37,18 +37,35 @@ test('the welcome page states the starting price and its terms beside Start; the
   assert.equal(sell.WELCOME_TIERS_TEASER.line, 'Executive Roundtable plans and coaches you · Executive Suite acts when you tap yes · Autopilot handles it inside your rules');
   assert.equal(sell.WELCOME_TIERS_TEASER.line, ['chief_of_staff', 'life_os', 'autopilot'].map((p) => `${policy.PLAN_PRICES[p].displayName} ${policy.PLAN_PRICES[p].tagline}`).join(' · '), 'derived from PLAN_PRICES');
   assert.deepEqual(sell.tierGridWho(catalog.NO_PRICES).columns, ['Executive Roundtable', 'Executive Suite', 'Autopilot']);
-  assert.equal(sell.WELCOME_TIERS_TEASER.offer, `Introductory offer: start at ${usd(policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents)}/month`);
-  const welcome = sell.welcomeText();
-  // Price up front (owner review 14 Nov 2026; Apple 3.1.2): the intro price, its length, the price after it, no free trial.
+  const welcome = sell.welcomeText('web');
+  // Price up front (owner review 14 Nov 2026; Apple 3.1.2). A card build (web, sideload) charges the
+  // policy USD, so it states the intro price, its length, the price after it, no free trial.
   const intro = usd(policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents);
   const after = usd(policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.thenMonthlyUsdCents);
-  for (const line of [sell.START_PRICE_SHORT, sell.START_PRICE_LINE]) {
-    assert.ok(line.includes(`${intro}/month`) && line.includes(`${after}/month`), line);
-    assert.ok(line.includes(`${policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months`), 'the intro length');
+  for (const distribution of ['web', 'sideload']) {
+    const price = sell.welcomePrice(distribution);
+    assert.equal(price.offer, `Introductory offer: start at ${intro}/month`);
+    for (const line of [price.short, price.line]) {
+      assert.ok(line.includes(`${intro}/month`) && line.includes(`${after}/month`), line);
+      assert.ok(line.includes(`${policy.CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months`), 'the intro length');
+      assert.match(line, /No free trial/i);
+      assert.match(line, /Cancel any time/);
+      assert.doesNotMatch(line, /was |save \d+%/i, 'never a struck or "save" price');
+    }
+  }
+  // A store build (App Store, Google Play) states no fixed figure before sign-in: the store's own
+  // price, in the buyer's currency, is on the plans screen. The terms stay: intro length, no trial, cancel.
+  const store = sell.welcomePrice('store');
+  for (const line of [store.short, store.line, store.offer]) {
+    assert.doesNotMatch(line, /[$€£¥]\s?\d|\d[.,]\d\d/, `no fixed price on a store build: ${line}`);
+    assert.match(line, /3-month intro/, 'the intro offer and its length');
+  }
+  for (const line of [store.short, store.line]) {
     assert.match(line, /No free trial/i);
     assert.match(line, /Cancel any time/);
-    assert.doesNotMatch(line, /was |save \d+%/i, 'never a struck or "save" price');
+    assert.match(line, /plans screen/, 'says where the price is');
   }
+  assert.doesNotMatch(sell.welcomeText('store'), /\$\d/, 'nothing on the store welcome page names a US price');
   for (const plan of ['life_os', 'autopilot']) {
     assert.ok(!welcome.includes(usd(policy.PLAN_PRICES[plan].monthlyUsdCents)), `no ${plan} price on the welcome page`);
   }

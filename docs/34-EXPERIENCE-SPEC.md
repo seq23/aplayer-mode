@@ -90,7 +90,7 @@ BHPC splits the system into three chats: **A** is the rulebook and source of tru
 7. Tracks: all seven by their display names, with a **spotlight** on the Billionaire High Performance Coach Track.
 8. Situations it handles automatically (resistance → Morning Start … urge to rebuild → No-Redesign).
 9. Advice versus a system (the short before/after exchange).
-10. A one-line teaser only: "Executive Roundtable plans and coaches you · Executive Suite acts when you tap yes · Autopilot handles it inside your rules" and "Introductory offer: start at $9.99/month". **The tier grids, prices, annual and autonomy lines moved to the plan choice screen (§9).**
+10. A one-line teaser only: "Executive Roundtable plans and coaches you · Executive Suite acts when you tap yes · Autopilot handles it inside your rules" and the offer pill: "Introductory offer: start at $9.99/month" on a card build (web, sideload); on a store build (App Store, Google Play) "3-month intro offer · see plans" and no fixed figure anywhere on the page, because the store's own price, in the buyer's currency, is on the plan choice screen (decided 22 Nov 2026). **The tier grids, prices, annual and autonomy lines moved to the plan choice screen (§9).**
 11. Privacy line + "How APM protects your data"; CTA again.
 
 The original wording below (§3.1 to §3.8) is kept as the source the module was written from.

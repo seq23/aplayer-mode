@@ -13,12 +13,11 @@ import {
   PRIVACY_LINE,
   PRIVACY_LINK_LABEL,
   SITUATIONS,
-  START_PRICE_LINE,
-  START_PRICE_SHORT,
   TRACKS,
   WELCOME_LEGAL,
   WELCOME_PLATE,
   WELCOME_TIERS_TEASER,
+  welcomePrice,
   WITHOUT_WITH,
 } from '../src/content/sell';
 import { useSession } from '../src/state/session';
@@ -49,7 +48,9 @@ export default function WelcomeScreen() {
   const [persona, setPersona] = useState<string | undefined>(undefined);
   const shown = PERSONAS.personas.find((p) => p.title === persona);
   // Pay first (docs/33 §10): web app only; straight to the Founding 100 card checkout.
-  const payFirst = payFirstAllowed(appDistribution());
+  const distribution = appDistribution();
+  const payFirst = payFirstAllowed(distribution);
+  const price = welcomePrice(distribution);
   // The button follows the server's Founding 100 count: the standard offer once it is full.
   const [joinOffer, setJoinOffer] = useState<JoinOffer>('unknown');
   useEffect(() => {
@@ -77,7 +78,7 @@ export default function WelcomeScreen() {
         <>
           {payFirst ? <Button label={joinLabel} large onPress={join} /> : null}
           <Button label={CTA_LABEL} large variant={payFirst ? 'secondary' : 'primary'} onPress={start} />
-          <Muted align="center">{START_PRICE_SHORT}</Muted>
+          <Muted align="center">{price.short}</Muted>
           <LinkButton role="link" align="center" label={HAVE_ACCOUNT_LABEL} onPress={() => router.push('/account')} />
         </>
       )}
@@ -180,7 +181,7 @@ export default function WelcomeScreen() {
 
       <Section eyebrow="Plans" title={WELCOME_TIERS_TEASER.title}>
         <Card>{WELCOME_TIERS_TEASER.rows.map((row) => <ListItem key={row.title} title={row.title} detail={row.body} />)}</Card>
-        <Pill tone="solid">{WELCOME_TIERS_TEASER.offer}</Pill>
+        <Pill tone="solid">{price.offer}</Pill>
         {payFirst ? <Button label={joinLabel} onPress={join} /> : null}
       </Section>
 
@@ -190,7 +191,7 @@ export default function WelcomeScreen() {
       </Section>
 
       <Button label={CTA_LABEL} large onPress={start} />
-      <Muted align="center">{START_PRICE_LINE}</Muted>
+      <Muted align="center">{price.line}</Muted>
       <PlateLine text={WELCOME_PLATE} />
       <Muted align="center">{WELCOME_LEGAL}</Muted>
     </Screen>

@@ -1,0 +1,9 @@
+# The welcome page (signed out, before any store is asked), from the top. The capture script
+# screenshots and dumps it here, then after welcome-offer.yaml and welcome-end.yaml.
+appId: com.aplayermode.app
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "I already have an account"
+    timeout: 60000

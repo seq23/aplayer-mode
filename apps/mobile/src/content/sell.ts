@@ -8,6 +8,7 @@ import { TRACK_DISPLAY_NAMES, type ActiveTrackKey } from '@apm/domain';
 import { CHIEF_OF_STAFF_INTRO_OFFERS, DAILY_AI_LIMIT_LINE, PLAN_PRICES, formatUsdCents, type PaidPlan } from '@apm/policy';
 import { GAMES, questionPath, setupMinutes } from '@apm/planning';
 import { packageIdFor, type Prices } from '../billing/catalog';
+import type { Distribution } from '../billing/distribution';
 
 /**
  * The real length of the quick setup, from the question bank (the longest single-game quick
@@ -174,29 +175,47 @@ export const WITHOUT_WITH = {
 // ---------------------------------------------------------------------------
 
 const PAID: readonly PaidPlan[] = ['chief_of_staff', 'life_os', 'autopilot'];
-// The welcome page's pre-setup terms (before any store is asked). The plan screen's figures come
-// from `Prices` (catalog.ts): the store's own strings on a store build, never these.
+// The welcome page's pre-setup terms, before any store is asked. A card build (web, sideload)
+// charges these USD figures, so it states them; a store build (App Store, Google Play) states no
+// fixed figure: its price is the store's own, in the buyer's currency, on the plans screen.
 const introCents = CHIEF_OF_STAFF_INTRO_OFFERS.introductory.monthlyUsdCents;
 const listCents = PLAN_PRICES.chief_of_staff.monthlyUsdCents;
-export const INTRO_PRICE = formatUsdCents(introCents);
-export const LIST_PRICE = formatUsdCents(listCents);
+const INTRO_PRICE = formatUsdCents(introCents);
+const LIST_PRICE = formatUsdCents(listCents);
+const MONTHS = CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months;
+const MEMBERS = CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers;
 
-/**
- * Beside Start (owner review 14 Nov 2026; Apple 3.1.2): the price and its terms BEFORE the
- * questions, so the plan screen at the end is no surprise. Exactly the ADR-0004 offer.
- */
-export const START_PRICE_LINE = `A subscription: ${INTRO_PRICE}/month to start, no free trial. The first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members keep ${INTRO_PRICE}/month while they stay subscribed; everyone else pays ${INTRO_PRICE}/month for ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months, then ${LIST_PRICE}/month. Cancel any time. You pick a plan after setup.`;
+export interface WelcomePrice {
+  /** Under the sticky Start button. */
+  short: string;
+  /** The full terms beside the last Start (owner review 14 Nov 2026; Apple 3.1.2). */
+  line: string;
+  /** The pill under the three levels. */
+  offer: string;
+}
 
-/** The short form under the sticky Start button; the full terms sit by the last Start. */
-export const START_PRICE_SHORT = `Subscription: ${INTRO_PRICE}/month to start, then ${LIST_PRICE}/month after ${CHIEF_OF_STAFF_INTRO_OFFERS.introductory.months} months (first ${CHIEF_OF_STAFF_INTRO_OFFERS.founding100.subscribers} members keep ${INTRO_PRICE}). No free trial. Cancel any time.`;
+/** The welcome page's price lines for this build. */
+export function welcomePrice(distribution: Distribution): WelcomePrice {
+  if (distribution === 'store') {
+    return {
+      short: `Subscription with a ${MONTHS}-month intro offer; your price shows on the plans screen. No free trial. Cancel any time.`,
+      line: `A subscription, no free trial. New members start on a ${MONTHS}-month introductory offer, and the first ${MEMBERS} members keep their founding price while they stay subscribed. Your exact price, in your currency, shows on the plans screen before you confirm. Cancel any time. You pick a plan after setup.`,
+      offer: `${MONTHS}-month intro offer · see plans`,
+    };
+  }
+  return {
+    short: `Subscription: ${INTRO_PRICE}/month to start, then ${LIST_PRICE}/month after ${MONTHS} months (first ${MEMBERS} members keep ${INTRO_PRICE}). No free trial. Cancel any time.`,
+    line: `A subscription: ${INTRO_PRICE}/month to start, no free trial. The first ${MEMBERS} members keep ${INTRO_PRICE}/month while they stay subscribed; everyone else pays ${INTRO_PRICE}/month for ${MONTHS} months, then ${LIST_PRICE}/month. Cancel any time. You pick a plan after setup.`,
+    offer: `Introductory offer: start at ${INTRO_PRICE}/month`,
+  };
+}
 
-/** Section 10 of the welcome page: a one-line teaser; the grids are on the plan screen. */
+/** Section 10 of the welcome page: a one-line teaser; the grids and prices are on the plan screen. */
 export const WELCOME_TIERS_TEASER = {
   title: 'Three levels of help',
   line: PAID.map((plan) => `${PLAN_PRICES[plan].displayName} ${PLAN_PRICES[plan].tagline}`).join(' · '),
   /** The same line as three rows (no prices: those are on the plan screen). */
   rows: PAID.map((plan) => ({ title: PLAN_PRICES[plan].displayName, body: PLAN_PRICES[plan].tagline })) as readonly Card[],
-  offer: `Introductory offer: start at ${INTRO_PRICE}/month`,
 } as const;
 
 export interface OfferBanner {
@@ -324,8 +343,9 @@ export const WELCOME_SECTIONS: readonly WelcomeSection[] = [
 ];
 
 /** Every string the welcome page renders (the test pins content against it). */
-export function welcomeText(): string {
-  return JSON.stringify([START_PRICE_SHORT, START_PRICE_LINE, WELCOME_LEGAL, HERO, HOW_IT_WORKS, CONTINUITY, FIVE_ROLES, PERSONAS, INSIDE, MODES, TRACKS, SITUATIONS, WITHOUT_WITH, WELCOME_TIERS_TEASER, PRIVACY_LINE, CTA_LABEL, WELCOME_SECTIONS]);
+export function welcomeText(distribution: Distribution): string {
+  const price = welcomePrice(distribution);
+  return JSON.stringify([price.short, price.line, price.offer, WELCOME_LEGAL, HERO, HOW_IT_WORKS, CONTINUITY, FIVE_ROLES, PERSONAS, INSIDE, MODES, TRACKS, SITUATIONS, WITHOUT_WITH, WELCOME_TIERS_TEASER, PRIVACY_LINE, CTA_LABEL, WELCOME_SECTIONS]);
 }
 
 /** Every string the plan screen renders above the purchase options, for these prices. */

@@ -1,0 +1,8 @@
+# Scrolls to the plans teaser and its offer pill.
+appId: com.aplayermode.app
+---
+- scrollUntilVisible:
+    element: "Three levels of help"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true

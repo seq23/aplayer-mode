@@ -1,0 +1,8 @@
+# Scrolls to the last Start and the full price terms under it.
+appId: com.aplayermode.app
+---
+- scrollUntilVisible:
+    element: ".*You pick a plan after setup.*"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true

@@ -54,10 +54,11 @@ test('a store build shows only Google Play\'s own price strings, and no price at
   const annual = catalog.tierOffers('annual', false, play);
   assert.deepEqual(annual.map((o) => o.priceLabel), ['249,99 €/year', '399,99 €/year', '799,99 €/year']);
   assert.deepEqual(annual.map((o) => o.note), ['2 months free versus 24,99 €/month.', '2 months free versus 39,99 €/month.', '2 months free versus 79,99 €/month.']);
-  // Play unknown (loading, outage, a package missing its price): no price, no note, never a fallback USD figure.
+  // Play unknown (loading, outage, a package missing its price): no price, no note, never a fallback USD
+  // figure; for a founding member too ("this price stays" with no price beside it points at nothing).
   for (const unknown of [catalog.NO_PRICES, catalog.storePrices(undefined), catalog.storePrices({ availablePackages: [playPkg('cos_monthly', '')] })]) {
-    for (const period of ['monthly', 'annual']) {
-      for (const o of catalog.tierOffers(period, false, unknown)) {
+    for (const [period, founding] of [['monthly', false], ['annual', false], ['monthly', true]]) {
+      for (const o of catalog.tierOffers(period, founding, unknown)) {
         assert.equal(o.priceLabel, undefined, `${period} ${o.plan}: no price while Play is unknown`);
         assert.equal(o.note, undefined, `${period} ${o.plan}: no price note while Play is unknown`);
         const disclosure = catalog.subscriptionDisclosure('google_play', o).join(' ');
