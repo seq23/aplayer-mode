@@ -54,3 +54,7 @@ https://aplayer-mode-app-preview.pages.dev; a pull request gets its own link in 
 project is a preview, not the product. Appetize is only her final look before a store submission:
 start `.github/workflows/preview.yml` by hand with "appetize" ticked. Agents never spend Appetize
 minutes.
+After the preview is up, the `tap-through` job (boss-os `tap-through.yml`, driven by
+`tap-through.json` at the repo root) taps through it like a person at 390 px, light and dark, with a
+video per journey (ship-ready app-review.md: required for any PR that changes a screen). A PR that adds
+a screen, button or plan line adds it to `tap-through.json`.

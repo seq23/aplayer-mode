@@ -1,0 +1,67 @@
+{
+  "app": "A Player Mode",
+  "brand": "a-player-mode",
+  "about": "The app's own robot walk for every PR that changes a screen (boss-os scripts/ops/tap-through.mjs, ship-ready app-review.md). The preview's sample server lives in the browser (src/preview/server.ts): no real sign-in, purchase or production API call; every other request that is not a read is blocked.",
+  "journeys": [
+    {
+      "name": "first-open",
+      "start": "/",
+      "steps": [
+        { "see": "Start: reduce my load", "id": "welcome" },
+        { "sweep": true }
+      ]
+    },
+    {
+      "name": "main-task",
+      "start": "/",
+      "steps": [
+        { "tap": { "role": "button", "name": "Start: reduce my load" }, "id": "intake" },
+        { "sweep": true }
+      ]
+    },
+    {
+      "name": "sample-account",
+      "start": "/",
+      "steps": [
+        { "tap": "I already have an account", "id": "join" },
+        { "sweep": true }
+      ]
+    },
+    {
+      "name": "paywall",
+      "start": "/",
+      "steps": [
+        { "tap": { "role": "button", "name": "Start: reduce my load" } },
+        { "goto": "/settings/plan" },
+        { "see": "How much should APM carry?", "id": "plans" },
+        { "sweep": true }
+      ]
+    },
+    {
+      "name": "settings",
+      "start": "/",
+      "steps": [
+        { "tap": { "role": "button", "name": "Start: reduce my load" } },
+        { "goto": "/settings" },
+        { "wait": 1500, "id": "settings" },
+        { "sweep": true }
+      ]
+    },
+    {
+      "name": "delete-my-data",
+      "start": "/",
+      "steps": [
+        { "tap": { "role": "button", "name": "Start: reduce my load" } },
+        { "goto": "/settings/privacy/export-delete" },
+        { "see": "Your data should not be trapped.", "id": "export-delete" },
+        { "sweep": true }
+      ]
+    }
+  ],
+  "promises": [],
+  "native_only": [
+    { "feature": "in-app purchase and Restore purchases", "why": "the web preview has no store: Restore purchases only shows where a store exists (PlanChoice), and buying is preview-only", "simulator": "a sandbox purchase on the simulator build (GitHub macOS runner, free: public repo)" },
+    { "feature": "Sign in with Apple and Google", "why": "the preview's sign-in buttons make the sample account at once; the real sheets only exist on a phone", "simulator": "the simulator build" },
+    { "feature": "notifications and health data", "why": "push, local notifications and HealthKit only exist on a phone", "simulator": "the simulator build" }
+  ]
+}
