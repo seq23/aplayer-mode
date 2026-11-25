@@ -22,6 +22,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   preview:
+    if: github.ref == 'refs/heads/main'
+    environment: reviewed-main
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
