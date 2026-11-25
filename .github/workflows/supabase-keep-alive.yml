@@ -23,6 +23,8 @@ concurrency:
 
 jobs:
   ping:
+    if: github.ref == 'refs/heads/main'
+    environment: reviewed-main
     name: Keep Supabase Free project awake
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -24,7 +24,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    if: inputs.capture_from_run == ''
+    environment: reviewed-main
+    if: github.ref == 'refs/heads/main' && (inputs.capture_from_run == '')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -123,10 +124,11 @@ jobs:
         if: always()
         run: rm -rf apps/mobile/play-sa.json "$AAB" "$RUNNER_TEMP/bundletool.jar" "$RUNNER_TEMP/capture.jks" "$RUNNER_TEMP/u.apks"
   capture:
+    environment: reviewed-main
     # The paywall of THIS build on an Android emulator with Google Play (GitHub, never the Mac):
     # 390 dp, light and dark, and a recording. scripts/android-paywall-capture.sh fails without them.
     needs: build
-    if: ${{ !cancelled() && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.capture_from_run != '')) }}
+    if: github.ref == 'refs/heads/main' && (!cancelled() && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.capture_from_run != '')))
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
