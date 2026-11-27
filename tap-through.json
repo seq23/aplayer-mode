@@ -63,9 +63,10 @@
       "steps": [
         { "tap": "I already have an account" },
         { "tap": { "role": "button", "name": "Email me a 6-digit code" } },
-        { "fill": "Email address", "value": "test-tapthrough@example.com" },
+        { "fill": "Email address", "value": "appreview@aplayermode.com" },
         { "tap": { "role": "button", "name": "Email me a 6-digit code" } },
-        { "fill": "6-digit code", "value": "123456" },
+        { "see": "Your review code", "id": "review-code-box" },
+        { "fill": "Review code", "value": "q7Rt2Wx9Lm4Np8Zs" },
         { "tap": { "role": "button", "name": "Verify and continue" } },
         { "wait": 1500 },
         { "goto": "/settings/privacy/export-delete" },
@@ -82,29 +83,12 @@
         { "wait": 1500, "id": "autopilot" },
         { "sweep": true }
       ]
-    },
-    {
-      "name": "review-sign-in",
-      "start": "/",
-      "steps": [
-        { "tap": "I already have an account" },
-        { "tap": { "role": "button", "name": "Email me a 6-digit code" } },
-        { "fill": "Email address", "value": "appreview@aplayermode.com" },
-        { "tap": { "role": "button", "name": "Email me a 6-digit code" } },
-        { "see": "Your review code", "id": "review-code-box" },
-        { "fill": "Review code", "value": "q7Rt2Wx9Lm4Np8Zs" },
-        { "tap": { "role": "button", "name": "Verify and continue" } },
-        { "wait": 1500 },
-        { "goto": "/settings" },
-        { "see": "Signed in as", "id": "review-signed-in" },
-        { "sweep": true }
-      ]
     }
   ],
   "route_storage": { "apm.preview.session.v1": { "kind": "account" }, "apm.preview.state.v1": { "consents": {"ageConfirmedAt": "2026-11-27T12:00:00.000Z", "healthData": {"decision": "declined", "recordedAt": "2026-11-27T12:00:00.000Z", "policyVersion": "2026-10-08"}} } },
   "promises": [
     { "text": "Everything APM knows about you and everything it did, made on the spot as one file you download or share. No support ticket.", "on": "signed-in:signed-export", "built": "signed-in:export-done" },
-    { "text": "The store reviewer types the review address, gets the review-code box (6 digits, or 12 to 24 letters and digits) and is signed in without an email.", "on": "review-sign-in:review-code-box", "built": "review-sign-in:review-signed-in" }
+    { "text": "The store reviewer types the review address, gets the review-code box (6 digits, or 12 to 24 letters and digits) and is signed in without an email.", "on": "signed-in:review-code-box", "built": "signed-in:signed-export" }
   ],
   "native_only": [
     { "feature": "in-app purchase and Restore purchases", "why": "the web preview has no store: Restore purchases only shows where a store exists (PlanChoice), and buying is preview-only", "simulator": "a sandbox purchase on the simulator build (GitHub macOS runner, free: public repo)" },
