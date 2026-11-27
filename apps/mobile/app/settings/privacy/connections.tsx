@@ -28,7 +28,7 @@ import {
   syncEmailConnection,
 } from '../../../src/api/apmApi';
 import { connectOAuthProvider, type OAuthKind, type OAuthProvider } from '../../../src/integrations/oauth';
-import { accountName, accountsOfKind, addAnotherAccount, hasMultiAccount, KIND_NOUN, pausedNote } from '../../../src/integrations/accounts';
+import { accountName, accountsOfKind, addAnotherAccount, connectHeading, hasMultiAccount, KIND_NOUN, pausedNote } from '../../../src/integrations/accounts';
 import { chooseCalendars, chosenCalendars, listPhoneCalendars, removePhoneCalendarEvents, syncChosenDeviceCalendars, type PhoneCalendar } from '../../../src/integrations/deviceCalendar';
 import { useLifeGraph } from '../../../src/state/lifeGraph';
 import { useSession } from '../../../src/state/session';
@@ -152,7 +152,7 @@ export default function ConnectionsScreen() {
         {accounts.map(accountCard)}
         {add.allowed ? (
           <Card>
-            <CardTitle>{accounts.length ? 'Add another account' : `Connect a ${KIND_NOUN[kind]}`}</CardTitle>
+            <CardTitle>{accounts.length ? 'Add another account' : connectHeading(kind)}</CardTitle>
             {(['google', 'microsoft'] as const).filter((provider) => kind === 'calendar' || provider === 'microsoft').map((provider) => (
               <Button key={provider} label={busy === `${provider}:${kind}:${intent}:read` ? 'Connecting / syncing…' : `Connect ${PROVIDER_NAMES[kind][provider]}`}
                 variant="secondary" onPress={() => void connect(provider, kind, intent)} />

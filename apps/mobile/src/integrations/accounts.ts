@@ -29,6 +29,8 @@ export function accountName(connection: IntegrationConnection): string {
 }
 
 export const KIND_NOUN: Record<IntegrationKind, string> = { calendar: 'calendar', email: 'inbox' };
+/** The empty-state heading: "Connect a calendar", "Connect an inbox". */
+export const connectHeading = (kind: IntegrationKind): string => `Connect ${/^[aeiou]/i.test(KIND_NOUN[kind]) ? "an" : "a"} ${KIND_NOUN[kind]}`;
 
 /** Whether "Add another account" is a button, or an upgrade note naming Autopilot. */
 export function addAnotherAccount(entitlement: SubscriptionEntitlement | undefined, connections: IntegrationConnection[], kind: IntegrationKind):
