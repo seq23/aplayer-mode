@@ -61,6 +61,8 @@ export interface ApiEnv {
   APP_REVIEW_EMAIL?: string;
   /** Its fixed code, exactly 6 digits (Worker secret). Off unless set together with APP_REVIEW_EMAIL. */
   APP_REVIEW_CODE?: string;
+  /** Optional end of the review window (Worker var, ISO date or date-time). Passed or unreadable = review sign-in off. */
+  APP_REVIEW_UNTIL?: string;
 }
 
 export function requireSupabaseConfig(env: ApiEnv): { url: string; publishableKey: string } {
