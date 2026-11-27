@@ -1,0 +1,159 @@
+{
+  "app": "A Player Mode",
+  "brand": "a-player-mode",
+  "about": "The App Review notes' path (apps/mobile/store/app-review-notes.md), walked in the free web preview: the review sign-in, \"Goal checklists and task moves\" raised to \"4 · Approve & execute\", the Executive Suite \"Take a task off today\" card and its Approve, then the plan screen. A second file because tap-through.json holds 39 of the 40 steps one review takes. The preview's sample server is not production: the same steps on production are api-side tests (services/api/test/suite-proposals.test.mjs, production switches) plus the walk logged on the task sheet.",
+  "route_storage": {
+    "apm.preview.session.v1": {
+      "kind": "account"
+    },
+    "apm.preview.state.v1": {
+      "consents": {
+        "ageConfirmedAt": "2026-11-27T12:00:00.000Z",
+        "healthData": {
+          "decision": "declined",
+          "recordedAt": "2026-11-27T12:00:00.000Z",
+          "policyVersion": "2026-10-08"
+        }
+      }
+    }
+  },
+  "native_only": [
+    {
+      "feature": "in-app purchase and Restore purchases",
+      "why": "the web preview has no store: Restore purchases only shows where a store exists (PlanChoice), and buying is preview-only",
+      "simulator": "a sandbox purchase on the simulator build (GitHub macOS runner, free: public repo)"
+    },
+    {
+      "feature": "Sign in with Apple and Google",
+      "why": "the preview's sign-in buttons make the sample account at once; the real sheets only exist on a phone",
+      "simulator": "the simulator build"
+    },
+    {
+      "feature": "notifications and health data",
+      "why": "push, local notifications and HealthKit only exist on a phone",
+      "simulator": "the simulator build"
+    }
+  ],
+  "journeys": [
+    {
+      "name": "review-suite",
+      "start": "/",
+      "steps": [
+        {
+          "tap": "I already have an account"
+        },
+        {
+          "tap": {
+            "role": "button",
+            "name": "Email me a 6-digit code"
+          }
+        },
+        {
+          "fill": "Email address",
+          "value": "appreview@aplayermode.com"
+        },
+        {
+          "tap": {
+            "role": "button",
+            "name": "Email me a 6-digit code"
+          }
+        },
+        {
+          "see": "Your review code",
+          "id": "review-code-box"
+        },
+        {
+          "fill": "Review code",
+          "value": "q7Rt2Wx9Lm4Np8Zs"
+        },
+        {
+          "tap": {
+            "role": "button",
+            "name": "Verify and continue"
+          }
+        },
+        {
+          "wait": 1500,
+          "id": "signed-in"
+        },
+        {
+          "goto": "/settings/privacy/autonomy"
+        },
+        {
+          "see": "Goal checklists and task moves",
+          "id": "permissions"
+        },
+        {
+          "tap": {
+            "role": "button",
+            "name": "Increase to Remind",
+            "nth": 2
+          }
+        },
+        {
+          "tap": {
+            "role": "button",
+            "name": "Increase to Recommend"
+          }
+        },
+        {
+          "tap": {
+            "role": "button",
+            "name": "Increase to Prepare"
+          }
+        },
+        {
+          "tap": {
+            "role": "button",
+            "name": "Increase to Approve & execute"
+          }
+        },
+        {
+          "see": "4 · Approve & execute",
+          "id": "level-4"
+        },
+        {
+          "goto": "/today"
+        },
+        {
+          "tap": {
+            "role": "button",
+            "name": "Show my plan for today"
+          }
+        },
+        {
+          "see": "Take a task off today",
+          "id": "suite-card"
+        },
+        {
+          "sweep": true
+        }
+      ]
+    },
+    {
+      "name": "review-plans",
+      "start": "/",
+      "steps": [
+        {
+          "goto": "/settings/plan"
+        },
+        {
+          "see": "How much should APM carry?",
+          "id": "plans"
+        },
+        {
+          "see": "/Executive Suite/",
+          "id": "suite-plan"
+        },
+        {
+          "see": "/Terms of Use/",
+          "id": "terms-link"
+        },
+        {
+          "see": "/Privacy Policy/",
+          "id": "privacy-link"
+        }
+      ]
+    }
+  ]
+}

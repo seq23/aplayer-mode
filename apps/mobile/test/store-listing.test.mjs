@@ -178,3 +178,69 @@ test('the review notes fit App Store Connect and every label they quote is in th
 test('the label check fails on a button the app does not have (negative proof)', async () => {
   assert.deepEqual(unquotedLabels('Tap "Start my free trial" then "Verify and continue".', await appText()), ['Start my free trial']);
 });
+
+// App Review 27 Nov 2026 (F1): the notes told the reviewer to stop at "3 · Prepare", and the server
+// shows Approve only at the level an approval asks for (approvalAvailable, services/api/src/index.ts).
+// The level the notes name for the Executive Suite step is read here, never assumed.
+export function notesSuiteLevel(notes) {
+  const line = notes.split('\n').find((l) => l.includes('"Goal checklists and task moves"'));
+  return Number(line?.match(/until it shows "(\d) · [^"]+"/)?.[1] ?? NaN);
+}
+test('the notes raise "Goal checklists and task moves" to the level Approve needs on the server', async () => {
+  const server = await readFile(new URL('../../../services/api/src/index.ts', import.meta.url), 'utf8');
+  const needed = Number(server.match(/approvalAvailable:[\s\S]{0,400}?requestedLevel: (\d)/)?.[1]);
+  assert.ok(needed >= 1, 'read the level an approval asks for');
+  assert.equal(notesSuiteLevel(textBlocks[0]), needed);
+  assert.equal(notesSuiteLevel('tap "Increase to" until it shows "3 · Prepare"'), NaN, 'a line without the control name is not read');
+  assert.equal(notesSuiteLevel('"Goal checklists and task moves": tap "Increase to" until it shows "3 · Prepare".'), 3);
+});
+
+// App Review 27 Nov 2026 (F3, Guideline 3.1.2): an auto-renewing subscription's listing names each
+// plan's price and period, how renewal works, and links the Terms of Use and the Privacy Policy. The
+// prices are read from @apm/policy (what the paywall and the stores charge), never typed here.
+const usd = (cents) => `$${(cents / 100).toFixed(2)}`;
+export async function subscriptionProblems(text, store) {
+  const policy = await readFile(new URL('../../../packages/policy/src/index.ts', import.meta.url), 'utf8');
+  const out = [];
+  const plans = [...policy.matchAll(/displayName: '([^']+)', tagline: '[^']*', monthlyUsdCents: (\d+), annualUsdCents: (\d+)/g)];
+  if (plans.length !== 3) out.push(`read ${plans.length} plans from PLAN_PRICES, not 3`);
+  for (const [, name, monthly, annual] of plans) {
+    if (!text.includes(`${name} ${usd(Number(monthly))}/month or ${usd(Number(annual))}/year`)) out.push(`${name}: price missing or wrong`);
+  }
+  const intro = policy.match(/introductory: \{ monthlyUsdCents: (\d+), months: (\d+)/);
+  if (!intro || !text.includes(`pay ${usd(Number(intro[1]))}/month for the first ${intro[2]} months`)) out.push('intro offer missing or wrong');
+  const renewal = store === 'apple' ? 'renew automatically unless cancelled at least 24 hours before the end of the current period' : 'renew automatically until cancelled';
+  if (!text.includes(renewal)) out.push('renewal terms missing');
+  if (!text.includes('Terms of Use: https://app.aplayermode.com/terms')) out.push('Terms of Use link missing');
+  if (!text.includes('Privacy Policy: https://app.aplayermode.com/privacy')) out.push('Privacy Policy link missing');
+  return out;
+}
+test('both listings carry every plan price, the renewal terms and the Terms of Use and Privacy links', async () => {
+  assert.deepEqual(await subscriptionProblems(listing.description, 'apple'), []);
+  assert.deepEqual(await subscriptionProblems(play.fullDescription, 'google'), []);
+  const workflow = await readFile(new URL('../../../.github/workflows/app-preview.yml', import.meta.url), 'utf8');
+  const appTerms = workflow.match(/EXPO_PUBLIC_TERMS_URL: (\S+)/)?.[1];
+  assert.equal(listing.termsOfUseUrl, appTerms, 'the listing links the Terms the app links');
+  assert.equal(play.termsOfUseUrl, appTerms);
+  assert.equal(listing.privacyPolicyUrl, play.privacyPolicyUrl);
+});
+test('the subscription check fails on a wrong price, no renewal terms and no Terms link (negative proof)', async () => {
+  const problems = await subscriptionProblems(listing.description.replace('$39.99/month', '$29.99/month').replace('Terms of Use: ', '').replace('at least 24 hours', 'soon'), 'apple');
+  assert.deepEqual(problems, ['Executive Suite: price missing or wrong', 'renewal terms missing', 'Terms of Use link missing']);
+});
+
+// App Review 27 Nov 2026 (F6): the tap-through never walked the notes' Executive Suite steps. The
+// review-path flow (tap-through-review.json) is run by the preview workflow and reaches every label
+// the notes' Suite steps quote.
+test('the preview workflow walks the notes\' Executive Suite labels in tap-through-review.json', async () => {
+  const flow = JSON.parse(await readFile(new URL('../../../tap-through-review.json', import.meta.url), 'utf8'));
+  const workflow = await readFile(new URL('../../../.github/workflows/app-preview.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /flow_file: tap-through-review\.json/, 'the preview workflow runs the review-path flow');
+  const steps = flow.journeys.flatMap((j) => j.steps);
+  assert.ok(steps.length <= 40, `${steps.length} steps; one review takes 40`);
+  const walked = JSON.stringify(steps);
+  const suite = textBlocks[0].split('\n').filter((l) => /^\s+[12]\. /.test(l)).join('\n');
+  const labels = [...suite.matchAll(/"([^"\n]+)"/g)].map((m) => m[1]).filter((l) => !/\(sample\)/.test(l));
+  assert.ok(labels.length >= 4, `read the Suite step labels: ${labels}`);
+  for (const label of labels) assert.ok(walked.includes(label.replace(/^\d · /, '')), `the flow reaches "${label}"`);
+});

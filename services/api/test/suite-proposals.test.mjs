@@ -480,6 +480,26 @@ test('low mood or recovery mode proposes only today’s flexible admin, with an 
   assert.equal(writes().length, 0);
 });
 
+// The App Review notes' Executive Suite step (store/app-review-notes.md): with the switches AS
+// DEPLOYED (wrangler.jsonc env.production.vars, not this file's test env), a hard morning prepares
+// "Take a task off today" and Approve at level 4 moves the task. Off in production = no card at all.
+test('production switches: a hard morning prepares the task move and Approve at level 4 moves it', async () => {
+  const source = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  const production = JSON.parse(source.replace(/^\s*\/\/.*$/gm, '')).env.production.vars;
+  const live = { ...env };
+  for (const flag of ['GLOBAL_ACTION_EXECUTION', 'ACTION_EMAIL_EXECUTION', 'ACTION_CALENDAR_EXECUTION', 'ACTION_LIFE_GRAPH_EXECUTION']) live[flag] = production[flag];
+  const liveInput = { ...input, env: live };
+  const item = await adminItem(559, 'shopping', at(16));
+  const mood = graph({ lifeAdminItems: [item], dayRecords: [{ day: phaseDay, mood: 1 }], permissions: permissions.filter((p) => p.domain === 'life_graph') });
+  const result = await prepareSuiteProposals(live, mood, phaseTime, undefined, true);
+  assert.ok(!result.stops.includes('ACTION_EXECUTION_DISABLED:life_graph'), `production prepares life-graph cards (stops: ${result.stops})`);
+  const proposal = await find('hard_day');
+  assert.equal(proposal.payload.itemId, item.id);
+  assert.equal((await approveSuiteProposal(proposal, mood, liveInput, phaseTime)).status, 'verified');
+  assert.equal(await savedStart(item.id), proposal.payload.startsAt);
+  assert.equal(production.ACTION_EMAIL_EXECUTION, undefined, 'email sending stays off in production');
+});
+
 test('a model drafts from the real thread and unsafe generated content cannot become a proposal', async () => {
   const current = graph({ calendarEvents: [] });
   for (const response of [

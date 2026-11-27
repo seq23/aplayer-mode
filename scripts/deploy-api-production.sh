@@ -7,9 +7,10 @@
 #   scripts/deploy-api-production.sh [--secrets-dir DIR]
 #
 # --secrets-dir: a directory of 0600 files named after Worker secrets (OPENROUTER_API_KEY,
-# CONNECTOR_CREDENTIAL_KEY, REVENUECAT_WEBHOOK_SECRET, APP_REVIEW_CODE,
-# SUPABASE_SECRET_KEY, ...). Each is piped to `wrangler secret put` from the file, so no value is
-# printed or put on a command line. BILLING_ALLOW_SANDBOX is refused in production.
+# CONNECTOR_CREDENTIAL_KEY, REVENUECAT_WEBHOOK_SECRET, SUPABASE_SECRET_KEY, ...). Each is piped to
+# `wrangler secret put` from the file, so no value is
+# printed or put on a command line. BILLING_ALLOW_SANDBOX is refused in production;
+# APP_REVIEW_CODE is skipped (it comes only from the vault).
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 SECRETS_DIR=""
@@ -32,6 +33,10 @@ if [ -n "$SECRETS_DIR" ]; then
     name=$(basename "$file")
     case "$name" in
       BILLING_ALLOW_SANDBOX) echo "refusing $name in production"; exit 2 ;;
+      # The store review code is set only from the vault (RUNBOOK "Store review sign-in"): a copy in
+      # this folder goes stale (an 8-character one from 7 Oct 2026 sat here while App Review held
+      # another), and pushing it would lock the reviewer out mid-review.
+      APP_REVIEW_CODE) echo "skipped $name: set it from vault APM_APPLE_REVIEW_PASSWORD (RUNBOOK \"Store review sign-in\")"; continue ;;
       APP_REVIEW_EMAIL|*.*) continue ;;   # a var in wrangler.jsonc, or not a secret file
     esac
     [[ "$name" =~ ^[A-Z][A-Z0-9_]+$ ]] || continue

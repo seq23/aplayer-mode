@@ -50,11 +50,14 @@
         "APP_REVIEW_UNTIL": "2026-12-31T00:00:00Z",
         "REVENUECAT_PROJECT_ID": "proj2c0586cf",
         "SUITE_MAIL_DAILY_CEILING": "2000",
-        // Action Engine + Autopilot switches (docs/26 §8, docs/31). Calendar only: the two
-        // classes below are also activated in autopilot_action_classes (migration 0106).
-        // Every other domain and class stays off. Set to "false" here to kill them.
+        // Action Engine + Autopilot switches (docs/26 §8, docs/31). Autopilot is calendar only: the
+        // two classes below are also activated in autopilot_action_classes (migration 0106).
+        // Life graph (27 Nov 2026): Executive Suite goal-checklist steps and task moves. They change
+        // only APM's own records (apm_service_apply_suite_life_graph, 0101), each one only after the
+        // person taps Approve at level 4, and call no model. Email stays off. "false" kills a domain.
         "GLOBAL_ACTION_EXECUTION": "true",
         "ACTION_CALENDAR_EXECUTION": "true",
+        "ACTION_LIFE_GRAPH_EXECUTION": "true",
         "AUTOPILOT_EXECUTION": "true",
         "AUTOPILOT_ENABLED_CLASSES": "calendar.reschedule,calendar.create"
       }
