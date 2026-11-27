@@ -298,13 +298,12 @@ export const TIER_GRID_WHAT = {
   columns: PAID.map((plan) => `${PLAN_PRICES[plan].displayName} (${plan === 'chief_of_staff' ? 'plans it' : plan === 'life_os' ? 'acts on your yes' : 'handles it'})`),
   rows: [
     { label: '"What should I do today?"', cells: ['Agenda arrives, already prioritized', '+ covers family, home, health, money', '+ books the time on your calendar'] },
-    { label: '"Am I forgetting something?"', cells: ['Radar catches dropped promises and deadlines', '+ birthdays, bills, appointments, renewals', '+ drafts the follow-ups for one tap'] },
-    { label: '"How do I even start this goal?"', cells: ['Turns the goal into a plan and daily steps', '+ the supporting logistics', '+ books it on your calendar'] },
-    { label: '"I missed yesterday, now I\'m behind"', cells: ['Minimum day, no catch-up, no guilt', '+ pushes back non-urgent life tasks', '+ reschedules and sends the "need to move" notes'] },
-    { label: '"I\'m overwhelmed and stuck"', cells: ['Coaching, one question at a time', '+ takes life admin off your plate that day', '+ clears your calendar to your minimum day'] },
-    { label: '"Who do I owe a reply to?"', cells: ['Flags it', 'Drafts it', 'Drafts it, sends on your tap'] },
+    { label: '"Am I forgetting something?"', cells: ['Radar catches dropped promises and deadlines', '+ birthdays, bills, appointments, renewals', '+ the same Radar, across work and personal calendars'] },
+    { label: '"How do I even start this goal?"', cells: ['Turns the goal into a plan and daily steps', '+ books the steps on your calendar when you tap yes', '+ books them on its own, inside your rules'] },
+    { label: '"I missed yesterday, now I\'m behind"', cells: ['Minimum day, no catch-up, no guilt', '+ proposes moving flexible meetings; you tap yes', '+ reschedules flexible meetings on its own'] },
+    { label: '"I\'m overwhelmed and stuck"', cells: ['Coaching, one question at a time', '+ offers to clear your calendar to your minimum day', '+ clears your calendar to your minimum day'] },
     { label: '"Is my calendar realistic?"', cells: ['Flags overload and clashes', 'Proposes the fix', 'Moves flexible items, protects focus time'] },
-    { label: '"Am I wasting money on subscriptions?"', cells: ['—', 'Flags unused ones and price rises', 'Drafts the cancellation, sends on your tap (never spends money)'] },
+    { label: '"Am I wasting money on subscriptions?"', cells: ['—', 'Flags unused ones and price rises (Outlook Mail)', '+ the same flags; it never spends money'] },
   ],
 } as const;
 

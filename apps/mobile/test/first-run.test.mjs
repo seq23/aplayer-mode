@@ -82,7 +82,7 @@ test('the welcome page states the starting price and its terms beside Start; the
     assert.ok(plan.includes(usd(policy.PLAN_PRICES[p].annualUsdCents)), `${p} annual`);
   }
   assert.equal(sell.tierGridWho(catalog.cardPrices(false)).rows.length, 5);
-  assert.equal(sell.TIER_GRID_WHAT.rows.length, 8);
+  assert.equal(sell.TIER_GRID_WHAT.rows.length, 7);
   assert.match(sell.PLAN_SCREEN.annualLine, /2 months free/);
   assert.match(sell.PLAN_SCREEN.autonomyLine, /never grants autonomy/);
   assert.equal(sell.recommendedTier(['parent', 'founder']), 'life_os');

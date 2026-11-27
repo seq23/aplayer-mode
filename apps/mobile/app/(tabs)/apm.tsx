@@ -31,6 +31,7 @@ import { openExternal } from '../../src/links/external';
 import { ReportThis } from '../../src/components/ReportThis';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { useSession } from '../../src/state/session';
+import { coachEngineLine } from '../../src/content/coachEngine';
 
 const MODE_ORDER: OperatingModeKey[] = ['standard', 'high_pressure', 'executive_review', 'sprint', 'recovery', 'deep_work'];
 const MODE_LABEL: Record<OperatingModeKey, string> = {
@@ -117,7 +118,7 @@ export default function ApmScreen() {
   const awaitingOptions = last?.prompt.options.length ? last.prompt : undefined;
 
   return (
-    <Screen eyebrow="Coach" title="Stuck? Talk it through." subtitle="One question at a time. APM ends every session with the one thing to do next.">
+    <Screen eyebrow="Coach" title="Stuck? Talk it through." subtitle="One question at a time. APM ends a session with the one thing to do next.">
       {/* One clear primary (docs/35 U8): the current mode and one way into coaching. Everything else is tucked below. */}
       <Card tone="feature">
         <Row justify="space-between" gap="xs">
@@ -181,7 +182,7 @@ export default function ApmScreen() {
             </>
           ) : null}
           {sessionId ? <Button label={last?.phase === 'closed' || last?.phase === 'safety_stop' ? 'Start a new session' : 'Close coaching session'} variant="ghost" onPress={() => void close()} /> : null}
-          {last ? <Muted>{last.engine === 'model' ? 'Worded by a privacy-approved AI model; the steps are APM’s own.' : 'Answered by APM’s built-in coaching steps: no AI model saw your words.'}</Muted> : null}
+          {last ? <Muted>{coachEngineLine(last)}</Muted> : null}
         </Card>
       ) : null}
 

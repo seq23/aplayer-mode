@@ -1,6 +1,6 @@
 import { syncedWords } from '../../../src/content/words';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { router } from 'expo-router';
 import type { IntegrationConnection } from '@apm/domain';
 import {
@@ -47,8 +47,8 @@ const PROVIDER_NAMES: Record<OAuthKind, Record<OAuthProvider, string>> = {
 };
 const KIND_TITLES: Record<OAuthKind, string> = { calendar: 'Calendars', email: 'Inboxes' };
 const KIND_DETAIL: Record<OAuthKind, string> = {
-  calendar: 'Direct cloud calendar sync. Conflicts are checked across every calendar you connect, so work never double-books personal.',
-  email: 'Connect Outlook Mail for commitments and reply drafts. Google connects your calendar.',
+  calendar: 'Direct cloud calendar sync of each account’s main calendar. Conflicts are checked across every calendar APM reads, so work never double-books personal.',
+  email: 'Connect Outlook Mail for subscription alerts on Executive Suite and Autopilot. Gmail can’t be connected yet; Google connects your calendar only.',
 };
 
 export default function ConnectionsScreen() {
@@ -214,11 +214,13 @@ export default function ConnectionsScreen() {
     >
       <Card tone="accent">
         <CardTitle>All your calendars in one day</CardTitle>
-        <Body muted>APM puts the calendars on this phone, Google and Outlook into one schedule, and always shows which account each event came from.</Body>
+        <Body muted>{Platform.OS === 'web' ? 'APM puts your Google and Outlook calendars into one schedule.' : 'APM puts the calendars on this phone, Google and Outlook into one schedule.'}</Body>
       </Card>
 
       {error ? <ErrorState message={error} /> : null}
 
+      {/* The browser app has no phone calendars to read (promise audit 27 Nov 2026). */}
+      {Platform.OS !== 'web' ? <>
       <SectionTitle>This phone</SectionTitle>
       <Card>
         <View style={uiStyles.row}>
@@ -268,6 +270,7 @@ export default function ConnectionsScreen() {
           )}
         </Card>
       ) : null}
+      </> : null}
 
       {(['calendar', 'email'] as const).map(kindSection)}
 

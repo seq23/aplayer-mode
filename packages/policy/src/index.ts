@@ -42,14 +42,14 @@ export const productPlanPolicies: Record<ProductPlan, ProductPlanPolicy> = {
   life_os: {
     plan: 'life_os',
     displayName: 'Executive Suite',
-    promise: 'APM runs your whole life and acts when you tap yes: everything in Executive Roundtable, plus relationships, appointments and travel, bills and subscriptions, meals, health and life admin, with one-tap approve-and-execute.',
+    promise: 'APM keeps your whole life on one plan and acts on your calendar when you tap yes: everything in Executive Roundtable, plus relationships, appointments and travel, bills and subscriptions, meals, health and life admin on the same Today and Radar.',
     publicAvailability: 'available',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval'],
   },
   autopilot: {
     plan: 'autopilot',
     displayName: 'Autopilot',
-    promise: 'APM moves and books calendar time on its own inside rules you set: everything in Executive Suite, across every calendar and inbox you connect (work and personal at once). It never spends money.',
+    promise: 'APM moves and books calendar time on its own inside rules you set: everything in Executive Suite, across every calendar account you connect (work and personal at once). It never spends money.',
     publicAvailability: 'available',
     capabilities: ['personal_os','today_radar','calendar_email_awareness','coaching','prepare_actions','life_os_domains','execute_with_approval','standing_autopilot','multi_account'],
   },

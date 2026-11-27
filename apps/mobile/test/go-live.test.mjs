@@ -51,7 +51,7 @@ test('the legal pages are real, dated, and name the entity and contact', async (
   for (const must of [/OpenRouter/, /United States/, /Export/, /Delete/, /Limited Use/, /Stripe/, /Microsoft Clarity/, /aplayermode\.com/]) assert.match(privacy, must);
   // The privacy policy links the consumer health data policy (owner, 8 Oct 2026), and states the 18+ confirmation.
   assert.match(privacy, /href="\/privacy\/consumer-health"/);
-  assert.match(privacy, /confirm you are 18 or older before an account is created/);
+  assert.match(privacy, /confirm you are 18 or older before you can use an account/);
   // Google OAuth verification compares the policy to the scopes we request: every Google scope the
   // policy names must be one the API asks for (no Gmail in v1, her call 21 Nov 2026).
   const googleScopes = new Set([...(await read('../../services/api/src/connectors/oauth.ts')).matchAll(/googleapis\.com\/auth\/([a-z.]+)/g)].map((m) => m[1]));

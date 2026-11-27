@@ -143,7 +143,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       setNotice(confirmed ? 'Your plan is updated.' : 'The store accepted the purchase. Your plan updates here as soon as the store confirms it.');
       onFinished?.('purchased');
     } catch (cause) {
-      setError(plainError(cause, 'The purchase did not complete. You were not charged twice; try again.'));
+      setError(plainError(cause, 'The purchase did not complete. If you were charged, your plan turns on once the store confirms it; otherwise try again.'));
     } finally { setBusy(undefined); }
   };
 
@@ -246,7 +246,7 @@ export function PlanChoice({ games = [], onboarding = false, onFinished, onProdu
       {availability.available && !isAnonymous && storeLoad === 'unavailable' ? <Card tone="warning"><Body>{storeUnavailableCopy(availability.store, storeFault.fault, storeFault.code)}</Body><Button label="Try again" variant="secondary" onPress={() => setReloadKey((n) => n + 1)} /></Card> : null}
       {(availability.available || cardCheckout.kind === 'ready') && isAnonymous ? (
         <Card tone="warning">
-          <AccountPanel title="Save your account first" sub="A subscription belongs to an account, so it is never tied to one phone. One tap, no password." onDone={() => setReloadKey((n) => n + 1)} />
+          <AccountPanel title="Save your account first" sub="A subscription belongs to an account, so it is never tied to one phone. No password: an emailed code, or Apple on iPhone." onDone={() => setReloadKey((n) => n + 1)} />
         </Card>
       ) : null}
       {(availability.available || cardCheckout.kind === 'ready') && (!privacyUrl || !termsUrl) ? <Card tone="muted"><Body>Purchases open once the Terms of Use and Privacy Policy links are configured for this build.</Body></Card> : null}

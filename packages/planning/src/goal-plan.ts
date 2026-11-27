@@ -249,6 +249,11 @@ export function actionAmbiguityProblem(action: MvdAction): string | null {
   return null;
 }
 
+/** True when text prescribes diet, calories or medication (BODY_PRESCRIPTION_PATTERN): plan steps and AI coaching replies share it. */
+export function prescribesDietOrMedication(text: string): boolean {
+  return BODY_PRESCRIPTION_PATTERN.test(text);
+}
+
 /** Safety vocabulary check shared by generation and refinement. */
 export function actionSafetyProblem(action: MvdAction): string | null {
   const text = `${action.title} ${action.output}`;

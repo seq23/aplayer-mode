@@ -1,6 +1,6 @@
 import type { DailyPlan, LifeGraphSnapshot, OperatingModeKey } from '@apm/domain';
 import type { InferenceTask } from '@apm/ai';
-import { isExecutableActionTitle } from '@apm/planning';
+import { isExecutableActionTitle, prescribesDietOrMedication } from '@apm/planning';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
 import { recordAudit } from './audit';
@@ -41,6 +41,8 @@ export interface CoachReply extends Omit<CoachTurn, 'session' | 'modelSlot' | 'c
   mode: OperatingModeKey;
   phase: CoachPhase;
   engine: CoachEngine;
+  /** A model was asked, even when its answer was not used (the app's no-AI line depends on it). */
+  modelSaw: boolean;
   /** Back-compat for older clients: true once the synthesis + next move exist. */
   closureReady: boolean;
   nextAction?: string;
@@ -109,7 +111,9 @@ export function acceptModelSlot(input: {
   const valid = input.slot === 'question' ? isValidModelQuestion(input.text) : isValidModelSynthesis(input.text, input.mode);
   if (!valid) return { accepted: false, guarded: false, ...keep };
   if (hasCatchUpPhrasing(input.text)) return { accepted: false, guarded: true, ...keep };
-  const nextMove = input.slot === 'synthesis' && input.nextMove && isExecutableActionTitle(input.nextMove) && !hasCatchUpPhrasing(input.nextMove)
+  // "APM never prescribes diet, calories or medication": a model rewrite that does is discarded (promise audit 27 Nov 2026).
+  if (prescribesDietOrMedication(input.text)) return { accepted: false, guarded: true, ...keep };
+  const nextMove = input.slot === 'synthesis' && input.nextMove && isExecutableActionTitle(input.nextMove) && !hasCatchUpPhrasing(input.nextMove) && !prescribesDietOrMedication(input.nextMove)
     ? input.nextMove.trim()
     : input.scriptedNextMove;
   return { accepted: true, guarded: false, text: input.text.trim(), nextMove };
@@ -187,13 +191,14 @@ async function recentConversation(env: ApiEnv, accessToken: string, userId: stri
  */
 async function enhanceWithModel(input: {
   env: ApiEnv; accessToken: string; userId: string; graph: LifeGraphSnapshot; plan: DailyPlan; mode: OperatingModeKey; sessionId: string; turn: CoachTurn;
-}): Promise<{ turn: CoachTurn; engine: CoachEngine }> {
+}): Promise<{ turn: CoachTurn; engine: CoachEngine; modelSaw: boolean }> {
   const { turn } = input;
-  if (!turn.modelSlot || !input.env.OPENROUTER_API_KEY) return { turn, engine: 'scripted' };
+  if (!turn.modelSlot || !input.env.OPENROUTER_API_KEY) return { turn, engine: 'scripted', modelSaw: false };
   if (!(await hasEligibleRoute(input.env, input.accessToken, { ...COACHING_ROUTE_REQUEST, requiredCapabilities: [...COACHING_ROUTE_REQUEST.requiredCapabilities] }).catch(() => false))) {
-    return { turn, engine: 'scripted' };
+    return { turn, engine: 'scripted', modelSaw: false };
   }
   const slot = turn.modelSlot;
+  // From here the person's words may reach a model; a scripted fallback must not say otherwise.
   try {
     const result = await runUserInference<{ text: string; nextMove: string | null }>({
       env: input.env,
@@ -211,20 +216,20 @@ async function enhanceWithModel(input: {
       slot, mode: input.mode, text: typeof result.text === 'string' ? result.text : '', nextMove: result.nextMove ?? null,
       scripted: slot === 'question' ? turn.prompt.text : turn.reply, scriptedNextMove: turn.nextMove,
     });
-    if (!accepted.accepted) return { turn, engine: 'scripted' };
+    if (!accepted.accepted) return { turn, engine: 'scripted', modelSaw: true };
     if (slot === 'question' && !/\?/.test(turn.reply)) {
-      return { turn: { ...turn, prompt: { ...turn.prompt, text: accepted.text } }, engine: 'model' };
+      return { turn: { ...turn, prompt: { ...turn.prompt, text: accepted.text } }, engine: 'model', modelSaw: true };
     }
     if (slot === 'synthesis') {
       const { nextMove, text } = accepted;
       // Track enforcement is deterministic: a rewrite cannot drop a Track challenge.
       const reply = [turn.boundaryNote, text, ...turn.trackChallenges.filter((line) => !text.includes(line))].filter(Boolean).join('\n');
-      return { turn: { ...turn, reply, nextMove }, engine: 'model' };
+      return { turn: { ...turn, reply, nextMove }, engine: 'model', modelSaw: true };
     }
   } catch {
     // Fail closed to the deterministic flow, never to an unapproved route.
   }
-  return { turn, engine: 'scripted' };
+  return { turn, engine: 'scripted', modelSaw: true };
 }
 
 export async function coach(input: {
@@ -256,7 +261,7 @@ export async function coach(input: {
   const decided = decideTurn(state, { message, choice: input.choice }, {
     mode, modeState: input.modeState, graph: input.graph, plan: input.plan, now, priorUserMessages: prior,
   });
-  const { turn, engine } = await enhanceWithModel({ env: input.env, accessToken: input.accessToken, userId: input.userId, graph: input.graph, plan: input.plan, mode, sessionId: session.id, turn: decided });
+  const { turn, engine, modelSaw } = await enhanceWithModel({ env: input.env, accessToken: input.accessToken, userId: input.userId, graph: input.graph, plan: input.plan, mode, sessionId: session.id, turn: decided });
   assertCoachTurnContract(turn);
 
   const assistantText = [turn.reply, turn.prompt.text].filter(Boolean).join('\n');
@@ -298,6 +303,7 @@ export async function coach(input: {
       mode,
       phase: nextSession.phase,
       engine,
+      modelSaw,
       closureReady: nextSession.phase === 'closure_offered' || nextSession.phase === 'morning_sequence',
       nextAction: turn.nextMove,
     },

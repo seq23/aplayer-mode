@@ -233,7 +233,7 @@ export default function AutopilotScreen() {
       <Screen title="Standing authority, inside your rules." subtitle="Autopilot lets APM handle approved recurring work without asking each time—only inside rules you write and can revoke.">
         <Card tone="warning">
           <CardTitle>Autopilot is not active on this account.</CardTitle>
-          <Body muted>Standing rules need an active Autopilot plan, enforced by the server and database. Even then, the plan grants nothing on its own: you choose each rule, its limits and how long it lasts.</Body>
+          <Body muted>Standing rules need an active Autopilot plan, enforced by the server and database, so without one no rule runs and there is nothing to pause. Even with it, the plan grants nothing on its own: you choose each rule, its limits and how long it lasts.</Body>
           <Button label="View plans" onPress={() => router.push('/settings/plan')} />
         </Card>
         <Card>

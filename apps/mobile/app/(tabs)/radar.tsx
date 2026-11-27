@@ -37,7 +37,7 @@ export default function RadarScreen() {
 
       <SectionTitle>Needs attention</SectionTitle>
       {items.length === 0 ? (
-        <EmptyState icon="compass" title="Nothing slipping right now." body="Radar stays quiet until something really needs you. Connect your calendar or email and it watches those too." actionLabel="Connect an account" onAction={() => router.push('/settings/privacy/connections')} />
+        <EmptyState icon="compass" title="Nothing slipping right now." body="Radar stays quiet until something really needs you. Connect your calendar and it watches that too." actionLabel="Connect an account" onAction={() => router.push('/settings/privacy/connections')} />
       ) : (
         items.map((item) => (
           <Card key={item.id} tone={item.severity === 'critical' || item.severity === 'high' ? 'warning' : 'default'}>

@@ -73,7 +73,7 @@ export default function PrivacyCenterScreen() {
         <CardTitle>APM learns you. Public AI models do not.</CardTitle>
         <Row gap="xs"><Icon name="check" size={16} tone="accent" /><Fill><Body>Your data is never sold.</Body></Fill></Row>
         <Row gap="xs"><Icon name="check" size={16} tone="accent" /><Fill><Body>Your private life never trains a public AI model.</Body></Fill></Row>
-        <Row gap="xs"><Icon name="check" size={16} tone="accent" /><Fill><Body>What APM learns about you stays in your own account.</Body></Fill></Row>
+        <Row gap="xs"><Icon name="check" size={16} tone="accent" /><Fill><Body>What APM learns about you is stored only in your own account.</Body></Fill></Row>
       </Card>
 
       <SectionTitle>Understand & control APM</SectionTitle>

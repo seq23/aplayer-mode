@@ -33,14 +33,24 @@ export default function HowAiWorksScreen() {
       <Card>
         <ListItem title="Plain code first" detail="Dates, clashes and counts are worked out by APM itself. No AI model needed." />
         <ListItem title="Share the least" detail="An AI task gets only what it needs, never everything APM knows about you." />
-        <ListItem title="Privacy decides first" detail="A model is used only if its privacy terms allow it; then quality, then cost." />
+        <ListItem title="Privacy decides first" detail="A model is used only if its privacy terms allow it; then reliability, quality and cost." />
         <ListItem title="Check every answer" detail="An AI answer is not trusted until APM has checked it." />
+      </Card>
+
+      <SectionTitle>Which features use AI</SectionTitle>
+      <Card>
+        <ListItem title="Coaching replies" detail="An approved AI model may word a coaching reply. Under each reply APM says whether a model was involved." />
+        <ListItem title="Subscription alerts" detail="On Executive Suite and Autopilot, an approved AI model reads subscription notices in Outlook Mail to spot a price rise or an unused plan." />
+      </Card>
+      <Card>
+        <CardTitle>No AI model</CardTitle>
+        <Body>Your setup plan, today’s plan, the Radar, dates, clashes, counts, reminders, the built-in coaching steps and Autopilot’s rules are worked out by APM’s own code.</Body>
       </Card>
 
       <Card>
         <CardTitle>Learning is not model training.</CardTitle>
         <Body>
-          If APM learns that you prefer workouts before noon, that preference can be stored privately in your account. It does not require a public foundation model to train on your calendar history.
+          What you tell APM, such as preferring workouts before noon, is stored privately in your account. It is never used to train a public AI model.
         </Body>
       </Card>
 

@@ -48,10 +48,11 @@ test('price constants are the owner-decided final prices (ADR-0004)', () => {
     { beta: 'Executive Roundtable Beta', chief_of_staff: 'Executive Roundtable', life_os: 'Executive Suite', autopilot: 'Autopilot', household: 'Household OS' },
   );
   assert.match(productPlanPolicies.chief_of_staff.promise, /^Your five-person executive team, in one app\. .*you do the last step\.$/);
-  for (const area of ['relationships', 'appointments and travel', 'bills and subscriptions', 'meals', 'health and life admin', 'one-tap approve-and-execute']) {
+  for (const area of ['relationships', 'appointments and travel', 'bills and subscriptions', 'meals', 'health and life admin', 'the same Today and Radar']) {
     assert.ok(productPlanPolicies.life_os.promise.includes(area), `Executive Suite promise covers ${area}`);
   }
-  assert.match(productPlanPolicies.life_os.promise, /acts when you tap yes/);
+  // Production executes calendar actions only (services/api/wrangler.jsonc; promise audit 27 Nov 2026).
+  assert.match(productPlanPolicies.life_os.promise, /acts on your calendar when you tap yes/);
   assert.match(productPlanPolicies.autopilot.promise, /never spends money/, 'the no-spend promise stays (claims safety)');
   for (const policy of Object.values(productPlanPolicies)) {
     assert.doesNotMatch(`${policy.displayName} ${policy.promise}`, /Chief of Staff|Life OS/, `${policy.plan}: no retired plan name`);
