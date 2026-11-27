@@ -33,7 +33,7 @@ export default function HowAiWorksScreen() {
       <Card>
         <ListItem title="Plain code first" detail="Dates, clashes and counts are worked out by APM itself. No AI model needed." />
         <ListItem title="Share the least" detail="An AI task gets only what it needs, never everything APM knows about you." />
-        <ListItem title="Privacy decides first" detail="A model is used only if its privacy terms allow it; then quality, then cost." />
+        <ListItem title="Privacy decides first" detail="A model is used only if its privacy terms allow it; then reliability, quality and cost." />
         <ListItem title="Check every answer" detail="An AI answer is not trusted until APM has checked it." />
       </Card>
 

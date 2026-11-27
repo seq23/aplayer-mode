@@ -72,3 +72,12 @@ test('every coaching prompt carries the No Catch-Up instruction, including negat
   assert.match(coaching.NO_CATCH_UP_INSTRUCTION, /no pressure to catch up/);
   assert.match(coaching.NO_CATCH_UP_INSTRUCTION, /today/);
 });
+
+test('acceptModelSlot: a model reply or next move that prescribes diet, calories or medication is discarded (promise audit 27 Nov 2026)', () => {
+  const question = coaching.acceptModelSlot({ slot: 'question', mode: 'standard', text: 'Could you cut your calories to 1,200 this week?', nextMove: null, scripted: 'What feels most stuck right now?' });
+  assert.deepEqual([question.accepted, question.guarded, question.text], [false, true, 'What feels most stuck right now?']);
+  const medication = coaching.acceptModelSlot({ slot: 'question', mode: 'standard', text: 'Have you asked about Ozempic for this?', nextMove: null, scripted: 'What feels most stuck right now?' });
+  assert.equal(medication.accepted, false);
+  const clean = coaching.acceptModelSlot({ slot: 'question', mode: 'standard', text: 'What is one walk you could take today?', nextMove: null, scripted: 'x?' });
+  assert.equal(clean.accepted, true, 'ordinary coaching still passes');
+});

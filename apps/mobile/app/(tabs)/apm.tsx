@@ -118,7 +118,7 @@ export default function ApmScreen() {
   const awaitingOptions = last?.prompt.options.length ? last.prompt : undefined;
 
   return (
-    <Screen eyebrow="Coach" title="Stuck? Talk it through." subtitle="One question at a time. APM ends every session with the one thing to do next.">
+    <Screen eyebrow="Coach" title="Stuck? Talk it through." subtitle="One question at a time. APM ends a session with the one thing to do next.">
       {/* One clear primary (docs/35 U8): the current mode and one way into coaching. Everything else is tucked below. */}
       <Card tone="feature">
         <Row justify="space-between" gap="xs">

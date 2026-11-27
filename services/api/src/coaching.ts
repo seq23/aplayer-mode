@@ -1,6 +1,6 @@
 import type { DailyPlan, LifeGraphSnapshot, OperatingModeKey } from '@apm/domain';
 import type { InferenceTask } from '@apm/ai';
-import { isExecutableActionTitle } from '@apm/planning';
+import { isExecutableActionTitle, prescribesDietOrMedication } from '@apm/planning';
 import type { ApiEnv } from './env';
 import { supabaseRest } from './db';
 import { recordAudit } from './audit';
@@ -111,7 +111,9 @@ export function acceptModelSlot(input: {
   const valid = input.slot === 'question' ? isValidModelQuestion(input.text) : isValidModelSynthesis(input.text, input.mode);
   if (!valid) return { accepted: false, guarded: false, ...keep };
   if (hasCatchUpPhrasing(input.text)) return { accepted: false, guarded: true, ...keep };
-  const nextMove = input.slot === 'synthesis' && input.nextMove && isExecutableActionTitle(input.nextMove) && !hasCatchUpPhrasing(input.nextMove)
+  // "APM never prescribes diet, calories or medication": a model rewrite that does is discarded (promise audit 27 Nov 2026).
+  if (prescribesDietOrMedication(input.text)) return { accepted: false, guarded: true, ...keep };
+  const nextMove = input.slot === 'synthesis' && input.nextMove && isExecutableActionTitle(input.nextMove) && !hasCatchUpPhrasing(input.nextMove) && !prescribesDietOrMedication(input.nextMove)
     ? input.nextMove.trim()
     : input.scriptedNextMove;
   return { accepted: true, guarded: false, text: input.text.trim(), nextMove };

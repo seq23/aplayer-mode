@@ -64,7 +64,7 @@ export default function NotificationsScreen() {
   };
 
   return (
-    <Screen title="Rare, and only when it matters." subtitle="Your morning plan, approvals that need you and urgent heads-ups. No motivational spam.">
+    <Screen title="One notification a day: your plan." subtitle="Your morning plan, once a day. No motivational spam.">
       <Toast tone="success" message={message} />
       {error ? <ErrorState message={error} /> : null}
 
@@ -98,7 +98,7 @@ export default function NotificationsScreen() {
       <SectionTitle>Your morning plan</SectionTitle>
       <Card tone="accent">
         <CardTitle>Your plan arrives on its own.</CardTitle>
-        <Body muted>At your wake time APM sets up today's plan and sends one notification. Never during a focus block or family time; it waits until that ends.</Body>
+        <Body muted>At your wake time APM sets up today's plan and sends one notification. Never during an APM Deep Work session or a timed family block; it waits until that ends, for up to six hours.</Body>
         <KeyValue label="Status" value={prefs?.morning_push_enabled === false ? 'Off' : 'On'} />
         <ChoiceRow options={[{ id: 'on', label: 'On' }, { id: 'off', label: 'Off' }]} value={prefs?.morning_push_enabled === false ? 'off' : 'on'} onChange={(value) => void save({ morningPushEnabled: value === 'on' }, value === 'on' ? 'Morning plan notification on.' : 'Morning plan notification off.')} />
         <TimePicker label="Wake time (your local time)" value={wakeTime} onChange={setWakeTime} />
@@ -119,7 +119,7 @@ export default function NotificationsScreen() {
       <Card tone="warning">
         <CardTitle>Turn every APM notification off</CardTitle>
         <ChoiceRow options={[{ id: 'on', label: 'Notifications on' }, { id: 'off', label: 'All off' }]} value={prefs?.enabled === false ? 'off' : 'on'} onChange={(value) => void save({ enabled: value === 'on' }, value === 'on' ? 'Notifications on.' : 'All APM notifications are off.')} />
-        <Body muted>Before anything is sent, APM checks it is urgent, not a repeat, still true, and outside your quiet hours.</Body>
+        <Body muted>Today the morning plan is the only notification APM sends, at most once a day.</Body>
       </Card>
       </>
       )}

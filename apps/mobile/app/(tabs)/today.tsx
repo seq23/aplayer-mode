@@ -372,7 +372,7 @@ export default function TodayScreen() {
 
           {waitingAccounts.map((account) => <Card key={account.id}>
             <CardTitle>{`${account.kind === 'email' || account.provider === 'microsoft' ? 'Outlook' : 'Google Calendar'} isn't responding`}</CardTitle>
-            <Body muted>We'll try again on the next check. Nothing changed in your account.</Body>
+            <Body muted>Nothing changed in your account. Try Sync now in Settings → Connections in a little while.</Body>
           </Card>)}
 
           {outcomes.map((action) => <ActionApprovalCard key={action.id} action={action} busyId={busyActionId} timezoneHint={graph.identity.timezone || 'UTC'}
