@@ -50,7 +50,7 @@ export default function HowAiWorksScreen() {
       <Card>
         <CardTitle>Learning is not model training.</CardTitle>
         <Body>
-          If APM learns that you prefer workouts before noon, that preference can be stored privately in your account. It does not require a public foundation model to train on your calendar history.
+          What you tell APM, such as preferring workouts before noon, is stored privately in your account. It is never used to train a public AI model.
         </Body>
       </Card>
 

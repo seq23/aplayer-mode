@@ -54,14 +54,38 @@
         { "tap": { "role": "button", "name": "Start: reduce my load" } },
         { "goto": "/settings/privacy/export-delete" },
         { "see": "Your data should not be trapped.", "id": "export-delete" },
+        { "sweep": true }
+      ]
+    },
+    {
+      "name": "signed-in",
+      "start": "/",
+      "steps": [
+        { "tap": "I already have an account" },
+        { "tap": { "role": "button", "name": "Email me a 6-digit code" } },
+        { "fill": "Email address", "value": "test-tapthrough@example.com" },
+        { "tap": { "role": "button", "name": "Email me a 6-digit code" } },
+        { "fill": "6-digit code", "value": "123456" },
+        { "tap": { "role": "button", "name": "Verify and continue" } },
+        { "wait": 1500 },
+        { "goto": "/settings/privacy/export-delete" },
+        { "see": "Your data should not be trapped.", "id": "signed-export" },
         { "tap": { "role": "button", "name": "Generate export" } },
         { "see": "Your export is downloaded as a-player-mode-export-", "id": "export-done" },
+        { "goto": "/today" },
+        { "wait": 1500, "id": "today" },
+        { "goto": "/radar" },
+        { "wait": 1500, "id": "radar" },
+        { "goto": "/apm" },
+        { "wait": 1500, "id": "coach" },
+        { "goto": "/settings/autopilot" },
+        { "wait": 1500, "id": "autopilot" },
         { "sweep": true }
       ]
     }
   ],
   "promises": [
-    { "text": "Everything APM knows about you and everything it did, made on the spot as one file you download or share. No support ticket.", "on": "delete-my-data:export-delete", "built": "delete-my-data:export-done" }
+    { "text": "Everything APM knows about you and everything it did, made on the spot as one file you download or share. No support ticket.", "on": "signed-in:signed-export", "built": "signed-in:export-done" }
   ],
   "native_only": [
     { "feature": "in-app purchase and Restore purchases", "why": "the web preview has no store: Restore purchases only shows where a store exists (PlanChoice), and buying is preview-only", "simulator": "a sandbox purchase on the simulator build (GitHub macOS runner, free: public repo)" },
