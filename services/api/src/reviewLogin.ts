@@ -2,13 +2,15 @@ import type { ApiEnv } from './env';
 import { requireSupabaseConfig } from './env';
 import { recordAudit } from './audit';
 import { serviceRpc } from './db';
+import { REVIEW_CODE_PATTERN } from '@apm/policy';
 
 /**
  * App Review demo sign-in (docs/33 §8). Sign-in is a 6-digit email code, which a reviewer
  * cannot receive, so ONE reviewer account may sign in with a fixed code instead:
  *
  *   APP_REVIEW_EMAIL  the reviewer address (Worker var)
- *   APP_REVIEW_CODE   its fixed code, exactly 6 digits (Worker secret)
+ *   APP_REVIEW_CODE   its fixed code (Worker secret): 6 digits, or 12–24 letters and digits
+ *                     (REVIEW_CODE_PATTERN in @apm/policy, the same rule as the app's code box)
  *   APP_REVIEW_UNTIL  optional: the moment the review window closes (Worker var, an ISO date or
  *                     date-time). Not set = no end date. Set and passed, or set and unreadable =
  *                     off, exactly as if the code were unset.
@@ -16,8 +18,8 @@ import { serviceRpc } from './db';
  * Off unless BOTH are set (and the server secret key exists): the route then answers 404
  * to everyone, exactly as for any address that is not the reviewer's, so it never reveals
  * which addresses have accounts. The code is accepted ONLY for that one address, compared
- * in constant time, and every sign-in is an `auth.review_login` audit row. Unset the two
- * values after review and the path is gone.
+ * in constant time, and every sign-in is an `auth.review_login` audit row. Delete the code
+ * after the review (RUNBOOK "Store review sign-in") and the path is gone.
  *
  * A 6-digit code is guessable, so every code presented for the reviewer address takes a try
  * in the database BEFORE it is compared (migration 0108; one count for every Cloudflare
@@ -28,14 +30,16 @@ import { serviceRpc } from './db';
  * try back. A count that cannot be taken refuses the sign-in (503): never a session.
  */
 /**
- * globalPerDay bounds a guesser with many addresses to 500 of the 1,000,000 codes a day (0.05%)
- * and takes 50 separate networks at full lockout to spend. A longer code is the owner's call.
+ * globalPerDay bounds a guesser with many addresses to 500 of the 1,000,000 six-digit codes a day
+ * (0.05%) and takes 50 separate networks at full lockout to spend. A 16-character code (62^16
+ * choices) is out of reach at 500 a day; the RUNBOOK sets one before each store review.
  */
 export const REVIEW_LOGIN_LIMITS = { devicePerDay: 10, globalPerDay: 500 } as const;
 
-// Exactly 6 digits: the app's code box (AccountPanel.tsx) keeps 6 and Verify needs 6, so an 8-digit
-// code passed this check but no reviewer could type it (16 Nov 2026).
-export const REVIEW_CODE_PATTERN = /^\d{6}$/;
+// One rule with the app's code box (@apm/policy): 6 digits, or 12–24 letters and digits. A code of
+// any other shape keeps the route off, because no store build could type it (16 Nov 2026: an
+// 8-digit code passed the old check but the 6-digit box could not hold it).
+export { REVIEW_CODE_PATTERN };
 
 const encoder = new TextEncoder();
 async function sameSecret(a: string, b: string): Promise<boolean> {

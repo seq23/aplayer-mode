@@ -44,6 +44,10 @@
         "GOOGLE_OAUTH_REDIRECT_URI": "https://api.aplayermode.com/v1/oauth/google/callback",
         "MICROSOFT_OAUTH_REDIRECT_URI": "https://api.aplayermode.com/v1/oauth/microsoft/callback",
         "APP_REVIEW_EMAIL": "appreview@aplayermode.com",
+        // Review sign-in closes at this moment (src/reviewLogin.ts; RUNBOOK "Store review sign-in").
+        // Set 27 Nov 2026 for the App Store review waiting since 21 Nov and the Play review open since
+        // 24 Nov: their end is assumed by 17 Dec, plus 14 days. A new review sets a new date.
+        "APP_REVIEW_UNTIL": "2026-12-31T00:00:00Z",
         "REVENUECAT_PROJECT_ID": "proj2c0586cf",
         "SUITE_MAIL_DAILY_CEILING": "2000",
         // Action Engine + Autopilot switches (docs/26 §8, docs/31). Calendar only: the two

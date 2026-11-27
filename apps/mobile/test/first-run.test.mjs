@@ -175,7 +175,8 @@ test('answers hit the device synchronously on native; web storage never crashes;
   // Apple only on iOS: the panel renders Apple from signInOptions, which offers it on iOS alone.
   assert.match(account, /options\.includes\('apple'\) \? <AppleButton/);
   assert.match(await read('src/auth/signInOptions.ts'), /platform === 'ios' \? \(\['apple'\] as const\)/);
-  assert.match(account, /textContentType="oneTimeCode"/);
+  // The email code box keeps iOS code autofill; only the review account's box (no email sent) drops it.
+  assert.match(account, /textContentType=\{review \? 'none' : 'oneTimeCode'\} autoComplete=\{review \? 'off' : 'one-time-code'\}/);
   const session = await read('src/state/session.tsx');
   assert.match(session, /signInAnonymously/);
   assert.match(session, /email_change/);

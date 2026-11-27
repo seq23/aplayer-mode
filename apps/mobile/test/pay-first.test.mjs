@@ -137,7 +137,7 @@ test('web app only: never the sideload APK, never a store build', async () => {
 test('after paying: claim first, then the email code, then the setup questions; the paywall is skipped', async () => {
   const ret = await src('app/billing/return.tsx');
   const claimAt = ret.indexOf('await claimUntilPaid(() => claimPrecheckout({ checkoutId: pending.id');
-  const codeAt = ret.indexOf('await sendEmailCode(email);\n    setStage');
+  const codeAt = ret.indexOf('setReview((await sendEmailCode(email)).review);\n    setStage');
   assert.ok(claimAt > 0 && codeAt > claimAt, 'the account must exist (id = checkout id) before the code is sent');
   assert.match(ret, /clearPendingCheckout\(\);\n    router\.replace\(healthDecision \? '\/intake' : '\/health-consent'\)/);
   // The page claims the id RevenueCat returned with, and retries quietly while it confirms.

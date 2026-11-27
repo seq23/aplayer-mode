@@ -42,7 +42,8 @@ interface SessionContextValue {
   error?: string;
   /** Silent anonymous session on "Start". False when the project does not allow it: the draft stays on this device. */
   startAnonymous: () => Promise<boolean>;
-  sendEmailCode: (email: string) => Promise<void>;
+  /** `review: true` only for the App Review account: no email was sent; the reviewer types the code given in the store console. */
+  sendEmailCode: (email: string) => Promise<{ review: boolean }>;
   verifyEmailCode: (email: string, code: string, firstName?: string) => Promise<AccountResult>;
   /** Settings: change the name APM greets you with. Throws when it did not save. */
   updateName: (name: string) => Promise<void>;
@@ -95,7 +96,7 @@ function PreviewSessionProvider({ children }: { children: ReactNode }) {
       isAnonymous: account?.kind === 'anonymous',
       ...(account?.name ? { firstName: account.name } : {}),
       startAnonymous: async () => { if (!account) become({ kind: 'anonymous' }); return true; },
-      sendEmailCode: async () => undefined,
+      sendEmailCode: async () => ({ review: false }),
       verifyEmailCode: (_email, _code, name) => signIn('email', name),
       updateName: async (name) => { await saveDisplayName(name, 'preview'); if (account) become({ ...account, name: name.trim().slice(0, 60) }); },
       signInWithApple: () => signIn('apple'),
@@ -214,22 +215,23 @@ function LiveSessionProvider({ children }: { children: ReactNode }) {
         const address = email.trim().toLowerCase();
         try {
           // App Review demo account (docs/33 §8): the server says so only for its one address.
-          if ((await reviewerSignIn({ email: address }))?.review) { emailMode.current = 'review'; return; }
+          if ((await reviewerSignIn({ email: address }))?.review) { emailMode.current = 'review'; return { review: true }; }
           if (session && isAnonymous) {
             const { error: linkError } = await supabase().auth.updateUser({ email: address });
-            if (!linkError) { emailMode.current = 'link'; return; }
+            if (!linkError) { emailMode.current = 'link'; return { review: false }; }
             if (!alreadyExists(linkError)) throw linkError;
             // The address already has an account: sign in to it; the draft merges after.
             anonymousToken.current = session.access_token;
             emailMode.current = 'existing';
             const { error: otpError } = await supabase().auth.signInWithOtp({ email: address, options: { shouldCreateUser: false } });
             if (otpError) throw otpError;
-            return;
+            return { review: false };
           }
           emailMode.current = 'signin';
           const { error: otpError } = await supabase().auth.signInWithOtp({ email: address, options: { shouldCreateUser: true } });
           if (otpError) throw otpError;
-        } catch (cause) { fail(cause); }
+          return { review: false };
+        } catch (cause) { return fail(cause); }
       },
       updateName: (name) => saveName(name, true),
       verifyEmailCode: async (email, code, name) => {

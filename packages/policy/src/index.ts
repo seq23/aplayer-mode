@@ -734,3 +734,16 @@ export function decideStandingAuthority(input: {
   if (!input.classActivated) return { allowed: false, reason: 'class_not_activated' };
   return { allowed: true, reason: 'allowed' };
 }
+
+/**
+ * The App Review sign-in code (docs/33 §8; RUNBOOK "Before a store review"). ONE rule for the
+ * server (services/api/src/reviewLogin.ts: a code of any other shape keeps the route off) and the
+ * app's reviewer code box (apps/mobile/src/components/intake/AccountPanel.tsx): today's 6 digits,
+ * which every store build so far can type, or 12–24 letters and digits, which only a build with the
+ * wider box can type. Letters are case-sensitive, exactly as the code was set.
+ */
+export const REVIEW_CODE_MAX_LENGTH = 24;
+export const REVIEW_CODE_PATTERN = /^(?:\d{6}|[A-Za-z0-9]{12,24})$/;
+export function isReviewCodeShape(code: string): boolean {
+  return REVIEW_CODE_PATTERN.test(code);
+}

@@ -59,7 +59,7 @@ export interface ApiEnv {
   /** Resend sending key for mail.aplayermode.com (Worker secret): the annual renewal reminder (renewalReminders.ts). */
   RESEND_API_KEY?: string;
   APP_REVIEW_EMAIL?: string;
-  /** Its fixed code, exactly 6 digits (Worker secret). Off unless set together with APP_REVIEW_EMAIL. */
+  /** Its fixed code (Worker secret): 6 digits or 12–24 letters and digits (REVIEW_CODE_PATTERN, @apm/policy). Off unless set together with APP_REVIEW_EMAIL. */
   APP_REVIEW_CODE?: string;
   /** Optional end of the review window (Worker var, ISO date or date-time). Passed or unreadable = review sign-in off. */
   APP_REVIEW_UNTIL?: string;

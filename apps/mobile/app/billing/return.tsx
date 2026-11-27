@@ -11,6 +11,7 @@ import { appDistribution } from '../../src/billing/purchases';
 import { WEB_CHECKOUT_COPY } from '../../src/billing/webCheckout';
 import { ATTACH_FINAL_ERRORS, PRECHECKOUT_COPY, RETURN_COPY, attachUntilDone, checkoutIdFromReturn, claimUntilPaid, clearPendingCheckout, payFirstAllowed, pendingCheckout, returnCheckout, type PendingCheckout } from '../../src/billing/precheckout';
 import { plainError } from '../../src/api/errors';
+import { codeBoxFor } from '../../src/components/intake/codeBox';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Poll attempts (2 s apart) that also ask the server to reconcile; within the API's 6-per-minute limit. */
@@ -148,6 +149,8 @@ function ClaimAccount({ pending, onExistingAccount }: { pending: PendingCheckout
   const [stage, setStage] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  const [review, setReview] = useState(false);
+  const box = codeBoxFor(review);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -166,12 +169,12 @@ function ClaimAccount({ pending, onExistingAccount }: { pending: PendingCheckout
     const result = await claimUntilPaid(() => claimPrecheckout({ checkoutId: pending.id, email: email.trim() }));
     if (!result.claimed) { setError(result.message ?? PRECHECKOUT_COPY.unavailable); return; }
     setExistingAccount(result.existingAccount === true);
-    await sendEmailCode(email);
+    setReview((await sendEmailCode(email)).review);
     setStage('code');
   });
 
   const verify = () => run(async () => {
-    if (code.length !== 6) { setError('The code has 6 digits.'); return; }
+    if (!box.ready(code)) { setError(box.notReady); return; }
     await verifyEmailCode(email, code, name);
     // An existing account: keep the checkout id; the signed-in page attaches it, then checks the plan.
     if (existingAccount) { onExistingAccount(); return; }
@@ -180,13 +183,13 @@ function ClaimAccount({ pending, onExistingAccount }: { pending: PendingCheckout
   });
 
   return (
-    <Screen title={stage === 'email' ? PRECHECKOUT_COPY.title : 'Check your email'}>
-      <Body muted>{stage === 'email' ? PRECHECKOUT_COPY.lead : `We sent a 6-digit code to ${email.trim()}. Type it here.`}</Body>
+    <Screen title={stage === 'email' ? PRECHECKOUT_COPY.title : box.title}>
+      <Body muted>{stage === 'email' ? PRECHECKOUT_COPY.lead : box.lead(email)}</Body>
       {stage === 'email' ? (
         <TextField accessibilityLabel="Email address" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" placeholder="you@example.com" />
       ) : (
         <>
-          <TextField code accessibilityLabel="6-digit code" value={code} onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={6} placeholder="6-digit code" />
+          <TextField code={!review} accessibilityLabel={box.label} value={code} onChangeText={(t) => setCode(box.clean(t))} keyboardType={box.keyboardType} autoCapitalize="none" autoCorrect={false} textContentType={review ? 'none' : 'oneTimeCode'} autoComplete={review ? 'off' : 'one-time-code'} maxLength={box.maxLength} placeholder={box.label} />
           <TextField accessibilityLabel="First name" value={name} onChangeText={setName} autoComplete="given-name" textContentType="givenName" placeholder="First name" />
         </>
       )}
@@ -196,7 +199,7 @@ function ClaimAccount({ pending, onExistingAccount }: { pending: PendingCheckout
         : (
           <>
             <Button label={busy ? 'Checking…' : 'Verify and start setup'} busy={busy} onPress={() => void verify()} />
-            <LinkButton label="Resend the code" onPress={() => void run(() => sendEmailCode(email))} />
+            <LinkButton label="Resend the code" onPress={() => void run(async () => { setReview((await sendEmailCode(email)).review); })} />
           </>
         )}
       <Muted>{PRECHECKOUT_COPY.footnote}</Muted>

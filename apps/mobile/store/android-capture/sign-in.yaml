@@ -13,10 +13,11 @@ appId: com.aplayermode.app
 - inputText: ${EMAIL}
 - hideKeyboard
 - tapOn: "Email me a 6-digit code"
+# The review account gets the "Review code" box (letters and digits, src/components/intake/codeBox.ts).
 - extendedWaitUntil:
-    visible: "6-digit code"
+    visible: "Review code"
     timeout: 30000
-- tapOn: "6-digit code"
+- tapOn: "Review code"
 - inputText: ${CODE}
 - hideKeyboard
 - tapOn: "Verify and continue"
