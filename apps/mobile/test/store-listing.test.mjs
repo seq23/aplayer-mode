@@ -104,3 +104,77 @@ test('the daily AI limit is disclosed in the same words on the paywall, both lis
   assert.match(sell, /limitLine: DAILY_AI_LIMIT_LINE,/, 'the paywall copy uses the sentence itself');
   assert.match(paywall, /PLAN_SCREEN\.limitLine/, 'and the plan screen shows it');
 });
+
+// Store screenshots (store/app-store/screenshots, store/google-play/screenshots): every file the
+// listings name is there, at the size the store takes (App Store Connect APP_IPHONE_67 1320x2868;
+// Play phone 1080x1920), without an alpha channel (App Store Connect refuses one), and in count.
+function pngProblems(buf, want) {
+  if (!buf || buf.length < 26 || buf.toString('latin1', 1, 4) !== 'PNG') return ['not a PNG'];
+  const out = [];
+  const [w, h] = [buf.readUInt32BE(16), buf.readUInt32BE(20)];
+  if (w !== want[0] || h !== want[1]) out.push(`${w}x${h}, not ${want[0]}x${want[1]}`);
+  if (buf[25] === 4 || buf[25] === 6) out.push('has an alpha channel');
+  return out;
+}
+async function shotProblems(files, want, [min, max]) {
+  const out = [];
+  if (files.length < min || files.length > max) out.push(`${files.length} screenshots, the store takes ${min} to ${max}`);
+  for (const file of files) {
+    const buf = await readFile(new URL(`../store/${file}`, import.meta.url)).catch(() => undefined);
+    for (const p of buf ? pngProblems(buf, want) : ['missing']) out.push(`${file}: ${p}`);
+  }
+  return out;
+}
+
+test('every listed store screenshot is there, at the store\'s size, with no alpha, in count', async () => {
+  assert.deepEqual(await shotProblems(listing.screenshots.map((s) => s.file), [1320, 2868], [1, 10]), []);
+  assert.deepEqual(await shotProblems(play.graphics.phoneScreenshots, [1080, 1920], [2, 8]), []);
+  assert.deepEqual(listing.screenshots.map((s) => s.order), listing.screenshots.map((_, i) => i + 1), 'orders run 1..n');
+});
+
+test('the screenshot check fails on a missing file, a wrong size and an alpha channel (negative proof)', async () => {
+  assert.ok((await shotProblems(['app-store/screenshots/none.png'], [1320, 2868], [1, 10])).some((p) => p.endsWith('missing')));
+  assert.ok((await shotProblems(play.graphics.phoneScreenshots, [1320, 2868], [1, 10])).some((p) => p.includes('1080x1920, not 1320x2868')));
+  const rgba = Buffer.from(await readFile(new URL(`../store/${play.graphics.phoneScreenshots[0]}`, import.meta.url)));
+  rgba[25] = 6;
+  assert.deepEqual(pngProblems(rgba, [1080, 1920]), ['has an alpha channel']);
+  assert.ok((await shotProblems([], [1080, 1920], [2, 8]))[0].startsWith('0 screenshots'));
+});
+
+// The review notes (store/app-review-notes.md) are what App Review and Play read to reach every
+// paid state: they fit Apple's 4,000-character Notes field, and every button or label they put in
+// quotes is in the app (app/, src/) or in the review account's sample data (migration 0105).
+const notesDoc = await readFile(new URL('../store/app-review-notes.md', import.meta.url), 'utf8');
+const textBlocks = [...notesDoc.matchAll(/```text\n([\s\S]*?)\n```/g)].map((m) => m[1]);
+async function appText() {
+  const { readdir } = await import('node:fs/promises');
+  const files = [];
+  for (const root of ['app', 'src']) {
+    for (const entry of await readdir(new URL(`../${root}/`, import.meta.url), { recursive: true })) if (/\.tsx?$/.test(entry)) files.push(`../${root}/${entry}`);
+  }
+  const parts = await Promise.all(files.map((f) => readFile(new URL(f, import.meta.url), 'utf8')));
+  parts.push(await readFile(new URL('../../../services/api/migrations/0105_review_account_suite.sql', import.meta.url), 'utf8'));
+  // A label written as 'I\'m 18 or older' in code reads I'm 18 or older on screen.
+  return parts.join('\n').replaceAll("\\'", "'");
+}
+export function unquotedLabels(notes, source) {
+  const said = [...notes.matchAll(/"([^"\n]+)"/g)].map((m) => m[1]);
+  // "3 · Prepare": the level number is drawn beside the label (autonomy.tsx `${current} · ${labels[current]}`).
+  return said.filter((label) => !source.includes(label.replace(/^\d · /, '')));
+}
+
+test('the review notes fit App Store Connect and every label they quote is in the build', async () => {
+  assert.equal(textBlocks.length, 2, 'the App Store notes and the Play App access note');
+  const [apple, google] = textBlocks;
+  assert.ok([...apple].length <= 4000, `App Store notes are ${[...apple].length} characters; the field takes 4,000`);
+  assert.match(apple, /Your review code/, 'the notes name the box the reviewer types the code in');
+  assert.match(google, /Your review code/);
+  const source = await appText();
+  assert.deepEqual(unquotedLabels(apple, source), []);
+  assert.deepEqual(unquotedLabels(google, source), []);
+  assert.doesNotMatch(notesDoc, /\b\d{6}\b(?!-)/, 'no 6-digit code is written in the repo');
+});
+
+test('the label check fails on a button the app does not have (negative proof)', async () => {
+  assert.deepEqual(unquotedLabels('Tap "Start my free trial" then "Verify and continue".', await appText()), ['Start my free trial']);
+});

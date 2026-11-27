@@ -73,15 +73,12 @@ Firebase, ad or analytics SDK in `package.json`).
 
 ## App access (notes for the reviewer)
 
-- **Some functionality is restricted** (sign-in). Use the one review account:
-  - Username: `appreview@aplayermode.com` (`services/api/wrangler.jsonc:43`).
-  - Password / code: the `APP_REVIEW_CODE` Worker secret (6 digits today; 16 letters and digits from the next review,
-    RUNBOOK "Store review sign-in"). **Type it into Play Console only, never into this repo.** It is the same code given to App Review.
-  - Note to paste: "On the first screen tap Start, confirm 18+, then 'Email me a 6-digit code' with the address above.
-    No email is sent for this account; type the code we gave, exactly as written. The account has full access without a purchase
-    (closed-beta grant), so the whole app can be reviewed. Calendar and Outlook mail connections are optional."
-  - How it works: `services/api/src/reviewLogin.ts` (one address, constant-time compare, audited, off unless both values
-    are set); full access from `services/api/migrations/0070_app_review_beta.sql` (granted until 30 Apr 2027).
+- **Some functionality is restricted** (sign-in). User name, password (the review code, from the vault by name only)
+  and the note to paste are in `../app-review-notes.md` → "Google Play → App access": one source for both stores.
+- How it works: `services/api/src/reviewLogin.ts` (one address, constant-time compare, wrong codes counted per device
+  and per day, audited, off unless both values are set and before `APP_REVIEW_UNTIL`); full access from
+  `services/api/migrations/0070_app_review_beta.sql` and `0105_review_account_suite.sql` (Autopilot for review, sample
+  Life-areas items).
 
 ## Financial features
 
