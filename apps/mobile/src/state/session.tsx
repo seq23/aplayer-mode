@@ -96,7 +96,8 @@ function PreviewSessionProvider({ children }: { children: ReactNode }) {
       isAnonymous: account?.kind === 'anonymous',
       ...(account?.name ? { firstName: account.name } : {}),
       startAnonymous: async () => { if (!account) become({ kind: 'anonymous' }); return true; },
-      sendEmailCode: async () => ({ review: false }),
+      // The review address gets the review-code box, as in the store build (the sample server decides).
+      sendEmailCode: async (email) => ({ review: Boolean((await reviewerSignIn({ email: email.trim().toLowerCase() }))?.review) }),
       verifyEmailCode: (_email, _code, name) => signIn('email', name),
       updateName: async (name) => { await saveDisplayName(name, 'preview'); if (account) become({ ...account, name: name.trim().slice(0, 60) }); },
       signInWithApple: () => signIn('apple'),
