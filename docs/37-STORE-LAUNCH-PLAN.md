@@ -36,7 +36,7 @@ Finish line (Open Loops): A Player Mode live in both stores. Rulings: brand appr
 | 3 | Google Play Console, company account | $25 once (hers) | after 1 |
 | 4 | Create the 7 in-app products in both stores (ids above, prices from ADR-0004) | free | after 2, 3 |
 | 5 | Connect both store apps in RevenueCat (keys into the vault) | free | after 4 |
-| 6 | App Review demo account: set `APP_REVIEW_EMAIL` / `APP_REVIEW_CODE` | free | before submit |
+| 6 | App Review demo account: RUNBOOK "Store review sign-in" (code, end date, unset after) | free | before submit |
 | 7 | Final look on Appetize, then "submit" | free | last |
 
 Google Play needs a 14-day closed test with 12+ testers before production on a new personal account; a company account with a D-U-N-S number is the route here.

@@ -75,10 +75,10 @@ Firebase, ad or analytics SDK in `package.json`).
 
 - **Some functionality is restricted** (sign-in). Use the one review account:
   - Username: `appreview@aplayermode.com` (`services/api/wrangler.jsonc:43`).
-  - Password / code: the 6-digit `APP_REVIEW_CODE` Worker secret. **Type it into Play Console only, never into this repo.**
-    It is the same code given to App Review.
+  - Password / code: the `APP_REVIEW_CODE` Worker secret (6 digits today; 16 letters and digits from the next review,
+    RUNBOOK "Store review sign-in"). **Type it into Play Console only, never into this repo.** It is the same code given to App Review.
   - Note to paste: "On the first screen tap Start, confirm 18+, then 'Email me a 6-digit code' with the address above.
-    No email is sent for this account; type the code we gave. The account has full access without a purchase
+    No email is sent for this account; type the code we gave, exactly as written. The account has full access without a purchase
     (closed-beta grant), so the whole app can be reviewed. Calendar and Outlook mail connections are optional."
   - How it works: `services/api/src/reviewLogin.ts` (one address, constant-time compare, audited, off unless both values
     are set); full access from `services/api/migrations/0070_app_review_beta.sql` (granted until 30 Apr 2027).

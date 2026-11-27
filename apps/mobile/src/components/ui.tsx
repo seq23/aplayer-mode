@@ -583,10 +583,10 @@ export function TextField({ value, onChangeText, placeholder, multiline = false,
   placeholder?: string;
   multiline?: boolean;
   label?: string;
-  /** The 6-digit code look: big, spaced, centred. */
+  /** The 6-digit email code look: big, spaced, centred (never the long review code: it would not fit at 320 px). */
   code?: boolean;
   accessibilityLabel?: string;
-} & Pick<TextInputProps, 'autoCapitalize' | 'autoComplete' | 'keyboardType' | 'textContentType' | 'maxLength' | 'editable' | 'onSubmitEditing' | 'onBlur' | 'returnKeyType'>) {
+} & Pick<TextInputProps, 'autoCapitalize' | 'autoCorrect' | 'autoComplete' | 'keyboardType' | 'textContentType' | 'maxLength' | 'editable' | 'onSubmitEditing' | 'onBlur' | 'returnKeyType'>) {
   const s = useThemedStyles(fieldStyles);
   const { colors, type } = useTheme();
   const [focused, setFocused] = useState(false);

@@ -11,6 +11,23 @@ Operational entry point. Billing detail: `docs/33-BILLING-PHASE-D.md`; App Revie
 - **Android build for Google Play (internal track, draft):** run `.github/workflows/android-store-build.yml` on `main` (free GitHub Linux runner, `eas build --local`; needs the `EXPO_TOKEN` and `GOOGLE_PLAY_UPLOAD_SA_JSON` repo secrets = the vault entries of the same names). It signs with the EAS upload keystore (SHA-1 `94:24:23:C9:…:98:06`, checked before upload), refuses a build without the `goog_` RevenueCat key (`apps/mobile/scripts/store-build-gate.mjs`, the `eas-build-pre-install` hook), uploads with `eas submit` to the internal track as a draft, then `scripts/play-internal-check.mjs` proves this versionCode is a draft on internal and on no other track (production, open, closed incl. custom tracks). The `.aab` is never kept as an artifact. Promoting past internal is done in Play Console after a fresh review, never from here.
 - **Sideload Android APK:** build from a fresh `main` with `APM_KEYSTORE_DIR=~/.config/aplayermode/secrets JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ANDROID_HOME=~/Library/Android/sdk scripts/build-android-apk.sh` (versionCode = commit count, versionName carries the SHA), upload `dist-android/aplayermode.apk` to a new GitHub release `android-beta-YYYY-MM-DD`, then point `aplayermode/config.js` → `beta.androidApk` in seq23/sprylabs-hpc-site at it and check the live URL's sha256.
 
+## Store review sign-in
+
+The one review account (`appreview@aplayermode.com`, `APP_REVIEW_EMAIL` in `services/api/wrangler.jsonc`) signs in with a fixed code instead of an email (`services/api/src/reviewLogin.ts`, docs/33 §8). The route is open only while a store review needs it. The code is 6 digits or 12–24 letters and digits (`REVIEW_CODE_PATTERN` in `packages/policy/src/index.ts`, shared by the server and the app's reviewer code box). Store builds up to 1.0.1 only have the 6-digit box, so a long code needs a build with the wider box in review first: setting a long code while an older build is in review locks that reviewer out.
+
+**Before a store review:**
+1. Generate a 16-character code straight into the vault, never on a command line or a screen: `cd ~/GitHub/boss-os && openssl rand -base64 48 | tr -dc A-Za-z0-9 | cut -c1-16 | npm run -s vault:set APP_REVIEW_CODE`.
+2. Set it on the Worker from the vault: `cd ~/GitHub/boss-os && npm run -s vault:run -- sh -c 'cd ~/GitHub/aplayer-mode/services/api && printf %s "$APP_REVIEW_CODE" | npx wrangler secret put APP_REVIEW_CODE --env production'`.
+3. Put the address and code in App Store Connect → App Review Information → Sign-in required, and in Play Console → App access (`apps/mobile/store/google-play/play-console.md`).
+4. Set `APP_REVIEW_UNTIL` in `services/api/wrangler.jsonc` → `env.production.vars` to the review's expected end plus 14 days, landed as a PR (the land deploys it). Past that moment the route is off by itself.
+5. Check it is on, without a sign-in attempt: `curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' --data '{"email":"appreview@aplayermode.com"}' https://api.aplayermode.com/v1/auth/review-login` prints `200` (no code sent, so no try is taken).
+
+**After the review (approved or rejected and not resubmitted):**
+1. Delete the code: `cd ~/GitHub/boss-os && npm run -s vault:run -- sh -c 'cd ~/GitHub/aplayer-mode/services/api && npx wrangler secret delete APP_REVIEW_CODE --env production'`, and delete `~/.config/aplayermode/secrets/APP_REVIEW_CODE` if it is there (a `--secrets-dir` deploy would set it again).
+2. The same `curl` now prints `404`.
+
+**Now (27 Nov 2026):** on, with the 6-digit code given to App Review for 1.0.1 (waiting for review since 21 Nov; the Play review is open too), and `APP_REVIEW_UNTIL` 2026-12-31T00:00:00Z. The 16-character code is for the next review, once its build has the wider box.
+
 ## Named stops
 
 ### Stripe account for A Player Mode (owner)

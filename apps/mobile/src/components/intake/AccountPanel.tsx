@@ -7,6 +7,7 @@ import { radius, tap, useTheme } from '../../theme';
 import { intakeStyles } from './primitives';
 import { plainError } from '../../api/errors';
 import { PREVIEW, PREVIEW_COPY } from '../../preview/flag';
+import { codeBoxFor } from './codeBox';
 import { signInOptions } from '../../auth/signInOptions';
 
 /**
@@ -26,6 +27,7 @@ export function AccountPanel({ title, sub, onDone, onLater, laterLabel = 'Back' 
   const [stage, setStage] = useState<'choose' | 'email' | 'code'>('choose');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  const [review, setReview] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState<AccountProvider | 'send'>();
   const [error, setError] = useState<string>();
@@ -55,28 +57,29 @@ export function AccountPanel({ title, sub, onDone, onLater, laterLabel = 'Back' 
   const options = signInOptions(Platform.OS);
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
+  const box = codeBoxFor(review);
   if (stage === 'email' || stage === 'code') {
     return (
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={intakeStyles.stack}>
-        <QuestionTitle>{stage === 'email' ? 'Your email' : 'Check your email'}</QuestionTitle>
-        <Body muted>{stage === 'email' ? 'We\'ll send a 6-digit code. You type it here; you never leave the app.' : `We sent a 6-digit code to ${email.trim()}. Type it here.`}</Body>
+        <QuestionTitle>{stage === 'email' ? 'Your email' : box.title}</QuestionTitle>
+        <Body muted>{stage === 'email' ? 'We\'ll send a 6-digit code. You type it here; you never leave the app.' : box.lead(email)}</Body>
         {stage === 'email' ? (
           <TextField accessibilityLabel="Email address" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" placeholder="you@example.com" />
         ) : (
           <>
-            <TextField code accessibilityLabel="6-digit code" value={code} onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={6} placeholder="6-digit code" />
+            <TextField code={!review} accessibilityLabel={box.label} value={code} onChangeText={(t) => setCode(box.clean(t))} keyboardType={box.keyboardType} autoCapitalize="none" autoCorrect={false} textContentType={review ? 'none' : 'oneTimeCode'} autoComplete={review ? 'off' : 'one-time-code'} maxLength={box.maxLength} placeholder={box.label} />
             <TextField accessibilityLabel="First name" value={name} onChangeText={setName} autoComplete="given-name" textContentType="givenName" placeholder="First name" />
           </>
         )}
         {error ? <Reason>{error}</Reason> : null}
         {stage === 'email' ? (
-          <Button label={busy === 'send' ? 'Sending…' : 'Email me a 6-digit code'} icon="mail" onPress={() => { if (validEmail) void run('send', async () => { await sendEmailCode(email); setStage('code'); setResendIn(30); }); else setError('Enter a full email address.'); }} />
+          <Button label={busy === 'send' ? 'Sending…' : 'Email me a 6-digit code'} icon="mail" onPress={() => { if (validEmail) void run('send', async () => { setReview((await sendEmailCode(email)).review); setStage('code'); setResendIn(30); }); else setError('Enter a full email address.'); }} />
         ) : (
           <>
-            <Button label={busy === 'email' ? 'Checking…' : 'Verify and continue'} onPress={() => { if (code.length === 6) void run('email', () => verifyEmailCode(email, code, name)); else setError('The code has 6 digits.'); }} />
+            <Button label={busy === 'email' ? 'Checking…' : 'Verify and continue'} onPress={() => { if (box.ready(code)) void run('email', () => verifyEmailCode(email, code, name)); else setError(box.notReady); }} />
             <Row justify="space-between" wrap gap="sm">
-              <LinkButton disabled={resendIn > 0} label={resendIn > 0 ? `Resend in ${resendIn} s` : 'Resend the code'} onPress={() => void run('send', async () => { await sendEmailCode(email); setResendIn(30); })} />
-              <LinkButton label="Use a different email" onPress={() => { setStage('email'); setCode(''); }} />
+              <LinkButton disabled={resendIn > 0} label={resendIn > 0 ? `Resend in ${resendIn} s` : 'Resend the code'} onPress={() => void run('send', async () => { setReview((await sendEmailCode(email)).review); setResendIn(30); })} />
+              <LinkButton label="Use a different email" onPress={() => { setStage('email'); setCode(''); setReview(false); }} />
             </Row>
           </>
         )}
