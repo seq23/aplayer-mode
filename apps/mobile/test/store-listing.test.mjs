@@ -154,12 +154,13 @@ async function appText() {
   }
   const parts = await Promise.all(files.map((f) => readFile(new URL(f, import.meta.url), 'utf8')));
   parts.push(await readFile(new URL('../../../services/api/migrations/0105_review_account_suite.sql', import.meta.url), 'utf8'));
-  return parts.join('\n');
+  // A label written as 'I\'m 18 or older' in code reads I'm 18 or older on screen.
+  return parts.join('\n').replaceAll("\\'", "'");
 }
 export function unquotedLabels(notes, source) {
   const said = [...notes.matchAll(/"([^"\n]+)"/g)].map((m) => m[1]);
   // "3 · Prepare": the level number is drawn beside the label (autonomy.tsx `${current} · ${labels[current]}`).
-  return said.filter((label) => !source.includes(label.replace(/^\d · /, '')) && !source.includes(label.replace(/^\d · /, '').replace(/'/g, "\\'")));
+  return said.filter((label) => !source.includes(label.replace(/^\d · /, '')));
 }
 
 test('the review notes fit App Store Connect and every label they quote is in the build', async () => {
