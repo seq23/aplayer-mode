@@ -120,6 +120,7 @@ test('no approved route: coaching runs the scripted BHPC flow end to end and nev
       const { reply } = await call(env, { message });
       steps.push(reply.step);
       assert.equal(reply.engine, 'scripted');
+      assert.equal(reply.modelSaw, false, 'no model was asked, so the app may say no AI saw the words');
       assert.match(reply.turnId ?? '', /^[0-9a-f-]{36}$/, 'every coach reply carries its stored turn id, so it can be reported');
     }
     assert.deepEqual(steps, ['ask', 'ask', 'ask', 'synthesize']);
@@ -144,6 +145,7 @@ test('no OpenRouter key: still scripted, still works', async () => {
   try {
     const { reply } = await call(baseEnv, { message: 'I am stuck' });
     assert.equal(reply.engine, 'scripted');
+    assert.equal(reply.modelSaw, false);
     assert.equal(reply.prompt.text, 'What feels most stuck right now — time, energy, or confidence?');
     assert.equal(h.db.openrouterCalls.length, 0);
   } finally { h.restore(); }
@@ -157,6 +159,7 @@ test('approved route: a rewrite with catch-up phrasing (even negated) is guarded
     assert.equal(h.db.openrouterCalls.length, 1, 'the model was asked');
     assert.match(h.db.openrouterCalls[0].messages[0].content, /BHPC No Catch-Up/, 'the production prompt carries the rule');
     assert.equal(reply.engine, 'scripted');
+    assert.equal(reply.modelSaw, true, 'the model saw the words even though its answer was discarded (promise audit 27 Nov 2026)');
     assert.equal(reply.prompt.text, 'What feels most stuck right now — time, energy, or confidence?');
     assert.doesNotMatch(JSON.stringify(reply), /catch up/i);
   } finally { h.restore(); }

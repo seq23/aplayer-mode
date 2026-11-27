@@ -37,6 +37,16 @@ export default function HowAiWorksScreen() {
         <ListItem title="Check every answer" detail="An AI answer is not trusted until APM has checked it." />
       </Card>
 
+      <SectionTitle>Which features use AI</SectionTitle>
+      <Card>
+        <ListItem title="Coaching replies" detail="An approved AI model may word a coaching reply. Under each reply APM says whether a model was involved." />
+        <ListItem title="Subscription alerts" detail="On Executive Suite and Autopilot, an approved AI model reads subscription notices in Outlook Mail to spot a price rise or an unused plan." />
+      </Card>
+      <Card>
+        <CardTitle>No AI model</CardTitle>
+        <Body>Your setup plan, today’s plan, the Radar, dates, clashes, counts, reminders, the built-in coaching steps and Autopilot’s rules are worked out by APM’s own code.</Body>
+      </Card>
+
       <Card>
         <CardTitle>Learning is not model training.</CardTitle>
         <Body>

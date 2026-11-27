@@ -31,6 +31,7 @@ import { openExternal } from '../../src/links/external';
 import { ReportThis } from '../../src/components/ReportThis';
 import { useLifeGraph } from '../../src/state/lifeGraph';
 import { useSession } from '../../src/state/session';
+import { coachEngineLine } from '../../src/content/coachEngine';
 
 const MODE_ORDER: OperatingModeKey[] = ['standard', 'high_pressure', 'executive_review', 'sprint', 'recovery', 'deep_work'];
 const MODE_LABEL: Record<OperatingModeKey, string> = {
@@ -181,7 +182,7 @@ export default function ApmScreen() {
             </>
           ) : null}
           {sessionId ? <Button label={last?.phase === 'closed' || last?.phase === 'safety_stop' ? 'Start a new session' : 'Close coaching session'} variant="ghost" onPress={() => void close()} /> : null}
-          {last ? <Muted>{last.engine === 'model' ? 'Worded by a privacy-approved AI model; the steps are APM’s own.' : 'Answered by APM’s built-in coaching steps: no AI model saw your words.'}</Muted> : null}
+          {last ? <Muted>{coachEngineLine(last)}</Muted> : null}
         </Card>
       ) : null}
 

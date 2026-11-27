@@ -118,6 +118,8 @@ export interface CoachReplyView {
   phase: 'exploring' | 'closure_offered' | 'morning_sequence' | 'closed' | 'safety_stop';
   step: string;
   engine: 'scripted' | 'model';
+  /** A model was asked, even if its answer was not used: the scripted label then never says no model saw the words. */
+  modelSaw?: boolean;
   reply: string;
   /** The stored assistant turn, so the person can report this exact reply (App Review 1.2 / docs/35). */
   turnId?: string;

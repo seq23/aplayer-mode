@@ -366,7 +366,7 @@ export default function TodayScreen() {
 
           {reconnectAccounts.map((account) => <Card key={account.id}>
             <CardTitle>{account.label ?? (account.kind === 'email' ? 'Outlook Mail' : account.provider === 'google' ? 'Google Calendar' : 'Outlook Calendar')} needs reconnecting</CardTitle>
-            <Body muted>{account.kind === 'email' ? 'Reconnect to get reply drafts and subscription alerts.' : 'Reconnect to get calendar proposals.'}</Body>
+            <Body muted>{account.kind === 'email' ? 'Reconnect to keep getting subscription alerts from your mail.' : 'Reconnect to get calendar proposals.'}</Body>
             <Button label="Reconnect" variant="secondary" onPress={() => router.push('/settings/privacy/connections')} />
           </Card>)}
 
@@ -401,8 +401,8 @@ export default function TodayScreen() {
 
           {!hideAgenda && !recovery && canUseReplyDrafts && hasGoogleCalendar && !hasOutlookMail ? (
             <Card>
-              <CardTitle>Reply drafts and subscription alerts use Outlook Mail</CardTitle>
-              <Body muted>Connect Outlook Mail to review drafts here and see subscription alerts on Radar.</Body>
+              <CardTitle>Subscription alerts use Outlook Mail</CardTitle>
+              <Body muted>Connect Outlook Mail to see subscription alerts on Radar.</Body>
               <Button label="Manage connections" variant="secondary" onPress={() => router.push('/settings/privacy/connections')} />
             </Card>
           ) : null}

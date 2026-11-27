@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Platform, Share } from 'react-native';
 import {
   Body,
   Button,
@@ -13,6 +14,7 @@ import { exportMyData, requestDeletion } from '../../../src/api/apmApi';
 import { router } from 'expo-router';
 import { useSession } from '../../../src/state/session';
 import { plainError } from '../../../src/api/errors';
+import { browserDownload, exportMessage, handOverExport } from '../../../src/integrations/exportFile';
 
 const NO_ACCOUNT_YET = 'Nothing is set up on this device yet, so there is no data to export or delete. Start APM or sign in first.';
 
@@ -30,7 +32,12 @@ export default function ExportDeleteScreen() {
     setBusy('export'); setError(undefined); setMessage(undefined);
     try {
       const result = await exportMyData(accessToken);
-      setMessage(`Your export is ready (made ${new Date(result.export.generatedAt).toLocaleString()}). It holds everything APM knows about you and a record of everything it did.`);
+      const handoff = await handOverExport({
+        web: Platform.OS === 'web',
+        download: browserDownload,
+        share: (name, text) => Share.share({ title: name, message: text }),
+      }, result.export, result.export.generatedAt);
+      setMessage(exportMessage(handoff, result.export.generatedAt));
     } catch (cause) {
       setError(plainError(cause, 'The export did not finish. Try again.'));
     } finally { setBusy(undefined); }
@@ -60,7 +67,7 @@ export default function ExportDeleteScreen() {
       <SectionTitle>Export</SectionTitle>
       <Card>
         <CardTitle>Export my APM data</CardTitle>
-        <Body muted>Everything APM knows about you and everything it did, made on the spot. No support ticket.</Body>
+        <Body muted>Everything APM knows about you and everything it did, made on the spot as one file you download or share. No support ticket.</Body>
         <Button label={busy === 'export' ? 'Generating…' : 'Generate export'} variant="secondary" onPress={() => void runExport()} />
       </Card>
 

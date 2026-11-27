@@ -47,8 +47,8 @@ const PROVIDER_NAMES: Record<OAuthKind, Record<OAuthProvider, string>> = {
 };
 const KIND_TITLES: Record<OAuthKind, string> = { calendar: 'Calendars', email: 'Inboxes' };
 const KIND_DETAIL: Record<OAuthKind, string> = {
-  calendar: 'Direct cloud calendar sync. Conflicts are checked across every calendar you connect, so work never double-books personal.',
-  email: 'Connect Outlook Mail for commitments and reply drafts. Google connects your calendar.',
+  calendar: 'Direct cloud calendar sync of each account’s main calendar. Conflicts are checked across every calendar APM reads, so work never double-books personal.',
+  email: 'Connect Outlook Mail for subscription alerts on Executive Suite and Autopilot. Gmail can’t be connected yet; Google connects your calendar only.',
 };
 
 export default function ConnectionsScreen() {

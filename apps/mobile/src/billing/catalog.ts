@@ -224,7 +224,7 @@ export function buyBlockedReason(input: {
  *     (packages/policy, R-SUB-05; `subscription.cancel` / free bookings only);
  *   - never sends on its own: every send waits for a tap, or for a standing rule the person
  *     granted, which expires and can be revoked (policy STANDING_ACTIONS, drafts never auto-send);
- *   - undo: Autopilot's calendar changes and drafts undo (StandingUndo); its sends are labelled
+ *   - undo: Autopilot's calendar changes undo (StandingUndo; drafts and sends are off in production); its sends are labelled
  *     "Can't undo" in Settings, Autopilot before the rule is granted. Tap-approved items on Today
  *     have no Undo (only moved meetings do), so the line promises undo for Autopilot only;
  *   - billing: the store that bills, cancel without a call, and the yearly renewal email
@@ -239,9 +239,9 @@ export function trustLines(channel: BillingChannel): { title: string; body: stri
       ? { title: 'Billed by Google Play', body: 'Cancel any time in Google Play, no call needed.' }
       : { title: 'Billed to your card', body: `Cancel any time in Manage subscription, no call needed.${reminder}` };
   return [
-    { title: 'Never spends your money', body: 'Autopilot can cancel a subscription you name. APM never buys anything for you, upgrades a plan or enters a card.' },
+    { title: 'Never spends your money', body: 'APM never buys anything for you, upgrades a plan or enters a card.' },
     { title: 'Never sends on its own', body: 'Each message waits for your tap, or for a rule you set. Rules expire, and you can switch one off any time.' },
-    { title: 'Undo', body: "Autopilot's calendar changes and drafts undo in one tap. A send can't be undone, and Autopilot says so before you allow it." },
+    { title: 'Undo', body: "Autopilot's calendar changes undo in one tap. A send can't be undone, and Autopilot says so before you allow it." },
     billed,
   ];
 }

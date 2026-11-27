@@ -54,11 +54,15 @@
         { "tap": { "role": "button", "name": "Start: reduce my load" } },
         { "goto": "/settings/privacy/export-delete" },
         { "see": "Your data should not be trapped.", "id": "export-delete" },
+        { "tap": { "role": "button", "name": "Generate export" } },
+        { "see": "Your export is downloaded as a-player-mode-export-", "id": "export-done" },
         { "sweep": true }
       ]
     }
   ],
-  "promises": [],
+  "promises": [
+    { "text": "Everything APM knows about you and everything it did, made on the spot as one file you download or share. No support ticket.", "on": "delete-my-data:export-delete", "built": "delete-my-data:export-done" }
+  ],
   "native_only": [
     { "feature": "in-app purchase and Restore purchases", "why": "the web preview has no store: Restore purchases only shows where a store exists (PlanChoice), and buying is preview-only", "simulator": "a sandbox purchase on the simulator build (GitHub macOS runner, free: public repo)" },
     { "feature": "Sign in with Apple and Google", "why": "the preview's sign-in buttons make the sample account at once; the real sheets only exist on a phone", "simulator": "the simulator build" },
