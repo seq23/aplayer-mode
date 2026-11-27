@@ -681,6 +681,8 @@ export async function previewSample(action: 'sample-account' | 'reset'): Promise
 }
 
 export async function reviewerSignIn(input: { email: string; code?: string }): Promise<{ review: true; session?: { access_token: string; refresh_token: string } } | null> {
+  // The preview's sample server answers like production: the review box only for the review address.
+  if (PREVIEW) return previewRequest<{ review: true } | null>('/v1/auth/review-login', { method: 'POST', body: JSON.stringify(input) });
   if (!baseUrl) return null;
   let response: Response;
   try {

@@ -30,6 +30,8 @@ import { ApiError } from '../api/errors';
 import { readSync, removeSync, writeSync } from '../intake/storage';
 
 const KEY = 'apm.preview.state.v1';
+/** The store review account's address, as in services/api/wrangler.jsonc APP_REVIEW_EMAIL (public: it is in the review notes). */
+export const PREVIEW_REVIEW_EMAIL = 'appreview@aplayermode.com';
 const USER = '00000000-0000-4000-8000-0000000000aa';
 const OFF = { error: 'preview', message: 'This is switched off in the preview. It works in the phone app.' };
 
@@ -434,6 +436,9 @@ function route(method: string, path: string, body: Record<string, unknown>): unk
     return {};
   }
   if (is('POST', 'preview/reset')) { removeSync(KEY); s = fresh(); return {}; }
+  // The App Review sign-in (production: services/api/src/reviewLogin.ts): only the review address
+  // gets the review-code box; every other address answers like production's 404 (no review box).
+  if (is('POST', 'auth/review-login')) return String(body.email ?? '').trim().toLowerCase() === PREVIEW_REVIEW_EMAIL ? { review: true } : null;
 
   // Plan and billing: nothing is ever bought here
   if (is('GET', 'product/plan')) return planResponse();
