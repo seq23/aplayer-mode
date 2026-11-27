@@ -81,14 +81,28 @@ export function sandboxTesterIds(env: ApiEnv): ReadonlySet<string> {
 }
 
 /**
+ * Stores whose SANDBOX purchases production honours for anyone (27 Nov 2026, migration 0109). App
+ * Review buys in-app subscriptions with sandbox receipts against the production server; only App
+ * Review, TestFlight and the Play licence testers listed in Play Console can make one, and RevenueCat
+ * has verified each receipt with Apple or Google before it reaches us. The store and environment come
+ * from RevenueCat (the signed webhook, or its API in reconcile), never from the app.
+ */
+export const STORE_SANDBOX_STORES: ReadonlySet<string> = new Set(['APP_STORE', 'PLAY_STORE']);
+
+/**
  * May this event's SANDBOX environment be honoured? Staging: every sandbox event
  * (BILLING_ALLOW_SANDBOX=true, refused in production by scripts/deploy-api-production.sh).
- * Production: ONLY a sandbox event whose app_user_id is on the explicit tester allowlist.
+ * Production: an App Store or Google Play sandbox event, for any user (the database tags it
+ * billing_environment = 'sandbox', keeps it off paid production subscriptions and Founding 100
+ * places: migration 0109). A web (RC_BILLING / STRIPE) sandbox event only for an app_user_id on
+ * the explicit tester list: a Stripe test card is free to anyone holding a sandbox purchase link.
  * Anything else stays `ignored_environment` in the database.
  */
-export function billingSandboxAllowed(env: ApiEnv, event?: Pick<SanitizedBillingEvent, 'environment' | 'app_user_id'>): boolean {
+export function billingSandboxAllowed(env: ApiEnv, event?: Pick<SanitizedBillingEvent, 'environment' | 'app_user_id' | 'store'>): boolean {
   if (env.BILLING_ALLOW_SANDBOX === 'true') return true;
-  if (!event || event.environment !== 'SANDBOX' || !event.app_user_id) return false;
+  if (!event || event.environment !== 'SANDBOX') return false;
+  if (event.store && STORE_SANDBOX_STORES.has(event.store)) return true;
+  if (!event.app_user_id) return false;
   return sandboxTesterIds(env).has(event.app_user_id.toLowerCase());
 }
 

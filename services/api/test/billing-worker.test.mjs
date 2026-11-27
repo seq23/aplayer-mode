@@ -171,7 +171,7 @@ test('the cron runs the billing expiry sweep; without the service key it is a na
   } finally { fake.restore(); }
 });
 
-test('production sandbox: ONLY the explicit tester allowlist is honoured; every other sandbox event stays refused', async () => {
+test('production sandbox: App Store and Google Play sandbox for anyone; web sandbox ONLY for the tester list; nothing else', async () => {
   const TESTER = '00000000-0000-4000-8000-0000000000d7';
   const prod = { ...env, BILLING_SANDBOX_TESTER_IDS: ` ${TESTER.toUpperCase()} , not-a-uuid, ` };
   const fake = fakeSupabase();
@@ -181,12 +181,21 @@ test('production sandbox: ONLY the explicit tester allowlist is honoured; every 
       assert.equal((await post(rcBody(overrides), { authorization: SECRET }, e)).status, 200);
       return fake.calls[0].body.p_allow_sandbox;
     };
-    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: TESTER, store: 'RC_BILLING', product_id: 'apm_web_cos_monthly' }), true, 'listed tester (case-insensitive)');
-    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: USER, store: 'RC_BILLING', product_id: 'apm_web_cos_monthly' }), false, 'a non-listed user stays refused');
-    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: 'not-a-uuid' }), false, 'garbage in the list never matches');
-    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: null }), false, 'no user, no sandbox');
-    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: TESTER }, env), false, 'no allowlist configured = none');
-    assert.equal(await sandboxFor({ environment: 'PRODUCTION', app_user_id: TESTER }), false, 'the flag is only ever about sandbox');
+    const web = { store: 'RC_BILLING', product_id: 'apm_web_cos_monthly' };
+    // App Review / TestFlight / Play licence testers: RevenueCat verified the receipt with the store.
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: USER, store: 'APP_STORE', product_id: 'apm_cos_monthly' }, env), true, 'App Store sandbox, no list configured');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: USER, store: 'PLAY_STORE', product_id: 'apm_cos:monthly' }, env), true, 'Google Play licence test');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: null, store: 'APP_STORE', product_id: 'apm_cos_monthly' }, env), true, 'the writer, not the flag, refuses an unknown user');
+    // Web: a Stripe test card is free to anyone with a sandbox link, so the list still decides.
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: TESTER, ...web }), true, 'listed tester (case-insensitive)');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: USER, ...web }), false, 'a non-listed web buyer stays refused');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: USER, store: 'STRIPE', product_id: 'apm_web_cos_monthly' }), false, 'Stripe sandbox stays on the list');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: USER, store: 'MAC_APP_STORE', product_id: 'apm_cos_monthly' }), false, 'no other store is honoured');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: 'not-a-uuid', ...web }), false, 'garbage in the list never matches');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: null, ...web }), false, 'no user, no web sandbox');
+    assert.equal(await sandboxFor({ environment: 'SANDBOX', app_user_id: TESTER, ...web }, env), false, 'no allowlist configured = no web sandbox');
+    assert.equal(await sandboxFor({ environment: 'PRODUCTION', app_user_id: TESTER, store: 'APP_STORE' }), false, 'the flag is only ever about sandbox');
+    assert.equal(await sandboxFor({ environment: 'SANDBOXED', app_user_id: USER, store: 'APP_STORE' }), false, 'only the exact SANDBOX value');
     assert.deepEqual([...billing.sandboxTesterIds(prod)], [TESTER]);
   } finally { fake.restore(); }
 });
@@ -330,4 +339,36 @@ test('reconcile: session user only, the webhook writer + sandbox rule, rate-limi
     assert.equal((await call({ authorization: 'Bearer user-jwt' }, { ...cfg, RECONCILE_LIMITER: { limit: async () => ({ success: false }) } })).status, 429);
     assert.ok(!fake2.calls.some((c) => c.href.includes('subscription_entitlements') && c.method !== 'GET'), 'nothing writes the entitlement table directly');
   } finally { globalThis.fetch = original; fake2.restore(); }
+});
+
+// 0109: the reviewer's sandbox purchase, through both writers' entry points, and the outages.
+test('store sandbox for any user: reconcile honours an App Store sandbox subscription; outages grant nothing and retry', async () => {
+  const cfg = { ...env, REVENUECAT_PROJECT_ID: 'proj2c0586cf', REVENUECAT_API_V2_KEY: 'sk_test_key' };
+  const rc = (status, body) => async () => new Response(JSON.stringify(body), { status });
+  const u = '00000000-0000-4000-8000-0000000000f1';
+  const appStoreSandbox = sub({ customer_id: u, store: 'app_store', product_id: 'prod5668d84428', environment: 'sandbox' });
+  const fake = fakeSupabase();
+  try {
+    assert.deepEqual(await billing.reconcileBillingFor(cfg, u, rc(200, { items: [appStoreSandbox] }), NOW), { reconciled: true, outcomes: ['applied'] });
+    const [call] = fake.calls.filter((c) => c.href.includes('apply_event'));
+    assert.deepEqual([call.body.p_event.store, call.body.p_event.environment, call.body.p_allow_sandbox], ['APP_STORE', 'SANDBOX', true]);
+    // RevenueCat (and so Apple / Google verification behind it) unreachable: nothing applied, a named reason.
+    fake.calls.length = 0;
+    const u2 = '00000000-0000-4000-8000-0000000000f2';
+    assert.deepEqual(await billing.reconcileBillingFor(cfg, u2, rc(503, {}), NOW), { reconciled: false, reason: 'unavailable' });
+    assert.equal(fake.calls.filter((c) => c.href.includes('apply_event')).length, 0);
+  } finally { fake.restore(); }
+  // The webhook: the database cannot record the sandbox purchase -> 500, RevenueCat retries; never a 2xx.
+  const down = fakeSupabase({ rpcStatus: 503, rpcBody: { message: 'unavailable' } });
+  try {
+    const res = await post(rcBody({ environment: 'SANDBOX', id: 'evt-sandbox-down' }), { authorization: SECRET });
+    assert.equal(res.status, 500);
+  } finally { down.restore(); }
+  // A forged call (no RevenueCat secret) never reaches the writer, sandbox or not.
+  const fake2 = fakeSupabase();
+  try {
+    assert.equal((await post(rcBody({ environment: 'SANDBOX' }), { authorization: 'Bearer forged' })).status, 401);
+    assert.equal((await post(rcBody({ environment: 'SANDBOX' }), {})).status, 401);
+    assert.equal(fake2.calls.filter((c) => c.href.includes('apply_event')).length, 0);
+  } finally { fake2.restore(); }
 });

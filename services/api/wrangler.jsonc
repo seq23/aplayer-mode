@@ -79,8 +79,10 @@
   // Authorization value, >= 32 random characters. Without it the webhook answers 503.
   // REVENUECAT_WEBHOOK_SECRET
   // Staging only: BILLING_ALLOW_SANDBOX=true accepts RevenueCat SANDBOX events.
-  // Production too: BILLING_SANDBOX_TESTER_IDS (secret) = comma-separated APM user ids whose
-  // SANDBOX (test-card) events are honoured; every other sandbox event stays ignored.
+  // Production: App Store and Google Play SANDBOX events are honoured for anyone (App Review buys
+  // with sandbox receipts; migration 0109 tags them and keeps them off paid plans and Founding 100).
+  // BILLING_SANDBOX_TESTER_IDS (secret) = comma-separated APM user ids whose WEB (test-card) SANDBOX
+  // events are honoured; every other sandbox event stays ignored.
   // REVENUECAT_API_V2_KEY (secret, customer-information read): web customer-portal links.
   //
   // Server-only inference secret when OpenRouter goes live:

@@ -618,3 +618,74 @@ test('0097: a paid, unclaimed pay-first founding checkout holds a place, so the 
   await rejects(asRole('anon', null, 'select private.apm_billing_founding_pending(now())'), /permission denied/);
   await rejects(asRole('authenticated', viewer, 'select private.apm_billing_founding_taken(now())'), /permission denied/);
 });
+
+// 0109 (27 Nov 2026): App Review buys with sandbox receipts against production. The Worker now asks
+// the writer to honour App Store / Google Play SANDBOX events (billingSandboxAllowed); here, the writer.
+const envOf = async (user) => (await admin('select billing_environment from public.subscription_entitlements where user_id = $1', [user])).rows[0]?.billing_environment;
+const slotsTaken = async () => (await admin("select count(*)::int as n from private.billing_founding_slots where status = 'claimed'")).rows[0].n;
+
+test('0109: a verified store sandbox purchase grants the plan it buys, tagged sandbox; production is tagged production', async () => {
+  const reviewer = await newUser();
+  const r = await apply(ev('INITIAL_PURCHASE', reviewer, 'apm_lifeos_monthly', { environment: 'SANDBOX' }), true);
+  assert.equal(r.outcome, 'applied');
+  assert.equal((await ent(reviewer)).plan, 'life_os');
+  assert.equal((await ent(reviewer)).status, 'active');
+  assert.equal(await envOf(reviewer), 'sandbox');
+  const play = await newUser();
+  assert.equal((await apply(ev('INITIAL_PURCHASE', play, 'apm_autopilot:monthly', { environment: 'SANDBOX' }), true)).outcome, 'applied');
+  assert.equal((await ent(play)).plan, 'autopilot');
+  assert.equal(await envOf(play), 'sandbox');
+  // Not allowed by the Worker (web sandbox off the list): still refused, nothing written.
+  const web = await newUser();
+  assert.equal((await apply(ev('INITIAL_PURCHASE', web, 'apm_web_cos_monthly', { environment: 'SANDBOX' }), false)).outcome, 'ignored_environment');
+  const refused = await ent(web);
+  assert.ok(!refused || (refused.status !== 'active' && refused.provider === null), 'no plan from a refused sandbox event');
+  assert.equal((await envOf(web)) ?? null, null, 'and no tag');
+  const payer = await newUser();
+  assert.equal((await apply(ev('INITIAL_PURCHASE', payer, 'apm_cos_monthly'))).outcome, 'applied');
+  assert.equal(await envOf(payer), 'production');
+  // Plan change and expiry in sandbox move the sandbox row like any other.
+  assert.equal((await apply(ev('PRODUCT_CHANGE', reviewer, 'apm_lifeos_monthly', { environment: 'SANDBOX', new_product_id: 'apm_autopilot_monthly' }), true)).outcome, 'applied');
+  assert.equal((await ent(reviewer)).plan, 'autopilot');
+  assert.equal((await apply(ev('EXPIRATION', play, 'apm_autopilot:monthly', { environment: 'SANDBOX', expiration_at_ms: T0 }), true)).outcome, 'applied');
+  assert.equal((await ent(play)).status, 'expired');
+  // A replayed sandbox event changes nothing.
+  const once = ev('RENEWAL', reviewer, 'apm_autopilot_monthly', { environment: 'SANDBOX' });
+  assert.equal((await apply(once, true)).outcome, 'applied');
+  assert.equal((await apply(once, true)).replayed, true);
+});
+
+test('0109: a sandbox event never touches a paid production subscription, and on an expired one may only grant', async () => {
+  const payer = await newUser();
+  await apply(ev('INITIAL_PURCHASE', payer, 'apm_autopilot_monthly'));
+  const before = await ent(payer);
+  for (const type of ['INITIAL_PURCHASE', 'EXPIRATION', 'CANCELLATION', 'REFUND', 'PRODUCT_CHANGE']) {
+    const r = await apply(ev(type, payer, type === 'INITIAL_PURCHASE' ? 'apm_cos_monthly' : 'apm_autopilot_monthly', { environment: 'SANDBOX', new_product_id: 'apm_cos_monthly', expiration_at_ms: T0 }), true);
+    assert.equal(r.outcome, 'ignored_sandbox_over_production', type);
+  }
+  assert.deepEqual(await ent(payer), before, 'the paid row is exactly as production left it');
+  assert.equal(await envOf(payer), 'production');
+  // Expired production row: a sandbox cancel or refund changes nothing; a sandbox purchase grants (a tester buying again).
+  await apply(ev('EXPIRATION', payer, 'apm_autopilot_monthly', { expiration_at_ms: T0 }));
+  const expired = await ent(payer);
+  assert.equal((await apply(ev('REFUND', payer, 'apm_autopilot_monthly', { environment: 'SANDBOX' }), true)).outcome, 'ignored_sandbox_over_production');
+  assert.deepEqual(await ent(payer), expired);
+  assert.equal((await apply(ev('INITIAL_PURCHASE', payer, 'apm_cos_monthly', { environment: 'SANDBOX' }), true)).outcome, 'applied');
+  assert.equal(await envOf(payer), 'sandbox');
+  // And production always wins back: a real purchase replaces the sandbox row.
+  assert.equal((await apply(ev('INITIAL_PURCHASE', payer, 'apm_lifeos_monthly'))).outcome, 'applied');
+  assert.equal(await envOf(payer), 'production');
+});
+
+test('0109: a sandbox Founding 100 purchase unlocks the plan but never takes one of the 100 places', async () => {
+  const tester = await newUser();
+  const before = await slotsTaken();
+  assert.equal((await apply(ev('INITIAL_PURCHASE', tester, 'apm_cos_monthly_founding', { environment: 'SANDBOX' }), true)).outcome, 'applied');
+  assert.equal(await slotsTaken(), before);
+  assert.equal(await slot(tester), undefined);
+  const row = await ent(tester);
+  assert.equal(row.plan, 'chief_of_staff');
+  assert.equal(row.offer, 'standard');
+  const audit = (await admin("select count(*)::int as n from public.audit_events where user_id = $1 and event_type = 'billing.sandbox_founding_no_slot'", [tester])).rows[0].n;
+  assert.equal(audit, 1);
+});

@@ -115,3 +115,20 @@ test('0105: only the allowlisted review address gets Autopilot and sample Life-a
   await prepare(R);
   assert.deepEqual((await h.admin('select plan, provider from public.subscription_entitlements where user_id = $1', [R])).rows[0], { plan: 'chief_of_staff', provider: 'app_store' });
 });
+
+test('0109: after App Review tests a sandbox purchase on the review account, its next sign-in restores Autopilot; a production plan still governs', async () => {
+  // The review account (made by the 0105 test above, or here when this test runs alone).
+  await h.admin("insert into auth.users (id, email) select $1, 'appreview@aplayermode.com' where not exists (select 1 from auth.users where email = 'appreview@aplayermode.com')", [U(665)]);
+  const id = (await h.admin("select id from auth.users where email = 'appreview@aplayermode.com' order by id limit 1")).rows[0].id;
+  await h.admin('select public.apm_service_review_account_prepare($1)', [id]);
+  const prepare = () => h.admin('select public.apm_service_review_account_prepare($1) as r', [id]);
+  const row = async () => (await h.admin('select plan, status, provider, billing_environment from public.subscription_entitlements where user_id = $1', [id])).rows[0];
+  // The reviewer bought Executive Roundtable in sandbox (0109 writer tags it), then it expired.
+  await h.admin("update public.subscription_entitlements set plan = 'chief_of_staff', status = 'expired', provider = 'app_store', billing_environment = 'sandbox', store_product_id = 'apm_cos_monthly' where user_id = $1", [id]);
+  await prepare();
+  assert.deepEqual(await row(), { plan: 'autopilot', status: 'active', provider: null, billing_environment: null });
+  // A real (production) subscription on the account is never replaced.
+  await h.admin("update public.subscription_entitlements set plan = 'chief_of_staff', provider = 'app_store', billing_environment = 'production' where user_id = $1", [id]);
+  await prepare();
+  assert.deepEqual(await row(), { plan: 'chief_of_staff', status: 'active', provider: 'app_store', billing_environment: 'production' });
+});
