@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['apps/mobile/**', 'packages/**', 'services/api/src/coach/**', 'package.json', '.github/workflows/app-preview.yml', 'tap-through.json']
+    paths: ['apps/mobile/**', 'packages/**', 'services/api/src/coach/**', 'package.json', '.github/workflows/app-preview.yml', 'tap-through.json', 'tap-through-review.json']
   pull_request:
-    paths: ['apps/mobile/**', 'packages/**', 'services/api/src/coach/**', 'package.json', '.github/workflows/app-preview.yml', 'tap-through.json']
+    paths: ['apps/mobile/**', 'packages/**', 'services/api/src/coach/**', 'package.json', '.github/workflows/app-preview.yml', 'tap-through.json', 'tap-through-review.json']
 permissions:
   contents: read
   pull-requests: write
@@ -81,9 +81,18 @@ jobs:
   # through this preview like a person, at 390 px light and dark, from tap-through.json. Red on a dead
   # button, a console error, an error screen, an unreachable step or a plan-screen promise with no screen
   # behind it. Free (public repo); every write is blocked, nothing real is touched.
+  # boss-os#509 landed: the runner is on main (its tap-through.mjs is the same file feat/tap-through held).
+  # Each flow file holds at most 40 steps, so the App Review path has its own file and artifact label.
   tap-through:
     needs: preview
-    uses: seq23/boss-os/.github/workflows/tap-through.yml@feat/tap-through
+    uses: seq23/boss-os/.github/workflows/tap-through.yml@main
     with:
       target: ${{ needs.preview.outputs.url }}
-      runner_ref: feat/tap-through  # until seq23/boss-os#509 lands; then this line and the @ref go to main
+      label: main-flow
+  tap-through-review:
+    needs: preview
+    uses: seq23/boss-os/.github/workflows/tap-through.yml@main
+    with:
+      target: ${{ needs.preview.outputs.url }}
+      flow_file: tap-through-review.json
+      label: review-path
