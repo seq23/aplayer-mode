@@ -208,6 +208,21 @@ test('Life areas and Permissions expose the task and approval setup for Suite', 
   assert.match(render(LifeAreas), /Life areas need/);
 });
 
+test('Permissions offer only real moves: no Reduce at Observe; signed out, sign-in instead of buttons that do nothing (tap-through 27 Nov 2026)', () => {
+  fixture({ permissions: [{ domain: 'calendar', actionType: 'event_write', enabled: true, autonomyLevel: 2 }] });
+  const page = render(Autonomy);
+  assert.equal(page.split('>Reduce to ').length - 1, 1, 'only the control above Observe can be reduced');
+  assert.match(page, />Reduce to Remind<\/button>/);
+  assert.equal(page.split('>Increase to ').length - 1, 4, 'every control below the life_os ceiling can be raised');
+  assert.doesNotMatch(page, /You are not signed in/);
+  globalThis.suiteTest.token = undefined;
+  const signedOut = render(Autonomy);
+  assert.match(signedOut, /You are not signed in/);
+  assert.match(signedOut, />Sign in<\/button>/);
+  assert.doesNotMatch(signedOut, />(Reduce|Increase) to /, 'no level button a signed-out person could tap for nothing');
+  assert.match(signedOut, /Calendar changes/, 'the levels still show');
+});
+
 test('Today renders an editable AI draft, the named clash and a prepare-only state without Approve', () => {
   fixture({ actions: [{ ...reply, approvalAvailable: false }, { ...move, approvalAvailable: false }] });
   const page = render(Today);
