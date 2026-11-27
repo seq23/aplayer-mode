@@ -87,8 +87,7 @@
   ],
   "route_storage": { "apm.preview.session.v1": { "kind": "account" }, "apm.preview.state.v1": { "consents": {"ageConfirmedAt": "2026-11-27T12:00:00.000Z", "healthData": {"decision": "declined", "recordedAt": "2026-11-27T12:00:00.000Z", "policyVersion": "2026-10-08"}} } },
   "promises": [
-    { "text": "Everything APM knows about you and everything it did, made on the spot as one file you download or share. No support ticket.", "on": "signed-in:signed-export", "built": "signed-in:export-done" },
-    { "text": "The store reviewer types the review address, gets the review-code box (6 digits, or 12 to 24 letters and digits) and is signed in without an email.", "on": "signed-in:review-code-box", "built": "signed-in:signed-export" }
+    { "text": "Everything APM knows about you and everything it did, made on the spot as one file you download or share. No support ticket.", "on": "signed-in:signed-export", "built": "signed-in:export-done" }
   ],
   "native_only": [
     { "feature": "in-app purchase and Restore purchases", "why": "the web preview has no store: Restore purchases only shows where a store exists (PlanChoice), and buying is preview-only", "simulator": "a sandbox purchase on the simulator build (GitHub macOS runner, free: public repo)" },
