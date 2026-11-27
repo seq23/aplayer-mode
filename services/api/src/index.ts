@@ -1485,15 +1485,14 @@ app.post('/v1/apm/content/report', async (c) => {
     throw error;
   }
 });
-/** A fixed code is guessable without a limit: per IP AND across everyone (a slow global ceiling). */
-async function reviewLoginAllowed(c: any): Promise<boolean> {
-  const ip = c.req.header('cf-connecting-ip') ?? 'unknown';
-  return (await limiterAllows(c.env.RECONCILE_LIMITER, `review-login:${ip}`, 6)) && (await limiterAllows(c.env.RECONCILE_LIMITER, 'review-login:all', 6));
-}
 // App Review demo sign-in (docs/33 §8): off (404) unless APP_REVIEW_EMAIL and APP_REVIEW_CODE are set.
+// Every sign-in by email asks this route first, so the burst limit here is per caller only: a
+// shared bucket let any stranger (or plain sign-in traffic) use it up and lock the reviewer out.
+// Wrong codes are counted durably, per device and per day, in reviewLogin (migration 0108).
 app.post('/v1/auth/review-login', async (c) => {
-  if (!(await reviewLoginAllowed(c))) return c.json({ error: 'rate_limited' }, 429);
-  const result = await reviewLogin(c.env as ApiEnv, await c.req.json().catch(() => null));
+  const ip = c.req.header('cf-connecting-ip') ?? 'unknown';
+  if (!(await limiterAllows(c.env.RECONCILE_LIMITER, `review-login:${ip}`, 6))) return c.json({ error: 'rate_limited' }, 429);
+  const result = await reviewLogin(c.env as ApiEnv, await c.req.json().catch(() => null), { ip });
   return c.json(result.body, result.status);
 });
 app.post('/v1/apm/coach/:sessionId/close', async (c) => {
