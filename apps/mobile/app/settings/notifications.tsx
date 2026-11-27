@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { router } from 'expo-router';
 import { Body, Button, Card, CardTitle, ChoiceRow, ErrorState, KeyValue, Label, Screen, SectionTitle, Toast, clockText } from '../../src/components/ui';
 import { TimePicker } from '../../src/components/TimePickerField';
 import { fetchNotificationPreferences, saveNotificationPreferences, type NotificationPreferences } from '../../src/api/apmApi';
@@ -67,6 +68,16 @@ export default function NotificationsScreen() {
       <Toast tone="success" message={message} />
       {error ? <ErrorState message={error} /> : null}
 
+      {/* Signed out: nothing here can be saved (every choice lives on your account), so the screen says
+          so and offers sign-in instead of buttons that would do nothing (tap-through 27 Nov 2026). */}
+      {!accessToken ? (
+        <Card tone="warning">
+          <CardTitle>You are not signed in</CardTitle>
+          <Body muted>Sign in to choose your morning plan, quiet hours and what the lock screen shows.</Body>
+          <Button label="Sign in" onPress={() => router.push('/account')} />
+        </Card>
+      ) : (
+      <>
       <SectionTitle>Device permission</SectionTitle>
       <Card>
         <CardTitle>Let APM reach this phone</CardTitle>
@@ -110,6 +121,8 @@ export default function NotificationsScreen() {
         <ChoiceRow options={[{ id: 'on', label: 'Notifications on' }, { id: 'off', label: 'All off' }]} value={prefs?.enabled === false ? 'off' : 'on'} onChange={(value) => void save({ enabled: value === 'on' }, value === 'on' ? 'Notifications on.' : 'All APM notifications are off.')} />
         <Body muted>Before anything is sent, APM checks it is urgent, not a repeat, still true, and outside your quiet hours.</Body>
       </Card>
+      </>
+      )}
     </Screen>
   );
 }

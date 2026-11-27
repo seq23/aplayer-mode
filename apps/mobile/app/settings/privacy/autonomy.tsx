@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { View } from 'react-native';
+import { router } from 'expo-router';
 import type { AutonomyLevel } from '@apm/domain';
 import {
   Body,
@@ -76,6 +77,16 @@ export default function AutonomyScreen() {
 
       {error ? <ErrorState message={error} /> : null}
 
+      {/* Signed out: a level can only be changed on your account, so the levels show without buttons
+          that would do nothing, and sign-in is offered (tap-through 27 Nov 2026). */}
+      {!accessToken ? (
+        <Card tone="warning">
+          <CardTitle>You are not signed in</CardTitle>
+          <Body muted>Sign in to change what APM may do in each part of your life.</Body>
+          <Button label="Sign in" onPress={() => router.push('/account')} />
+        </Card>
+      ) : null}
+
       <SectionTitle>Live domain permissions</SectionTitle>
       <View style={uiStyles.stack}>
         {controls.map((control) => {
@@ -94,8 +105,9 @@ export default function AutonomyScreen() {
               <KeyValue label="Current level" value={`${current} · ${labels[current]}`} />
               <KeyValue label="Current product ceiling" value={`${limit} · ${labels[limit as AutonomyLevel]}`} />
               <Body muted>Increasing a level is explicit. Level 4 still requires per-action approval; level 5 is standing authority within configured constraints.</Body>
-              <Button label={busy === key ? 'Saving…' : `Reduce to ${labels[lower]}`} variant="secondary" onPress={() => void change(control.domain, control.actionType, lower)} />
-              {current < limit ? <Button label={busy === key ? 'Saving…' : `Increase to ${labels[higher]}`} onPress={() => void change(control.domain, control.actionType, higher)} /> : null}
+              {/* Only a real change is offered: at Observe there is nothing lower to reduce to. */}
+              {accessToken && lower < current ? <Button label={busy === key ? 'Saving…' : `Reduce to ${labels[lower]}`} variant="secondary" onPress={() => void change(control.domain, control.actionType, lower)} /> : null}
+              {accessToken && current < limit ? <Button label={busy === key ? 'Saving…' : `Increase to ${labels[higher]}`} onPress={() => void change(control.domain, control.actionType, higher)} /> : null}
             </Card>
           );
         })}
