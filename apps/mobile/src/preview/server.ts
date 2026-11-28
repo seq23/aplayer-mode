@@ -133,6 +133,10 @@ function sampleSurroundings(graph: LifeGraphSnapshot): LifeGraphSnapshot {
   // The clear-day sample is still ahead today whenever the preview is opened (a card for an event that already started never shows).
   // Always in the future (a past event drops off Today), whatever the hour: 4 pm, or 20 minutes from now late in the day.
   const laterToday = new Date(Math.max(Date.parse(at(16)), Date.now() + 20 * 60_000)).toISOString();
+  // The Autopilot move's old time is also still ahead at any hour, so its Undo is on the sample screen every time
+  // (Undo only shows before the old time). At 5 pm it was gone from 17:00 to midnight: the 22:30Z tap-through never
+  // saw Undo and the 00:49Z one found it dead (27 Nov 2026).
+  const movedFrom = new Date(Math.max(Date.parse(at(17)), Date.now() + 30 * 60_000));
   const tomorrowAt = (hour: number, minute = 0) => {
     const date = new Date(at(hour, minute));
     date.setDate(date.getDate() + 1);
@@ -178,7 +182,7 @@ function sampleSurroundings(graph: LifeGraphSnapshot): LifeGraphSnapshot {
       { id: id(), userId: USER, domain: 'calendar', actionType: 'calendar.reschedule', status: 'verified', requiresApproval: false,
         idempotencyKey: 'autopilot:suite:clear_day:preview', reason: 'Clear today to your minimum day', createdAt: stamp(), updatedAt: stamp(), executedAt: stamp(),
         payload: { eventId: id(), startsAt: tomorrowAt(14), endsAt: tomorrowAt(14, 30),
-          composed: { title: 'Pick up dry cleaning', originalStartsAt: at(17), originalEndsAt: at(17, 30), startsAt: tomorrowAt(14), endsAt: tomorrowAt(14, 30) } } },
+          composed: { title: 'Pick up dry cleaning', originalStartsAt: movedFrom.toISOString(), originalEndsAt: new Date(movedFrom.getTime() + 30 * 60_000).toISOString(), startsAt: tomorrowAt(14), endsAt: tomorrowAt(14, 30) } } },
       { id: id(), userId: USER, domain: 'life_graph', actionType: 'goal.checklist', status: 'prepared', requiresApproval: true, approvalAvailable: true,
         idempotencyKey: 'suite:goal_checklist:preview', reason: 'Get a goal step ready', createdAt: stamp(), updatedAt: stamp(),
         payload: { suiteProposal: 'goal_checklist', title: 'Get ready to record the first interview', detail: 'Pick a recording space and set out the microphone.', expiresAt: tomorrowAt(23, 59) } },
@@ -569,6 +573,16 @@ function route(method: string, path: string, body: Record<string, unknown>): unk
     const updated = { ...action, status: (seg[2] === 'approve' ? 'verified' : 'cancelled') as 'verified' | 'cancelled' };
     graph({ actions: s.graph.actions.map((item) => item.id === updated.id ? updated : item) });
     return seg[2] === 'approve' ? { action: updated } : { rejected: true };
+  }
+  // Undo a calendar move, as production does (services/api POST /v1/actions/:id/undo): only a done (verified) calendar
+  // fix or clear-day move, own or Autopilot's; it becomes cancelled and the card reads "Undone". Anything else is
+  // refused with the same errors, so a second tap is a plain "already changed", never a quiet success.
+  if (is('POST', 'actions/*/undo')) {
+    const action = s.graph.actions.find((item) => item.id === seg[1] && /^(?:autopilot:)?suite:(?:calendar_fix|clear_day):/.test(item.idempotencyKey));
+    if (!action) throw new ApiError(404, { error: 'not_found' });
+    if (action.status !== 'verified') throw new ApiError(409, { error: 'invalid_action_state' });
+    graph({ actions: s.graph.actions.map((item) => (item.id === action.id ? { ...item, status: 'cancelled' as const, updatedAt: stamp() } : item)) });
+    return { undone: true };
   }
   if (is('GET', 'calendar/flexible-events')) return { eventIds: [] };
   if (is('PATCH', 'connections/*')) return graph({ connections: s.graph.connections.map((item) => (item.id === seg[1] ? { ...item, ...(typeof body.label === 'string' ? { label: body.label } : {}) } : item)) });
