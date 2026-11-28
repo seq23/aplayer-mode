@@ -68,3 +68,8 @@ test('the connections screen lists accounts with labels, a primary picker and Ad
   assert.match(src, /label=\{busy === `disconnect:\$\{account\.id\}` \? 'Disconnecting…' : 'Disconnect'\}/);
   assert.ok(!/Autopilot \(\$/.test(src) && !/'Autopilot'/.test(src), 'the plan name comes from PLAN_PRICES, never typed by hand');
 });
+
+test('the empty-state heading reads "Connect a calendar" and "Connect an inbox"', () => {
+  assert.equal(accounts.connectHeading('calendar'), 'Connect a calendar');
+  assert.equal(accounts.connectHeading('email'), 'Connect an inbox');
+});
