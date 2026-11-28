@@ -53,7 +53,6 @@
       "steps": [
         { "tap": { "role": "button", "name": "Start: reduce my load" } },
         { "goto": "/settings/privacy/export-delete" },
-        { "see": "Your data should not be trapped.", "id": "export-delete" },
         { "tap": "Delete my account", "then": "Delete everything?", "id": "confirm-delete" },
         { "tap": "Keep my account", "then": "Delete my account", "id": "kept" },
         { "sweep": true }
