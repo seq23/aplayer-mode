@@ -335,3 +335,48 @@ test('no approval card renders "undefined", "null" or an empty line: every previ
     assert.doesNotMatch(html, /<(p|div|span)[^>]*><\/\1>/, `${action.idempotencyKey}: no empty text line`);
   }
 });
+
+// Main went red 28 Nov 2026 (App preview run 46089898194): the preview's sample server had no Undo route, so the
+// review walk's Undo "changed nothing", and only after 17:00 UTC did the sample move's Undo show at all.
+test('the preview Autopilot move shows Undo at any hour, and Undo turns it into "Undone" once, refusing a second tap', async (t) => {
+  for (const [hour, minute] of [[0, 5], [9, 0], [16, 59], [17, 0], [17, 31], [22, 30], [23, 50]]) {
+    const now = new Date(); now.setHours(hour, minute, 0, 0);
+    t.mock.timers.enable({ apis: ['Date'], now });
+    try {
+      // A fresh sample account each hour, as each tap-through context starts from empty storage.
+      await previewRequest('/v1/privacy/delete', { method: 'POST', body: '{}' });
+      await previewRequest('/v1/preview/sample-account', { method: 'POST', body: '{}' });
+      const { graph } = await previewRequest('/v1/me/today');
+      const moved = graph.actions.find((action) => action.idempotencyKey.startsWith('autopilot:suite:clear_day:'));
+      const at = `${hour}:${String(minute).padStart(2, '0')}`;
+      assert.equal(moved.status, 'verified', at);
+      const card = () => renderToStaticMarkup(createElement(ActionApprovalCard, { action: graph.actions.find((a) => a.id === moved.id), onApprove() {}, onReject() {}, onUndo() {}, timezoneHint: 'UTC' }));
+      assert.match(card(), />Undo<\/button>/, `Undo is on the sample card at ${at}`);
+
+      assert.deepEqual(await previewRequest(`/v1/actions/${moved.id}/undo`, { method: 'POST' }), { undone: true });
+      const after = (await previewRequest('/v1/me/today')).graph;
+      const undone = after.actions.find((action) => action.id === moved.id);
+      assert.equal(undone.status, 'cancelled', at);
+      const html = renderToStaticMarkup(createElement(ActionApprovalCard, { action: undone, onApprove() {}, onReject() {}, onUndo() {}, timezoneHint: 'UTC' }));
+      assert.match(html, /Undone/, at);
+      assert.match(html, /Pick up dry cleaning/, at);
+      assert.doesNotMatch(html, />Undo</, `no second Undo at ${at}`);
+      // A second tap (a stale screen) is refused like production: "already changed", never a quiet success.
+      await assert.rejects(previewRequest(`/v1/actions/${moved.id}/undo`, { method: 'POST' }), (error) => error.status === 409 && /already changed/.test(error.message));
+    } finally { t.mock.timers.reset(); }
+  }
+});
+
+test('the preview refuses Undo on anything production would refuse: a card not yet done, a sent email, an unknown id', async () => {
+  await previewRequest('/v1/preview/sample-account', { method: 'POST', body: '{}' });
+  const { graph } = await previewRequest('/v1/me/today');
+  const pendingMove = graph.actions.find((action) => action.payload.suiteProposal === 'calendar_fix' && action.status === 'prepared');
+  await assert.rejects(previewRequest(`/v1/actions/${pendingMove.id}/undo`, { method: 'POST' }), (error) => error.status === 409);
+  const replyCard = graph.actions.find((action) => action.payload.suiteProposal === 'reply');
+  await previewRequest(`/v1/actions/${replyCard.id}/approve`, { method: 'POST', body: '{}' });
+  await assert.rejects(previewRequest(`/v1/actions/${replyCard.id}/undo`, { method: 'POST' }), (error) => error.status === 404, 'a sent email cannot be undone');
+  await assert.rejects(previewRequest('/v1/actions/not-a-real-id/undo', { method: 'POST' }), (error) => error.status === 404);
+  const still = (await previewRequest('/v1/me/today')).graph.actions;
+  assert.equal(still.find((action) => action.id === pendingMove.id).status, 'prepared', 'a refused Undo changes nothing');
+  assert.equal(still.find((action) => action.id === replyCard.id).status, 'verified');
+});
